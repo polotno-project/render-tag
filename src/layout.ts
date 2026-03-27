@@ -1010,10 +1010,10 @@ function layoutBlock(
     return { box, height: box.height, marginBottomOut: style.marginBottom };
   }
 
-  // Empty block elements (e.g. <p></p>) get min-height or one line of height
-  if (node.children.length === 0 && node.tagName !== 'div') {
-    const contentHeight = style.minHeight > 0 ? style.minHeight : getLineHeight(ctx, style);
-    box.height = borderTop + padTop + contentHeight + padBottom + borderBottom;
+  // Empty block elements: zero content height (CSS spec — no line boxes created).
+  // Only min-height or padding/border contribute to height.
+  if (node.children.length === 0) {
+    box.height = borderTop + padTop + padBottom + borderBottom;
     if (style.minHeight > 0) box.height = Math.max(box.height, style.minHeight);
     return { box, height: box.height, marginBottomOut: style.marginBottom };
   }
