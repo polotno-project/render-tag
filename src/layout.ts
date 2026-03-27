@@ -853,6 +853,12 @@ function layoutBlock(
     let curY = contentStartY;
     let prevMarginBottom = 0;
     let hasContent = false; // tracks whether we've placed any content
+    // Margin collapsing through parent: only for specific elements where
+    // this is commonly expected (lists). For general divs/sections, the
+    // html-to-svg reference wraps content in <body> which prevents collapse.
+    const allowCollapseThrough =
+      node.tagName === 'li' || node.tagName === 'ul' || node.tagName === 'ol' ||
+      node.tagName === 'dd' || node.tagName === 'dt';
 
     for (let ci = 0; ci < node.children.length; ci++) {
       const child = node.children[ci];
@@ -890,11 +896,9 @@ function layoutBlock(
 
       // First child margin-top collapses through parent if parent has no top border/padding
       // Only for elements that don't establish a new BFC (not root, not flex, not overflow)
-      const isBFC = style.display === 'flex' || style.display === 'table' ||
-        node.tagName === 'div' && node.element === null; // synthetic wrapper = skip
-      if (!hasContent && padTop === 0 && borderTop === 0 && !isBFC &&
-          (node.tagName === 'li' || node.tagName === 'ul' || node.tagName === 'ol' ||
-           node.tagName === 'dd' || node.tagName === 'dt')) {
+      // First child margin-top collapses through parent if parent has no
+      // top padding/border and doesn't establish a new BFC.
+      if (!hasContent && padTop === 0 && borderTop === 0 && allowCollapseThrough) {
         // Skip — margin collapses with parent's margin
       } else {
         const collapsed = collapseMargins(prevMarginBottom, childMarginTop);
@@ -912,9 +916,7 @@ function layoutBlock(
 
     // Last child's margin-bottom collapses through parent if no bottom border/padding
     let marginBottomOut = style.marginBottom;
-    const canCollapseThrough = padBottom === 0 && borderBottom === 0 &&
-      (node.tagName === 'li' || node.tagName === 'ul' || node.tagName === 'ol' ||
-       node.tagName === 'dd' || node.tagName === 'dt');
+    const canCollapseThrough = padBottom === 0 && borderBottom === 0 && allowCollapseThrough;
     if (canCollapseThrough && prevMarginBottom > 0) {
       // Last child's margin passes through to become parent's effective margin-bottom
       marginBottomOut = Math.max(style.marginBottom, prevMarginBottom);
