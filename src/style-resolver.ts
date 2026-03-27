@@ -186,20 +186,25 @@ export function resolveStyles(
     if (node.nodeType === Node.TEXT_NODE) {
       const text = node.textContent;
       if (!text) return null;
-      // Keep non-breaking spaces always
       if (text.trim() === '' && !text.includes('\u00A0')) {
-        // Whitespace-only: keep only if between inline siblings (word boundary).
-        // Drop if between block elements (formatting whitespace from HTML indentation).
-        const prev = node.previousSibling;
-        const next = node.nextSibling;
-        const isInlineSibling = (n: Node | null) => {
-          if (!n || n.nodeType !== Node.ELEMENT_NODE) return n?.nodeType === Node.TEXT_NODE;
-          const d = window.getComputedStyle(n as Element).display;
-          return d === 'inline' || d === 'inline-block';
-        };
-        if (!isInlineSibling(prev) && !isInlineSibling(next)) return null;
-        // Skip whitespace that contains newlines (HTML source indentation)
-        if (text.includes('\n')) return null;
+        // Whitespace-only text node. Decide whether to keep or drop.
+        const parentEl = node.parentElement;
+        const ws = parentEl ? window.getComputedStyle(parentEl).whiteSpace : '';
+
+        // In pre-wrap/pre modes, whitespace IS content — always keep
+        if (ws !== 'pre' && ws !== 'pre-wrap' && ws !== 'pre-line') {
+          // Normal whitespace mode: keep only between inline siblings (word boundary)
+          const prev = node.previousSibling;
+          const next = node.nextSibling;
+          const isInlineSibling = (n: Node | null) => {
+            if (!n || n.nodeType !== Node.ELEMENT_NODE) return n?.nodeType === Node.TEXT_NODE;
+            const d = window.getComputedStyle(n as Element).display;
+            return d === 'inline' || d === 'inline-block';
+          };
+          if (!isInlineSibling(prev) && !isInlineSibling(next)) return null;
+          // Skip whitespace that contains newlines (HTML source indentation)
+          if (text.includes('\n')) return null;
+        }
       }
 
       const parent = node.parentElement;

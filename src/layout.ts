@@ -428,13 +428,17 @@ function flowWordsIntoLines(
   let currentLine: PositionedLine = { words: [], totalWidth: 0, lineHeight: 0 };
   const noWrap = whiteSpace === 'nowrap' || whiteSpace === 'pre';
 
+  const isPreWrap = whiteSpace === 'pre-wrap' || whiteSpace === 'pre' || whiteSpace === 'pre-line';
+
   function pushLine() {
+    const hadWords = currentLine.words.length > 0;
     // Trim trailing spaces
     while (currentLine.words.length > 0 && currentLine.words[currentLine.words.length - 1].isSpace) {
       currentLine.totalWidth -= currentLine.words[currentLine.words.length - 1].width;
       currentLine.words.pop();
     }
-    if (currentLine.words.length > 0) {
+    // In pre-wrap mode, space-only lines still need height (they are content)
+    if (currentLine.words.length > 0 || (hadWords && isPreWrap)) {
       lines.push(currentLine);
     }
     currentLine = { words: [], totalWidth: 0, lineHeight: 0 };
