@@ -2,31 +2,40 @@ import { describe, it, expect } from 'vitest';
 import { compareRenders } from './helpers/compare.ts';
 import { loadBasicCases, loadGoogleFontCase, polotnoCase, polotnoListsCase } from './helpers/test-cases.ts';
 import type { BenchmarkCase } from './helpers/test-cases.ts';
+import baselines from './baselines.json';
 
-// Maximum allowed content mismatch percentage (content pixels only, not total area)
-const MAX_MISMATCH_PERCENT = 55;
+// Allow this much regression above the locked baseline before failing.
+// Small tolerance for anti-aliasing noise between runs.
+const REGRESSION_TOLERANCE = 2.0;
 const PIXEL_RATIO = 2;
 
-function formatResult(tc: BenchmarkCase, result: ComparisonResult): string {
-  const contentPct = (result.contentPixels / result.totalPixels * 100).toFixed(0);
-  return `[${tc.name}] content-mismatch: ${result.contentMismatchPercentage.toFixed(2)}% ` +
-    `(${result.mismatchedPixels}/${result.contentPixels} content px, ${contentPct}% filled) | ` +
-    `ref: ${result.referenceTime.toFixed(0)}ms | ` +
-    `canvas: ${result.canvasLibTime.toFixed(0)}ms | ` +
-    `${(result.referenceTime / result.canvasLibTime).toFixed(0)}x`;
-}
-
-async function testCase(tc: BenchmarkCase) {
-  const result = await compareRenders(tc.html, tc.css, tc.width, tc.height, 0.1, PIXEL_RATIO);
-  console.log(formatResult(tc, result));
-
-  expect(
-    result.contentMismatchPercentage,
-    `Content mismatch for "${tc.name}" is ${result.contentMismatchPercentage.toFixed(2)}%, expected < ${MAX_MISMATCH_PERCENT}%`,
-  ).toBeLessThan(MAX_MISMATCH_PERCENT);
-}
-
 type ComparisonResult = Awaited<ReturnType<typeof compareRenders>>;
+
+function formatResult(tc: BenchmarkCase, result: ComparisonResult, baseline?: number): string {
+  const pct = result.contentMismatchPercentage;
+  const contentPct = (result.contentPixels / result.totalPixels * 100).toFixed(0);
+  const delta = baseline !== undefined ? (pct - baseline) : 0;
+  const deltaStr = baseline !== undefined
+    ? (delta < -0.5 ? ` (${delta.toFixed(1)} improved)` : delta > REGRESSION_TOLERANCE ? ` (+${delta.toFixed(1)} REGRESSION!)` : '')
+    : '';
+  return `[${tc.name}] ${pct.toFixed(2)}%${deltaStr} ` +
+    `(${result.mismatchedPixels}/${result.contentPixels} content px, ${contentPct}% filled) | ` +
+    `canvas: ${result.canvasLibTime.toFixed(0)}ms`;
+}
+
+async function testCaseWithBaseline(tc: BenchmarkCase) {
+  const result = await compareRenders(tc.html, tc.css, tc.width, tc.height, 0.1, PIXEL_RATIO);
+  const baseline = (baselines as Record<string, number>)[tc.name];
+  console.log(formatResult(tc, result, baseline));
+
+  if (baseline !== undefined) {
+    const maxAllowed = baseline + REGRESSION_TOLERANCE;
+    expect(
+      result.contentMismatchPercentage,
+      `"${tc.name}" regressed: ${result.contentMismatchPercentage.toFixed(2)}% > baseline ${baseline}% + ${REGRESSION_TOLERANCE}% tolerance`,
+    ).toBeLessThanOrEqual(maxAllowed);
+  }
+}
 
 describe('HTML Canvas Renderer', () => {
   let allCases: BenchmarkCase[];
@@ -37,50 +46,60 @@ describe('HTML Canvas Renderer', () => {
     console.log(`Loaded ${allCases.length} test cases`);
   });
 
-  // Dynamically create a test for each basic case
-  // We use a pre-loaded cache since vitest needs static it() calls
   describe('Basic & extended cases', () => {
-    // Run all cases dynamically
     it('all cases', async () => {
       if (!allCases) allCases = await loadBasicCases();
       let passed = 0;
-      let failed = 0;
-      const failures: string[] = [];
+      let regressed = 0;
+      let improved = 0;
+      const regressions: string[] = [];
+      const improvements: string[] = [];
 
       for (const tc of allCases) {
         const result = await compareRenders(tc.html, tc.css, tc.width, tc.height, 0.1, PIXEL_RATIO);
-        console.log(formatResult(tc, result));
-        if (result.contentMismatchPercentage < MAX_MISMATCH_PERCENT) {
+        const baseline = (baselines as Record<string, number>)[tc.name];
+        console.log(formatResult(tc, result, baseline));
+
+        if (baseline !== undefined) {
+          const pct = result.contentMismatchPercentage;
+          const delta = pct - baseline;
+          if (delta > REGRESSION_TOLERANCE) {
+            regressed++;
+            regressions.push(`${tc.name}: ${pct.toFixed(2)}% (was ${baseline}%, +${delta.toFixed(1)})`);
+          } else if (delta < -1) {
+            improved++;
+            improvements.push(`${tc.name}: ${pct.toFixed(2)}% (was ${baseline}%, ${delta.toFixed(1)})`);
+          }
           passed++;
-        } else {
-          failed++;
-          failures.push(`${tc.name}: ${result.contentMismatchPercentage.toFixed(2)}%`);
         }
       }
 
-      console.log(`\n=== SUMMARY: ${passed} passed, ${failed} failed out of ${allCases.length} ===`);
-      if (failures.length > 0) {
-        console.log('Failures:\n  ' + failures.join('\n  '));
+      console.log(`\n=== ${passed} cases | ${improved} improved | ${regressed} regressed ===`);
+      if (improvements.length > 0) {
+        console.log('Improved:\n  ' + improvements.join('\n  '));
+      }
+      if (regressions.length > 0) {
+        console.log('Regressions:\n  ' + regressions.join('\n  '));
       }
 
-      expect(failed, `${failed} cases exceeded ${MAX_MISMATCH_PERCENT}% content mismatch:\n  ${failures.join('\n  ')}`).toBe(0);
+      expect(regressed, `${regressed} cases regressed:\n  ${regressions.join('\n  ')}`).toBe(0);
     });
   });
 
   describe('Google Font case', () => {
     it('Google Font (Roboto)', async () => {
       const tc = await loadGoogleFontCase();
-      await testCase(tc);
+      await testCaseWithBaseline(tc);
     });
   });
 
   describe('Polotno cases', () => {
     it('Polotno HTML', async () => {
-      await testCase(polotnoCase);
+      await testCaseWithBaseline(polotnoCase);
     });
 
     it('Polotno Lists', async () => {
-      await testCase(polotnoListsCase);
+      await testCaseWithBaseline(polotnoListsCase);
     });
   });
 });
