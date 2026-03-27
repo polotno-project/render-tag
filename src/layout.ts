@@ -156,9 +156,21 @@ function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRu
     run.style.whiteSpace === 'pre-line';
 
   if (isPreserve) {
-    const words = text.split(/( +)/);
+    // Split on spaces and tabs, keeping delimiters
+    const words = text.split(/( +|\t)/);
+    const tabWidth = ctx.measureText(' ').width * 8; // tab = 8 spaces
     for (const w of words) {
       if (w === '') continue;
+      if (w === '\t') {
+        allWords.push({
+          text: ' ',
+          width: tabWidth,
+          style: run.style,
+          isSpace: true,
+          boxStyle: run.boxStyle,
+        });
+        continue;
+      }
       const isSpace = /^ +$/.test(w);
       allWords.push({
         text: w,
