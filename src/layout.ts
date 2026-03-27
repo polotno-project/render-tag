@@ -1,5 +1,89 @@
 import type { StyledNode, LayoutNode, LayoutBox, LayoutText, ResolvedStyle } from './types.ts';
 
+// ─── DOM-based line width measurement ──────────────────────────────────
+
+/**
+ * Reusable hidden DOM element for measuring mixed-font line widths.
+ * Only used when canvas measureText precision is insufficient
+ * (mixed fonts near the wrap boundary).
+ */
+let _measureContainer: HTMLDivElement | null = null;
+let _measureSpanPool: HTMLSpanElement[] = [];
+
+function getMeasureContainer(): HTMLDivElement {
+  if (_measureContainer && _measureContainer.parentNode) return _measureContainer;
+  _measureContainer = document.createElement('div');
+  _measureContainer.style.cssText =
+    'position:absolute;top:-9999px;left:-9999px;visibility:hidden;white-space:nowrap;height:auto;width:auto;';
+  document.body.appendChild(_measureContainer);
+  return _measureContainer;
+}
+
+function getMeasureSpan(index: number): HTMLSpanElement {
+  if (!_measureSpanPool[index]) {
+    _measureSpanPool[index] = document.createElement('span');
+  }
+  return _measureSpanPool[index];
+}
+
+/**
+ * Measure the exact width of a sequence of styled words using the DOM.
+ * This is the ground truth — the browser's own text layout engine handles
+ * kerning, shaping, and sub-pixel positioning across font boundaries.
+ *
+ * Only called when canvas measureText suggests a line is near the wrap
+ * boundary and fonts are mixed (different weight/style/family on the line).
+ */
+function measureLineWidthViaDom(words: Word[]): number {
+  const container = getMeasureContainer();
+  const textWords = words.filter(w => w.text && w.text !== '\n');
+  if (textWords.length === 0) return 0;
+
+  // Build spans — group consecutive words with the same font
+  let spanIdx = 0;
+  let lastFont = '';
+
+  for (const word of textWords) {
+    const font = buildCanvasFont(word.style);
+    if (font !== lastFont || spanIdx === 0) {
+      const span = getMeasureSpan(spanIdx);
+      span.style.font = font;
+      span.textContent = word.text;
+      if (!span.parentNode) container.appendChild(span);
+      lastFont = font;
+      spanIdx++;
+    } else {
+      // Same font as previous span — append text
+      _measureSpanPool[spanIdx - 1].textContent += word.text;
+    }
+  }
+
+  // Hide unused spans
+  for (let i = spanIdx; i < _measureSpanPool.length; i++) {
+    if (_measureSpanPool[i].parentNode) {
+      _measureSpanPool[i].textContent = '';
+    }
+  }
+
+  return container.getBoundingClientRect().width;
+}
+
+/**
+ * Check if a line has mixed fonts (different fontFamily/fontSize/fontWeight/fontStyle).
+ */
+function hasMixedFonts(words: Word[]): boolean {
+  let font = '';
+  for (const w of words) {
+    if (!w.text || w.isSpace) continue;
+    const f = buildCanvasFont(w.style);
+    if (font && f !== font) return true;
+    font = f;
+  }
+  return false;
+}
+
+// ─── Canvas font helpers ───────────────────────────────────────────────
+
 /**
  * Build a canvas font string from resolved style.
  */
@@ -513,12 +597,40 @@ function flowWordsIntoLines(
       // Would this piece overflow?
       if (!piece.isSpace && currentLine.words.length > 0 &&
         currentLine.totalWidth + piece.width > contentWidth) {
-        pushLine();
-        afterHardBreak = false;
+        // When overflow is marginal (within 5px) and the line has mixed fonts,
+        // verify with DOM measurement. Canvas measureText accumulates sub-pixel
+        // rounding errors across font boundaries.
+        let shouldWrap = true;
+        const overflow = currentLine.totalWidth + piece.width - contentWidth;
+        if (overflow < 5 && hasMixedFonts(currentLine.words)) {
+          const candidateWords = [...currentLine.words, piece];
+          const domWidth = measureLineWidthViaDom(candidateWords);
+          if (domWidth <= contentWidth) {
+            shouldWrap = false;
+          }
+        }
+        if (shouldWrap) {
+          pushLine();
+          afterHardBreak = false;
+        }
       }
 
       // Skip leading spaces after soft wraps, but preserve after hard breaks (\n)
       if (piece.isSpace && currentLine.words.length === 0 && !afterHardBreak) continue;
+
+      // Reverse check: canvas says it fits, but with mixed fonts near boundary,
+      // DOM might say it doesn't fit. Verify before committing.
+      if (!piece.isSpace && currentLine.words.length > 0) {
+        const remaining = contentWidth - (currentLine.totalWidth + piece.width);
+        if (remaining >= 0 && remaining < 5 && hasMixedFonts(currentLine.words)) {
+          const candidateWords = [...currentLine.words, piece];
+          const domWidth = measureLineWidthViaDom(candidateWords);
+          if (domWidth > contentWidth) {
+            pushLine();
+            afterHardBreak = false;
+          }
+        }
+      }
 
       currentLine.words.push(piece);
       currentLine.totalWidth += piece.width;
