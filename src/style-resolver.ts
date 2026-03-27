@@ -95,7 +95,7 @@ function extractStyle(cs: CSSStyleDeclaration): ResolvedStyle {
 /**
  * Detect list marker text for a <li> element.
  */
-function getListMarker(el: Element, _cs: CSSStyleDeclaration): string | undefined {
+function getListMarker(el: Element, cs: CSSStyleDeclaration): string | undefined {
   const tag = el.tagName.toLowerCase();
   if (tag !== 'li') return undefined;
 
@@ -103,21 +103,17 @@ function getListMarker(el: Element, _cs: CSSStyleDeclaration): string | undefine
   const content = beforeStyle.content;
 
   if (content && content !== 'none' && content !== 'normal') {
-    // Skip counter() functions — browser doesn't resolve them in getComputedStyle
     if (!content.includes('counter(')) {
-      // Clean up quotes and string delimiters
       const cleaned = content.replace(/^["']|["']$/g, '');
       if (cleaned) return cleaned;
     }
   }
 
-  // Determine marker from parent list type
   const parent = el.parentElement;
   if (!parent) return '•';
 
   const parentTag = parent.tagName.toLowerCase();
   if (parentTag === 'ol') {
-    // Count preceding <li> siblings to get the index
     let index = 0;
     for (const child of parent.children) {
       if (child.tagName.toLowerCase() === 'li') {
@@ -129,6 +125,11 @@ function getListMarker(el: Element, _cs: CSSStyleDeclaration): string | undefine
   }
 
   if (parentTag === 'ul') {
+    // Use computed list-style-type for correct nesting level markers
+    const listStyle = cs.listStyleType;
+    if (listStyle === 'circle') return '○';
+    if (listStyle === 'square') return '■';
+    if (listStyle === 'none') return undefined;
     return '•';
   }
 

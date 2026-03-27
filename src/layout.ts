@@ -39,9 +39,6 @@ function computeBaselineY(ctx: CanvasRenderingContext2D, style: ResolvedStyle, l
 }
 
 function applyTextTransform(text: string, transform: string): string {
-  // Strip soft hyphens (invisible formatting hints) and zero-width spaces
-  text = text.replace(/[\u00AD\u200B]/g, '');
-
   switch (transform) {
     case 'uppercase': return text.toUpperCase();
     case 'lowercase': return text.toLowerCase();
@@ -532,7 +529,7 @@ function layoutBlock(
   x: number,
   y: number,
   availableWidth: number,
-): { box: LayoutBox; height: number } {
+): { box: LayoutBox; height: number; marginBottomOut: number } {
   const style = node.style;
 
   // Box model
@@ -575,7 +572,7 @@ function layoutBlock(
     const result = layoutFlex(ctx, node, contentX, contentStartY, contentWidth);
     box.children = result.children;
     box.height = borderTop + padTop + result.height + padBottom + borderBottom;
-    return { box, height: box.height };
+    return { box, height: box.height, marginBottomOut: style.marginBottom };
   }
 
   // Table layout
@@ -583,14 +580,14 @@ function layoutBlock(
     const result = layoutTable(ctx, node, contentX, contentStartY, contentWidth);
     box.children = result.children;
     box.height = borderTop + padTop + result.height + padBottom + borderBottom;
-    return { box, height: box.height };
+    return { box, height: box.height, marginBottomOut: style.marginBottom };
   }
 
   // Empty block elements (e.g. <p></p>) get one line of height
   if (node.children.length === 0 && node.tagName !== 'div') {
     const lineHeight = getLineHeight(ctx, style);
     box.height = borderTop + padTop + lineHeight + padBottom + borderBottom;
-    return { box, height: box.height };
+    return { box, height: box.height, marginBottomOut: style.marginBottom };
   }
 
   // Layout children
@@ -603,6 +600,7 @@ function layoutBlock(
     // Block formatting context — stack children vertically
     let curY = contentStartY;
     let prevMarginBottom = 0;
+    let hasContent = false; // tracks whether we've placed any content
 
     for (const child of node.children) {
       if (child.tagName === '#text') {
@@ -622,13 +620,12 @@ function layoutBlock(
           });
           curY += lineHeight;
           prevMarginBottom = 0;
+          hasContent = true;
         }
         continue;
       }
 
       if (isInline(child)) {
-        // Wrap consecutive inline children in an anonymous inline context
-        // Find all consecutive inline siblings
         const inlineGroup: StyledNode = {
           element: null,
           tagName: 'div',
@@ -640,27 +637,50 @@ function layoutBlock(
         box.children.push(...nodes);
         curY += height;
         prevMarginBottom = 0;
+        hasContent = true;
         continue;
       }
 
       // Block child — collapse margins
       const childMarginTop = child.style.marginTop;
-      const collapsed = collapseMargins(prevMarginBottom, childMarginTop);
-      curY += collapsed;
 
-      const { box: childBox, height: childTotalHeight } = layoutBlock(
+      // First child margin-top collapses through parent if parent has no top border/padding
+      // Only for elements that don't establish a new BFC (not root, not flex, not overflow)
+      const isBFC = style.display === 'flex' || style.display === 'table' ||
+        node.tagName === 'div' && node.element === null; // synthetic wrapper = skip
+      if (!hasContent && padTop === 0 && borderTop === 0 && !isBFC &&
+          (node.tagName === 'li' || node.tagName === 'ul' || node.tagName === 'ol' ||
+           node.tagName === 'dd' || node.tagName === 'dt')) {
+        // Skip — margin collapses with parent's margin
+      } else {
+        const collapsed = collapseMargins(prevMarginBottom, childMarginTop);
+        curY += collapsed;
+      }
+
+      const { box: childBox, height: childTotalHeight, marginBottomOut } = layoutBlock(
         ctx, child, contentX, curY, contentWidth,
       );
       box.children.push(childBox);
       curY += childTotalHeight;
-      prevMarginBottom = child.style.marginBottom;
+      prevMarginBottom = marginBottomOut;
+      hasContent = true;
     }
 
-    // Apply last child's margin-bottom (collapses with parent's padding-bottom in some cases)
+    // Last child's margin-bottom collapses through parent if no bottom border/padding
+    let marginBottomOut = style.marginBottom;
+    const canCollapseThrough = padBottom === 0 && borderBottom === 0 &&
+      (node.tagName === 'li' || node.tagName === 'ul' || node.tagName === 'ol' ||
+       node.tagName === 'dd' || node.tagName === 'dt');
+    if (canCollapseThrough && prevMarginBottom > 0) {
+      // Last child's margin passes through to become parent's effective margin-bottom
+      marginBottomOut = Math.max(style.marginBottom, prevMarginBottom);
+    }
+
     box.height = borderTop + padTop + (curY - contentStartY) + padBottom + borderBottom;
+    return { box, height: box.height, marginBottomOut };
   }
 
-  return { box, height: box.height };
+  return { box, height: box.height, marginBottomOut: style.marginBottom };
 }
 
 // ─── Table layout ──────────────────────────────────────────────────────
