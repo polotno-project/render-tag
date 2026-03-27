@@ -149,6 +149,34 @@ function collectTextRuns(node: StyledNode): TextRun[] {
 }
 
 /**
+ * Check if text needs Intl.Segmenter for word breaking (Thai, Khmer, Lao, Myanmar).
+ * These scripts don't use spaces between words.
+ */
+function needsSegmenter(text: string): boolean {
+  for (let i = 0; i < text.length; i++) {
+    const code = text.codePointAt(i)!;
+    if (
+      (code >= 0x0E00 && code <= 0x0E7F) ||  // Thai
+      (code >= 0x0E80 && code <= 0x0EFF) ||  // Lao
+      (code >= 0x1000 && code <= 0x109F) ||  // Myanmar
+      (code >= 0x1780 && code <= 0x17FF)     // Khmer
+    ) return true;
+    if (code > 0xFFFF) i++; // skip surrogate pair
+  }
+  return false;
+}
+
+let _segmenter: Intl.Segmenter | undefined;
+function getSegmenter(): Intl.Segmenter | null {
+  if (_segmenter) return _segmenter;
+  if (typeof Intl !== 'undefined' && Intl.Segmenter) {
+    _segmenter = new Intl.Segmenter(undefined, { granularity: 'word' });
+    return _segmenter;
+  }
+  return null;
+}
+
+/**
  * Tokenize a single string into words based on whitespace mode.
  */
 function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRun, allWords: Word[]): void {
@@ -196,14 +224,41 @@ function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRu
     for (const w of words) {
       if (w === '') continue;
       const isSpace = /^[ \t\n\r\f\v]+$/.test(w);
-      const displayText = isSpace ? ' ' : w;
+
+      if (isSpace) {
+        allWords.push({
+          text: ' ',
+          width: ctx.measureText(' ').width + run.style.letterSpacing,
+          style: run.style,
+          isSpace: true,
+          boxStyle: run.boxStyle,
+        });
+        continue;
+      }
+
+      // Use Intl.Segmenter for scripts without spaces (Thai, Khmer, etc.)
+      if (needsSegmenter(w)) {
+        const segmenter = getSegmenter();
+        if (segmenter) {
+          for (const seg of segmenter.segment(w)) {
+            const s = seg.segment;
+            allWords.push({
+              text: s,
+              width: ctx.measureText(s).width + (run.style.letterSpacing * s.length),
+              style: run.style,
+              isSpace: false,
+              boxStyle: run.boxStyle,
+            });
+          }
+          continue;
+        }
+      }
+
       allWords.push({
-        text: displayText,
-        width: isSpace
-          ? ctx.measureText(' ').width + run.style.letterSpacing
-          : ctx.measureText(w).width + (run.style.letterSpacing * w.length),
+        text: w,
+        width: ctx.measureText(w).width + (run.style.letterSpacing * w.length),
         style: run.style,
-        isSpace,
+        isSpace: false,
         boxStyle: run.boxStyle,
       });
     }
