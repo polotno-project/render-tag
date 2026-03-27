@@ -523,33 +523,93 @@ function layoutInlineContent(
     const textBlockHeight = maxAscent + maxDescent;
     const lineBaselineY = curY + (lineHeight - textBlockHeight) / 2 + maxAscent;
 
-    // Pass 2: emit text words (skip empty padding markers)
-    for (const word of line.words) {
-      if (word.text === '') {
-        curX += word.width;
-        continue;
+    // Pass 2: emit text
+    // For RTL lines with uniform style, emit as a single text node
+    // so the canvas can handle BiDi glyph shaping and connected letters.
+    const textWords = line.words.filter(w => w.text !== '');
+    const allSameStyle = textWords.length > 0 && textWords.every(w =>
+      w.style.fontFamily === textWords[0].style.fontFamily &&
+      w.style.fontSize === textWords[0].style.fontSize &&
+      w.style.fontWeight === textWords[0].style.fontWeight &&
+      w.style.fontStyle === textWords[0].style.fontStyle &&
+      w.style.color === textWords[0].style.color
+    );
+
+    if (isRTL) {
+      // RTL: render words right-to-left
+      // Join consecutive words with same style into groups for proper glyph shaping
+      let rtlX = curX + line.totalWidth; // start from right edge
+
+      interface StyledGroup { text: string; style: ResolvedStyle; width: number; }
+      const groups: StyledGroup[] = [];
+      let currentGroup: StyledGroup | null = null;
+
+      for (const word of line.words) {
+        if (word.text === '') {
+          // Padding marker — flush current group and add spacing
+          if (currentGroup) { groups.push(currentGroup); currentGroup = null; }
+          rtlX -= word.width;
+          continue;
+        }
+        if (currentGroup &&
+            currentGroup.style.fontFamily === word.style.fontFamily &&
+            currentGroup.style.fontSize === word.style.fontSize &&
+            currentGroup.style.fontWeight === word.style.fontWeight &&
+            currentGroup.style.fontStyle === word.style.fontStyle &&
+            currentGroup.style.color === word.style.color) {
+          currentGroup.text += word.text;
+          currentGroup.width += word.width;
+        } else {
+          if (currentGroup) groups.push(currentGroup);
+          currentGroup = { text: word.text, style: word.style, width: word.width };
+        }
       }
+      if (currentGroup) groups.push(currentGroup);
 
-      // Adjust baseline for vertical-align
-      let baselineY = lineBaselineY;
-      const va = word.style.verticalAlign;
-      if (va === 'super') {
-        baselineY -= word.style.fontSize * 0.4;
-      } else if (va === 'sub') {
-        baselineY += word.style.fontSize * 0.2;
+      // Emit groups right-to-left
+      for (const group of groups) {
+        ctx.font = buildCanvasFont(group.style);
+        const measuredWidth = ctx.measureText(group.text).width;
+        rtlX -= measuredWidth;
+
+        results.push({
+          type: 'text',
+          text: group.text,
+          x: rtlX + measuredWidth, // x = right edge for RTL textAlign
+          y: lineBaselineY,
+          width: measuredWidth,
+          style: { ...group.style, direction: 'rtl' },
+        });
       }
-      const effectiveWidth = word.width + (word.isSpace ? justifyExtraPerSpace : 0);
+    } else {
+      // LTR: word by word
+      for (const word of line.words) {
+        if (word.text === '') {
+          curX += word.width;
+          continue;
+        }
 
-      results.push({
-        type: 'text',
-        text: word.text,
-        x: curX,
-        y: baselineY,
-        width: effectiveWidth,
-        style: word.style,
-      });
+        // Adjust baseline for vertical-align
+        let baselineY = lineBaselineY;
+        const va = word.style.verticalAlign;
+        if (va === 'super') {
+          baselineY -= word.style.fontSize * 0.4;
+        } else if (va === 'sub') {
+          baselineY += word.style.fontSize * 0.2;
+        }
+        const effectiveWidth = word.width + (word.isSpace ? justifyExtraPerSpace : 0);
 
-      curX += effectiveWidth;
+        results.push({
+          type: 'text',
+          text: word.text,
+          x: curX,
+          y: baselineY,
+          width: effectiveWidth,
+          style: word.style,
+        });
+
+        curX += effectiveWidth;
+      }
     }
 
     curY += lineHeight;

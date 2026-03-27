@@ -208,10 +208,12 @@ function parseLinearGradient(
 function renderText(ctx: CanvasRenderingContext2D, node: LayoutText, gradientFill?: CanvasGradient | null): void {
   const { style } = node;
 
+  ctx.save();
   ctx.font = buildCanvasFont(style);
   ctx.textBaseline = 'alphabetic';
   if (style.direction === 'rtl') {
     ctx.direction = 'rtl';
+    ctx.textAlign = 'right';
   }
 
   const isGradientText = style.webkitBackgroundClip === 'text' &&
@@ -310,6 +312,8 @@ function renderText(ctx: CanvasRenderingContext2D, node: LayoutText, gradientFil
       drawDecorationLine(ctx, node.x, node.y - decoAscent, textWidth, decoWidth, decoStyle, decoColor);
     }
   }
+
+  ctx.restore();
 }
 
 /**
