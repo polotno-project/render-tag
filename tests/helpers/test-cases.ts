@@ -265,12 +265,13 @@ export async function loadBasicCases(): Promise<BenchmarkCase[]> {
     {
       name: 'Text decorations & shadows',
       width: 600,
-      height: 350,
+      height: 450,
       css: withOpenSans(`
         body { ${font} }
         .shadow-text { text-shadow: 2px 2px 4px rgba(0,0,0,0.3); font-size: 24px; margin-bottom: 12px; }
         .outline { -webkit-text-stroke: 1px #1e40af; color: transparent; font-size: 28px; font-weight: 700; }
         .gradient-text { background: linear-gradient(90deg, #dc2626, #2563eb); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-size: 22px; font-weight: 700; }
+        .gradient-vert { background: linear-gradient(180deg, #16a34a, #9333ea); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-size: 18px; line-height: 1.4; }
         .decorated span { display: inline-block; margin: 4px 8px; padding: 4px 8px; }
         .over { text-decoration: overline wavy #dc2626; }
         .under { text-decoration: underline dotted #2563eb; }
@@ -281,6 +282,7 @@ export async function loadBasicCases(): Promise<BenchmarkCase[]> {
         <p class="shadow-text">Text with a soft drop shadow</p>
         <p class="outline">Outline-only text via text-stroke</p>
         <p class="gradient-text">Gradient-filled text via background-clip</p>
+        <p class="gradient-vert">Vertical gradient that spans multiple lines of text to test top-to-bottom color transition across the full element height.</p>
         <div class="decorated">
           <span class="over">Wavy overline</span>
           <span class="under">Dotted underline</span>

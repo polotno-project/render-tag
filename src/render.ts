@@ -124,13 +124,26 @@ function parseLinearGradient(
   y: number,
   height: number,
 ): CanvasGradient | null {
-  const match = bgImage.match(/linear-gradient\(([^)]+)\)/);
-  if (!match) return null;
+  // Extract content inside linear-gradient(...) handling nested parens
+  const startIdx = bgImage.indexOf('linear-gradient(');
+  if (startIdx === -1) return null;
+  let depth = 0;
+  let endIdx = -1;
+  for (let i = startIdx + 16; i < bgImage.length; i++) {
+    if (bgImage[i] === '(') depth++;
+    else if (bgImage[i] === ')') {
+      if (depth === 0) { endIdx = i; break; }
+      depth--;
+    }
+  }
+  if (endIdx === -1) return null;
+  const innerContent = bgImage.slice(startIdx + 16, endIdx);
 
   // Split by commas not inside parentheses
   const parts: string[] = [];
-  let depth = 0, start = 0;
-  const inner = match[1];
+  depth = 0;
+  let start = 0;
+  const inner = innerContent;
   for (let i = 0; i < inner.length; i++) {
     if (inner[i] === '(') depth++;
     else if (inner[i] === ')') depth--;
@@ -190,8 +203,9 @@ function parseLinearGradient(
 
 /**
  * Render a single text node to canvas.
+ * @param gradientFill — pre-computed gradient for background-clip:text spanning full element
  */
-function renderText(ctx: CanvasRenderingContext2D, node: LayoutText): void {
+function renderText(ctx: CanvasRenderingContext2D, node: LayoutText, gradientFill?: CanvasGradient | null): void {
   const { style } = node;
 
   ctx.font = buildCanvasFont(style);
@@ -223,20 +237,20 @@ function renderText(ctx: CanvasRenderingContext2D, node: LayoutText): void {
 
   // Main text fill
   if (isGradientText) {
-    // Gradient text via background-clip: text
     ctx.save();
-    const metrics = ctx.measureText(node.text);
-    const ascent = metrics.fontBoundingBoxAscent ?? metrics.actualBoundingBoxAscent;
-    const descent = metrics.fontBoundingBoxDescent ?? metrics.actualBoundingBoxDescent;
-    const gradient = parseLinearGradient(
-      ctx, style.backgroundImage,
-      node.x, node.width,
-      node.y - ascent, ascent + descent,
-    );
-    if (gradient) {
-      ctx.fillStyle = gradient;
+    if (gradientFill) {
+      ctx.fillStyle = gradientFill;
     } else {
-      ctx.fillStyle = style.color;
+      // Fallback: per-word gradient (shouldn't normally reach here)
+      const metrics = ctx.measureText(node.text);
+      const ascent = metrics.fontBoundingBoxAscent ?? metrics.actualBoundingBoxAscent;
+      const descent = metrics.fontBoundingBoxDescent ?? metrics.actualBoundingBoxDescent;
+      const gradient = parseLinearGradient(
+        ctx, style.backgroundImage,
+        node.x, node.width,
+        node.y - ascent, ascent + descent,
+      );
+      ctx.fillStyle = gradient || style.color;
     }
     ctx.fillText(node.text, node.x, node.y);
     ctx.restore();
@@ -341,18 +355,24 @@ function renderBox(ctx: CanvasRenderingContext2D, box: LayoutBox): void {
     ctx.stroke();
   }
 
+  // Pre-compute gradient for background-clip: text elements
+  let gradientFill: CanvasGradient | null = null;
+  if (style.webkitBackgroundClip === 'text' && style.backgroundImage && style.backgroundImage !== 'none') {
+    gradientFill = parseLinearGradient(ctx, style.backgroundImage, box.x, box.width, box.y, box.height);
+  }
+
   // Children
   for (const child of box.children) {
-    renderNode(ctx, child);
+    renderNode(ctx, child, gradientFill);
   }
 }
 
 /**
  * Render any layout node.
  */
-export function renderNode(ctx: CanvasRenderingContext2D, node: LayoutNode): void {
+export function renderNode(ctx: CanvasRenderingContext2D, node: LayoutNode, gradientFill?: CanvasGradient | null): void {
   if (node.type === 'text') {
-    renderText(ctx, node);
+    renderText(ctx, node, gradientFill);
   } else {
     renderBox(ctx, node);
   }

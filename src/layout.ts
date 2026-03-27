@@ -113,20 +113,31 @@ function collectTextRuns(node: StyledNode): TextRun[] {
       return;
     }
     const isBox = isInline(n) && hasVisibleBoxStyles(n.style);
+    const isInlineBlock = n.style.display === 'inline-block';
     const newBoxStyle = isBox ? n.style : boxStyle;
-    const hasPad = isBox && (n.style.paddingLeft > 0 || n.style.paddingRight > 0 ||
+    const hasHorizSpacing = isBox && (n.style.paddingLeft > 0 || n.style.paddingRight > 0 ||
       n.style.borderLeftWidth > 0 || n.style.borderRightWidth > 0);
 
-    if (hasPad) {
+    // Inline-block margin-left as spacing
+    if (isInlineBlock && n.style.marginLeft > 0) {
+      runs.push({ text: '', style: n.style, boxStyle });
+    }
+
+    if (hasHorizSpacing || (isInlineBlock && (n.style.paddingLeft > 0 || n.style.paddingRight > 0))) {
       runs.push({ text: '', style: n.style, boxStyle: newBoxStyle, boxOpen: n.style });
     }
 
     for (const child of n.children) {
-      walk(child, newBoxStyle);
+      walk(child, isBox ? newBoxStyle : boxStyle);
     }
 
-    if (hasPad) {
+    if (hasHorizSpacing || (isInlineBlock && (n.style.paddingLeft > 0 || n.style.paddingRight > 0))) {
       runs.push({ text: '', style: n.style, boxStyle: newBoxStyle, boxClose: n.style });
+    }
+
+    // Inline-block margin-right as spacing
+    if (isInlineBlock && n.style.marginRight > 0) {
+      runs.push({ text: '', style: n.style, boxStyle });
     }
   }
 
@@ -183,6 +194,17 @@ function tokenizeRuns(ctx: CanvasRenderingContext2D, runs: TextRun[]): Word[] {
   const allWords: Word[] = [];
 
   for (const run of runs) {
+    // Handle inline-block margins (empty text, no boxOpen/boxClose)
+    if (run.text === '' && !run.boxOpen && !run.boxClose) {
+      const margin = run.style.display === 'inline-block'
+        ? (run.style.marginLeft || run.style.marginRight || 0)
+        : 0;
+      if (margin > 0) {
+        allWords.push({ text: '', width: margin, style: run.style, isSpace: false, boxStyle: run.boxStyle });
+      }
+      continue;
+    }
+
     // Handle inline box open/close markers (padding)
     if (run.boxOpen) {
       const pad = run.boxOpen.paddingLeft + run.boxOpen.borderLeftWidth;
@@ -395,22 +417,32 @@ function layoutInlineContent(
 
   let curY = y;
 
-  for (const line of lines) {
+  for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+    const line = lines[lineIdx];
     if (line.words.length === 0) {
       curY += line.lineHeight;
       continue;
     }
 
     const lineHeight = line.lineHeight;
+    const isLastLine = lineIdx === lines.length - 1;
+
+    // Justify: expand spaces to fill the line (except last line)
+    let justifyExtraPerSpace = 0;
+    if (textAlign === 'justify' && !isLastLine && line.totalWidth < contentWidth) {
+      const spaceCount = line.words.filter(w => w.isSpace).length;
+      if (spaceCount > 0) {
+        justifyExtraPerSpace = (contentWidth - line.totalWidth) / spaceCount;
+      }
+    }
 
     // text-align
     let curX = x;
     if (textAlign === 'center') {
       curX = x + (contentWidth - line.totalWidth) / 2;
-    } else if (textAlign === 'right') {
+    } else if (textAlign === 'right' || (textAlign !== 'justify' && isRTL)) {
       curX = x + contentWidth - line.totalWidth;
     } else if (isRTL) {
-      // RTL default: right-align
       curX = x + contentWidth - line.totalWidth;
     }
 
@@ -455,7 +487,7 @@ function layoutInlineContent(
           currentBoxStyle = word.boxStyle;
           boxStartX = scanX;
         }
-        scanX += word.width;
+        scanX += word.width + (word.isSpace ? justifyExtraPerSpace : 0);
       }
       if (currentBoxStyle) {
         emitBox(currentBoxStyle, boxStartX, scanX);
@@ -465,23 +497,23 @@ function layoutInlineContent(
     // Pass 2: emit text words (skip empty padding markers)
     for (const word of line.words) {
       if (word.text === '') {
-        // Padding marker — advance position but don't render text
         curX += word.width;
         continue;
       }
 
       const baselineY = curY + computeBaselineY(ctx, word.style, lineHeight);
+      const effectiveWidth = word.width + (word.isSpace ? justifyExtraPerSpace : 0);
 
       results.push({
         type: 'text',
         text: word.text,
         x: curX,
         y: baselineY,
-        width: word.width,
+        width: effectiveWidth,
         style: word.style,
       });
 
-      curX += word.width;
+      curX += effectiveWidth;
     }
 
     curY += lineHeight;
