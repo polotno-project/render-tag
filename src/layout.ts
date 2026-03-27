@@ -442,7 +442,14 @@ function flowWordsIntoLines(
   let afterHardBreak = true; // start of content is like after a hard break
 
   for (const word of words) {
-    const wordLineHeight = getLineHeight(ctx, word.style);
+    let wordLineHeight = getLineHeight(ctx, word.style);
+    // Inline-block elements expand line height with their vertical padding+margin
+    if (word.boxStyle && word.boxStyle.display === 'inline-block') {
+      const bs = word.boxStyle;
+      wordLineHeight = Math.max(wordLineHeight,
+        wordLineHeight + bs.paddingTop + bs.paddingBottom + bs.marginTop + bs.marginBottom
+        + bs.borderTopWidth + bs.borderBottomWidth);
+    }
 
     if (word.text === '\n') {
       if (currentLine.words.length === 0) {
@@ -555,7 +562,6 @@ function layoutInlineContent(
       let currentBoxStyle: ResolvedStyle | undefined;
 
       const emitBox = (style: ResolvedStyle, startX: number, endX: number) => {
-        // Inline box height = font em-box + vertical padding/border, NOT line-height
         ctx.font = buildCanvasFont(style);
         const metrics = ctx.measureText('Mgy');
         const ascent = metrics.fontBoundingBoxAscent ?? metrics.actualBoundingBoxAscent;
@@ -563,8 +569,13 @@ function layoutInlineContent(
         const emHeight = ascent + descent;
         const boxHeight = emHeight + style.paddingTop + style.paddingBottom
           + style.borderTopWidth + style.borderBottomWidth;
-        // Center the inline box vertically within the line
-        const boxY = curY + (lineHeight - boxHeight) / 2;
+        // For inline-block: position with margin offset. For regular inline: center.
+        let boxY: number;
+        if (style.display === 'inline-block') {
+          boxY = curY + style.marginTop;
+        } else {
+          boxY = curY + (lineHeight - boxHeight) / 2;
+        }
 
         results.push({
           type: 'box',
