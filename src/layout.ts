@@ -39,6 +39,7 @@ function computeBaselineY(ctx: CanvasRenderingContext2D, style: ResolvedStyle, l
 }
 
 function applyTextTransform(text: string, transform: string): string {
+
   switch (transform) {
     case 'uppercase': return text.toUpperCase();
     case 'lowercase': return text.toLowerCase();
@@ -151,6 +152,15 @@ function collectTextRuns(node: StyledNode): TextRun[] {
  * Tokenize a single string into words based on whitespace mode.
  */
 function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRun, allWords: Word[]): void {
+  // Split on zero-width spaces and soft hyphens (break opportunities)
+  if (text.includes('\u200B') || text.includes('\u00AD')) {
+    const parts = text.split(/[\u200B\u00AD]/);
+    for (const part of parts) {
+      if (part) tokenizeString(ctx, part, run, allWords);
+    }
+    return;
+  }
+
   const isPreserve = run.style.whiteSpace === 'pre' ||
     run.style.whiteSpace === 'pre-wrap' ||
     run.style.whiteSpace === 'pre-line';
@@ -593,9 +603,11 @@ function layoutInlineContent(
         let baselineY = lineBaselineY;
         const va = word.style.verticalAlign;
         if (va === 'super') {
-          baselineY -= word.style.fontSize * 0.4;
+          // Raise by ~1/3 of the line's ascent (matches browser behavior)
+          baselineY -= maxAscent * 0.35;
         } else if (va === 'sub') {
-          baselineY += word.style.fontSize * 0.2;
+          // Lower by ~1/6 of the line's ascent
+          baselineY += maxAscent * 0.15;
         }
         const effectiveWidth = word.width + (word.isSpace ? justifyExtraPerSpace : 0);
 
