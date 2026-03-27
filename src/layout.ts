@@ -120,12 +120,23 @@ function collectTextRuns(node: StyledNode): TextRun[] {
     const hasHorizSpacing = isBox && (n.style.paddingLeft > 0 || n.style.paddingRight > 0 ||
       n.style.borderLeftWidth > 0 || n.style.borderRightWidth > 0);
 
-    // Inline-block margin-left as spacing
-    if (isInlineBlock && n.style.marginLeft > 0) {
-      runs.push({ text: '', style: n.style, boxStyle });
+    if (isInlineBlock) {
+      // Inline-block is fully atomic — the entire element (margins + padding + text)
+      // wraps as one unit. We emit a single "atomic" TextRun with a special marker
+      // so the tokenizer creates one non-splittable word with the full box width.
+      const allText = n.element?.textContent || '';
+      runs.push({
+        text: allText,
+        style: n.style,
+        boxStyle: newBoxStyle,
+        // Store the full box info for atomic inline-block handling
+        boxOpen: n.style,  // signals this is a boxed element
+        boxClose: n.style,
+      });
+      return;
     }
 
-    if (hasHorizSpacing || (isInlineBlock && (n.style.paddingLeft > 0 || n.style.paddingRight > 0))) {
+    if (hasHorizSpacing) {
       runs.push({ text: '', style: n.style, boxStyle: newBoxStyle, boxOpen: n.style });
     }
 
@@ -133,13 +144,8 @@ function collectTextRuns(node: StyledNode): TextRun[] {
       walk(child, isBox ? newBoxStyle : boxStyle);
     }
 
-    if (hasHorizSpacing || (isInlineBlock && (n.style.paddingLeft > 0 || n.style.paddingRight > 0))) {
+    if (hasHorizSpacing) {
       runs.push({ text: '', style: n.style, boxStyle: newBoxStyle, boxClose: n.style });
-    }
-
-    // Inline-block margin-right as spacing
-    if (isInlineBlock && n.style.marginRight > 0) {
-      runs.push({ text: '', style: n.style, boxStyle });
     }
   }
 
@@ -296,6 +302,28 @@ function tokenizeRuns(ctx: CanvasRenderingContext2D, runs: TextRun[]): Word[] {
       if (margin > 0) {
         allWords.push({ text: '', width: margin, style: run.style, isSpace: false, boxStyle: run.boxStyle });
       }
+      continue;
+    }
+
+    // Atomic inline-block: entire element (margin + padding + text) is one word
+    // Must check before boxOpen/boxClose handlers since atomic has both set.
+    if (run.boxOpen && run.boxClose && run.text) {
+      ctx.font = buildCanvasFont(run.style);
+      ctx.letterSpacing = run.style.letterSpacing > 0 ? `${run.style.letterSpacing}px` : '0px';
+      const text = applyTextTransform(run.text, run.style.textTransform);
+      const s = run.style;
+      const textWidth = ctx.measureText(text).width;
+      const totalWidth = s.marginLeft + s.borderLeftWidth + s.paddingLeft +
+        textWidth + s.paddingRight + s.borderRightWidth + s.marginRight;
+      allWords.push({
+        text,
+        width: totalWidth,
+        style: run.style,
+        isSpace: false,
+        boxStyle: run.boxStyle,
+        boxOpen: run.boxOpen,
+        boxClose: run.boxClose,
+      });
       continue;
     }
 
@@ -595,6 +623,22 @@ function layoutInlineContent(
       };
 
       for (const word of line.words) {
+        // Atomic inline-block: emit box with margin offset
+        if (word.boxOpen && word.boxClose && word.text) {
+          if (currentBoxStyle) {
+            emitBox(currentBoxStyle, boxStartX, scanX);
+            currentBoxStyle = undefined;
+          }
+          const s = word.style;
+          const textWidth = word.width - s.marginLeft - s.borderLeftWidth - s.paddingLeft
+            - s.paddingRight - s.borderRightWidth - s.marginRight;
+          const boxX = scanX + s.marginLeft;
+          const boxW = s.borderLeftWidth + s.paddingLeft + textWidth + s.paddingRight + s.borderRightWidth;
+          emitBox(s, boxX, boxX + boxW);
+          scanX += word.width;
+          continue;
+        }
+
         if (word.boxStyle !== currentBoxStyle) {
           if (currentBoxStyle) {
             emitBox(currentBoxStyle, boxStartX, scanX);
@@ -702,6 +746,22 @@ function layoutInlineContent(
       // LTR: word by word
       for (const word of line.words) {
         if (word.text === '') {
+          curX += word.width;
+          continue;
+        }
+
+        // Atomic inline-block: position text inside the box (after margin + padding)
+        if (word.boxOpen && word.boxClose) {
+          const s = word.style;
+          const textX = curX + s.marginLeft + s.borderLeftWidth + s.paddingLeft;
+          results.push({
+            type: 'text',
+            text: word.text,
+            x: textX,
+            y: lineBaselineY,
+            width: ctx.measureText(word.text).width,
+            style: word.style,
+          });
           curX += word.width;
           continue;
         }
