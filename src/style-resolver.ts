@@ -202,10 +202,15 @@ export function resolveStyles(
           return d === 'inline' || d === 'inline-block';
         };
 
-        // Between block elements: drop (even in pre-wrap — this is inter-element
-        // whitespace from HTML source formatting, not content).
-        // But keep if there are no siblings (sole child of a block — it IS content).
-        if (prev && next && !isInlineSibling(prev) && !isInlineSibling(next)) return null;
+        // Between block elements: drop in normal mode (HTML formatting).
+        // But in pre-wrap, the \n IS content — creates a visible line break.
+        if (prev && next && !isInlineSibling(prev) && !isInlineSibling(next)) {
+          if (ws === 'pre' || ws === 'pre-wrap' || ws === 'pre-line') {
+            // Keep — pre-wrap makes this whitespace visible
+          } else {
+            return null;
+          }
+        }
 
         if (ws !== 'pre' && ws !== 'pre-wrap' && ws !== 'pre-line') {
           // Skip whitespace that contains newlines (HTML source indentation)

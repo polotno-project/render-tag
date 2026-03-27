@@ -1029,9 +1029,7 @@ function layoutBlock(
     let curY = contentStartY;
     let prevMarginBottom = 0;
     let hasContent = false; // tracks whether we've placed any content
-    // Margin collapsing through parent: only for specific elements where
-    // this is commonly expected (lists). For general divs/sections, the
-    // html-to-svg reference wraps content in <body> which prevents collapse.
+    // Margin collapsing through parent: only for list elements.
     const allowCollapseThrough =
       node.tagName === 'li' || node.tagName === 'ul' || node.tagName === 'ol' ||
       node.tagName === 'dd' || node.tagName === 'dt';
