@@ -30,7 +30,7 @@ function resolveLineHeight(cs: CSSStyleDeclaration, fontSize: number): number {
   return 0; // 0 signals "normal" — layout will compute from font metrics
 }
 
-function extractStyle(cs: CSSStyleDeclaration): ResolvedStyle {
+function extractStyle(cs: CSSStyleDeclaration, el: Element | null = null): ResolvedStyle {
   const fontSize = parsePixels(cs.fontSize);
   return {
     fontFamily: cs.fontFamily,
@@ -58,7 +58,10 @@ function extractStyle(cs: CSSStyleDeclaration): ResolvedStyle {
     direction: cs.direction || 'ltr',
 
     display: cs.display || 'block',
-    width: parsePixels(cs.width),
+    // Only use width if explicitly set (inline style or stylesheet).
+    // getComputedStyle resolves 'auto' to a pixel value for block elements,
+    // which we must NOT treat as an explicit width constraint.
+    width: el && el instanceof HTMLElement && el.style.width ? parsePixels(cs.width) : 0,
     minHeight: parsePixels(cs.minHeight),
     paddingTop: parsePixels(cs.paddingTop),
     paddingRight: parsePixels(cs.paddingRight),
@@ -241,7 +244,7 @@ export function resolveStyles(
     }
 
     const cs = window.getComputedStyle(el);
-    const style = extractStyle(cs);
+    const style = extractStyle(cs, el);
     const marker = getListMarker(el, cs);
 
     const children: StyledNode[] = [];

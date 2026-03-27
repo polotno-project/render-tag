@@ -4,10 +4,10 @@
   "Multi-heading article": 7.93,
   "Nested lists": 10.52,
   "Rich blog post": 3.74,
-  "Styled table": 60.13,
+  "Styled table": 57.42,
   "Multi-column layout": 6.94,
   "Text decorations & shadows": 8.99,
-  "Code blocks & quotes": 22.77,
+  "Code blocks & quotes": 19.06,
   "Dense inline formatting": 15.65,
   "Long paragraph word wrapping": 0.00,
   "Empty paragraphs and blank lines": 0.00,
@@ -58,5 +58,5 @@
   "Nested divs with margins": 0.00,
   "Google Font (Roboto)": 0.57,
   "Polotno HTML": 11.53,
-  "Polotno Lists": 18.19
+  "Polotno Lists": 2.87
 }
