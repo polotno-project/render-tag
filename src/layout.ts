@@ -494,6 +494,23 @@ function layoutInlineContent(
       }
     }
 
+    // Compute a single shared baseline for the entire line.
+    // All words align to the same baseline, determined by the largest font metrics.
+    let maxAscent = 0;
+    let maxDescent = 0;
+    for (const word of line.words) {
+      if (word.text === '') continue;
+      ctx.font = buildCanvasFont(word.style);
+      const m = ctx.measureText('M');
+      const a = m.fontBoundingBoxAscent ?? m.actualBoundingBoxAscent;
+      const d = m.fontBoundingBoxDescent ?? m.actualBoundingBoxDescent;
+      if (a > maxAscent) maxAscent = a;
+      if (d > maxDescent) maxDescent = d;
+    }
+    // Center the text block (ascent + descent) within the lineHeight
+    const textBlockHeight = maxAscent + maxDescent;
+    const lineBaselineY = curY + (lineHeight - textBlockHeight) / 2 + maxAscent;
+
     // Pass 2: emit text words (skip empty padding markers)
     for (const word of line.words) {
       if (word.text === '') {
@@ -501,7 +518,14 @@ function layoutInlineContent(
         continue;
       }
 
-      const baselineY = curY + computeBaselineY(ctx, word.style, lineHeight);
+      // Adjust baseline for vertical-align
+      let baselineY = lineBaselineY;
+      const va = word.style.verticalAlign;
+      if (va === 'super') {
+        baselineY -= word.style.fontSize * 0.4;
+      } else if (va === 'sub') {
+        baselineY += word.style.fontSize * 0.2;
+      }
       const effectiveWidth = word.width + (word.isSpace ? justifyExtraPerSpace : 0);
 
       results.push({

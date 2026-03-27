@@ -281,27 +281,34 @@ function renderText(ctx: CanvasRenderingContext2D, node: LayoutText, gradientFil
     ctx.restore();
   }
 
-  // Text decorations
+  // Text decorations — use font metrics for accurate positioning
   const textWidth = node.width;
   const fontSize = style.fontSize;
   const decoColor = style.textDecorationColor || style.color;
   const decoStyle = style.textDecorationStyle || 'solid';
   const decoWidth = Math.max(1, fontSize / 15);
 
-  if (style.textDecorationLine.includes('underline')) {
-    const yOffset = Math.round(fontSize / 4);
-    drawDecorationLine(ctx, node.x, node.y + yOffset, textWidth, decoWidth, decoStyle, decoColor);
-  }
+  if (style.textDecorationLine !== 'none') {
+    ctx.font = buildCanvasFont(style);
+    const decoMetrics = ctx.measureText('x');
+    const decoAscent = decoMetrics.fontBoundingBoxAscent ?? decoMetrics.actualBoundingBoxAscent;
+    const xHeight = decoMetrics.actualBoundingBoxAscent;
 
-  if (style.textDecorationLine.includes('line-through')) {
-    const yOffset = -Math.round(fontSize / 4);
-    drawDecorationLine(ctx, node.x, node.y + yOffset, textWidth, decoWidth, decoStyle, decoColor);
-  }
+    if (style.textDecorationLine.includes('underline')) {
+      // Underline sits just below the baseline
+      const yOffset = fontSize * 0.15;
+      drawDecorationLine(ctx, node.x, node.y + yOffset, textWidth, decoWidth, decoStyle, decoColor);
+    }
 
-  if (style.textDecorationLine.includes('overline')) {
-    const metrics = ctx.measureText('M');
-    const ascent = metrics.fontBoundingBoxAscent ?? metrics.actualBoundingBoxAscent;
-    drawDecorationLine(ctx, node.x, node.y - ascent, textWidth, decoWidth, decoStyle, decoColor);
+    if (style.textDecorationLine.includes('line-through')) {
+      // Strikethrough at the middle of x-height
+      const yOffset = -(xHeight / 2);
+      drawDecorationLine(ctx, node.x, node.y + yOffset, textWidth, decoWidth, decoStyle, decoColor);
+    }
+
+    if (style.textDecorationLine.includes('overline')) {
+      drawDecorationLine(ctx, node.x, node.y - decoAscent, textWidth, decoWidth, decoStyle, decoColor);
+    }
   }
 }
 
