@@ -212,7 +212,7 @@ function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRu
       const isSpace = /^ +$/.test(w);
       allWords.push({
         text: w,
-        width: ctx.measureText(w).width + (run.style.letterSpacing * w.length),
+        width: ctx.measureText(w).width,
         style: run.style,
         isSpace,
         boxStyle: run.boxStyle,
@@ -235,7 +235,7 @@ function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRu
       if (isSpace) {
         const prevCum = cumWidth;
         cumText += ' ';
-        cumWidth = ctx.measureText(cumText).width + (run.style.letterSpacing * cumText.length);
+        cumWidth = ctx.measureText(cumText).width;
         allWords.push({
           text: ' ',
           width: cumWidth - prevCum,
@@ -254,7 +254,7 @@ function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRu
             const s = seg.segment;
             const prevCum = cumWidth;
             cumText += s;
-            cumWidth = ctx.measureText(cumText).width + (run.style.letterSpacing * cumText.length);
+            cumWidth = ctx.measureText(cumText).width;
             allWords.push({
               text: s,
               width: cumWidth - prevCum,
@@ -269,7 +269,7 @@ function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRu
 
       const prevCum = cumWidth;
       cumText += w;
-      cumWidth = ctx.measureText(cumText).width + (run.style.letterSpacing * cumText.length);
+      cumWidth = ctx.measureText(cumText).width;
       allWords.push({
         text: w,
         width: cumWidth - prevCum,
@@ -316,6 +316,7 @@ function tokenizeRuns(ctx: CanvasRenderingContext2D, runs: TextRun[]): Word[] {
     }
 
     ctx.font = buildCanvasFont(run.style);
+    ctx.letterSpacing = run.style.letterSpacing > 0 ? `${run.style.letterSpacing}px` : '0px';
     const text = applyTextTransform(run.text, run.style.textTransform);
 
     // Handle explicit newlines (from <br> or pre-wrap) — always force line break
@@ -382,7 +383,7 @@ function breakWordIfNeeded(
   let currentWidth = 0;
 
   for (const char of chars) {
-    const charWidth = ctx.measureText(char).width + word.style.letterSpacing;
+    const charWidth = ctx.measureText(char).width;
 
     // CJK chars always get their own word for wrapping
     if (isCJK(char)) {

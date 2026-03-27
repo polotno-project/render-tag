@@ -211,6 +211,10 @@ function renderText(ctx: CanvasRenderingContext2D, node: LayoutText, gradientFil
   ctx.save();
   ctx.font = buildCanvasFont(style);
   ctx.textBaseline = 'alphabetic';
+  ctx.fontKerning = 'normal';
+  if (style.letterSpacing > 0) {
+    ctx.letterSpacing = `${style.letterSpacing}px`;
+  }
   if (style.direction === 'rtl') {
     ctx.direction = 'rtl';
     ctx.textAlign = 'right';
@@ -261,16 +265,8 @@ function renderText(ctx: CanvasRenderingContext2D, node: LayoutText, gradientFil
     ctx.fillStyle = style.webkitTextFillColor && style.webkitTextFillColor !== 'transparent'
       ? style.webkitTextFillColor : style.color;
 
-    if (style.letterSpacing > 0) {
-      let x = node.x;
-      const chars = [...node.text];
-      for (const char of chars) {
-        ctx.fillText(char, x, node.y);
-        x += ctx.measureText(char).width + style.letterSpacing;
-      }
-    } else {
-      ctx.fillText(node.text, node.x, node.y);
-    }
+    // letterSpacing is set on ctx above — fillText handles it natively
+    ctx.fillText(node.text, node.x, node.y);
   }
 
   // Text stroke (outline text)
