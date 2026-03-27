@@ -1,0 +1,21 @@
+{
+  "name": "render-tag",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Render HTML rich text onto canvas using pure 2D API",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "vite",
+    "test": "vitest",
+    "build": "tsc"
+  },
+  "devDependencies": {
+    "@vitest/browser": "^3",
+    "pixelmatch": "^6",
+    "playwright": "^1",
+    "rasterizehtml": "^1.4.1",
+    "typescript": "^5",
+    "vite": "^6",
+    "vitest": "^3"
+  }
+}

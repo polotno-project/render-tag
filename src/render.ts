@@ -1,0 +1,356 @@
+import type { LayoutNode, LayoutBox, LayoutText, ResolvedStyle } from './types.ts';
+import { buildCanvasFont } from './layout.ts';
+
+/**
+ * Parse a CSS text-shadow string into individual shadow values.
+ * Format: "2px 2px 4px rgba(0,0,0,0.3), ..."
+ */
+function parseTextShadows(shadow: string): Array<{
+  offsetX: number;
+  offsetY: number;
+  blur: number;
+  color: string;
+}> {
+  if (!shadow || shadow === 'none') return [];
+
+  const shadows: Array<{ offsetX: number; offsetY: number; blur: number; color: string }> = [];
+
+  // Split by comma but not within parentheses
+  const parts = shadow.split(/,(?![^(]*\))/);
+
+  for (const part of parts) {
+    const trimmed = part.trim();
+    // Extract color (rgb/rgba or named) and numbers
+    const colorMatch = trimmed.match(/(rgb[a]?\([^)]+\)|#[0-9a-fA-F]+|\b[a-z]+\b)(?:\s|$)/i);
+    const numMatches = trimmed.match(/-?[\d.]+px/g);
+
+    if (numMatches && numMatches.length >= 2) {
+      const nums = numMatches.map(n => parseFloat(n));
+      shadows.push({
+        offsetX: nums[0],
+        offsetY: nums[1],
+        blur: nums[2] || 0,
+        color: colorMatch ? colorMatch[1] : 'rgba(0,0,0,1)',
+      });
+    }
+  }
+
+  return shadows;
+}
+
+/**
+ * Check if a background color is transparent.
+ */
+function isTransparent(color: string): boolean {
+  return !color || color === 'transparent' || color === 'rgba(0, 0, 0, 0)';
+}
+
+/**
+ * Check if a border is visible.
+ */
+function hasBorder(style: ResolvedStyle, side: 'Top' | 'Right' | 'Bottom' | 'Left'): boolean {
+  const width = style[`border${side}Width` as keyof ResolvedStyle] as number;
+  const borderStyle = style[`border${side}Style` as keyof ResolvedStyle] as string;
+  return width > 0 && borderStyle !== 'none';
+}
+
+/**
+ * Draw a decoration line with the given style (solid, dotted, dashed, double, wavy).
+ */
+function drawDecorationLine(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  lineWidth: number,
+  decoStyle: string,
+  color: string,
+): void {
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = lineWidth;
+
+  if (decoStyle === 'dotted') {
+    ctx.setLineDash([lineWidth, lineWidth * 2]);
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + width, y);
+    ctx.stroke();
+  } else if (decoStyle === 'dashed') {
+    ctx.setLineDash([lineWidth * 3, lineWidth * 2]);
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + width, y);
+    ctx.stroke();
+  } else if (decoStyle === 'double') {
+    const gap = Math.max(lineWidth, 2);
+    ctx.lineWidth = Math.max(0.5, lineWidth * 0.5);
+    ctx.beginPath();
+    ctx.moveTo(x, y - gap / 2);
+    ctx.lineTo(x + width, y - gap / 2);
+    ctx.moveTo(x, y + gap / 2);
+    ctx.lineTo(x + width, y + gap / 2);
+    ctx.stroke();
+  } else if (decoStyle === 'wavy') {
+    const amplitude = Math.max(1.5, lineWidth);
+    const wavelength = amplitude * 4;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    for (let cx = x; cx < x + width; cx += wavelength) {
+      ctx.quadraticCurveTo(cx + wavelength / 4, y - amplitude, cx + wavelength / 2, y);
+      ctx.quadraticCurveTo(cx + wavelength * 3 / 4, y + amplitude, cx + wavelength, y);
+    }
+    ctx.stroke();
+  } else {
+    // solid (default)
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + width, y);
+    ctx.stroke();
+  }
+
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+
+/**
+ * Parse a CSS linear-gradient into canvas CanvasGradient.
+ */
+function parseLinearGradient(
+  ctx: CanvasRenderingContext2D,
+  bgImage: string,
+  x: number,
+  width: number,
+  y: number,
+  height: number,
+): CanvasGradient | null {
+  const match = bgImage.match(/linear-gradient\(([^)]+)\)/);
+  if (!match) return null;
+
+  // Split by commas not inside parentheses
+  const parts: string[] = [];
+  let depth = 0, start = 0;
+  const inner = match[1];
+  for (let i = 0; i < inner.length; i++) {
+    if (inner[i] === '(') depth++;
+    else if (inner[i] === ')') depth--;
+    else if (inner[i] === ',' && depth === 0) {
+      parts.push(inner.slice(start, i).trim());
+      start = i + 1;
+    }
+  }
+  parts.push(inner.slice(start).trim());
+  // Parse angle/direction
+  let angle = 180; // default top to bottom
+  let colorStartIdx = 0;
+  const firstPart = parts[0];
+  if (firstPart.endsWith('deg')) {
+    angle = parseFloat(firstPart);
+    colorStartIdx = 1;
+  } else if (firstPart === 'to right') {
+    angle = 90; colorStartIdx = 1;
+  } else if (firstPart === 'to left') {
+    angle = 270; colorStartIdx = 1;
+  } else if (firstPart === 'to bottom') {
+    angle = 180; colorStartIdx = 1;
+  } else if (firstPart === 'to top') {
+    angle = 0; colorStartIdx = 1;
+  }
+
+  const rad = (angle - 90) * Math.PI / 180;
+  const cx = x + width / 2;
+  const cy = y + height / 2;
+  const len = Math.abs(width * Math.cos(rad)) + Math.abs(height * Math.sin(rad));
+  const dx = Math.cos(rad) * len / 2;
+  const dy = Math.sin(rad) * len / 2;
+
+  const gradient = ctx.createLinearGradient(cx - dx, cy - dy, cx + dx, cy + dy);
+
+  const colors = parts.slice(colorStartIdx);
+  for (let i = 0; i < colors.length; i++) {
+    const entry = colors[i].trim();
+    // Match color followed by optional percentage: "rgb(220, 38, 38) 0%"
+    // The percentage is always at the very end after the last space outside parens
+    let color = entry;
+    let stop = i / Math.max(1, colors.length - 1);
+    const percentMatch = entry.match(/\s+([\d.]+%)\s*$/);
+    if (percentMatch) {
+      stop = parseFloat(percentMatch[1]) / 100;
+      color = entry.slice(0, entry.length - percentMatch[0].length).trim();
+    }
+    try {
+      gradient.addColorStop(stop, color);
+    } catch {
+      // Invalid color, skip
+    }
+  }
+
+  return gradient;
+}
+
+/**
+ * Render a single text node to canvas.
+ */
+function renderText(ctx: CanvasRenderingContext2D, node: LayoutText): void {
+  const { style } = node;
+
+  ctx.font = buildCanvasFont(style);
+  ctx.textBaseline = 'alphabetic';
+
+  const isGradientText = style.webkitBackgroundClip === 'text' &&
+    style.backgroundImage && style.backgroundImage !== 'none';
+  const isStrokedText = style.webkitTextStrokeWidth > 0;
+  const isFillTransparent = style.webkitTextFillColor === 'transparent' ||
+    style.color === 'transparent';
+
+  // Text shadow (draw before main text)
+  const shadows = parseTextShadows(style.textShadow);
+  if (shadows.length > 0) {
+    for (const shadow of shadows) {
+      ctx.save();
+      ctx.shadowOffsetX = shadow.offsetX;
+      ctx.shadowOffsetY = shadow.offsetY;
+      ctx.shadowBlur = shadow.blur;
+      ctx.shadowColor = shadow.color;
+      ctx.fillStyle = style.color;
+      ctx.fillText(node.text, node.x, node.y);
+      ctx.restore();
+    }
+  }
+
+  // Main text fill
+  if (isGradientText) {
+    // Gradient text via background-clip: text
+    ctx.save();
+    const metrics = ctx.measureText(node.text);
+    const ascent = metrics.fontBoundingBoxAscent ?? metrics.actualBoundingBoxAscent;
+    const descent = metrics.fontBoundingBoxDescent ?? metrics.actualBoundingBoxDescent;
+    const gradient = parseLinearGradient(
+      ctx, style.backgroundImage,
+      node.x, node.width,
+      node.y - ascent, ascent + descent,
+    );
+    if (gradient) {
+      ctx.fillStyle = gradient;
+    } else {
+      ctx.fillStyle = style.color;
+    }
+    ctx.fillText(node.text, node.x, node.y);
+    ctx.restore();
+  } else if (!isFillTransparent || !isStrokedText) {
+    // Normal text fill (skip if transparent + stroked, stroke handles it)
+    ctx.fillStyle = style.webkitTextFillColor && style.webkitTextFillColor !== 'transparent'
+      ? style.webkitTextFillColor : style.color;
+
+    if (style.letterSpacing > 0) {
+      let x = node.x;
+      const chars = [...node.text];
+      for (const char of chars) {
+        ctx.fillText(char, x, node.y);
+        x += ctx.measureText(char).width + style.letterSpacing;
+      }
+    } else {
+      ctx.fillText(node.text, node.x, node.y);
+    }
+  }
+
+  // Text stroke (outline text)
+  if (isStrokedText) {
+    ctx.save();
+    ctx.strokeStyle = style.webkitTextStrokeColor || style.color;
+    ctx.lineWidth = style.webkitTextStrokeWidth;
+    ctx.lineJoin = 'round';
+    ctx.strokeText(node.text, node.x, node.y);
+    ctx.restore();
+  }
+
+  // Text decorations
+  const textWidth = node.width;
+  const fontSize = style.fontSize;
+  const decoColor = style.textDecorationColor || style.color;
+  const decoStyle = style.textDecorationStyle || 'solid';
+  const decoWidth = Math.max(1, fontSize / 15);
+
+  if (style.textDecorationLine.includes('underline')) {
+    const yOffset = Math.round(fontSize / 4);
+    drawDecorationLine(ctx, node.x, node.y + yOffset, textWidth, decoWidth, decoStyle, decoColor);
+  }
+
+  if (style.textDecorationLine.includes('line-through')) {
+    const yOffset = -Math.round(fontSize / 4);
+    drawDecorationLine(ctx, node.x, node.y + yOffset, textWidth, decoWidth, decoStyle, decoColor);
+  }
+
+  if (style.textDecorationLine.includes('overline')) {
+    const metrics = ctx.measureText('M');
+    const ascent = metrics.fontBoundingBoxAscent ?? metrics.actualBoundingBoxAscent;
+    drawDecorationLine(ctx, node.x, node.y - ascent, textWidth, decoWidth, decoStyle, decoColor);
+  }
+}
+
+/**
+ * Render a layout box and its children to canvas.
+ */
+function renderBox(ctx: CanvasRenderingContext2D, box: LayoutBox): void {
+  const { style } = box;
+
+  // Background
+  if (!isTransparent(style.backgroundColor)) {
+    ctx.fillStyle = style.backgroundColor;
+    ctx.fillRect(box.x, box.y, box.width, box.height);
+  }
+
+  // Borders
+  if (hasBorder(style, 'Top')) {
+    ctx.strokeStyle = style.borderTopColor;
+    ctx.lineWidth = style.borderTopWidth;
+    const y = box.y + style.borderTopWidth / 2;
+    ctx.beginPath();
+    ctx.moveTo(box.x, y);
+    ctx.lineTo(box.x + box.width, y);
+    ctx.stroke();
+  }
+  if (hasBorder(style, 'Right')) {
+    ctx.strokeStyle = style.borderRightColor;
+    ctx.lineWidth = style.borderRightWidth;
+    const x = box.x + box.width - style.borderRightWidth / 2;
+    ctx.beginPath();
+    ctx.moveTo(x, box.y);
+    ctx.lineTo(x, box.y + box.height);
+    ctx.stroke();
+  }
+  if (hasBorder(style, 'Bottom')) {
+    ctx.strokeStyle = style.borderBottomColor;
+    ctx.lineWidth = style.borderBottomWidth;
+    const y = box.y + box.height - style.borderBottomWidth / 2;
+    ctx.beginPath();
+    ctx.moveTo(box.x, y);
+    ctx.lineTo(box.x + box.width, y);
+    ctx.stroke();
+  }
+  if (hasBorder(style, 'Left')) {
+    ctx.strokeStyle = style.borderLeftColor;
+    ctx.lineWidth = style.borderLeftWidth;
+    const x = box.x + style.borderLeftWidth / 2;
+    ctx.beginPath();
+    ctx.moveTo(x, box.y);
+    ctx.lineTo(x, box.y + box.height);
+    ctx.stroke();
+  }
+
+  // Children
+  for (const child of box.children) {
+    renderNode(ctx, child);
+  }
+}
+
+/**
+ * Render any layout node.
+ */
+export function renderNode(ctx: CanvasRenderingContext2D, node: LayoutNode): void {
+  if (node.type === 'text') {
+    renderText(ctx, node);
+  } else {
+    renderBox(ctx, node);
+  }
+}
