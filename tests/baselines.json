@@ -1,6 +1,6 @@
 {
   "Simple paragraph": 0.00,
-  "Formatted text (bold, italic, colors)": 14.16,
+  "Formatted text (bold, italic, colors)": 13.39,
   "Multi-heading article": 8.84,
   "Nested lists": 11.73,
   "Rich blog post": 1.26,
@@ -21,7 +21,7 @@
   "Subscript and superscript": 30.97,
   "Mixed font-sizes same line": 1.23,
   "Strikethrough and underline combined": 28.20,
-  "All text decorations combined": 23.35,
+  "All text decorations combined": 15.68,
   "Rainbow colored text": 1.01,
   "Pure RTL Arabic text": 11.04,
   "Mixed LTR and RTL (English + Arabic)": 8.52,

@@ -294,13 +294,13 @@ function renderText(ctx: CanvasRenderingContext2D, node: LayoutText, gradientFil
 
     if (style.textDecorationLine.includes('underline')) {
       // Underline sits just below the baseline
-      const yOffset = fontSize * 0.15;
+      const yOffset = fontSize * 0.1;
       drawDecorationLine(ctx, node.x, node.y + yOffset, textWidth, decoWidth, decoStyle, decoColor);
     }
 
     if (style.textDecorationLine.includes('line-through')) {
-      // Strikethrough at the middle of x-height
-      const yOffset = -(xHeight / 2);
+      // Strikethrough at ~40% of x-height above baseline
+      const yOffset = -(xHeight * 0.5);
       drawDecorationLine(ctx, node.x, node.y + yOffset, textWidth, decoWidth, decoStyle, decoColor);
     }
 
