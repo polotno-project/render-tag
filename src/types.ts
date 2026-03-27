@@ -47,6 +47,7 @@ export interface ResolvedStyle {
   // Box
   display: string;
   width: number; // 0 = auto
+  minHeight: number; // 0 = none
   paddingTop: number;
   paddingRight: number;
   paddingBottom: number;

@@ -191,10 +191,11 @@ function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRu
       });
     }
   } else {
-    const words = text.split(/(\s+)/);
+    // Split on whitespace but NOT on non-breaking spaces (\u00A0)
+    const words = text.split(/([ \t\n\r\f\v]+)/);
     for (const w of words) {
       if (w === '') continue;
-      const isSpace = /^\s+$/.test(w);
+      const isSpace = /^[ \t\n\r\f\v]+$/.test(w);
       const displayText = isSpace ? ' ' : w;
       allWords.push({
         text: displayText,
@@ -723,10 +724,11 @@ function layoutBlock(
     return { box, height: box.height, marginBottomOut: style.marginBottom };
   }
 
-  // Empty block elements (e.g. <p></p>) get one line of height
+  // Empty block elements (e.g. <p></p>) get min-height or one line of height
   if (node.children.length === 0 && node.tagName !== 'div') {
-    const lineHeight = getLineHeight(ctx, style);
-    box.height = borderTop + padTop + lineHeight + padBottom + borderBottom;
+    const contentHeight = style.minHeight > 0 ? style.minHeight : getLineHeight(ctx, style);
+    box.height = borderTop + padTop + contentHeight + padBottom + borderBottom;
+    if (style.minHeight > 0) box.height = Math.max(box.height, style.minHeight);
     return { box, height: box.height, marginBottomOut: style.marginBottom };
   }
 
@@ -817,9 +819,11 @@ function layoutBlock(
     }
 
     box.height = borderTop + padTop + (curY - contentStartY) + padBottom + borderBottom;
+    if (style.minHeight > 0) box.height = Math.max(box.height, style.minHeight);
     return { box, height: box.height, marginBottomOut };
   }
 
+  if (style.minHeight > 0) box.height = Math.max(box.height, style.minHeight);
   return { box, height: box.height, marginBottomOut: style.marginBottom };
 }
 

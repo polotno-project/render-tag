@@ -59,6 +59,7 @@ function extractStyle(cs: CSSStyleDeclaration): ResolvedStyle {
 
     display: cs.display || 'block',
     width: parsePixels(cs.width),
+    minHeight: parsePixels(cs.minHeight),
     paddingTop: parsePixels(cs.paddingTop),
     paddingRight: parsePixels(cs.paddingRight),
     paddingBottom: parsePixels(cs.paddingBottom),
@@ -183,7 +184,10 @@ export async function resolveStyles(
   function walkNode(node: Node): StyledNode | null {
     if (node.nodeType === Node.TEXT_NODE) {
       const text = node.textContent;
-      if (!text || text.trim() === '') return null;
+      // Skip empty text nodes, but preserve non-breaking spaces (\u00A0)
+      // which are used for blank lines in rich text editors.
+      // Note: both trim() and \s match \u00A0, so we check explicitly.
+      if (!text || (text.trim() === '' && !text.includes('\u00A0'))) return null;
 
       const parent = node.parentElement;
       if (!parent) return null;
