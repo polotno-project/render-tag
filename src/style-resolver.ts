@@ -152,7 +152,7 @@ function scopeCSS(css: string, containerId: string): string {
  * Insert HTML into a hidden offscreen container, walk the DOM tree,
  * and extract computed styles for every element. No measurements — only CSS values.
  */
-export async function resolveStyles(
+export function resolveStyles(
   fragment: DocumentFragment,
   css: string,
   width: number,
@@ -179,7 +179,8 @@ export async function resolveStyles(
   container.appendChild(fragment);
   document.body.appendChild(container);
 
-  await document.fonts.ready;
+  // Force reflow so getComputedStyle returns resolved values
+  container.getBoundingClientRect();
 
   function walkNode(node: Node): StyledNode | null {
     if (node.nodeType === Node.TEXT_NODE) {

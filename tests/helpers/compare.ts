@@ -51,14 +51,14 @@ export async function renderToDOM(
 /**
  * Render HTML using our library.
  */
-export async function renderToCanvas(
+export function renderToCanvas(
   html: string,
   css: string,
   width: number,
   height: number,
   pixelRatio = 1,
-): Promise<HTMLCanvasElement> {
-  const { canvas } = await renderHTML(html, {
+): HTMLCanvasElement {
+  const { canvas } = renderHTML(html, {
     width,
     height,
     css,
@@ -114,11 +114,49 @@ export async function compareRenders(
   threshold = 0.1,
   pixelRatio = 1,
 ): Promise<ComparisonResult> {
+  // Pre-load any @font-face fonts before rendering.
+  // Check both the css parameter and inline <style> tags in html.
+  const allCSS = (css || '') + '\n' + (html.match(/<style[^>]*>([\s\S]*?)<\/style>/gi) || [])
+    .map(s => s.replace(/<\/?style[^>]*>/gi, '')).join('\n');
+
+  let fontStyle: HTMLStyleElement | null = null;
+  if (allCSS.includes('@font-face')) {
+    const fontFaceBlocks = allCSS.match(/@font-face\s*\{[^}]*\}/g) || [];
+    if (fontFaceBlocks.length > 0) {
+      fontStyle = document.createElement('style');
+      fontStyle.textContent = fontFaceBlocks.join('\n');
+      document.head.appendChild(fontStyle);
+      // Extract font-family + font-weight pairs from @font-face blocks
+      const loadPromises: Promise<unknown>[] = [];
+      const fontFaceRegex = /@font-face\s*\{([^}]*)\}/g;
+      let ffMatch;
+      while ((ffMatch = fontFaceRegex.exec(allCSS)) !== null) {
+        const block = ffMatch[1];
+        const familyMatch = block.match(/font-family:\s*['"]?([^;'"]+)/);
+        const weightMatch = block.match(/font-weight:\s*([^;]+)/);
+        const styleMatch = block.match(/font-style:\s*([^;]+)/);
+        if (familyMatch) {
+          const name = familyMatch[1].trim();
+          const weight = weightMatch ? weightMatch[1].trim() : '400';
+          const style = styleMatch ? styleMatch[1].trim() : 'normal';
+          loadPromises.push(
+            document.fonts.load(`${style} ${weight} 16px "${name}"`).catch(() => {})
+          );
+        }
+      }
+      await Promise.all(loadPromises);
+      await document.fonts.ready;
+    }
+  }
+
   const t0 = performance.now();
   const domCanvas = await renderToDOM(html, css, width, height, pixelRatio);
   const t1 = performance.now();
-  const libCanvas = await renderToCanvas(html, css, width, height, pixelRatio);
+  const libCanvas = renderToCanvas(html, css, width, height, pixelRatio);
   const t2 = performance.now();
+
+  // Clean up font style after both renders are done
+  if (fontStyle) fontStyle.remove();
   const referenceTime = t1 - t0;
   const canvasLibTime = t2 - t1;
 
