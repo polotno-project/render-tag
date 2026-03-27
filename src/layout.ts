@@ -458,7 +458,7 @@ function flowWordsIntoLines(
       if (!piece.isSpace && currentLine.words.length > 0 &&
         currentLine.totalWidth + piece.width > contentWidth) {
         pushLine();
-        afterHardBreak = false; // soft wrap — strip leading spaces
+        afterHardBreak = false;
       }
 
       // Skip leading spaces after soft wraps, but preserve after hard breaks (\n)
