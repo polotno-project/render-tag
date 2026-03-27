@@ -204,6 +204,19 @@ export async function resolveStyles(
     const tag = el.tagName.toLowerCase();
     if (tag === 'style' || tag === 'script') return null;
 
+    // <br> → emit as a text node with newline content
+    if (tag === 'br') {
+      const parent = el.parentElement;
+      const cs = parent ? window.getComputedStyle(parent) : window.getComputedStyle(el);
+      return {
+        element: null,
+        tagName: '#text',
+        style: extractStyle(cs),
+        children: [],
+        textContent: '\n',
+      };
+    }
+
     const cs = window.getComputedStyle(el);
     const style = extractStyle(cs);
     const marker = getListMarker(el, cs);

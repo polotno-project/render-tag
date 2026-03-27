@@ -137,6 +137,46 @@ function collectTextRuns(node: StyledNode): TextRun[] {
 }
 
 /**
+ * Tokenize a single string into words based on whitespace mode.
+ */
+function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRun, allWords: Word[]): void {
+  const isPreserve = run.style.whiteSpace === 'pre' ||
+    run.style.whiteSpace === 'pre-wrap' ||
+    run.style.whiteSpace === 'pre-line';
+
+  if (isPreserve) {
+    const words = text.split(/( +)/);
+    for (const w of words) {
+      if (w === '') continue;
+      const isSpace = /^ +$/.test(w);
+      allWords.push({
+        text: w,
+        width: ctx.measureText(w).width + (run.style.letterSpacing * w.length),
+        style: run.style,
+        isSpace,
+        boxStyle: run.boxStyle,
+      });
+    }
+  } else {
+    const words = text.split(/(\s+)/);
+    for (const w of words) {
+      if (w === '') continue;
+      const isSpace = /^\s+$/.test(w);
+      const displayText = isSpace ? ' ' : w;
+      allWords.push({
+        text: displayText,
+        width: isSpace
+          ? ctx.measureText(' ').width + run.style.letterSpacing
+          : ctx.measureText(w).width + (run.style.letterSpacing * w.length),
+        style: run.style,
+        isSpace,
+        boxStyle: run.boxStyle,
+      });
+    }
+  }
+}
+
+/**
  * Tokenize text runs into words for line wrapping.
  */
 function tokenizeRuns(ctx: CanvasRenderingContext2D, runs: TextRun[]): Word[] {
@@ -161,45 +201,20 @@ function tokenizeRuns(ctx: CanvasRenderingContext2D, runs: TextRun[]): Word[] {
 
     ctx.font = buildCanvasFont(run.style);
     const text = applyTextTransform(run.text, run.style.textTransform);
-    const isPreserve = run.style.whiteSpace === 'pre' ||
-      run.style.whiteSpace === 'pre-wrap' ||
-      run.style.whiteSpace === 'pre-line';
 
-    if (isPreserve) {
+    // Handle explicit newlines (from <br> or pre-wrap) — always force line break
+    if (text.includes('\n')) {
       const parts = text.split('\n');
       for (let i = 0; i < parts.length; i++) {
         if (i > 0) {
           allWords.push({ text: '\n', width: 0, style: run.style, isSpace: false, boxStyle: run.boxStyle });
         }
-        const words = parts[i].split(/( +)/);
-        for (const w of words) {
-          if (w === '') continue;
-          const isSpace = /^ +$/.test(w);
-          allWords.push({
-            text: w,
-            width: ctx.measureText(w).width + (run.style.letterSpacing * w.length),
-            style: run.style,
-            isSpace,
-            boxStyle: run.boxStyle,
-          });
+        if (parts[i]) {
+          tokenizeString(ctx, parts[i], run, allWords);
         }
       }
     } else {
-      const words = text.split(/(\s+)/);
-      for (const w of words) {
-        if (w === '') continue;
-        const isSpace = /^\s+$/.test(w);
-        const displayText = isSpace ? ' ' : w;
-        allWords.push({
-          text: displayText,
-          width: isSpace
-            ? ctx.measureText(' ').width + run.style.letterSpacing
-            : ctx.measureText(w).width + (run.style.letterSpacing * w.length),
-          style: run.style,
-          isSpace,
-          boxStyle: run.boxStyle,
-        });
-      }
+      tokenizeString(ctx, text, run, allWords);
     }
   }
 
@@ -207,15 +222,94 @@ function tokenizeRuns(ctx: CanvasRenderingContext2D, runs: TextRun[]): Word[] {
 }
 
 /**
+ * Check if a character is CJK (Chinese/Japanese/Korean) — these wrap at character level.
+ */
+function isCJK(char: string): boolean {
+  const code = char.codePointAt(0) || 0;
+  return (
+    (code >= 0x4E00 && code <= 0x9FFF) ||   // CJK Unified
+    (code >= 0x3400 && code <= 0x4DBF) ||   // CJK Extension A
+    (code >= 0x3000 && code <= 0x303F) ||   // CJK Symbols
+    (code >= 0x3040 && code <= 0x309F) ||   // Hiragana
+    (code >= 0x30A0 && code <= 0x30FF) ||   // Katakana
+    (code >= 0xAC00 && code <= 0xD7AF) ||   // Hangul
+    (code >= 0xFF00 && code <= 0xFFEF) ||   // Fullwidth
+    (code >= 0x20000 && code <= 0x2A6DF)    // CJK Extension B
+  );
+}
+
+/**
+ * Break a word into character-level pieces if it contains CJK or if
+ * overflow-wrap: break-word is set and the word is too wide.
+ */
+function breakWordIfNeeded(
+  ctx: CanvasRenderingContext2D,
+  word: Word,
+  contentWidth: number,
+  currentLineWidth: number,
+): Word[] {
+  // Check if word has CJK characters — always break at character level
+  const hasCJK = [...word.text].some(isCJK);
+
+  // Check if word needs break-word splitting
+  const needsBreak = word.width > contentWidth &&
+    (word.style.overflowWrap === 'break-word' || word.style.wordBreak === 'break-all');
+
+  if (!hasCJK && !needsBreak) return [word];
+
+  // Split into characters
+  ctx.font = buildCanvasFont(word.style);
+  const chars = [...word.text];
+  const pieces: Word[] = [];
+
+  let current = '';
+  let currentWidth = 0;
+
+  for (const char of chars) {
+    const charWidth = ctx.measureText(char).width + word.style.letterSpacing;
+
+    // CJK chars always get their own word for wrapping
+    if (isCJK(char)) {
+      if (current) {
+        pieces.push({ ...word, text: current, width: currentWidth });
+        current = '';
+        currentWidth = 0;
+      }
+      pieces.push({ ...word, text: char, width: charWidth });
+      continue;
+    }
+
+    // For break-word: break when adding this char would exceed container
+    if (needsBreak && currentWidth + charWidth > contentWidth && current) {
+      pieces.push({ ...word, text: current, width: currentWidth });
+      current = '';
+      currentWidth = 0;
+    }
+
+    current += char;
+    currentWidth += charWidth;
+  }
+
+  if (current) {
+    pieces.push({ ...word, text: current, width: currentWidth });
+  }
+
+  return pieces;
+}
+
+/**
  * Flow words into lines that fit within contentWidth.
+ * Handles: word wrapping, nowrap, break-word, CJK character wrapping.
  */
 function flowWordsIntoLines(
   ctx: CanvasRenderingContext2D,
   words: Word[],
   contentWidth: number,
+  whiteSpace: string,
 ): PositionedLine[] {
   const lines: PositionedLine[] = [];
   let currentLine: PositionedLine = { words: [], totalWidth: 0, lineHeight: 0 };
+  const noWrap = whiteSpace === 'nowrap' || whiteSpace === 'pre';
 
   function pushLine() {
     // Trim trailing spaces
@@ -234,7 +328,6 @@ function flowWordsIntoLines(
 
     if (word.text === '\n') {
       if (currentLine.words.length === 0) {
-        // Empty line — push a placeholder for line height
         currentLine.lineHeight = wordLineHeight;
         lines.push(currentLine);
         currentLine = { words: [], totalWidth: 0, lineHeight: 0 };
@@ -244,18 +337,33 @@ function flowWordsIntoLines(
       continue;
     }
 
-    // Would this word overflow?
-    if (!word.isSpace && currentLine.words.length > 0 &&
-      currentLine.totalWidth + word.width > contentWidth) {
-      pushLine();
+    // No wrapping mode — everything on one line
+    if (noWrap) {
+      currentLine.words.push(word);
+      currentLine.totalWidth += word.width;
+      currentLine.lineHeight = Math.max(currentLine.lineHeight, wordLineHeight);
+      continue;
     }
 
-    // Skip leading spaces on a new line
-    if (word.isSpace && currentLine.words.length === 0) continue;
+    // Break long words / CJK characters if needed
+    const pieces = (!word.isSpace && word.text.length > 1)
+      ? breakWordIfNeeded(ctx, word, contentWidth, currentLine.totalWidth)
+      : [word];
 
-    currentLine.words.push(word);
-    currentLine.totalWidth += word.width;
-    currentLine.lineHeight = Math.max(currentLine.lineHeight, wordLineHeight);
+    for (const piece of pieces) {
+      // Would this piece overflow?
+      if (!piece.isSpace && currentLine.words.length > 0 &&
+        currentLine.totalWidth + piece.width > contentWidth) {
+        pushLine();
+      }
+
+      // Skip leading spaces on a new line
+      if (piece.isSpace && currentLine.words.length === 0) continue;
+
+      currentLine.words.push(piece);
+      currentLine.totalWidth += piece.width;
+      currentLine.lineHeight = Math.max(currentLine.lineHeight, wordLineHeight);
+    }
   }
   pushLine();
 
@@ -278,8 +386,12 @@ function layoutInlineContent(
   if (runs.length === 0) return { nodes: results, height: 0 };
 
   const words = tokenizeRuns(ctx, runs);
-  const lines = flowWordsIntoLines(ctx, words, contentWidth);
-  const textAlign = node.style.textAlign;
+  const lines = flowWordsIntoLines(ctx, words, contentWidth, node.style.whiteSpace);
+  const isRTL = node.style.direction === 'rtl';
+  let textAlign = node.style.textAlign;
+  // In RTL, default alignment is right; 'start'='right', 'end'='left'
+  if (textAlign === 'start') textAlign = isRTL ? 'right' : 'left';
+  if (textAlign === 'end') textAlign = isRTL ? 'left' : 'right';
 
   let curY = y;
 
@@ -295,7 +407,10 @@ function layoutInlineContent(
     let curX = x;
     if (textAlign === 'center') {
       curX = x + (contentWidth - line.totalWidth) / 2;
-    } else if (textAlign === 'right' || textAlign === 'end') {
+    } else if (textAlign === 'right') {
+      curX = x + contentWidth - line.totalWidth;
+    } else if (isRTL) {
+      // RTL default: right-align
       curX = x + contentWidth - line.totalWidth;
     }
 
@@ -465,6 +580,13 @@ function layoutBlock(
     const result = layoutTable(ctx, node, contentX, contentStartY, contentWidth);
     box.children = result.children;
     box.height = borderTop + padTop + result.height + padBottom + borderBottom;
+    return { box, height: box.height };
+  }
+
+  // Empty block elements (e.g. <p></p>) get one line of height
+  if (node.children.length === 0 && node.tagName !== 'div') {
+    const lineHeight = getLineHeight(ctx, style);
+    box.height = borderTop + padTop + lineHeight + padBottom + borderBottom;
     return { box, height: box.height };
   }
 

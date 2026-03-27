@@ -196,6 +196,9 @@ function renderText(ctx: CanvasRenderingContext2D, node: LayoutText): void {
 
   ctx.font = buildCanvasFont(style);
   ctx.textBaseline = 'alphabetic';
+  if (style.direction === 'rtl') {
+    ctx.direction = 'rtl';
+  }
 
   const isGradientText = style.webkitBackgroundClip === 'text' &&
     style.backgroundImage && style.backgroundImage !== 'none';

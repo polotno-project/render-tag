@@ -15,7 +15,6 @@ function addColumn(
   h3.textContent = label;
   col.appendChild(h3);
   content.style.border = '1px solid #ccc';
-  // Display high-DPI canvases at their natural CSS size (canvas.width / pixelRatio)
   if (content instanceof HTMLCanvasElement) {
     content.style.width = `${content.width / pixelRatio}px`;
     content.style.height = `${content.height / pixelRatio}px`;
@@ -24,9 +23,6 @@ function addColumn(
   row.appendChild(col);
 }
 
-/**
- * Create a live DOM preview inside an iframe for full CSS isolation.
- */
 function createIsolatedDOM(tc: BenchmarkCase): HTMLIFrameElement {
   const iframe = document.createElement('iframe');
   iframe.style.width = `${tc.width}px`;
@@ -34,56 +30,102 @@ function createIsolatedDOM(tc: BenchmarkCase): HTMLIFrameElement {
   iframe.style.border = '1px solid #ccc';
   iframe.style.overflow = 'hidden';
   iframe.scrolling = 'no';
-
-  // Write content after iframe is in the DOM
   iframe.srcdoc = `<!DOCTYPE html>
 <html><head><style>${tc.css || ''}</style></head>
 <body style="margin:0;padding:0">${tc.html}</body></html>`;
-
   return iframe;
 }
 
-async function renderComparison(tc: BenchmarkCase, container: HTMLElement) {
+interface CaseResult {
+  name: string;
+  contentMismatch: number;
+  rasterizeTime: number;
+  canvasTime: number;
+}
+
+async function renderComparison(tc: BenchmarkCase, container: HTMLElement): Promise<CaseResult> {
   const section = document.createElement('div');
   section.className = 'case';
 
+  const result = await compareRenders(tc.html, tc.css, tc.width, tc.height, 0.1, PIXEL_RATIO);
+  const pct = result.contentMismatchPercentage;
+  const filled = (result.contentPixels / result.totalPixels * 100).toFixed(0);
+  const speedup = (result.rasterizeTime / result.canvasLibTime).toFixed(0);
+
+  // Title with inline stats
   const title = document.createElement('h2');
-  title.textContent = tc.name;
+  const badge = document.createElement('span');
+  badge.className = pct < 5 ? 'badge good' : pct < 20 ? 'badge warn' : 'badge bad';
+  badge.textContent = `${pct.toFixed(1)}%`;
+  title.textContent = `${tc.name} `;
+  title.appendChild(badge);
+  const timing = document.createElement('span');
+  timing.className = 'timing';
+  timing.textContent = `${result.canvasLibTime.toFixed(0)}ms (${speedup}x)`;
+  title.appendChild(timing);
   section.appendChild(title);
 
   const row = document.createElement('div');
   row.className = 'comparison';
 
-  // 1. Live DOM render — inside iframe for complete style isolation
+  // Diff first for quick scanning
+  const diffLabel = `Diff: ${pct.toFixed(1)}% (${filled}% filled)`;
+  addColumn(row, diffLabel, result.diffCanvas, PIXEL_RATIO);
+
+  // Then reference and our render
+  addColumn(row, 'rasterizeHTML', result.domCanvas, PIXEL_RATIO);
+  addColumn(row, 'Canvas (lib)', result.libCanvas, PIXEL_RATIO);
+
+  // DOM last
   const iframe = createIsolatedDOM(tc);
   addColumn(row, 'DOM', iframe, 1);
 
-  // 2-4. rasterizeHTML, canvas, diff — via compareRenders
-  try {
-    const result = await compareRenders(tc.html, tc.css, tc.width, tc.height, 0.1, PIXEL_RATIO);
-
-    addColumn(row, 'rasterizeHTML', result.domCanvas, PIXEL_RATIO);
-    addColumn(row, 'Canvas (lib)', result.libCanvas, PIXEL_RATIO);
-    addColumn(row, `Diff (${result.mismatchPercentage.toFixed(2)}%)`, result.diffCanvas, PIXEL_RATIO);
-
-    // Color the diff label based on quality
-    const diffLabel = row.lastElementChild!.querySelector('h3') as HTMLElement;
-    if (result.mismatchPercentage < 3) {
-      diffLabel.style.color = '#16a34a';
-    } else if (result.mismatchPercentage < 10) {
-      diffLabel.style.color = '#ca8a04';
-    } else {
-      diffLabel.style.color = '#dc2626';
-    }
-  } catch (err) {
-    const errDiv = document.createElement('div');
-    errDiv.style.color = 'red';
-    errDiv.textContent = `Error: ${err}`;
-    row.appendChild(errDiv);
-  }
+  // Color the diff label
+  const diffLabelEl = row.firstElementChild!.querySelector('h3') as HTMLElement;
+  diffLabelEl.style.color = pct < 5 ? '#16a34a' : pct < 20 ? '#ca8a04' : '#dc2626';
 
   section.appendChild(row);
   container.appendChild(section);
+
+  return {
+    name: tc.name,
+    contentMismatch: pct,
+    rasterizeTime: result.rasterizeTime,
+    canvasTime: result.canvasLibTime,
+  };
+}
+
+function createDashboard(total: number, container: HTMLElement): HTMLElement {
+  const dashboard = document.createElement('div');
+  dashboard.id = 'dashboard';
+  container.prepend(dashboard);
+  updateDashboard(dashboard, [], total);
+  return dashboard;
+}
+
+function updateDashboard(dashboard: HTMLElement, results: CaseResult[], total: number) {
+  const done = results.length;
+  const passed = results.filter(r => r.contentMismatch < 5).length;
+  const warn = results.filter(r => r.contentMismatch >= 5 && r.contentMismatch < 20).length;
+  const failed = results.filter(r => r.contentMismatch >= 20).length;
+  const avgMismatch = done > 0 ? results.reduce((s, r) => s + r.contentMismatch, 0) / done : 0;
+  const avgCanvas = done > 0 ? results.reduce((s, r) => s + r.canvasTime, 0) / done : 0;
+  const avgRasterize = done > 0 ? results.reduce((s, r) => s + r.rasterizeTime, 0) / done : 0;
+  const speedup = avgCanvas > 0 ? (avgRasterize / avgCanvas).toFixed(0) : '-';
+  const progress = total > 0 ? (done / total * 100).toFixed(0) : '0';
+
+  dashboard.innerHTML = `
+    <div class="progress-bar"><div class="progress-fill" style="width: ${progress}%"></div></div>
+    <div class="stats">
+      <div class="stat"><div class="stat-value">${done}/${total}</div><div class="stat-label">Done</div></div>
+      <div class="stat good"><div class="stat-value">${passed}</div><div class="stat-label">&lt; 5%</div></div>
+      <div class="stat warn"><div class="stat-value">${warn}</div><div class="stat-label">5-20%</div></div>
+      <div class="stat bad"><div class="stat-value">${failed}</div><div class="stat-label">&gt; 20%</div></div>
+      <div class="stat"><div class="stat-value">${avgMismatch.toFixed(1)}%</div><div class="stat-label">Avg mismatch</div></div>
+      <div class="stat"><div class="stat-value">${avgCanvas.toFixed(0)}ms</div><div class="stat-label">Avg render</div></div>
+      <div class="stat"><div class="stat-value">${speedup}x</div><div class="stat-label">Avg speedup</div></div>
+    </div>
+  `;
 }
 
 async function main() {
@@ -93,8 +135,13 @@ async function main() {
   const googleFontCase = await loadGoogleFontCase();
   const allCases = [...basicCases, googleFontCase, polotnoCase, polotnoListsCase];
 
+  const results: CaseResult[] = [];
+  const dashboard = createDashboard(allCases.length, app);
+
   for (const tc of allCases) {
-    await renderComparison(tc, app);
+    const result = await renderComparison(tc, app);
+    results.push(result);
+    updateDashboard(dashboard, results, allCases.length);
   }
 }
 
