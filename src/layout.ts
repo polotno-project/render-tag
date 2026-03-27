@@ -113,8 +113,9 @@ function collectTextRuns(node: StyledNode): TextRun[] {
       runs.push({ text: n.textContent, style: n.style, boxStyle });
       return;
     }
-    const isBox = isInline(n) && hasVisibleBoxStyles(n.style);
     const isInlineBlock = n.style.display === 'inline-block';
+    // Inline-block always needs box treatment (padding/margin affect layout)
+    const isBox = isInlineBlock || (isInline(n) && hasVisibleBoxStyles(n.style));
     const newBoxStyle = isBox ? n.style : boxStyle;
     const hasHorizSpacing = isBox && (n.style.paddingLeft > 0 || n.style.paddingRight > 0 ||
       n.style.borderLeftWidth > 0 || n.style.borderRightWidth > 0);
