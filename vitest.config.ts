@@ -1,4 +1,5 @@
 import { defineConfig } from 'vitest/config';
+import { playwright } from '@vitest/browser-playwright';
 import path from 'path';
 
 export default defineConfig({
@@ -11,15 +12,9 @@ export default defineConfig({
   test: {
     browser: {
       enabled: true,
-      provider: 'playwright',
-      headless: true,
+      provider: playwright(),
       instances: [
-        {
-          browser: 'chromium',
-          launch: {
-            args: ['--no-sandbox', '--disable-setuid-sandbox'],
-          },
-        },
+        { browser: 'chromium', headless: true },
       ],
     },
     testTimeout: 30000,
