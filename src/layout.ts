@@ -423,6 +423,8 @@ function flowWordsIntoLines(
     currentLine = { words: [], totalWidth: 0, lineHeight: 0 };
   }
 
+  let afterHardBreak = true; // start of content is like after a hard break
+
   for (const word of words) {
     const wordLineHeight = getLineHeight(ctx, word.style);
 
@@ -434,6 +436,7 @@ function flowWordsIntoLines(
       } else {
         pushLine();
       }
+      afterHardBreak = true;
       continue;
     }
 
@@ -455,14 +458,16 @@ function flowWordsIntoLines(
       if (!piece.isSpace && currentLine.words.length > 0 &&
         currentLine.totalWidth + piece.width > contentWidth) {
         pushLine();
+        afterHardBreak = false; // soft wrap — strip leading spaces
       }
 
-      // Skip leading spaces on a new line
-      if (piece.isSpace && currentLine.words.length === 0) continue;
+      // Skip leading spaces after soft wraps, but preserve after hard breaks (\n)
+      if (piece.isSpace && currentLine.words.length === 0 && !afterHardBreak) continue;
 
       currentLine.words.push(piece);
       currentLine.totalWidth += piece.width;
       currentLine.lineHeight = Math.max(currentLine.lineHeight, wordLineHeight);
+      if (!piece.isSpace) afterHardBreak = false;
     }
   }
   pushLine();
