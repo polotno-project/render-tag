@@ -221,14 +221,24 @@ function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRu
   } else {
     // Split on whitespace but NOT on non-breaking spaces (\u00A0)
     const words = text.split(/([ \t\n\r\f\v]+)/);
+
+    // Use cumulative measurement to avoid rounding error accumulation.
+    // Instead of measuring each word independently and summing,
+    // measure the growing prefix to get exact widths.
+    let cumText = '';
+    let cumWidth = 0;
+
     for (const w of words) {
       if (w === '') continue;
       const isSpace = /^[ \t\n\r\f\v]+$/.test(w);
 
       if (isSpace) {
+        const prevCum = cumWidth;
+        cumText += ' ';
+        cumWidth = ctx.measureText(cumText).width + (run.style.letterSpacing * cumText.length);
         allWords.push({
           text: ' ',
-          width: ctx.measureText(' ').width + run.style.letterSpacing,
+          width: cumWidth - prevCum,
           style: run.style,
           isSpace: true,
           boxStyle: run.boxStyle,
@@ -242,9 +252,12 @@ function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRu
         if (segmenter) {
           for (const seg of segmenter.segment(w)) {
             const s = seg.segment;
+            const prevCum = cumWidth;
+            cumText += s;
+            cumWidth = ctx.measureText(cumText).width + (run.style.letterSpacing * cumText.length);
             allWords.push({
               text: s,
-              width: ctx.measureText(s).width + (run.style.letterSpacing * s.length),
+              width: cumWidth - prevCum,
               style: run.style,
               isSpace: false,
               boxStyle: run.boxStyle,
@@ -254,9 +267,12 @@ function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRu
         }
       }
 
+      const prevCum = cumWidth;
+      cumText += w;
+      cumWidth = ctx.measureText(cumText).width + (run.style.letterSpacing * cumText.length);
       allWords.push({
         text: w,
-        width: ctx.measureText(w).width + (run.style.letterSpacing * w.length),
+        width: cumWidth - prevCum,
         style: run.style,
         isSpace: false,
         boxStyle: run.boxStyle,
