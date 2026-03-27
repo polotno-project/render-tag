@@ -34,7 +34,9 @@ function getMeasureSpan(index: number): HTMLSpanElement {
  * Only called when canvas measureText suggests a line is near the wrap
  * boundary and fonts are mixed (different weight/style/family on the line).
  */
+let _domMeasureCount = 0;
 function measureLineWidthViaDom(words: Word[]): number {
+  _domMeasureCount++;
   const container = getMeasureContainer();
   const textWords = words.filter(w => w.text && w.text !== '\n');
   if (textWords.length === 0) return 0;
@@ -620,7 +622,9 @@ function flowWordsIntoLines(
 
       // Reverse check: canvas says it fits, but with mixed fonts near boundary,
       // DOM might say it doesn't fit. Verify before committing.
-      if (!piece.isSpace && currentLine.words.length > 0) {
+      // Only check when line is >80% full to avoid excessive DOM measurements.
+      if (!piece.isSpace && currentLine.words.length > 0 &&
+          currentLine.totalWidth > contentWidth * 0.8) {
         const remaining = contentWidth - (currentLine.totalWidth + piece.width);
         if (remaining >= 0 && remaining < 5 && hasMixedFonts(currentLine.words)) {
           const candidateWords = [...currentLine.words, piece];
@@ -1267,6 +1271,9 @@ function addListMarker(
  * Build the layout tree from the styled tree using pure canvas measurement.
  * No DOM measurements used — all positions computed from CSS values + canvas.measureText.
  */
+export function getDomMeasureCount() { return _domMeasureCount; }
+export function resetDomMeasureCount() { _domMeasureCount = 0; }
+
 export function buildLayoutTree(
   ctx: CanvasRenderingContext2D,
   styledTree: StyledNode,
