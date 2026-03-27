@@ -39,6 +39,9 @@ function computeBaselineY(ctx: CanvasRenderingContext2D, style: ResolvedStyle, l
 }
 
 function applyTextTransform(text: string, transform: string): string {
+  // Strip soft hyphens (invisible formatting hints) and zero-width spaces
+  text = text.replace(/[\u00AD\u200B]/g, '');
+
   switch (transform) {
     case 'uppercase': return text.toUpperCase();
     case 'lowercase': return text.toLowerCase();

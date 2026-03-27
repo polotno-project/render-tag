@@ -39,7 +39,7 @@ function createIsolatedDOM(tc: BenchmarkCase): HTMLIFrameElement {
 interface CaseResult {
   name: string;
   contentMismatch: number;
-  rasterizeTime: number;
+  referenceTime: number;
   canvasTime: number;
 }
 
@@ -50,7 +50,7 @@ async function renderComparison(tc: BenchmarkCase, container: HTMLElement): Prom
   const result = await compareRenders(tc.html, tc.css, tc.width, tc.height, 0.1, PIXEL_RATIO);
   const pct = result.contentMismatchPercentage;
   const filled = (result.contentPixels / result.totalPixels * 100).toFixed(0);
-  const speedup = (result.rasterizeTime / result.canvasLibTime).toFixed(0);
+  const speedup = (result.referenceTime / result.canvasLibTime).toFixed(0);
 
   // Title with inline stats
   const title = document.createElement('h2');
@@ -73,7 +73,7 @@ async function renderComparison(tc: BenchmarkCase, container: HTMLElement): Prom
   addColumn(row, diffLabel, result.diffCanvas, PIXEL_RATIO);
 
   // Then reference and our render
-  addColumn(row, 'rasterizeHTML', result.domCanvas, PIXEL_RATIO);
+  addColumn(row, 'html-to-svg', result.domCanvas, PIXEL_RATIO);
   addColumn(row, 'Canvas (lib)', result.libCanvas, PIXEL_RATIO);
 
   // DOM last
@@ -90,7 +90,7 @@ async function renderComparison(tc: BenchmarkCase, container: HTMLElement): Prom
   return {
     name: tc.name,
     contentMismatch: pct,
-    rasterizeTime: result.rasterizeTime,
+    referenceTime: result.referenceTime,
     canvasTime: result.canvasLibTime,
   };
 }
@@ -109,10 +109,18 @@ function updateDashboard(dashboard: HTMLElement, results: CaseResult[], total: n
   const warn = results.filter(r => r.contentMismatch >= 5 && r.contentMismatch < 20).length;
   const failed = results.filter(r => r.contentMismatch >= 20).length;
   const avgMismatch = done > 0 ? results.reduce((s, r) => s + r.contentMismatch, 0) / done : 0;
-  const avgCanvas = done > 0 ? results.reduce((s, r) => s + r.canvasTime, 0) / done : 0;
-  const avgRasterize = done > 0 ? results.reduce((s, r) => s + r.rasterizeTime, 0) / done : 0;
-  const speedup = avgCanvas > 0 ? (avgRasterize / avgCanvas).toFixed(0) : '-';
   const progress = total > 0 ? (done / total * 100).toFixed(0) : '0';
+
+  // Use median to avoid first-render outlier skewing
+  const median = (arr: number[]) => {
+    if (arr.length === 0) return 0;
+    const sorted = [...arr].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  };
+  const medCanvas = median(results.map(r => r.canvasTime));
+  const medRef = median(results.map(r => r.referenceTime));
+  const speedup = medCanvas > 0 ? (medRef / medCanvas).toFixed(1) : '-';
 
   dashboard.innerHTML = `
     <div class="progress-bar"><div class="progress-fill" style="width: ${progress}%"></div></div>
@@ -122,8 +130,9 @@ function updateDashboard(dashboard: HTMLElement, results: CaseResult[], total: n
       <div class="stat warn"><div class="stat-value">${warn}</div><div class="stat-label">5-20%</div></div>
       <div class="stat bad"><div class="stat-value">${failed}</div><div class="stat-label">&gt; 20%</div></div>
       <div class="stat"><div class="stat-value">${avgMismatch.toFixed(1)}%</div><div class="stat-label">Avg mismatch</div></div>
-      <div class="stat"><div class="stat-value">${avgCanvas.toFixed(0)}ms</div><div class="stat-label">Avg render</div></div>
-      <div class="stat"><div class="stat-value">${speedup}x</div><div class="stat-label">Avg speedup</div></div>
+      <div class="stat"><div class="stat-value">${medCanvas.toFixed(0)}ms</div><div class="stat-label">Median render</div></div>
+      <div class="stat"><div class="stat-value">${medRef.toFixed(0)}ms</div><div class="stat-label">Median ref</div></div>
+      <div class="stat"><div class="stat-value">${speedup}x</div><div class="stat-label">Speedup</div></div>
     </div>
   `;
 }

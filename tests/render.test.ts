@@ -11,9 +11,9 @@ function formatResult(tc: BenchmarkCase, result: ComparisonResult): string {
   const contentPct = (result.contentPixels / result.totalPixels * 100).toFixed(0);
   return `[${tc.name}] content-mismatch: ${result.contentMismatchPercentage.toFixed(2)}% ` +
     `(${result.mismatchedPixels}/${result.contentPixels} content px, ${contentPct}% filled) | ` +
-    `rasterize: ${result.rasterizeTime.toFixed(0)}ms | ` +
+    `ref: ${result.referenceTime.toFixed(0)}ms | ` +
     `canvas: ${result.canvasLibTime.toFixed(0)}ms | ` +
-    `${(result.rasterizeTime / result.canvasLibTime).toFixed(0)}x`;
+    `${(result.referenceTime / result.canvasLibTime).toFixed(0)}x`;
 }
 
 async function testCase(tc: BenchmarkCase) {

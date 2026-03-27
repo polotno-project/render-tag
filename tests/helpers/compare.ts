@@ -1,5 +1,5 @@
 import pixelmatch from 'pixelmatch';
-import rasterizeHTML from 'rasterizehtml';
+import { htmlToImage } from 'html-to-svg';
 import { renderHTML } from '../../src/index.ts';
 
 export interface ComparisonResult {
@@ -11,12 +11,12 @@ export interface ComparisonResult {
   domCanvas: HTMLCanvasElement;
   libCanvas: HTMLCanvasElement;
   diffCanvas: HTMLCanvasElement;
-  rasterizeTime: number;
+  referenceTime: number;
   canvasLibTime: number;
 }
 
 /**
- * Render HTML+CSS using rasterizeHTML (foreignObject-based, pixel-perfect with browser).
+ * Render HTML+CSS using html-to-svg (foreignObject-based, pixel-perfect with browser).
  */
 export async function renderToDOM(
   html: string,
@@ -28,24 +28,22 @@ export async function renderToDOM(
   const pixelWidth = Math.ceil(width * pixelRatio);
   const pixelHeight = Math.ceil(height * pixelRatio);
 
+  const fullHTML = `<div style="margin:0;padding:0">${html}</div>`;
+  const fullCSS = `html, body { margin: 0; padding: 0; }\n${css || ''}`;
+
+  const img = await htmlToImage({
+    html: fullHTML,
+    css: fullCSS,
+    width,
+    height,
+    pixelRatio,
+  });
+
   const canvas = document.createElement('canvas');
   canvas.width = pixelWidth;
   canvas.height = pixelHeight;
-  // Set CSS size so rasterizeHTML reads the correct viewport dimensions
-  canvas.style.width = `${width}px`;
-  canvas.style.height = `${height}px`;
-
-  const fullHTML = `<!DOCTYPE html>
-<html><head><style>${css || ''}</style></head>
-<body style="margin:0;padding:0">${html}</body></html>`;
-
-  // rasterizeHTML divides width/height by zoom internally to get the viewport,
-  // so we must pass pixel dimensions so viewport = pixelWidth/zoom = cssWidth.
-  await rasterizeHTML.drawHTML(fullHTML, canvas, {
-    width: pixelWidth,
-    height: pixelHeight,
-    zoom: pixelRatio,
-  });
+  const ctx = canvas.getContext('2d')!;
+  ctx.drawImage(img, 0, 0, pixelWidth, pixelHeight);
 
   return canvas;
 }
@@ -121,7 +119,7 @@ export async function compareRenders(
   const t1 = performance.now();
   const libCanvas = await renderToCanvas(html, css, width, height, pixelRatio);
   const t2 = performance.now();
-  const rasterizeTime = t1 - t0;
+  const referenceTime = t1 - t0;
   const canvasLibTime = t2 - t1;
 
   // Get image data from both
@@ -179,7 +177,7 @@ export async function compareRenders(
     domCanvas,
     libCanvas,
     diffCanvas,
-    rasterizeTime,
+    referenceTime,
     canvasLibTime,
   };
 }
