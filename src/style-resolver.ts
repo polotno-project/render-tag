@@ -185,10 +185,12 @@ export function resolveStyles(
   function walkNode(node: Node): StyledNode | null {
     if (node.nodeType === Node.TEXT_NODE) {
       const text = node.textContent;
-      // Skip empty text nodes, but preserve non-breaking spaces (\u00A0)
-      // which are used for blank lines in rich text editors.
-      // Note: both trim() and \s match \u00A0, so we check explicitly.
-      if (!text || (text.trim() === '' && !text.includes('\u00A0'))) return null;
+      // Skip truly empty text nodes. Keep whitespace-only nodes that contain
+      // spaces (they represent word boundaries between inline elements)
+      // or non-breaking spaces (\u00A0).
+      if (!text) return null;
+      // Skip nodes that are only newlines/tabs with no spaces (formatting whitespace)
+      if (text.trim() === '' && !text.includes(' ') && !text.includes('\u00A0')) return null;
 
       const parent = node.parentElement;
       if (!parent) return null;
