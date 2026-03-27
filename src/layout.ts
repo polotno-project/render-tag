@@ -179,17 +179,14 @@ function getSegmenter(): Intl.Segmenter | null {
 /**
  * Tokenize a single string into words based on whitespace mode.
  */
-function tokenizeString(
-  ctx: CanvasRenderingContext2D, text: string, run: TextRun, allWords: Word[],
-  cumState: { cumText: string; cumWidth: number } = { cumText: '', cumWidth: 0 },
-): { cumText: string; cumWidth: number } {
+function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRun, allWords: Word[]): void {
   // Split on zero-width spaces and soft hyphens (break opportunities)
   if (text.includes('\u200B') || text.includes('\u00AD')) {
     const parts = text.split(/[\u200B\u00AD]/);
     for (const part of parts) {
-      if (part) cumState = tokenizeString(ctx, part, run, allWords, cumState);
+      if (part) tokenizeString(ctx, part, run, allWords);
     }
-    return cumState;
+    return;
   }
 
   const isPreserve = run.style.whiteSpace === 'pre' ||
@@ -225,20 +222,22 @@ function tokenizeString(
     // Split on whitespace but NOT on non-breaking spaces (\u00A0)
     const words = text.split(/([ \t\n\r\f\v]+)/);
 
-    // Use cumulative measurement to avoid rounding error accumulation.
-    // cumState persists across runs with the same font, eliminating
-    // errors at color/decoration boundaries.
+    // Use cumulative measurement to avoid rounding error accumulation
+    // within a single text run.
+    let cumText = '';
+    let cumWidth = 0;
+
     for (const w of words) {
       if (w === '') continue;
       const isSpace = /^[ \t\n\r\f\v]+$/.test(w);
 
       if (isSpace) {
-        const prevCum = cumState.cumWidth;
-        cumState.cumText += ' ';
-        cumState.cumWidth = ctx.measureText(cumState.cumText).width;
+        const prevCum = cumWidth;
+        cumText += ' ';
+        cumWidth = ctx.measureText(cumText).width;
         allWords.push({
           text: ' ',
-          width: cumState.cumWidth - prevCum,
+          width: cumWidth - prevCum,
           style: run.style,
           isSpace: true,
           boxStyle: run.boxStyle,
@@ -252,12 +251,12 @@ function tokenizeString(
         if (segmenter) {
           for (const seg of segmenter.segment(w)) {
             const s = seg.segment;
-            const prevCum = cumState.cumWidth;
-            cumState.cumText += s;
-            cumState.cumWidth = ctx.measureText(cumState.cumText).width;
+            const prevCum = cumWidth;
+            cumText += s;
+            cumWidth = ctx.measureText(cumText).width;
             allWords.push({
               text: s,
-              width: cumState.cumWidth - prevCum,
+              width: cumWidth - prevCum,
               style: run.style,
               isSpace: false,
               boxStyle: run.boxStyle,
@@ -267,31 +266,18 @@ function tokenizeString(
         }
       }
 
-      const prevCum = cumState.cumWidth;
-      cumState.cumText += w;
-      cumState.cumWidth = ctx.measureText(cumState.cumText).width;
+      const prevCum = cumWidth;
+      cumText += w;
+      cumWidth = ctx.measureText(cumText).width;
       allWords.push({
         text: w,
-        width: cumState.cumWidth - prevCum,
+        width: cumWidth - prevCum,
         style: run.style,
         isSpace: false,
         boxStyle: run.boxStyle,
       });
     }
   }
-  return cumState;
-}
-
-/**
- * Check if two styles use the same font for measurement purposes.
- * Color, background, decoration don't affect text width — only font properties do.
- */
-function sameMeasurementFont(a: ResolvedStyle, b: ResolvedStyle): boolean {
-  return a.fontFamily === b.fontFamily &&
-    a.fontSize === b.fontSize &&
-    a.fontWeight === b.fontWeight &&
-    a.fontStyle === b.fontStyle &&
-    a.letterSpacing === b.letterSpacing;
 }
 
 /**
@@ -299,12 +285,6 @@ function sameMeasurementFont(a: ResolvedStyle, b: ResolvedStyle): boolean {
  */
 function tokenizeRuns(ctx: CanvasRenderingContext2D, runs: TextRun[]): Word[] {
   const allWords: Word[] = [];
-
-  // Track cumulative measurement across runs with the same font.
-  // Only reset when the font actually changes (not just color).
-  let cumText = '';
-  let cumWidth = 0;
-  let cumFont = '';
 
   for (const run of runs) {
     // Handle inline-block margins (empty text, no boxOpen/boxClose)
@@ -334,16 +314,8 @@ function tokenizeRuns(ctx: CanvasRenderingContext2D, runs: TextRun[]): Word[] {
       continue;
     }
 
-    const newFont = buildCanvasFont(run.style);
-    // Reset cumulative state when font changes (color doesn't matter for measurement)
-    if (newFont !== cumFont) {
-      cumText = '';
-      cumWidth = 0;
-      cumFont = newFont;
-      ctx.font = newFont;
-      ctx.letterSpacing = run.style.letterSpacing > 0 ? `${run.style.letterSpacing}px` : '0px';
-    }
-
+    ctx.font = buildCanvasFont(run.style);
+    ctx.letterSpacing = run.style.letterSpacing > 0 ? `${run.style.letterSpacing}px` : '0px';
     const text = applyTextTransform(run.text, run.style.textTransform);
 
     // Handle explicit newlines (from <br> or pre-wrap) — always force line break
@@ -352,18 +324,13 @@ function tokenizeRuns(ctx: CanvasRenderingContext2D, runs: TextRun[]): Word[] {
       for (let i = 0; i < parts.length; i++) {
         if (i > 0) {
           allWords.push({ text: '\n', width: 0, style: run.style, isSpace: false, boxStyle: run.boxStyle });
-          cumText = ''; cumWidth = 0; // reset after newline
         }
         if (parts[i]) {
-          const state = tokenizeString(ctx, parts[i], run, allWords, { cumText, cumWidth });
-          cumText = state.cumText;
-          cumWidth = state.cumWidth;
+          tokenizeString(ctx, parts[i], run, allWords);
         }
       }
     } else {
-      const state = tokenizeString(ctx, text, run, allWords, { cumText, cumWidth });
-      cumText = state.cumText;
-      cumWidth = state.cumWidth;
+      tokenizeString(ctx, text, run, allWords);
     }
   }
 
