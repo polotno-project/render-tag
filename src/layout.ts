@@ -1050,6 +1050,12 @@ function layoutBlock(
           }
         }
 
+        // Apply pending margin before inline content
+        if (prevMarginBottom > 0) {
+          curY += prevMarginBottom;
+          prevMarginBottom = 0;
+        }
+
         const inlineGroup: StyledNode = {
           element: null,
           tagName: 'div',
