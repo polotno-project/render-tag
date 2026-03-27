@@ -658,12 +658,18 @@ function layoutInlineContent(
         // Adjust baseline for vertical-align
         let baselineY = lineBaselineY;
         const va = word.style.verticalAlign;
-        if (va === 'super') {
-          // Raise by ~1/3 of the line's ascent (matches browser behavior)
-          baselineY -= maxAscent * 0.35;
-        } else if (va === 'sub') {
-          // Lower by ~1/6 of the line's ascent
-          baselineY += maxAscent * 0.15;
+        if (va === 'super' || va === 'sub') {
+          // Find parent font size (the normal-sized text on this line)
+          const normalWords = textWords.filter(w =>
+            w.style.verticalAlign !== 'super' && w.style.verticalAlign !== 'sub');
+          const parentFontSize = normalWords.length > 0
+            ? Math.max(...normalWords.map(w => w.style.fontSize))
+            : word.style.fontSize;
+          if (va === 'super') {
+            baselineY -= parentFontSize * 0.4;
+          } else {
+            baselineY += parentFontSize * 0.15;
+          }
         }
         const effectiveWidth = word.width + (word.isSpace ? justifyExtraPerSpace : 0);
 
