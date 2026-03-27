@@ -185,12 +185,22 @@ export function resolveStyles(
   function walkNode(node: Node): StyledNode | null {
     if (node.nodeType === Node.TEXT_NODE) {
       const text = node.textContent;
-      // Skip truly empty text nodes. Keep whitespace-only nodes that contain
-      // spaces (they represent word boundaries between inline elements)
-      // or non-breaking spaces (\u00A0).
       if (!text) return null;
-      // Skip nodes that are only newlines/tabs with no spaces (formatting whitespace)
-      if (text.trim() === '' && !text.includes(' ') && !text.includes('\u00A0')) return null;
+      // Keep non-breaking spaces always
+      if (text.trim() === '' && !text.includes('\u00A0')) {
+        // Whitespace-only: keep only if between inline siblings (word boundary).
+        // Drop if between block elements (formatting whitespace from HTML indentation).
+        const prev = node.previousSibling;
+        const next = node.nextSibling;
+        const isInlineSibling = (n: Node | null) => {
+          if (!n || n.nodeType !== Node.ELEMENT_NODE) return n?.nodeType === Node.TEXT_NODE;
+          const d = window.getComputedStyle(n as Element).display;
+          return d === 'inline' || d === 'inline-block';
+        };
+        if (!isInlineSibling(prev) && !isInlineSibling(next)) return null;
+        // Skip whitespace that contains newlines (HTML source indentation)
+        if (text.includes('\n')) return null;
+      }
 
       const parent = node.parentElement;
       if (!parent) return null;

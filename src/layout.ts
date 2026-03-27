@@ -842,35 +842,27 @@ function layoutBlock(
     let prevMarginBottom = 0;
     let hasContent = false; // tracks whether we've placed any content
 
-    for (const child of node.children) {
-      if (child.tagName === '#text') {
-        // Standalone text in block context
-        if (child.textContent && child.textContent.trim()) {
-          const lineHeight = getLineHeight(ctx, child.style);
-          const baselineY = curY + computeBaselineY(ctx, child.style, lineHeight);
-          ctx.font = buildCanvasFont(child.style);
-          const text = applyTextTransform(child.textContent.trim(), child.style.textTransform);
-          box.children.push({
-            type: 'text',
-            text,
-            x: contentX,
-            y: baselineY,
-            width: ctx.measureText(text).width,
-            style: child.style,
-          });
-          curY += lineHeight;
-          prevMarginBottom = 0;
-          hasContent = true;
-        }
-        continue;
-      }
+    for (let ci = 0; ci < node.children.length; ci++) {
+      const child = node.children[ci];
 
-      if (isInline(child)) {
+      if (child.tagName === '#text' || isInline(child)) {
+        // Collect ALL consecutive inline/text children into one group
+        const inlineChildren: StyledNode[] = [child];
+        while (ci + 1 < node.children.length) {
+          const next = node.children[ci + 1];
+          if (next.tagName === '#text' || isInline(next)) {
+            inlineChildren.push(next);
+            ci++;
+          } else {
+            break;
+          }
+        }
+
         const inlineGroup: StyledNode = {
           element: null,
           tagName: 'div',
           style: { ...node.style, display: 'block', marginTop: 0, marginBottom: 0, paddingTop: 0, paddingBottom: 0, borderTopWidth: 0, borderBottomWidth: 0 },
-          children: [child],
+          children: inlineChildren,
           textContent: null,
         };
         const { nodes, height } = layoutInlineContent(ctx, inlineGroup, contentX, curY, contentWidth);
