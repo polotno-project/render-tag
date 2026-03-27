@@ -578,17 +578,31 @@ function layoutInlineContent(
     }
 
     // Compute a single shared baseline for the entire line.
-    // All words align to the same baseline, determined by the largest font metrics.
+    // Exclude sub/sup words — they sit above/below the baseline and
+    // shouldn't influence where the baseline is positioned.
     let maxAscent = 0;
     let maxDescent = 0;
     for (const word of line.words) {
       if (word.text === '') continue;
+      const va = word.style.verticalAlign;
+      if (va === 'super' || va === 'sub') continue; // skip sub/sup for baseline calc
       ctx.font = buildCanvasFont(word.style);
       const m = ctx.measureText('M');
       const a = m.fontBoundingBoxAscent ?? m.actualBoundingBoxAscent;
       const d = m.fontBoundingBoxDescent ?? m.actualBoundingBoxDescent;
       if (a > maxAscent) maxAscent = a;
       if (d > maxDescent) maxDescent = d;
+    }
+    // If only sub/sup words on the line, use the first word's metrics
+    if (maxAscent === 0) {
+      for (const word of line.words) {
+        if (word.text === '') continue;
+        ctx.font = buildCanvasFont(word.style);
+        const m = ctx.measureText('M');
+        maxAscent = m.fontBoundingBoxAscent ?? m.actualBoundingBoxAscent;
+        maxDescent = m.fontBoundingBoxDescent ?? m.actualBoundingBoxDescent;
+        break;
+      }
     }
     // Center the text block (ascent + descent) within the lineHeight
     const textBlockHeight = maxAscent + maxDescent;
@@ -671,9 +685,11 @@ function layoutInlineContent(
             ? Math.max(...normalWords.map(w => w.style.fontSize))
             : word.style.fontSize;
           if (va === 'super') {
-            baselineY -= parentFontSize * 0.4;
+            // Browser raises super by ~0.33em of parent
+            baselineY -= parentFontSize * 0.33;
           } else {
-            baselineY += parentFontSize * 0.15;
+            // Browser lowers sub by ~0.25em of parent
+            baselineY += parentFontSize * 0.25;
           }
         }
         const effectiveWidth = word.width + (word.isSpace ? justifyExtraPerSpace : 0);
