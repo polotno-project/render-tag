@@ -170,6 +170,7 @@ export async function compareRenders(
   // Use the larger dimensions
   const w = Math.max(domCanvas.width, libCanvas.width);
   const h = Math.max(domCanvas.height, libCanvas.height);
+  console.log(`[compare] ref=${domCanvas.width}x${domCanvas.height} lib=${libCanvas.width}x${libCanvas.height} diff=${w}x${h} pixels=${w*h}`);
 
   const domData = padImageData(
     domCtx.getImageData(0, 0, domCanvas.width, domCanvas.height), w, h);
