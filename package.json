@@ -6,7 +6,9 @@
   "main": "src/index.ts",
   "scripts": {
     "dev": "vite",
-    "test": "vitest",
+    "test": "vitest run tests/render.test.ts",
+    "test:stress": "vitest run tests/stress.test.ts",
+    "test:firefox": "vitest run tests/render.test.ts -c vitest.firefox.config.ts",
     "build": "tsc"
   },
   "devDependencies": {
