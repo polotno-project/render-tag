@@ -922,7 +922,12 @@ function layoutBlock(
       marginBottomOut = Math.max(style.marginBottom, prevMarginBottom);
     }
 
-    box.height = borderTop + padTop + (curY - contentStartY) + padBottom + borderBottom;
+    // Include last child's margin-bottom in parent height when it can't collapse through
+    let contentEnd = curY - contentStartY;
+    if (!canCollapseThrough && prevMarginBottom > 0) {
+      contentEnd += prevMarginBottom;
+    }
+    box.height = borderTop + padTop + contentEnd + padBottom + borderBottom;
     if (style.minHeight > 0) box.height = Math.max(box.height, style.minHeight);
     return { box, height: box.height, marginBottomOut };
   }
