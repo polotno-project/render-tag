@@ -76,9 +76,9 @@ async function renderComparison(tc: BenchmarkCase, container: HTMLElement): Prom
   addColumn(row, 'html-to-svg', result.domCanvas, PIXEL_RATIO);
   addColumn(row, 'Canvas (lib)', result.libCanvas, PIXEL_RATIO);
 
-  // DOM last (lazy-load iframe to avoid Firefox font loading bottleneck)
-  // const iframe = createIsolatedDOM(tc);
-  // addColumn(row, 'DOM', iframe, 1);
+  // DOM last
+  const iframe = createIsolatedDOM(tc);
+  addColumn(row, 'DOM', iframe, 1);
 
   // Color the diff label
   const diffLabelEl = row.firstElementChild!.querySelector('h3') as HTMLElement;
@@ -147,12 +147,8 @@ async function main() {
   const results: CaseResult[] = [];
   const dashboard = createDashboard(allCases.length, app);
 
-  for (let i = 0; i < allCases.length; i++) {
-    const tc = allCases[i];
-    console.log(`[demo] ${i+1}/${allCases.length} starting: ${tc.name}`);
-    const t0 = performance.now();
+  for (const tc of allCases) {
     const result = await renderComparison(tc, app);
-    console.log(`[demo] ${i+1}/${allCases.length} done: ${tc.name} in ${(performance.now()-t0).toFixed(0)}ms`);
     results.push(result);
     updateDashboard(dashboard, results, allCases.length);
   }

@@ -2,6 +2,56 @@ import pixelmatch from 'pixelmatch';
 import { htmlToImage } from 'html-to-svg';
 import { renderHTML } from '../../src/index.ts';
 
+// ─── Canvas-based font loading detection ────────────────────────────────
+
+const FONT_PROBE_TEXT = 'BESbswy 0123456789 Il1Ww';
+const FALLBACK_FONTS = ['sans-serif', 'serif', 'monospace'] as const;
+const FONT_POLL_INTERVAL = 50;
+const FONT_POLL_TIMEOUT = 5000;
+
+let _measureCanvas: HTMLCanvasElement | null = null;
+function getMeasureCanvas(): CanvasRenderingContext2D {
+  if (!_measureCanvas) _measureCanvas = document.createElement('canvas');
+  return _measureCanvas.getContext('2d')!;
+}
+
+function measureFontWidth(fontFamily: string, fallback: string, weight: string, style: string): number {
+  const ctx = getMeasureCanvas();
+  ctx.font = `${style} ${weight} 40px '${fontFamily}', ${fallback}`;
+  return ctx.measureText(FONT_PROBE_TEXT).width;
+}
+
+function measureFallbackWidth(fallback: string, weight: string, style: string): number {
+  const ctx = getMeasureCanvas();
+  ctx.font = `${style} ${weight} 40px ${fallback}`;
+  return ctx.measureText(FONT_PROBE_TEXT).width;
+}
+
+function isFontAvailable(fontFamily: string, weight = '400', style = 'normal'): boolean {
+  return FALLBACK_FONTS.some(fallback => {
+    const withFont = measureFontWidth(fontFamily, fallback, weight, style);
+    const withoutFont = measureFallbackWidth(fallback, weight, style);
+    return Math.abs(withFont - withoutFont) > 0.01;
+  });
+}
+
+async function waitForFont(fontFamily: string, weight = '400', style = 'normal'): Promise<void> {
+  if (isFontAvailable(fontFamily, weight, style)) return;
+
+  // Try document.fonts.load first (fast path)
+  try {
+    await document.fonts.load(`${style} ${weight} 16px '${fontFamily}'`);
+    if (isFontAvailable(fontFamily, weight, style)) return;
+  } catch {}
+
+  // Poll canvas metrics until font appears or timeout
+  const maxAttempts = FONT_POLL_TIMEOUT / FONT_POLL_INTERVAL;
+  for (let i = 0; i < maxAttempts; i++) {
+    await new Promise(r => setTimeout(r, FONT_POLL_INTERVAL));
+    if (isFontAvailable(fontFamily, weight, style)) return;
+  }
+}
+
 export interface ComparisonResult {
   mismatchedPixels: number;
   totalPixels: number;
@@ -114,7 +164,6 @@ export async function compareRenders(
   threshold = 0.1,
   pixelRatio = 1,
 ): Promise<ComparisonResult> {
-  console.log('[compare] starting, loading fonts...');
   // Pre-load any @font-face fonts before rendering.
   // Check both the css parameter and inline <style> tags in html.
   const allCSS = (css || '') + '\n' + (html.match(/<style[^>]*>([\s\S]*?)<\/style>/gi) || [])
@@ -124,13 +173,13 @@ export async function compareRenders(
   if (allCSS.includes('@font-face')) {
     const fontFaceBlocks = allCSS.match(/@font-face\s*\{[^}]*\}/g) || [];
     if (fontFaceBlocks.length > 0) {
-      // Always inject @font-face rules so both renders can use them
+      // Inject @font-face rules
       fontStyle = document.createElement('style');
       fontStyle.textContent = fontFaceBlocks.join('\n');
       document.head.appendChild(fontStyle);
 
-      // Load each font variant explicitly
-      const loadPromises: Promise<unknown>[] = [];
+      // Wait for each font variant using canvas-based detection
+      const waitPromises: Promise<void>[] = [];
       const fontFaceRegex = /@font-face\s*\{([^}]*)\}/g;
       let ffMatch;
       while ((ffMatch = fontFaceRegex.exec(allCSS)) !== null) {
@@ -142,24 +191,13 @@ export async function compareRenders(
           const name = familyMatch[1].trim();
           const weight = weightMatch ? weightMatch[1].trim() : '400';
           const fStyle = styleMatch ? styleMatch[1].trim() : 'normal';
-          // Use a short timeout to avoid hanging in Firefox
-          loadPromises.push(
-            Promise.race([
-              document.fonts.load(`${fStyle} ${weight} 16px "${name}"`).catch(() => {}),
-              new Promise(r => setTimeout(r, 3000)),
-            ])
-          );
+          waitPromises.push(waitForFont(name, weight, fStyle));
         }
       }
-      await Promise.all(loadPromises);
-      await Promise.race([
-        document.fonts.ready,
-        new Promise(r => setTimeout(r, 3000)),
-      ]);
+      await Promise.all(waitPromises);
     }
   }
 
-  console.log('[compare] fonts ready, rendering reference...');
   const t0 = performance.now();
   const domCanvas = await renderToDOM(html, css, width, height, pixelRatio);
   const t1 = performance.now();
@@ -180,14 +218,12 @@ export async function compareRenders(
   // Use the larger dimensions
   const w = Math.max(domCanvas.width, libCanvas.width);
   const h = Math.max(domCanvas.height, libCanvas.height);
-  console.log(`[compare] ref=${domCanvas.width}x${domCanvas.height} lib=${libCanvas.width}x${libCanvas.height} diff=${w}x${h} pixels=${w*h}`);
 
   const domData = padImageData(
     domCtx.getImageData(0, 0, domCanvas.width, domCanvas.height), w, h);
   const libData = padImageData(
     libCtx.getImageData(0, 0, libCanvas.width, libCanvas.height), w, h);
 
-  console.log('[compare] running pixelmatch...');
   const t3 = performance.now();
   const diffData = new ImageData(w, h);
   const mismatchedPixels = pixelmatch(
@@ -195,11 +231,7 @@ export async function compareRenders(
     w, h,
     { threshold },
   );
-  console.log(`[compare] pixelmatch done in ${(performance.now()-t3).toFixed(0)}ms`);
-
   // Count content pixels: non-white in either image
-  console.log('[compare] counting content pixels...');
-  const t4 = performance.now();
   let contentPixels = 0;
   for (let i = 0; i < w * h; i++) {
     const idx = i * 4;
@@ -214,8 +246,6 @@ export async function compareRenders(
       contentPixels++;
     }
   }
-
-  console.log(`[compare] content pixels done in ${(performance.now()-t4).toFixed(0)}ms, ${contentPixels} content px`);
 
   // Create diff canvas
   const diffCanvas = document.createElement('canvas');
