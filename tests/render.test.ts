@@ -112,21 +112,50 @@ describe('HTML Canvas Renderer', () => {
       if (!allCases) allCases = await loadBasicCases();
       const failures: string[] = [];
 
+      // Known wrapping issues — fail only if NEW cases break
+      const KNOWN_WRAPPING_ISSUES = new Set([
+        'Formatted text (bold, italic, colors)',
+        'Styled table',
+        'Multi-column layout',
+        'Long unbroken word overflow-wrap',
+        'Narrow container single char per line',
+        'Mixed font sizes inline',
+        'Subscript and superscript',
+        'Mixed font-sizes same line',
+        'Japanese text mixed scripts',
+        'Simplified Chinese text',
+        'Korean Hangul text',
+        'Mixed CJK and Latin text',
+        'Thai text no word boundaries',
+        'Soft hyphens and zero-width spaces',
+        'List items with rich formatting',
+        'Empty list items mixed with content',
+        'Monospace vs proportional text',
+        'Mixed Google Fonts inline',
+      ]);
+
+      const newFailures: string[] = [];
       for (const tc of allCases) {
         const result = compareWrapping(tc.html, tc.css, tc.width, tc.height);
         if (!result.wrappingMatch) {
           const diffSummary = result.differentLines.slice(0, 3).map(d =>
             `  line ${d.lineIndex}: canvas="${d.canvas.substring(0, 40)}" dom="${d.dom.substring(0, 40)}"`
           ).join('\n');
-          failures.push(`${tc.name} (${result.canvasLineCount} vs ${result.domLineCount} lines):\n${diffSummary}`);
+          const msg = `${tc.name} (${result.canvasLineCount} vs ${result.domLineCount} lines):\n${diffSummary}`;
+          failures.push(msg);
+          if (!KNOWN_WRAPPING_ISSUES.has(tc.name)) {
+            newFailures.push(msg);
+          }
         }
       }
 
       const matched = allCases.length - failures.length;
-      console.log(`\nWrapping: ${matched}/${allCases.length} match`);
+      console.log(`\nWrapping: ${matched}/${allCases.length} match (${failures.length} known issues)`);
       if (failures.length > 0) {
-        console.log(`WRAPPING DIFFERENCES (${failures.length}):\n` + failures.join('\n\n'));
+        console.log(`WRAPPING DIFFERENCES:\n` + failures.join('\n\n'));
       }
+
+      expect(newFailures.length, `${newFailures.length} NEW wrapping failures:\n${newFailures.join('\n\n')}`).toBe(0);
     });
   });
 
@@ -173,6 +202,9 @@ describe('HTML Canvas Renderer', () => {
         for (const d of wrappingDetails.slice(0, 20)) console.log('  ' + d);
         if (wrappingDetails.length > 20) console.log(`  ... and ${wrappingDetails.length - 20} more`);
       }
+
+      // Report but don't fail — multi-font wrapping is tracked for improvement
+      console.log(`Total font wrapping issues: ${wrappingFailures}`);
     });
   });
 });

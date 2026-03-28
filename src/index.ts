@@ -48,22 +48,28 @@ export function renderHTML(
   // 6. Render to canvas
   renderNode(renderCtx, root);
 
-  // 7. Extract lines from layout tree
-  const lineMap = new Map<number, string[]>();
+  // 7. Extract lines from layout tree — group by Y with tolerance
+  const wordPositions: { y: number; text: string }[] = [];
   function walkLines(node: LayoutNode) {
     if (node.type === 'text' && node.text.trim()) {
-      const roundedY = Math.round(node.y);
-      if (!lineMap.has(roundedY)) lineMap.set(roundedY, []);
-      lineMap.get(roundedY)!.push(node.text);
+      wordPositions.push({ y: node.y, text: node.text });
     }
     if (node.type === 'box') {
       for (const child of node.children) walkLines(child);
     }
   }
   walkLines(root);
-  const lines: LayoutLine[] = [...lineMap.entries()]
-    .sort(([a], [b]) => a - b)
-    .map(([y, texts]) => ({ y, text: texts.join('') }));
+  wordPositions.sort((a, b) => a.y - b.y);
+
+  const lines: LayoutLine[] = [];
+  for (const wp of wordPositions) {
+    const lastLine = lines[lines.length - 1];
+    if (lastLine && Math.abs(wp.y - lastLine.y) < 4) {
+      lastLine.text += wp.text;
+    } else {
+      lines.push({ y: Math.round(wp.y), text: wp.text });
+    }
+  }
 
   // 8. Cleanup
   cleanup();

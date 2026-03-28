@@ -141,10 +141,11 @@ export function extractDomLines(
   const cTop = content.getBoundingClientRect().top;
 
   const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT);
-  const lineMap = new Map<number, string[]>();
   const textNodes: Text[] = [];
   while (walker.nextNode()) textNodes.push(walker.currentNode as Text);
 
+  // Collect word positions
+  const wordPositions: { y: number; text: string }[] = [];
   const range = document.createRange();
   for (const textNode of textNodes) {
     const text = textNode.textContent || '';
@@ -156,17 +157,26 @@ export function extractDomLines(
       range.setStart(textNode, offset);
       range.setEnd(textNode, offset + w.length);
       const rect = range.getBoundingClientRect();
-      const y = Math.round(rect.top - cTop);
-      if (!lineMap.has(y)) lineMap.set(y, []);
-      lineMap.get(y)!.push(w);
+      wordPositions.push({ y: rect.top - cTop, text: w });
       offset += w.length;
     }
   }
 
   document.body.removeChild(container);
-  return [...lineMap.entries()]
-    .sort(([a], [b]) => a - b)
-    .map(([y, texts]) => ({ y, text: texts.join(' ') }));
+
+  // Group into lines with tolerance — words within 4px vertically are same line.
+  // This handles sup/sub, inline-code padding, and sub-pixel differences.
+  wordPositions.sort((a, b) => a.y - b.y);
+  const lines: { y: number; text: string }[] = [];
+  for (const wp of wordPositions) {
+    const lastLine = lines[lines.length - 1];
+    if (lastLine && Math.abs(wp.y - lastLine.y) < 4) {
+      lastLine.text += ' ' + wp.text;
+    } else {
+      lines.push({ y: Math.round(wp.y), text: wp.text });
+    }
+  }
+  return lines;
 }
 
 export interface LayoutComparisonResult {

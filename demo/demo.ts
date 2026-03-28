@@ -1,4 +1,4 @@
-import { compareRenders } from '../tests/helpers/compare.ts';
+import { compareRenders, compareWrapping } from '../tests/helpers/compare.ts';
 import { loadBasicCases, loadGoogleFontCase, polotnoCase, polotnoListsCase, FONT_VARIANTS, loadMultiFontCss } from '../tests/helpers/test-cases.ts';
 import type { BenchmarkCase } from '../tests/helpers/test-cases.ts';
 
@@ -8,19 +8,15 @@ const PIXEL_RATIO = window.devicePixelRatio || 2;
 
 interface CellResult {
   mismatch: number;
+  wrappingFail: boolean;
 }
 
-// 2D grid: grid[testIndex][fontIndex] = CellResult
 type ResultGrid = (CellResult | null)[][];
 
 // ─── Font override ──────────────────────────────────────────────────────
 
 let _multiFontCss = '';
 
-/**
- * Create a variant of a test case with a different font.
- * Prepends the multi-font @font-face CSS and adds a body font-family override.
- */
 function withFont(tc: BenchmarkCase, fontFamily: string): BenchmarkCase {
   return {
     ...tc,
@@ -28,7 +24,7 @@ function withFont(tc: BenchmarkCase, fontFamily: string): BenchmarkCase {
   };
 }
 
-// ─── Detail view (click to expand) ──────────────────────────────────────
+// ─── Detail view ────────────────────────────────────────────────────────
 
 function addColumn(
   row: HTMLElement,
@@ -65,6 +61,7 @@ function createIsolatedDOM(tc: BenchmarkCase): HTMLIFrameElement {
 async function showDetail(tc: BenchmarkCase, fontFamily: string, container: HTMLElement) {
   const variant = withFont(tc, fontFamily);
   const result = await compareRenders(variant.html, variant.css, variant.width, variant.height, 0.1, PIXEL_RATIO);
+  const wrap = compareWrapping(variant.html, variant.css, variant.width, variant.height);
   const pct = result.contentMismatchPercentage;
   const filled = (result.contentPixels / result.totalPixels * 100).toFixed(0);
 
@@ -75,15 +72,32 @@ async function showDetail(tc: BenchmarkCase, fontFamily: string, container: HTML
   const title = document.createElement('h2');
   title.textContent = `${tc.name} — ${fontFamily} `;
   const badge = document.createElement('span');
-  badge.className = pct < 5 ? 'badge good' : pct < 20 ? 'badge warn' : 'badge bad';
+  badge.className = pct < 5 ? 'badge good' : pct < 30 ? 'badge warn' : 'badge bad';
   badge.textContent = `${pct.toFixed(1)}%`;
   title.appendChild(badge);
+  if (!wrap.wrappingMatch) {
+    const wrapBadge = document.createElement('span');
+    wrapBadge.className = 'badge bad';
+    wrapBadge.textContent = `WRAPPING FAIL (${wrap.canvasLineCount} vs ${wrap.domLineCount} lines)`;
+    title.appendChild(wrapBadge);
+  }
   const closeBtn = document.createElement('button');
   closeBtn.textContent = 'Close';
   closeBtn.style.cssText = 'margin-left:12px;font-size:12px;padding:2px 8px;cursor:pointer;';
   closeBtn.onclick = () => section.remove();
   title.appendChild(closeBtn);
   section.appendChild(title);
+
+  // Show wrapping differences
+  if (!wrap.wrappingMatch) {
+    const wrapInfo = document.createElement('div');
+    wrapInfo.style.cssText = 'background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:8px 12px;margin-bottom:12px;font-size:12px;font-family:monospace;white-space:pre-wrap;';
+    const diffLines = wrap.differentLines.slice(0, 5).map(d =>
+      `Line ${d.lineIndex}:\n  canvas: "${d.canvas.substring(0, 60)}"\n  dom:    "${d.dom.substring(0, 60)}"`
+    ).join('\n');
+    wrapInfo.textContent = diffLines;
+    section.appendChild(wrapInfo);
+  }
 
   const row = document.createElement('div');
   row.className = 'comparison';
@@ -125,11 +139,10 @@ async function showDetail(tc: BenchmarkCase, fontFamily: string, container: HTML
   row.appendChild(libCol);
 
   const diffLabelEl = row.firstElementChild!.querySelector('h3') as HTMLElement;
-  diffLabelEl.style.color = pct < 5 ? '#16a34a' : pct < 20 ? '#ca8a04' : '#dc2626';
+  diffLabelEl.style.color = pct < 5 ? '#16a34a' : pct < 30 ? '#ca8a04' : '#dc2626';
 
   section.appendChild(row);
 
-  // Remove existing detail view
   document.getElementById('detail-view')?.remove();
   container.prepend(section);
   section.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -148,23 +161,30 @@ function renderResultsTable(
   table.id = 'results-grid';
 
   const fontNames = fonts.map(f => f.name);
-
-  // Build HTML table
   const headerCells = fontNames.map(n => `<th>${n}</th>`).join('');
   let rows = '';
+  let hasFailures = false;
+
   for (let ti = 0; ti < cases.length; ti++) {
     let cells = '';
+    let rowHasFailure = false;
     for (let fi = 0; fi < fonts.length; fi++) {
       const cell = grid[ti][fi];
       if (cell === null) {
         cells += '<td class="pending">...</td>';
+      } else if (cell.wrappingFail) {
+        cells += `<td class="wrap-fail" data-test="${ti}" data-font="${fi}">WRAP</td>`;
+        rowHasFailure = true;
+        hasFailures = true;
       } else {
         const pct = cell.mismatch;
-        const cls = pct < 5 ? 'good' : pct < 20 ? 'warn' : 'bad';
+        const cls = pct < 5 ? 'good' : pct < 30 ? 'warn' : 'bad';
+        if (pct >= 30) { rowHasFailure = true; hasFailures = true; }
         cells += `<td class="${cls}" data-test="${ti}" data-font="${fi}">${pct.toFixed(1)}</td>`;
       }
     }
-    rows += `<tr><td class="test-name">${cases[ti].name}</td>${cells}</tr>`;
+    const rowCls = rowHasFailure ? ' class="has-failure"' : '';
+    rows += `<tr${rowCls}><td class="test-name">${cases[ti].name}</td>${cells}</tr>`;
   }
 
   table.innerHTML = `
@@ -174,7 +194,6 @@ function renderResultsTable(
     </table>
   `;
 
-  // Click handler for cells — show detail view
   table.addEventListener('click', (e) => {
     const td = (e.target as HTMLElement).closest('td[data-test]') as HTMLElement | null;
     if (!td) return;
@@ -193,48 +212,47 @@ function renderResultsTable(
 async function main() {
   const app = document.getElementById('app')!;
 
-  // Status
   const status = document.createElement('div');
   status.id = 'status';
   status.textContent = 'Loading fonts and test cases...';
   app.appendChild(status);
 
-  // Load everything
   _multiFontCss = await loadMultiFontCss();
   const basicCases = await loadBasicCases();
   const googleFontCase = await loadGoogleFontCase();
   const allCases = [...basicCases, googleFontCase, polotnoCase, polotnoListsCase];
   const fonts = FONT_VARIANTS;
 
-  // Create grid
   const grid: ResultGrid = allCases.map(() => fonts.map(() => null));
 
-  // Table container
   const tableContainer = document.createElement('div');
   tableContainer.id = 'table-container';
   app.appendChild(tableContainer);
 
-  // Detail container (for clicked cells)
   const detailContainer = document.createElement('div');
   detailContainer.id = 'detail-container';
   app.appendChild(detailContainer);
 
-  // Initial render
   renderResultsTable(allCases, fonts, grid, tableContainer, detailContainer);
 
-  // Run all comparisons
   const total = allCases.length * fonts.length;
   let done = 0;
+  const failedCells: { ti: number; fi: number }[] = [];
 
   for (let ti = 0; ti < allCases.length; ti++) {
     for (let fi = 0; fi < fonts.length; fi++) {
       const tc = allCases[ti];
       const variant = withFont(tc, fonts[fi].family);
       try {
+        const wrap = compareWrapping(variant.html, variant.css, variant.width, variant.height);
         const result = await compareRenders(variant.html, variant.css, variant.width, variant.height, 0.1, PIXEL_RATIO);
-        grid[ti][fi] = { mismatch: result.contentMismatchPercentage };
+        const wrappingFail = !wrap.wrappingMatch;
+        grid[ti][fi] = { mismatch: result.contentMismatchPercentage, wrappingFail };
+        if (wrappingFail || result.contentMismatchPercentage >= 30) {
+          failedCells.push({ ti, fi });
+        }
       } catch (e) {
-        grid[ti][fi] = { mismatch: -1 };
+        grid[ti][fi] = { mismatch: -1, wrappingFail: false };
       }
       done++;
       status.textContent = `Running: ${done}/${total} (${(done/total*100).toFixed(0)}%)`;
@@ -244,11 +262,23 @@ async function main() {
 
   // Summary
   const allResults = grid.flat().filter((c): c is CellResult => c !== null && c.mismatch >= 0);
+  const good = allResults.filter(r => !r.wrappingFail && r.mismatch < 5).length;
+  const warn = allResults.filter(r => !r.wrappingFail && r.mismatch >= 5 && r.mismatch < 30).length;
+  const bad = allResults.filter(r => r.mismatch >= 30).length;
+  const wrapFails = allResults.filter(r => r.wrappingFail).length;
   const avg = allResults.reduce((s, r) => s + r.mismatch, 0) / allResults.length;
-  const good = allResults.filter(r => r.mismatch < 5).length;
-  const warn = allResults.filter(r => r.mismatch >= 5 && r.mismatch < 20).length;
-  const bad = allResults.filter(r => r.mismatch >= 20).length;
-  status.innerHTML = `Done: ${allResults.length} cells | <span style="color:#16a34a">${good} &lt;5%</span> | <span style="color:#ca8a04">${warn} 5-20%</span> | <span style="color:#dc2626">${bad} &gt;20%</span> | avg ${avg.toFixed(1)}%`;
+  status.innerHTML = `Done: ${allResults.length} cells | ` +
+    `<span style="color:#16a34a">${good} &lt;5%</span> | ` +
+    `<span style="color:#ca8a04">${warn} 5-30%</span> | ` +
+    `<span style="color:#dc2626">${bad} &gt;30%</span> | ` +
+    `<span style="color:#dc2626;font-weight:700">${wrapFails} WRAP</span> | ` +
+    `avg ${avg.toFixed(1)}%`;
+
+  // Auto-show first failed cell
+  if (failedCells.length > 0) {
+    const { ti, fi } = failedCells[0];
+    showDetail(allCases[ti], fonts[fi].family, detailContainer);
+  }
 }
 
 main().catch(console.error);
