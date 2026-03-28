@@ -78,7 +78,9 @@ export async function renderToDOM(
   const pixelWidth = Math.ceil(width * pixelRatio);
   const pixelHeight = Math.ceil(height * pixelRatio);
 
-  const fullHTML = `<div style="margin:0;padding:0">${html}</div>`;
+  // overflow:hidden creates a BFC, preventing first-child margin collapse.
+  // This ensures consistent rendering across Chrome and Firefox foreignObject.
+  const fullHTML = `<div style="margin:0;padding:0;overflow:hidden">${html}</div>`;
   const fullCSS = `html, body { margin: 0; padding: 0; }\n${css || ''}`;
 
   const img = await htmlToImage({

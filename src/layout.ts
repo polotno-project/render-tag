@@ -1098,7 +1098,8 @@ function layoutBlock(
       hasContent = true;
     }
 
-    // Last child's margin-bottom collapses through parent if no bottom border/padding
+    // Last child's margin-bottom collapses through parent if no bottom border/padding.
+    // Root container does NOT collapse last-child margin (it defines the content height).
     let marginBottomOut = style.marginBottom;
     const canCollapseThrough = padBottom === 0 && borderBottom === 0 && allowCollapseThrough;
     if (canCollapseThrough && prevMarginBottom > 0) {
