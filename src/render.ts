@@ -211,7 +211,7 @@ function renderText(ctx: CanvasRenderingContext2D, node: LayoutText, gradientFil
   ctx.save();
   ctx.font = buildCanvasFont(style);
   ctx.textBaseline = 'alphabetic';
-  ctx.fontKerning = 'normal';
+  ctx.fontKerning = style.fontKerning === 'none' ? 'none' : 'normal';
   if (style.letterSpacing > 0) {
     ctx.letterSpacing = `${style.letterSpacing}px`;
   }

@@ -45,6 +45,7 @@ export interface ResolvedStyle {
   webkitBackgroundClip: string;
   backgroundImage: string;
   letterSpacing: number;
+  fontKerning: string;
   lineHeight: number;
   verticalAlign: string;
   whiteSpace: string;

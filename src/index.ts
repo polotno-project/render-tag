@@ -30,7 +30,6 @@ export function renderHTML(
   const canvas = options.canvas || document.createElement('canvas');
   const tmpCanvas = document.createElement('canvas');
   const ctx = tmpCanvas.getContext('2d')!;
-  ctx.fontKerning = 'normal';
 
   // 4. Build layout tree using pure canvas measurement
   const { root, height: contentHeight } = buildLayoutTree(ctx, tree, width, useDomMeasurements);

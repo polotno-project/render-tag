@@ -120,6 +120,12 @@ The library targets Chrome as the primary browser. For consistent rendering acro
 /* Suppress Firefox's ::marker extra line height (~1.5px per list item).
    render-tag draws list markers itself, so this loses nothing visually. */
 li::marker { content: none; font-size: 0; line-height: 0; }
+
+/* Fix Firefox emoji position drift (apply to elements with emoji).
+   Firefox's canvas kerning differs from DOM kerning for emoji characters,
+   causing cumulative X position shift. Disabling kerning makes them match.
+   Note: this slightly affects letter pair spacing for regular text. */
+.has-emoji { font-kerning: none; }
 ```
 
 With `useDomMeasurements: true` (the default), the library uses hidden DOM probes to match Firefox's actual line box heights. If you disable DOM measurements (`useDomMeasurements: false`), the CSS above becomes especially important for Firefox consistency.

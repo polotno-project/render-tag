@@ -4,6 +4,68 @@ import type { StyledNode, LayoutNode, LayoutBox, LayoutText, ResolvedStyle } fro
 // Set by buildLayoutTree() based on the useDomMeasurements option.
 let _useDomMeasurements = true;
 
+// ─── Emoji feature detection ────────────────────────────────────────────
+
+/**
+ * Detect whether this browser's canvas measureText gives different widths
+ * for emoji than the DOM. Firefox returns slightly different values,
+ * causing cumulative X position drift in emoji-heavy text.
+ *
+ * When detected, emoji-containing words are measured via DOM instead.
+ */
+let _emojiNeedsDomMeasure: boolean | null = null; // null = not yet checked
+let _emojiProbe: HTMLSpanElement | null = null;
+
+// Regex to detect emoji in text (covers most common emoji ranges)
+const EMOJI_RE = /[\u{1F000}-\u{1FFFF}]|[\u{2600}-\u{27BF}]|[\u{FE00}-\u{FE0F}]|[\u{200D}]|[\u{1F1E0}-\u{1F1FF}]/u;
+
+function checkEmojiMeasureDifference(): boolean {
+  if (_emojiNeedsDomMeasure !== null) return _emojiNeedsDomMeasure;
+
+  try {
+    const testEmoji = '😀🎉🔥';
+    const font = '16px system-ui, sans-serif';
+
+    // Canvas measurement
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d')!;
+    ctx.font = font;
+    ctx.fontKerning = 'normal';
+    const canvasWidth = ctx.measureText(testEmoji).width;
+
+    // DOM measurement
+    if (!_emojiProbe) {
+      _emojiProbe = document.createElement('span');
+      _emojiProbe.style.cssText =
+        'position:absolute;top:-9999px;left:-9999px;visibility:hidden;white-space:nowrap;padding:0;margin:0;border:0;';
+      document.body.appendChild(_emojiProbe);
+    }
+    _emojiProbe.style.font = font;
+    _emojiProbe.style.fontKerning = 'normal';
+    _emojiProbe.textContent = testEmoji;
+    const domWidth = _emojiProbe.getBoundingClientRect().width;
+
+    _emojiNeedsDomMeasure = Math.abs(canvasWidth - domWidth) > 0.5;
+  } catch {
+    _emojiNeedsDomMeasure = false;
+  }
+
+  return _emojiNeedsDomMeasure;
+}
+
+function measureEmojiWordViaDom(text: string, font: string, fontKerning: string): number {
+  if (!_emojiProbe) {
+    _emojiProbe = document.createElement('span');
+    _emojiProbe.style.cssText =
+      'position:absolute;top:-9999px;left:-9999px;visibility:hidden;white-space:nowrap;padding:0;margin:0;border:0;';
+    document.body.appendChild(_emojiProbe);
+  }
+  _emojiProbe.style.font = font;
+  _emojiProbe.style.fontKerning = fontKerning;
+  _emojiProbe.textContent = text;
+  return _emojiProbe.getBoundingClientRect().width;
+}
+
 // ─── DOM-based line width measurement ──────────────────────────────────
 
 /**
@@ -89,6 +151,14 @@ function hasMixedFonts(words: Word[]): boolean {
 }
 
 // ─── Canvas font helpers ───────────────────────────────────────────────
+
+/**
+ * Set canvas font and kerning from resolved style.
+ */
+function applyFont(ctx: CanvasRenderingContext2D, style: ResolvedStyle): void {
+  ctx.font = buildCanvasFont(style);
+  ctx.fontKerning = style.fontKerning === 'none' ? 'none' : 'normal';
+}
 
 /**
  * Build a canvas font string from resolved style.
@@ -384,9 +454,15 @@ function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRu
         continue;
       }
       const isSpace = /^ +$/.test(w);
+      let width = ctx.measureText(w).width;
+      // In browsers where canvas emoji metrics differ from DOM (Firefox),
+      // use DOM measurement for emoji-containing words
+      if (!isSpace && _useDomMeasurements && EMOJI_RE.test(w) && checkEmojiMeasureDifference()) {
+        width = measureEmojiWordViaDom(w, buildCanvasFont(run.style), run.style.fontKerning || 'auto');
+      }
       allWords.push({
         text: w,
-        width: ctx.measureText(w).width,
+        width,
         style: run.style,
         isSpace,
         boxStyle: run.boxStyle,
@@ -443,9 +519,18 @@ function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRu
       const prevCum = cumWidth;
       cumText += w;
       cumWidth = ctx.measureText(cumText).width;
+      let width = cumWidth - prevCum;
+      // In browsers where canvas emoji metrics differ from DOM (Firefox),
+      // use DOM measurement for emoji-containing words
+      if (_useDomMeasurements && EMOJI_RE.test(w) && checkEmojiMeasureDifference()) {
+        width = measureEmojiWordViaDom(w, buildCanvasFont(run.style), run.style.fontKerning || 'auto');
+        // Reset cumulative tracking since DOM measurement breaks the chain
+        cumText = '';
+        cumWidth = 0;
+      }
       allWords.push({
         text: w,
-        width: cumWidth - prevCum,
+        width,
         style: run.style,
         isSpace: false,
         boxStyle: run.boxStyle,
@@ -475,7 +560,7 @@ function tokenizeRuns(ctx: CanvasRenderingContext2D, runs: TextRun[]): Word[] {
     // Atomic inline-block: entire element (margin + padding + text) is one word
     // Must check before boxOpen/boxClose handlers since atomic has both set.
     if (run.boxOpen && run.boxClose && run.text) {
-      ctx.font = buildCanvasFont(run.style);
+      applyFont(ctx, run.style);
       ctx.letterSpacing = run.style.letterSpacing > 0 ? `${run.style.letterSpacing}px` : '0px';
       const text = applyTextTransform(run.text, run.style.textTransform);
       const s = run.style;
@@ -510,7 +595,7 @@ function tokenizeRuns(ctx: CanvasRenderingContext2D, runs: TextRun[]): Word[] {
       continue;
     }
 
-    ctx.font = buildCanvasFont(run.style);
+    applyFont(ctx, run.style);
     ctx.letterSpacing = run.style.letterSpacing > 0 ? `${run.style.letterSpacing}px` : '0px';
     const text = applyTextTransform(run.text, run.style.textTransform);
 
