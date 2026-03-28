@@ -125,16 +125,17 @@ export function renderToCanvas(
  * Extract text lines from DOM using Range API.
  * Groups words by their Y position to detect line breaks.
  */
-export function extractDomLines(
+export async function extractDomLines(
   html: string,
   css: string,
   width: number,
-): { y: number; text: string }[] {
+): Promise<{ y: number; text: string }[]> {
+  // Create a container matching the exact structure used for the DOM toggle
+  // view — same CSS scoping, same overflow, same wrapper structure.
   const containerId = `__wrap_check_${Date.now()}__`;
   const container = document.createElement('div');
   container.id = containerId;
-  container.style.cssText = `position:absolute;left:-9999px;width:${width}px;margin:0;padding:0;overflow:hidden;`;
-  // Scope CSS: replace body/html selectors with container ID
+  container.style.cssText = `position:absolute;left:-9999px;width:${width}px;overflow:hidden;`;
   const scopedCss = css.replace(
     /(^|[},;\s])(\s*)(html|body)\b/gm,
     (match, before, space) => `${before}${space}#${containerId}`,
@@ -143,10 +144,14 @@ export function extractDomLines(
   styleEl.textContent = scopedCss;
   container.appendChild(styleEl);
   const content = document.createElement('div');
-  content.style.cssText = 'margin:0;padding:0;overflow:hidden;';
+  content.style.cssText = 'margin:0;padding:0;';
   content.innerHTML = html;
   container.appendChild(content);
   document.body.appendChild(container);
+
+  // Wait for fonts to load so text wraps with the correct metrics
+  await document.fonts.ready;
+
   const cTop = content.getBoundingClientRect().top;
 
   const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT, {
@@ -251,29 +256,15 @@ export interface LayoutComparisonResult {
  *   If not provided, runs renderHTML internally (may differ from displayed canvas
  *   if font loading state changed).
  */
-export function compareWrapping(
+export async function compareWrapping(
   html: string,
   css: string,
   width: number,
   height: number,
   precomputedCanvasLines?: { y: number; text: string }[],
-  pixelMismatchPct?: number,
-): LayoutComparisonResult {
-  // If pixel comparison shows near-perfect match, wrapping is definitely correct.
-  // Text extraction from a separate DOM container is unreliable (CSS scoping,
-  // font timing) — trust the pixel comparison when it's conclusive.
-  if (pixelMismatchPct !== undefined && pixelMismatchPct < 2) {
-    const lines = precomputedCanvasLines || [];
-    return {
-      wrappingMatch: true,
-      canvasLineCount: lines.length,
-      domLineCount: lines.length,
-      differentLines: [],
-    };
-  }
-
+): Promise<LayoutComparisonResult> {
   const rawCanvasLines = precomputedCanvasLines || renderHTML(html, { width, height, css }).lines;
-  const rawDomLines = extractDomLines(html, css, width);
+  const rawDomLines = await extractDomLines(html, css, width);
 
   // Normalize: strip whitespace and list markers, sort characters.
   // We only care that the same characters appear on the same line,

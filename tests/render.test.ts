@@ -113,7 +113,7 @@ describe('HTML Canvas Renderer', () => {
       const failures: string[] = [];
 
       for (const tc of allCases) {
-        const result = compareWrapping(tc.html, tc.css, tc.width, tc.height);
+        const result = await compareWrapping(tc.html, tc.css, tc.width, tc.height);
         if (!result.wrappingMatch) {
           const diffSummary = result.differentLines.slice(0, 3).map(d =>
             `  line ${d.lineIndex}: canvas="${d.canvas.substring(0, 40)}" dom="${d.dom.substring(0, 40)}"`
@@ -150,7 +150,7 @@ describe('HTML Canvas Renderer', () => {
           const css = multiFontCss + '\n' + tc.css + `\nbody { font-family: ${font.family} !important; }`;
 
           // Check wrapping
-          const wrap = compareWrapping(tc.html, css, tc.width, tc.height);
+          const wrap = await compareWrapping(tc.html, css, tc.width, tc.height);
           if (!wrap.wrappingMatch) {
             fontWrappingFails++;
             wrappingFailures++;
