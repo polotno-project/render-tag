@@ -160,6 +160,17 @@ function updateDashboard(dashboard: HTMLElement, results: CaseResult[], total: n
   const medRef = median(results.map(r => r.referenceTime));
   const speedup = medCanvas > 0 ? (medRef / medCanvas).toFixed(1) : '-';
 
+  // Build results table rows
+  const sortedResults = [...results].sort((a, b) => b.contentMismatch - a.contentMismatch);
+  const tableRows = sortedResults.map(r => {
+    const cls = r.contentMismatch < 5 ? 'good' : r.contentMismatch < 20 ? 'warn' : 'bad';
+    return `<tr class="${cls}">
+      <td>${r.name}</td>
+      <td>${r.contentMismatch.toFixed(1)}%</td>
+      <td>${r.canvasTime.toFixed(0)}ms</td>
+    </tr>`;
+  }).join('');
+
   dashboard.innerHTML = `
     <div class="progress-bar"><div class="progress-fill" style="width: ${progress}%"></div></div>
     <div class="stats">
@@ -172,6 +183,11 @@ function updateDashboard(dashboard: HTMLElement, results: CaseResult[], total: n
       <div class="stat"><div class="stat-value">${medRef.toFixed(0)}ms</div><div class="stat-label">Median ref</div></div>
       <div class="stat"><div class="stat-value">${speedup}x</div><div class="stat-label">Speedup</div></div>
     </div>
+    ${done > 0 ? `<details style="margin-top:12px"><summary style="cursor:pointer;font-size:13px;color:#6b7280">Results table (${done} cases)</summary>
+    <table class="results-table">
+      <thead><tr><th>Test</th><th>Mismatch</th><th>Time</th></tr></thead>
+      <tbody>${tableRows}</tbody>
+    </table></details>` : ''}
   `;
 }
 

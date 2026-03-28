@@ -30,6 +30,14 @@
     .comparison > div { flex-shrink: 0; }
     .comparison h3 { margin: 0 0 6px; font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; }
     canvas, .comparison > div > div { display: block; }
+
+    /* Results table */
+    .results-table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13px; }
+    .results-table th { text-align: left; padding: 4px 8px; border-bottom: 2px solid #e5e7eb; color: #6b7280; font-weight: 600; }
+    .results-table td { padding: 3px 8px; border-bottom: 1px solid #f3f4f6; }
+    .results-table tr.good td:nth-child(2) { color: #16a34a; }
+    .results-table tr.warn td:nth-child(2) { color: #ca8a04; }
+    .results-table tr.bad td:nth-child(2) { color: #dc2626; font-weight: 600; }
   </style>
 </head>
 <body>

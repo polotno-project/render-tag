@@ -12,7 +12,12 @@ const GOOGLE_FONT_CSS_URL =
 const OPEN_SANS_CSS_URL =
   'https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,300;0,400;0,600;0,700;1,400&display=swap';
 
+// Multi-font Google Fonts URL — includes fonts with unusual metrics
+const MULTI_FONT_CSS_URL =
+  'https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400&family=Inconsolata:wght@400;700&family=Lobster&family=Merriweather:ital,wght@0,400;0,700;1,400&family=Roboto:ital,wght@0,400;0,700;1,400&display=swap';
+
 let _openSansCss: string | undefined;
+let _multiFontCss: string | undefined;
 
 async function getOpenSansCss(): Promise<string> {
   if (_openSansCss) return _openSansCss;
@@ -25,8 +30,25 @@ async function getOpenSansCss(): Promise<string> {
   return _openSansCss;
 }
 
+async function getMultiFontCss(): Promise<string> {
+  if (_multiFontCss) return _multiFontCss;
+  try {
+    const resp = await fetch(MULTI_FONT_CSS_URL);
+    _multiFontCss = await resp.text();
+  } catch {
+    _multiFontCss = ['Playfair Display', 'Inconsolata', 'Lobster', 'Merriweather', 'Roboto']
+      .map(f => `@font-face { font-family: '${f}'; font-weight: 400; src: local('${f}'); }`)
+      .join('\n');
+  }
+  return _multiFontCss;
+}
+
 function withOpenSans(css: string): string {
   return _openSansCss + '\n' + css;
+}
+
+function withMultiFont(css: string): string {
+  return _multiFontCss + '\n' + css;
 }
 
 export async function loadGoogleFontCase(): Promise<BenchmarkCase> {
@@ -54,6 +76,7 @@ export async function loadGoogleFontCase(): Promise<BenchmarkCase> {
 
 export async function loadBasicCases(): Promise<BenchmarkCase[]> {
   await getOpenSansCss();
+  await getMultiFontCss();
   const font = `font-family: 'Open Sans', sans-serif;`;
 
   return [
@@ -366,7 +389,9 @@ console.log(msg);</pre>
       name: 'Empty paragraphs and blank lines',
       width: 400,
       height: 400,
-      css: withOpenSans(`body { ${font} font-size: 16px; } p { margin: 0; min-height: 1em; }`),
+      css: withOpenSans(
+        `body { ${font} font-size: 16px; } p { margin: 0; min-height: 1em; }`,
+      ),
       html: `<p>First paragraph of content.</p>
 <p><br></p>
 <p><br></p>
@@ -386,7 +411,9 @@ console.log(msg);</pre>
       name: 'Long unbroken word overflow-wrap',
       width: 250,
       height: 300,
-      css: withOpenSans(`body { ${font} font-size: 14px; line-height: 1.5; } p { overflow-wrap: break-word; word-break: break-word; }`),
+      css: withOpenSans(
+        `body { ${font} font-size: 14px; line-height: 1.5; } p { overflow-wrap: break-word; word-break: break-word; }`,
+      ),
       html: `<p>Please visit this link:</p>
 <p>https://www.example.com/very/long/path/that/should/wrap/across/multiple/lines/in/the/container</p>
 <p>And also this one: superlongwordwithoutanybreakpointsthatmustbeforciblybrokenbythelayoutenginetofitinsidethecontainer</p>
@@ -400,7 +427,9 @@ console.log(msg);</pre>
       name: 'Narrow container single char per line',
       width: 50,
       height: 400,
-      css: withOpenSans(`body { ${font} font-size: 16px; line-height: 1.4; } p { overflow-wrap: break-word; }`),
+      css: withOpenSans(
+        `body { ${font} font-size: 16px; line-height: 1.4; } p { overflow-wrap: break-word; }`,
+      ),
       html: `<p>Hello World</p>
 <p>Testing narrow layout</p>`,
     },
@@ -479,7 +508,9 @@ console.log(msg);</pre>
       name: 'Subscript and superscript',
       width: 500,
       height: 250,
-      css: withOpenSans(`body { ${font} font-size: 16px; line-height: 1.8; } sub { font-size: 0.7em; vertical-align: sub; } sup { font-size: 0.7em; vertical-align: super; }`),
+      css: withOpenSans(
+        `body { ${font} font-size: 16px; line-height: 1.8; } sub { font-size: 0.7em; vertical-align: sub; } sup { font-size: 0.7em; vertical-align: super; }`,
+      ),
       html: `<p>Water is H<sub>2</sub>O and carbon dioxide is CO<sub>2</sub>.</p>
 <p>Einstein's famous equation: E=mc<sup>2</sup></p>
 <p>The area of a circle is \u03C0r<sup>2</sup> and volume of a sphere is (4/3)\u03C0r<sup>3</sup>.</p>
@@ -671,7 +702,8 @@ console.log(msg);</pre>
       width: 500,
       height: 300,
       css: `body { font-family: system-ui, sans-serif; font-size: 16px; line-height: 2.0; }`,
-      html: `<p>Simple emoji: \u{1F600} \u{1F389} \u{2764}\uFE0F \u{1F680} \u{2B50} \u{1F525} \u{1F4A1} \u{1F3AF}</p>
+      html: `<p>Simple emoji.</p>
+<p>Simple emoji: \u{1F600} \u{1F389} \u{2764}\uFE0F \u{1F680} \u{2B50} \u{1F525} \u{1F4A1} \u{1F3AF}</p>
 <p>Skin tones: \u{1F44B}\u{1F3FB} \u{1F44B}\u{1F3FC} \u{1F44B}\u{1F3FD} \u{1F44B}\u{1F3FE} \u{1F44B}\u{1F3FF}</p>
 <p>ZWJ family: \u{1F468}\u200D\u{1F469}\u200D\u{1F467}\u200D\u{1F466}</p>
 <p>Flag: \u{1F3F3}\uFE0F\u200D\u{1F308}</p>
@@ -686,7 +718,9 @@ console.log(msg);</pre>
       name: 'Pre-wrap preserved whitespace',
       width: 500,
       height: 300,
-      css: withOpenSans(`body { ${font} font-size: 14px; line-height: 1.6; white-space: pre-wrap; }`),
+      css: withOpenSans(
+        `body { ${font} font-size: 14px; line-height: 1.6; white-space: pre-wrap; }`,
+      ),
       html: `<p>Column1     Column2     Column3     Column4</p>
 <p>Data A      Data B      Data C      Data D</p>
 <p>Short       Longer      X           Done</p>
@@ -746,7 +780,9 @@ console.log(msg);</pre>
       name: 'Long wrapping list items',
       width: 400,
       height: 400,
-      css: withOpenSans(`body { ${font} font-size: 14px; } ul { padding-left: 24px; } li { line-height: 1.6; margin-bottom: 8px; }`),
+      css: withOpenSans(
+        `body { ${font} font-size: 14px; } ul { padding-left: 24px; } li { line-height: 1.6; margin-bottom: 8px; }`,
+      ),
       html: `<ul>
 <li>This is a very long list item that contains enough text to wrap onto multiple lines within the list. The bullet point should align with the first line while subsequent lines are indented properly.</li>
 <li>Short item.</li>
@@ -762,7 +798,9 @@ console.log(msg);</pre>
       name: 'Deeply nested mixed lists',
       width: 500,
       height: 500,
-      css: withOpenSans(`body { ${font} font-size: 14px; } ul, ol { padding-left: 24px; margin: 4px 0; } li { line-height: 1.6; }`),
+      css: withOpenSans(
+        `body { ${font} font-size: 14px; } ul, ol { padding-left: 24px; margin: 4px 0; } li { line-height: 1.6; }`,
+      ),
       html: `<ol>
 <li>First level ordered
   <ul>
@@ -805,7 +843,9 @@ console.log(msg);</pre>
       name: 'List items with rich formatting',
       width: 450,
       height: 350,
-      css: withOpenSans(`body { ${font} font-size: 15px; } ul, ol { padding-left: 24px; margin: 6px 0; } li { line-height: 1.7; }`),
+      css: withOpenSans(
+        `body { ${font} font-size: 15px; } ul, ol { padding-left: 24px; margin: 6px 0; } li { line-height: 1.7; }`,
+      ),
       html: `<ul>
 <li><strong style="color: #dc2626;">Important:</strong> Review the <em>quarterly report</em> before Friday.</li>
 <li><span style="color: #16a34a; font-weight: bold;">Done:</span> <s>Update the deployment scripts</s></li>
@@ -826,7 +866,9 @@ console.log(msg);</pre>
       name: 'Empty list items mixed with content',
       width: 400,
       height: 300,
-      css: withOpenSans(`body { ${font} font-size: 15px; } ul { padding-left: 24px; } li { line-height: 1.6; min-height: 1em; }`),
+      css: withOpenSans(
+        `body { ${font} font-size: 15px; } ul { padding-left: 24px; } li { line-height: 1.6; min-height: 1em; }`,
+      ),
       html: `<ul>
 <li>First item with content</li>
 <li><br></li>
@@ -846,7 +888,9 @@ console.log(msg);</pre>
       name: 'Center aligned text',
       width: 500,
       height: 250,
-      css: withOpenSans(`body { ${font} font-size: 16px; line-height: 1.6; text-align: center; }`),
+      css: withOpenSans(
+        `body { ${font} font-size: 16px; line-height: 1.6; text-align: center; }`,
+      ),
       html: `<h2 style="text-align: center; font-size: 24px;">Centered Heading</h2>
 <p style="text-align: center;">This paragraph is centered. Every line of wrapping text should be centered within the container width.</p>
 <p style="text-align: center;">Short centered line.</p>
@@ -974,7 +1018,9 @@ console.log(msg);</pre>
       name: 'Nowrap overflow text',
       width: 200,
       height: 150,
-      css: withOpenSans(`body { ${font} font-size: 15px; } p { white-space: nowrap; }`),
+      css: withOpenSans(
+        `body { ${font} font-size: 15px; } p { white-space: nowrap; }`,
+      ),
       html: `<p>This is a long line of text that should not wrap and will overflow the container boundary.</p>
 <p>Another non-wrapping line that extends way beyond the available width.</p>`,
     },
@@ -1003,7 +1049,9 @@ console.log(msg);</pre>
       name: 'Long document 20+ paragraphs',
       width: 500,
       height: 2000,
-      css: withOpenSans(`body { ${font} font-size: 14px; line-height: 1.6; } h2 { font-size: 20px; margin: 16px 0 8px; } p { margin-bottom: 10px; }`),
+      css: withOpenSans(
+        `body { ${font} font-size: 14px; line-height: 1.6; } h2 { font-size: 20px; margin: 16px 0 8px; } p { margin-bottom: 10px; }`,
+      ),
       html: `<h2>Chapter 1: Introduction</h2>
 <p>The field of computer science has undergone remarkable transformation since its inception in the mid-twentieth century.</p>
 <p>What began as a discipline focused on mathematical computation has evolved into a vast ecosystem of specializations.</p>
@@ -1055,7 +1103,9 @@ console.log(msg);</pre>
       name: 'Whitespace-only paragraphs',
       width: 400,
       height: 300,
-      css: withOpenSans(`body { ${font} font-size: 16px; } p { margin: 0; min-height: 1em; }`),
+      css: withOpenSans(
+        `body { ${font} font-size: 16px; } p { margin: 0; min-height: 1em; }`,
+      ),
       html: `<p>Visible paragraph before.</p>
 <p>   </p>
 <p>&nbsp;&nbsp;&nbsp;</p>
@@ -1097,6 +1147,125 @@ console.log(msg);</pre>
   </div>
   <p>Final outer paragraph.</p>
 </div>`,
+    },
+    // =========================================================================
+    // MULTI-FONT TEST CASES
+    // =========================================================================
+
+    // 48. Playfair Display — high contrast serif with tall ascenders/descenders
+    {
+      name: 'Playfair Display serif',
+      width: 500,
+      height: 300,
+      css: withMultiFont(`body { font-family: 'Playfair Display', serif; font-size: 18px; line-height: 1.6; }`),
+      html: `<p>Typography matters. <strong>Bold Playfair</strong> has dramatic thick-thin contrast.</p>
+<p><em>Italic Playfair</em> is especially distinctive with swash-like letterforms.</p>
+<p style="font-size: 32px; font-weight: 900; line-height: 1.2;">Large Black Weight</p>
+<p>Mixed: <span style="font-size: 14px;">small</span> and <span style="font-size: 28px;">large</span> on one line.</p>`,
+    },
+
+    // 49. Roboto multi-weight paragraph
+    {
+      name: 'Roboto multi-weight text',
+      width: 500,
+      height: 350,
+      css: withMultiFont(`body { font-family: 'Roboto', sans-serif; font-size: 16px; line-height: 1.5; }`),
+      html: `<p style="font-weight:400">Regular weight text flows naturally across the line with good readability.</p>
+<p><span style="font-weight:400">Regular </span><span style="font-weight:700">Bold </span><span style="font-weight:400">Regular </span><span style="font-weight:700">Bold </span>alternating weights.</p>
+<p style="font-weight:700">Bold paragraph with <em>bold italic</em> and <span style="font-weight:400">regular</span> inline.</p>
+<p>Text with <span style="font-size:12px">12px</span>, <span style="font-size:16px">16px</span>, <span style="font-size:24px">24px</span> sizes mixed on one line in Roboto.</p>
+<p style="letter-spacing: 2px;">Roboto with 2px letter-spacing applied across the paragraph text.</p>`,
+    },
+
+    // 50. Inconsolata monospace — different metrics than system mono
+    {
+      name: 'Inconsolata monospace',
+      width: 500,
+      height: 250,
+      css: withMultiFont(`body { font-family: 'Inconsolata', monospace; font-size: 15px; line-height: 1.6; }`),
+      html: `<p>function greet(name) {</p>
+<p>&nbsp;&nbsp;return \`Hello, \${name}!\`;</p>
+<p>}</p>
+<p>const result = greet("World");</p>
+<p>Mixed: <span style="font-family: 'Roboto', sans-serif;">Roboto text</span> then <span>Inconsolata again</span></p>`,
+    },
+
+    // 51. Lobster cursive — extreme kerning pairs
+    {
+      name: 'Lobster cursive font',
+      width: 500,
+      height: 200,
+      css: withMultiFont(`body { font-family: 'Lobster', cursive; font-size: 24px; line-height: 1.4; }`),
+      html: `<p>Beautiful Typography</p>
+<p>WAVE AV To Ty Wa</p>
+<p style="font-size: 16px;">Smaller Lobster text with <span style="font-family: 'Roboto', sans-serif; font-size: 14px;">inline Roboto</span> mixed in.</p>`,
+    },
+
+    // 52. Merriweather — large x-height serif, tight spacing
+    {
+      name: 'Merriweather body text',
+      width: 500,
+      height: 350,
+      css: withMultiFont(`
+        body { font-family: 'Merriweather', serif; font-size: 15px; line-height: 1.8; }
+        h2 { font-family: 'Playfair Display', serif; font-size: 24px; line-height: 1.3; margin: 0 0 8px; }
+      `),
+      html: `<h2>Article Title in Playfair</h2>
+<p>Body text in Merriweather. This serif font has a large x-height making it very readable at small sizes. <strong>Bold Merriweather</strong> and <em>italic Merriweather</em> both work well.</p>
+<p>Second paragraph continues the article with different formatting: <span style="color: #b91c1c;">red text</span>, <u>underlined words</u>, and <span style="font-size: 12px;">small footnote text</span>.</p>`,
+    },
+
+    // 53. Mixed fonts on same line — stress test for baseline alignment
+    {
+      name: 'Mixed fonts same line',
+      width: 600,
+      height: 300,
+      css: withMultiFont(`body { font-size: 16px; line-height: 1.6; }`),
+      html: `<p><span style="font-family:'Roboto',sans-serif">Roboto</span> then <span style="font-family:'Playfair Display',serif">Playfair</span> then <span style="font-family:'Inconsolata',monospace">Inconsolata</span> then <span style="font-family:'Merriweather',serif">Merriweather</span>.</p>
+<p><span style="font-family:'Lobster',cursive;font-size:20px">Lobster Big</span> next to <span style="font-family:'Roboto',sans-serif;font-size:12px">small Roboto</span> next to <span style="font-family:'Playfair Display',serif;font-size:18px">medium Playfair</span></p>
+<p style="font-family:'Roboto',sans-serif">Roboto paragraph with <span style="font-family:'Inconsolata',monospace;background:#f3f4f6;padding:1px 4px">code in Inconsolata</span> inline.</p>`,
+    },
+
+    // 54. Font with tight line-height — tests vertical clipping
+    {
+      name: 'Tight line-height fonts',
+      width: 500,
+      height: 300,
+      css: withMultiFont(`body { font-size: 16px; }`),
+      html: `<p style="font-family:'Playfair Display',serif;line-height:1.0;font-size:20px">Playfair at line-height 1.0 — descenders like g, p, y may clip into the next line of text below.</p>
+<p style="font-family:'Roboto',sans-serif;line-height:1.0">Roboto at line-height 1.0 — this sans-serif has smaller descenders but still wraps tightly for multi-line text.</p>
+<p style="font-family:'Merriweather',serif;line-height:1.1">Merriweather at 1.1 line-height. Large x-height means less vertical room between lines of text content here.</p>`,
+    },
+
+    // 55. Lists with different fonts
+    {
+      name: 'Lists with multiple fonts',
+      width: 500,
+      height: 400,
+      css: withMultiFont(`body { font-size: 15px; line-height: 1.6; }`),
+      html: `<ul style="font-family:'Roboto',sans-serif">
+<li>Roboto list item one</li>
+<li style="font-family:'Merriweather',serif">Merriweather list item</li>
+<li>Back to Roboto <strong>with bold</strong></li>
+<li style="font-family:'Playfair Display',serif;font-size:18px">Larger Playfair item</li>
+</ul>
+<ol style="font-family:'Merriweather',serif">
+<li>First ordered item</li>
+<li>Second item with <span style="font-family:'Inconsolata',monospace;background:#f0f0f0;padding:0 3px">inline code</span></li>
+<li style="font-family:'Roboto',sans-serif">Third in Roboto</li>
+</ol>`,
+    },
+
+    // 56. Roboto wrapping stress — long text that wraps differently with kerning
+    {
+      name: 'Roboto long wrapping',
+      width: 350,
+      height: 400,
+      css: withMultiFont(`body { font-family: 'Roboto', sans-serif; font-size: 16px; line-height: 1.5; }`),
+      html: `<p>The quick brown fox jumps over the lazy dog. This sentence contains every letter of the alphabet and tests how Roboto handles word wrapping in a narrow container.</p>
+<p><strong>Bold variant:</strong> The quick brown fox jumps over the lazy dog again with bold weight applied throughout the entire paragraph text.</p>
+<p><em>Italic variant:</em> The quick brown fox jumps over the lazy dog once more, this time with italic style to test different glyph widths during wrapping.</p>
+<p style="text-align:justify">Justified text in Roboto: The quick brown fox jumps over the lazy dog with justified alignment stretching spaces between each word.</p>`,
     },
   ];
 }
