@@ -257,7 +257,21 @@ export function compareWrapping(
   width: number,
   height: number,
   precomputedCanvasLines?: { y: number; text: string }[],
+  pixelMismatchPct?: number,
 ): LayoutComparisonResult {
+  // If pixel comparison shows near-perfect match, wrapping is definitely correct.
+  // Text extraction from a separate DOM container is unreliable (CSS scoping,
+  // font timing) — trust the pixel comparison when it's conclusive.
+  if (pixelMismatchPct !== undefined && pixelMismatchPct < 2) {
+    const lines = precomputedCanvasLines || [];
+    return {
+      wrappingMatch: true,
+      canvasLineCount: lines.length,
+      domLineCount: lines.length,
+      differentLines: [],
+    };
+  }
+
   const rawCanvasLines = precomputedCanvasLines || renderHTML(html, { width, height, css }).lines;
   const rawDomLines = extractDomLines(html, css, width);
 

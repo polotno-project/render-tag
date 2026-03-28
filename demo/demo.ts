@@ -45,24 +45,34 @@ function addColumn(
   row.appendChild(col);
 }
 
-function createIsolatedDOM(tc: BenchmarkCase): HTMLIFrameElement {
-  const iframe = document.createElement('iframe');
-  iframe.style.width = `${tc.width}px`;
-  iframe.style.height = `${tc.height}px`;
-  iframe.style.border = '1px solid #ccc';
-  iframe.style.overflow = 'hidden';
-  iframe.scrolling = 'no';
-  iframe.srcdoc = `<!DOCTYPE html>
-<html><head><style>${tc.css || ''}</style></head>
-<body style="margin:0;padding:0">${tc.html}</body></html>`;
-  return iframe;
+function createIsolatedDOM(tc: BenchmarkCase): HTMLDivElement {
+  const wrapper = document.createElement('div');
+  wrapper.style.cssText = `width:${tc.width}px;height:${tc.height}px;border:1px solid #ccc;overflow:hidden;position:relative;`;
+
+  // Scope CSS to this container
+  const id = `__dom_preview_${Date.now()}_${Math.random().toString(36).slice(2)}__`;
+  wrapper.id = id;
+  const scopedCss = (tc.css || '').replace(
+    /(^|[},;\s])(\s*)(html|body)\b/gm,
+    (match, before, space) => `${before}${space}#${id}`,
+  );
+  const style = document.createElement('style');
+  style.textContent = scopedCss;
+  wrapper.appendChild(style);
+
+  const content = document.createElement('div');
+  content.style.cssText = 'margin:0;padding:0;';
+  content.innerHTML = tc.html;
+  wrapper.appendChild(content);
+
+  return wrapper;
 }
 
 async function showDetail(tc: BenchmarkCase, fontFamily: string, container: HTMLElement) {
   const variant = withFont(tc, fontFamily);
   const result = await compareRenders(variant.html, variant.css, variant.width, variant.height, 0.1, PIXEL_RATIO);
-  const wrap = compareWrapping(variant.html, variant.css, variant.width, variant.height, result.canvasLines);
   const pct = result.contentMismatchPercentage;
+  const wrap = compareWrapping(variant.html, variant.css, variant.width, variant.height, result.canvasLines, pct);
   const filled = (result.contentPixels / result.totalPixels * 100).toFixed(0);
 
   const section = document.createElement('div');
@@ -262,7 +272,7 @@ async function main() {
         // Render first, then check wrapping using the SAME canvas lines
         // (avoids font-timing issues where a fresh renderHTML gives different results)
         const result = await compareRenders(variant.html, variant.css, variant.width, variant.height, 0.1, PIXEL_RATIO);
-        const wrap = compareWrapping(variant.html, variant.css, variant.width, variant.height, result.canvasLines);
+        const wrap = compareWrapping(variant.html, variant.css, variant.width, variant.height, result.canvasLines, result.contentMismatchPercentage);
         const wrappingFail = !wrap.wrappingMatch;
         grid[ti][fi] = { mismatch: result.contentMismatchPercentage, wrappingFail };
 
