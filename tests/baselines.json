@@ -15,7 +15,7 @@
   "Narrow container single char per line": 1.56,
   "Mixed font sizes inline": 0.02,
   "Line-height variations": 1.84,
-  "Whitespace handling pre-wrap vs normal": 5.97,
+  "Whitespace handling pre-wrap vs normal": 0.00,
   "Deeply nested inline styles": 16.38,
   "Adjacent styled spans no space": 13.43,
   "Subscript and superscript": 30.59,

@@ -248,6 +248,8 @@ interface Word {
   width: number;
   style: ResolvedStyle;
   isSpace: boolean;
+  /** Tab character — width computed dynamically based on position */
+  isTab?: boolean;
   boxStyle?: ResolvedStyle;
   /** Marks the start of an inline box (adds left padding/border) */
   boxOpen?: ResolvedStyle;
@@ -366,15 +368,17 @@ function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRu
   if (isPreserve) {
     // Split on spaces and tabs, keeping delimiters
     const words = text.split(/( +|\t)/);
-    const tabWidth = ctx.measureText(' ').width * 8; // tab = 8 spaces
+    const tabStopInterval = ctx.measureText(' ').width * 8; // CSS default: 8 spaces
     for (const w of words) {
       if (w === '') continue;
       if (w === '\t') {
+        // Tab width depends on current position — mark it for dynamic calculation
         allWords.push({
-          text: ' ',
-          width: tabWidth,
+          text: '\t',
+          width: tabStopInterval, // placeholder — recalculated in flowWordsIntoLines
           style: run.style,
           isSpace: true,
+          isTab: true,
           boxStyle: run.boxStyle,
         });
         continue;
@@ -714,8 +718,18 @@ function flowWordsIntoLines(
         }
       }
 
+      // Tab: snap to next tab stop based on current position
+      let pieceWidth = piece.width;
+      if (piece.isTab) {
+        const tabStop = piece.width; // tabStopInterval stored as width
+        const currentPos = currentLine.totalWidth;
+        const nextStop = Math.ceil((currentPos + 0.1) / tabStop) * tabStop;
+        pieceWidth = nextStop - currentPos;
+        piece.width = pieceWidth;
+      }
+
       currentLine.words.push(piece);
-      currentLine.totalWidth += piece.width;
+      currentLine.totalWidth += pieceWidth;
       currentLine.lineHeight = Math.max(currentLine.lineHeight, wordLineHeight);
       if (!piece.isSpace) afterHardBreak = false;
     }
@@ -1403,6 +1417,9 @@ export function buildLayoutTree(
   useDomMeasurements = true,
 ): { root: LayoutBox; height: number } {
   _useDomMeasurements = useDomMeasurements;
+
+  // Clear line height cache — fonts may have loaded since last call
+  _lineHeightCache.clear();
 
   // The styledTree root is our container div — layout its children as a block flow
   const { box, height } = layoutBlock(ctx, styledTree, 0, 0, containerWidth);
