@@ -238,8 +238,8 @@ async function main() {
   const allCases = [...basicCases, googleFontCase, polotnoCase, polotnoListsCase];
 
   // Debug filter: set to a test name to run only that test, or '' for all
-  const DEBUG_TEST = 'Simple paragraph';
-  const DEBUG_FONT = 'Open Sans'; // or '' for all fonts
+  const DEBUG_TEST = '';
+  const DEBUG_FONT = ''; // or '' for all fonts
 
   const filteredCases = DEBUG_TEST
     ? allCases.filter(c => c.name === DEBUG_TEST)
