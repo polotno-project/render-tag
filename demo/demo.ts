@@ -147,8 +147,12 @@ async function main() {
   const results: CaseResult[] = [];
   const dashboard = createDashboard(allCases.length, app);
 
-  for (const tc of allCases) {
+  for (let i = 0; i < allCases.length; i++) {
+    const tc = allCases[i];
+    console.log(`[demo] ${i+1}/${allCases.length} starting: ${tc.name}`);
+    const t0 = performance.now();
     const result = await renderComparison(tc, app);
+    console.log(`[demo] ${i+1}/${allCases.length} done: ${tc.name} in ${(performance.now()-t0).toFixed(0)}ms`);
     results.push(result);
     updateDashboard(dashboard, results, allCases.length);
   }
