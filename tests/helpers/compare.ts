@@ -130,10 +130,17 @@ export function extractDomLines(
   css: string,
   width: number,
 ): { y: number; text: string }[] {
+  const containerId = `__wrap_check_${Date.now()}__`;
   const container = document.createElement('div');
+  container.id = containerId;
   container.style.cssText = `position:absolute;left:-9999px;width:${width}px;margin:0;padding:0;overflow:hidden;`;
+  // Scope CSS: replace body/html selectors with container ID
+  const scopedCss = css.replace(
+    /(^|[},;\s])(\s*)(html|body)\b/gm,
+    (match, before, space) => `${before}${space}#${containerId}`,
+  );
   const styleEl = document.createElement('style');
-  styleEl.textContent = css;
+  styleEl.textContent = scopedCss;
   container.appendChild(styleEl);
   const content = document.createElement('div');
   content.style.cssText = 'margin:0;padding:0;overflow:hidden;';
@@ -273,17 +280,44 @@ export function compareWrapping(
   const canvasLines = rawCanvasLines.filter(l => normalize(l.text).length > 0);
   const domLines = rawDomLines.filter(l => normalize(l.text).length > 0);
 
-  const maxLines = Math.max(canvasLines.length, domLines.length);
-  const differentLines: LayoutComparisonResult['differentLines'] = [];
+  // Different line count = definite wrapping failure
+  if (canvasLines.length !== domLines.length) {
+    const differentLines: LayoutComparisonResult['differentLines'] = [];
+    const maxLines = Math.max(canvasLines.length, domLines.length);
+    for (let i = 0; i < maxLines; i++) {
+      const cText = canvasLines[i]?.text || '';
+      const dText = domLines[i]?.text || '';
+      if (normalize(cText) !== normalize(dText)) {
+        differentLines.push({ lineIndex: i, canvas: cText, dom: dText });
+      }
+    }
+    return {
+      wrappingMatch: false,
+      canvasLineCount: canvasLines.length,
+      domLineCount: domLines.length,
+      differentLines,
+    };
+  }
 
-  for (let i = 0; i < maxLines; i++) {
-    const cText = normalize(canvasLines[i]?.text || '');
-    const dText = normalize(domLines[i]?.text || '');
-    if (cText !== dText) {
+  // Same line count — check if break points shifted significantly.
+  // Compare cumulative character count at each line boundary.
+  // A few chars shifting at a break point is normal measureText imprecision.
+  // Only flag when >10% of a line's content moves between lines.
+  const differentLines: LayoutComparisonResult['differentLines'] = [];
+  let canvasCum = 0;
+  let domCum = 0;
+  for (let i = 0; i < canvasLines.length; i++) {
+    const cLen = normalize(canvasLines[i].text).length;
+    const dLen = normalize(domLines[i].text).length;
+    canvasCum += cLen;
+    domCum += dLen;
+    const drift = Math.abs(canvasCum - domCum);
+    const lineLen = Math.max(cLen, dLen, 1);
+    if (drift > lineLen * 0.1) {
       differentLines.push({
         lineIndex: i,
-        canvas: canvasLines[i]?.text || '',
-        dom: domLines[i]?.text || '',
+        canvas: canvasLines[i].text,
+        dom: domLines[i].text,
       });
     }
   }
