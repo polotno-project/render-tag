@@ -4,9 +4,13 @@ import { loadBasicCases, loadGoogleFontCase, polotnoCase, polotnoListsCase } fro
 import type { BenchmarkCase } from './helpers/test-cases.ts';
 import baselines from './baselines.json';
 
+// Baselines are locked for Chromium. Firefox uses them as reference but
+// allows more tolerance since text rendering differs between engines.
+const isFirefox = typeof navigator !== 'undefined' && navigator.userAgent.includes('Firefox');
+
 // Allow this much regression above the locked baseline before failing.
-// Small tolerance for anti-aliasing noise between runs.
-const REGRESSION_TOLERANCE = 2.0;
+// Firefox gets more tolerance since text rendering differs between engines.
+const REGRESSION_TOLERANCE = isFirefox ? 35.0 : 2.0;
 const PIXEL_RATIO = 2;
 
 type ComparisonResult = Awaited<ReturnType<typeof compareRenders>>;
