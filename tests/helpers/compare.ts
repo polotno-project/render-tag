@@ -144,7 +144,9 @@ export function extractDomLines(
   const textNodes: Text[] = [];
   while (walker.nextNode()) textNodes.push(walker.currentNode as Text);
 
-  // Collect word positions
+  // Collect word positions using getClientRects() on word-level ranges.
+  // getClientRects() returns one rect per visual line when a word wraps
+  // mid-word (overflow-wrap: break-word), handling long unbroken words.
   const wordPositions: { y: number; text: string }[] = [];
   const range = document.createRange();
   for (const textNode of textNodes) {
@@ -156,8 +158,36 @@ export function extractDomLines(
       if (!w || !w.trim()) { offset += w.length; continue; }
       range.setStart(textNode, offset);
       range.setEnd(textNode, offset + w.length);
-      const rect = range.getBoundingClientRect();
-      wordPositions.push({ y: rect.top - cTop, text: w });
+      const rects = range.getClientRects();
+      if (rects.length <= 1) {
+        // Word fits on one line
+        const rect = rects[0] || range.getBoundingClientRect();
+        wordPositions.push({ y: rect.top - cTop, text: w });
+      } else {
+        // Word wraps across lines — split by rect boundaries
+        // Use character-level measurement to find the break point
+        let charIdx = 0;
+        for (let ri = 0; ri < rects.length; ri++) {
+          const rectY = rects[ri].top - cTop;
+          let fragment = '';
+          while (charIdx < w.length) {
+            range.setStart(textNode, offset + charIdx);
+            range.setEnd(textNode, offset + charIdx + 1);
+            const charRect = range.getClientRects()[0];
+            if (!charRect) { charIdx++; continue; }
+            const charY = charRect.top - cTop;
+            // If this char's Y is closer to the next rect, break
+            if (ri + 1 < rects.length && Math.abs(charY - rects[ri + 1].top + cTop) < Math.abs(charY - rectY)) {
+              break;
+            }
+            fragment += w[charIdx];
+            charIdx++;
+          }
+          if (fragment) {
+            wordPositions.push({ y: rectY, text: fragment });
+          }
+        }
+      }
       offset += w.length;
     }
   }

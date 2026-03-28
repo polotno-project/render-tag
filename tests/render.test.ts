@@ -131,6 +131,7 @@ describe('HTML Canvas Renderer', () => {
         'List items with rich formatting',
         'Empty list items mixed with content',
         'Monospace vs proportional text',
+        'Very narrow container',
         'Mixed Google Fonts inline',
       ]);
 
