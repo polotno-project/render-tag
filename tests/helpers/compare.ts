@@ -124,29 +124,41 @@ export async function compareRenders(
   if (allCSS.includes('@font-face')) {
     const fontFaceBlocks = allCSS.match(/@font-face\s*\{[^}]*\}/g) || [];
     if (fontFaceBlocks.length > 0) {
-      fontStyle = document.createElement('style');
-      fontStyle.textContent = fontFaceBlocks.join('\n');
-      document.head.appendChild(fontStyle);
-      // Extract font-family + font-weight pairs from @font-face blocks
-      const loadPromises: Promise<unknown>[] = [];
-      const fontFaceRegex = /@font-face\s*\{([^}]*)\}/g;
-      let ffMatch;
-      while ((ffMatch = fontFaceRegex.exec(allCSS)) !== null) {
-        const block = ffMatch[1];
-        const familyMatch = block.match(/font-family:\s*['"]?([^;'"]+)/);
-        const weightMatch = block.match(/font-weight:\s*([^;]+)/);
-        const styleMatch = block.match(/font-style:\s*([^;]+)/);
-        if (familyMatch) {
-          const name = familyMatch[1].trim();
-          const weight = weightMatch ? weightMatch[1].trim() : '400';
-          const style = styleMatch ? styleMatch[1].trim() : 'normal';
-          loadPromises.push(
-            document.fonts.load(`${style} ${weight} 16px "${name}"`).catch(() => {})
-          );
-        }
+      // Check if fonts are already loaded before doing expensive work
+      const families = new Set<string>();
+      for (const block of fontFaceBlocks) {
+        const m = block.match(/font-family:\s*['"]?([^;'"]+)/);
+        if (m) families.add(m[1].trim());
       }
-      await Promise.all(loadPromises);
-      await document.fonts.ready;
+      const allLoaded = [...families].every(f => document.fonts.check(`16px "${f}"`));
+
+      if (!allLoaded) {
+        fontStyle = document.createElement('style');
+        fontStyle.textContent = fontFaceBlocks.join('\n');
+        document.head.appendChild(fontStyle);
+        console.log('[compare] loading fonts:', [...families].join(', '));
+        const loadPromises: Promise<unknown>[] = [];
+        const fontFaceRegex = /@font-face\s*\{([^}]*)\}/g;
+        let ffMatch;
+        while ((ffMatch = fontFaceRegex.exec(allCSS)) !== null) {
+          const block = ffMatch[1];
+          const familyMatch = block.match(/font-family:\s*['"]?([^;'"]+)/);
+          const weightMatch = block.match(/font-weight:\s*([^;]+)/);
+          const styleMatch = block.match(/font-style:\s*([^;]+)/);
+          if (familyMatch) {
+            const name = familyMatch[1].trim();
+            const weight = weightMatch ? weightMatch[1].trim() : '400';
+            const fStyle = styleMatch ? styleMatch[1].trim() : 'normal';
+            loadPromises.push(
+              document.fonts.load(`${fStyle} ${weight} 16px "${name}"`).catch(() => {})
+            );
+          }
+        }
+        await Promise.all(loadPromises);
+        await document.fonts.ready;
+      } else {
+        console.log('[compare] fonts already loaded, skipping');
+      }
     }
   }
 
