@@ -177,14 +177,19 @@ export async function compareRenders(
   const libData = padImageData(
     libCtx.getImageData(0, 0, libCanvas.width, libCanvas.height), w, h);
 
+  console.log('[compare] running pixelmatch...');
+  const t3 = performance.now();
   const diffData = new ImageData(w, h);
   const mismatchedPixels = pixelmatch(
     domData.data, libData.data, diffData.data,
     w, h,
     { threshold },
   );
+  console.log(`[compare] pixelmatch done in ${(performance.now()-t3).toFixed(0)}ms`);
 
   // Count content pixels: non-white in either image
+  console.log('[compare] counting content pixels...');
+  const t4 = performance.now();
   let contentPixels = 0;
   for (let i = 0; i < w * h; i++) {
     const idx = i * 4;
@@ -199,6 +204,8 @@ export async function compareRenders(
       contentPixels++;
     }
   }
+
+  console.log(`[compare] content pixels done in ${(performance.now()-t4).toFixed(0)}ms, ${contentPixels} content px`);
 
   // Create diff canvas
   const diffCanvas = document.createElement('canvas');
