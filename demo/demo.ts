@@ -119,17 +119,22 @@ async function showDetail(tc: BenchmarkCase, fontFamily: string, container: HTML
   libCanvas.style.cursor = 'pointer';
 
   const iframe = createIsolatedDOM(variant);
+  iframe.style.display = 'none';
+
   let showingCanvas = true;
   const swapContainer = document.createElement('div');
   swapContainer.appendChild(libCanvas);
+  swapContainer.appendChild(iframe); // preload iframe in DOM (hidden)
+
   const toggleView = () => {
     showingCanvas = !showingCanvas;
-    swapContainer.innerHTML = '';
     if (showingCanvas) {
-      swapContainer.appendChild(libCanvas);
+      libCanvas.style.display = '';
+      iframe.style.display = 'none';
       libH3.textContent = 'Canvas (lib) — click to compare';
     } else {
-      swapContainer.appendChild(iframe);
+      libCanvas.style.display = 'none';
+      iframe.style.display = '';
       libH3.textContent = 'DOM (live) — click to compare';
     }
   };
