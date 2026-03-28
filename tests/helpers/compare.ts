@@ -114,6 +114,7 @@ export async function compareRenders(
   threshold = 0.1,
   pixelRatio = 1,
 ): Promise<ComparisonResult> {
+  console.log('[compare] starting, loading fonts...');
   // Pre-load any @font-face fonts before rendering.
   // Check both the css parameter and inline <style> tags in html.
   const allCSS = (css || '') + '\n' + (html.match(/<style[^>]*>([\s\S]*?)<\/style>/gi) || [])
@@ -149,7 +150,7 @@ export async function compareRenders(
     }
   }
 
-  console.log('[compare] rendering reference...');
+  console.log('[compare] fonts ready, rendering reference...');
   const t0 = performance.now();
   const domCanvas = await renderToDOM(html, css, width, height, pixelRatio);
   const t1 = performance.now();

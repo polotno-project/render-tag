@@ -76,9 +76,9 @@ async function renderComparison(tc: BenchmarkCase, container: HTMLElement): Prom
   addColumn(row, 'html-to-svg', result.domCanvas, PIXEL_RATIO);
   addColumn(row, 'Canvas (lib)', result.libCanvas, PIXEL_RATIO);
 
-  // DOM last
-  const iframe = createIsolatedDOM(tc);
-  addColumn(row, 'DOM', iframe, 1);
+  // DOM last (lazy-load iframe to avoid Firefox font loading bottleneck)
+  // const iframe = createIsolatedDOM(tc);
+  // addColumn(row, 'DOM', iframe, 1);
 
   // Color the diff label
   const diffLabelEl = row.firstElementChild!.querySelector('h3') as HTMLElement;
