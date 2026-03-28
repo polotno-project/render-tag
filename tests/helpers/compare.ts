@@ -63,6 +63,8 @@ export interface ComparisonResult {
   diffCanvas: HTMLCanvasElement;
   referenceTime: number;
   canvasLibTime: number;
+  /** Text lines from the canvas layout (for wrapping comparison) */
+  canvasLines: { y: number; text: string }[];
 }
 
 /**
@@ -109,14 +111,14 @@ export function renderToCanvas(
   width: number,
   height: number,
   pixelRatio = 1,
-): HTMLCanvasElement {
-  const { canvas } = renderHTML(html, {
+): { canvas: HTMLCanvasElement; lines: { y: number; text: string }[] } {
+  const result = renderHTML(html, {
     width,
     height,
     css,
     pixelRatio,
   });
-  return canvas;
+  return { canvas: result.canvas, lines: result.lines };
 }
 
 /**
@@ -237,14 +239,19 @@ export interface LayoutComparisonResult {
 /**
  * Compare text wrapping between our canvas layout and the DOM.
  * Normalizes whitespace — only flags when different words appear on different lines.
+ *
+ * @param canvasLines - Pre-computed canvas lines from renderHTML().lines.
+ *   If not provided, runs renderHTML internally (may differ from displayed canvas
+ *   if font loading state changed).
  */
 export function compareWrapping(
   html: string,
   css: string,
   width: number,
   height: number,
+  precomputedCanvasLines?: { y: number; text: string }[],
 ): LayoutComparisonResult {
-  const { lines: rawCanvasLines } = renderHTML(html, { width, height, css });
+  const rawCanvasLines = precomputedCanvasLines || renderHTML(html, { width, height, css }).lines;
   const rawDomLines = extractDomLines(html, css, width);
 
   // Normalize: strip whitespace and list markers, sort characters.
@@ -374,7 +381,9 @@ export async function compareRenders(
   const domCanvas = await renderToDOM(html, css, width, height, pixelRatio);
   const t1 = performance.now();
   console.log(`[compare] reference done in ${(t1-t0).toFixed(0)}ms, rendering canvas...`);
-  const libCanvas = renderToCanvas(html, css, width, height, pixelRatio);
+  const libResult = renderToCanvas(html, css, width, height, pixelRatio);
+  const libCanvas = libResult.canvas;
+  const canvasLines = libResult.lines;
   const t2 = performance.now();
   console.log(`[compare] canvas done in ${(t2-t1).toFixed(0)}ms, comparing...`);
 
@@ -440,5 +449,6 @@ export async function compareRenders(
     diffCanvas,
     referenceTime,
     canvasLibTime,
+    canvasLines,
   };
 }

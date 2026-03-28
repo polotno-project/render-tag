@@ -1,5 +1,4 @@
 import { compareRenders, compareWrapping, extractDomLines } from '../tests/helpers/compare.ts';
-import { renderHTML } from '../src/index.ts';
 import { loadBasicCases, loadGoogleFontCase, polotnoCase, polotnoListsCase, FONT_VARIANTS, loadMultiFontCss } from '../tests/helpers/test-cases.ts';
 import type { BenchmarkCase } from '../tests/helpers/test-cases.ts';
 
@@ -62,7 +61,7 @@ function createIsolatedDOM(tc: BenchmarkCase): HTMLIFrameElement {
 async function showDetail(tc: BenchmarkCase, fontFamily: string, container: HTMLElement) {
   const variant = withFont(tc, fontFamily);
   const result = await compareRenders(variant.html, variant.css, variant.width, variant.height, 0.1, PIXEL_RATIO);
-  const wrap = compareWrapping(variant.html, variant.css, variant.width, variant.height);
+  const wrap = compareWrapping(variant.html, variant.css, variant.width, variant.height, result.canvasLines);
   const pct = result.contentMismatchPercentage;
   const filled = (result.contentPixels / result.totalPixels * 100).toFixed(0);
 
@@ -260,14 +259,16 @@ async function main() {
       const tc = filteredCases[ti];
       const variant = withFont(tc, fonts[fi].family);
       try {
-        const wrap = compareWrapping(variant.html, variant.css, variant.width, variant.height);
+        // Render first, then check wrapping using the SAME canvas lines
+        // (avoids font-timing issues where a fresh renderHTML gives different results)
         const result = await compareRenders(variant.html, variant.css, variant.width, variant.height, 0.1, PIXEL_RATIO);
+        const wrap = compareWrapping(variant.html, variant.css, variant.width, variant.height, result.canvasLines);
         const wrappingFail = !wrap.wrappingMatch;
         grid[ti][fi] = { mismatch: result.contentMismatchPercentage, wrappingFail };
 
         // Log wrapping details for debugging
         if (DEBUG_TEST) {
-          const { lines: cl } = renderHTML(variant.html, { width: variant.width, height: variant.height, css: variant.css });
+          const cl = result.canvasLines;
           const dl = extractDomLines(variant.html, variant.css, variant.width);
           console.log(`\n[${tc.name} × ${fonts[fi].name}] wrapping=${wrap.wrappingMatch} mismatch=${result.contentMismatchPercentage.toFixed(1)}%`);
           console.log('Canvas lines:');
