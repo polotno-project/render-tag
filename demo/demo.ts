@@ -79,11 +79,42 @@ async function renderComparison(tc: BenchmarkCase): Promise<RenderedCase> {
 
   // Then reference and our render
   addColumn(row, 'html-to-svg', result.domCanvas, PIXEL_RATIO);
-  addColumn(row, 'Canvas (lib)', result.libCanvas, PIXEL_RATIO);
 
-  // DOM last
+  // Canvas (lib) with click-to-swap to DOM
+  const libCol = document.createElement('div');
+  const libH3 = document.createElement('h3');
+  libH3.textContent = 'Canvas (lib) — click to compare';
+  libH3.style.cursor = 'pointer';
+  libCol.appendChild(libH3);
+
+  const libCanvas = result.libCanvas;
+  libCanvas.style.border = '1px solid #ccc';
+  libCanvas.style.width = `${libCanvas.width / PIXEL_RATIO}px`;
+  libCanvas.style.height = `${libCanvas.height / PIXEL_RATIO}px`;
+  libCanvas.style.cursor = 'pointer';
+
   const iframe = createIsolatedDOM(tc);
-  addColumn(row, 'DOM', iframe, 1);
+
+  let showingCanvas = true;
+  const swapContainer = document.createElement('div');
+  swapContainer.appendChild(libCanvas);
+
+  const toggleView = () => {
+    showingCanvas = !showingCanvas;
+    swapContainer.innerHTML = '';
+    if (showingCanvas) {
+      swapContainer.appendChild(libCanvas);
+      libH3.textContent = 'Canvas (lib) — click to compare';
+    } else {
+      swapContainer.appendChild(iframe);
+      libH3.textContent = 'DOM (live) — click to compare';
+    }
+  };
+  libH3.addEventListener('click', toggleView);
+  swapContainer.addEventListener('click', toggleView);
+
+  libCol.appendChild(swapContainer);
+  row.appendChild(libCol);
 
   // Color the diff label
   const diffLabelEl = row.firstElementChild!.querySelector('h3') as HTMLElement;
