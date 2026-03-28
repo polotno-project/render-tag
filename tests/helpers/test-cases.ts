@@ -1267,7 +1267,7 @@ export const polotnoListsCase: BenchmarkCase = {
 
 export const polotnoCase: BenchmarkCase = {
   name: 'Polotno HTML',
-  width: 320,
+  width: 600,
   height: 400,
   html: `<div style="white-space: pre-wrap; word-break: break-word; width: 596px; color: black; font-size: 26.584502908891224px; font-family: 'Arimo'; text-align: left; text-transform: none; line-height: 1.2; font-style: normal; font-weight: normal" dir="ltr"><p>Will be <span style="color: rgb(226, 15, 15);">responsible</span><span> for managing activities that are part of the production of </span><strong><span>goods</span></strong> and services. Direct <em><span>responsibilities</span></em> include managing both the operations process, embracing design, planning, control, performance <u><span>improvement</span></u>, and <span style="color: rgb(20, 218, 103);">operations</span><span> strategy.</span></p><ul><li>F</li><li>Q</li><li>W</li><li>G</li></ul><ol><li>L</li><li>A</li><li>S</li><li>Q</li><li>W</li></ol></div><style>/* latin */
 @font-face {
