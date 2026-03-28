@@ -147,7 +147,7 @@ export function extractDomLines(
   // Collect word positions using getClientRects() on word-level ranges.
   // getClientRects() returns one rect per visual line when a word wraps
   // mid-word (overflow-wrap: break-word), handling long unbroken words.
-  const wordPositions: { y: number; text: string }[] = [];
+  const wordPositions: { y: number; height: number; text: string }[] = [];
   const range = document.createRange();
   for (const textNode of textNodes) {
     const text = textNode.textContent || '';
@@ -162,7 +162,7 @@ export function extractDomLines(
       if (rects.length <= 1) {
         // Word fits on one line
         const rect = rects[0] || range.getBoundingClientRect();
-        wordPositions.push({ y: rect.top - cTop, text: w });
+        wordPositions.push({ y: rect.top - cTop, height: rect.height, text: w });
       } else {
         // Word wraps across lines — split by rect boundaries
         // Use character-level measurement to find the break point
@@ -184,7 +184,7 @@ export function extractDomLines(
             charIdx++;
           }
           if (fragment) {
-            wordPositions.push({ y: rectY, text: fragment });
+            wordPositions.push({ y: rectY, height: rects[ri].height, text: fragment });
           }
         }
       }
@@ -194,19 +194,24 @@ export function extractDomLines(
 
   document.body.removeChild(container);
 
-  // Group into lines with tolerance — words within 4px vertically are same line.
-  // This handles sup/sub, inline-code padding, and sub-pixel differences.
+  // Group words into lines by Y position. Words on the same visual line
+  // can have different Y values due to mixed font sizes (baseline alignment).
+  // Use the word's vertical midpoint for grouping, with a tolerance based
+  // on word height. This avoids merging overlapping lines (tight line-height)
+  // while still grouping mixed-size words on the same baseline.
   wordPositions.sort((a, b) => a.y - b.y);
-  const lines: { y: number; text: string }[] = [];
+  const lines: { yMid: number; text: string }[] = [];
   for (const wp of wordPositions) {
+    const wpMid = wp.y + wp.height / 2;
     const lastLine = lines[lines.length - 1];
-    if (lastLine && Math.abs(wp.y - lastLine.y) < 4) {
+    // Same line if midpoints are within half the word height
+    if (lastLine && Math.abs(wpMid - lastLine.yMid) < wp.height * 0.5) {
       lastLine.text += ' ' + wp.text;
     } else {
-      lines.push({ y: Math.round(wp.y), text: wp.text });
+      lines.push({ yMid: wpMid, text: wp.text });
     }
   }
-  return lines;
+  return lines.map(l => ({ y: Math.round(l.yMid), text: l.text }));
 }
 
 export interface LayoutComparisonResult {
