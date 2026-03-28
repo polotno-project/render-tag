@@ -17,7 +17,7 @@ npm install render-tag
 ```typescript
 import { renderHTML } from 'render-tag';
 
-const { canvas, height } = await renderHTML(
+const { canvas, height } = renderHTML(
   '<p>Hello <strong>world</strong></p>',
   { width: 400 }
 );
@@ -28,7 +28,7 @@ document.body.appendChild(canvas);
 ### With CSS
 
 ```typescript
-const { canvas } = await renderHTML(
+const { canvas } = renderHTML(
   '<p class="title">Styled text</p>',
   {
     width: 600,
@@ -46,7 +46,7 @@ const { canvas } = await renderHTML(
 ### With web fonts
 
 ```typescript
-const { canvas } = await renderHTML(
+const { canvas } = renderHTML(
   '<p>Custom font text</p>',
   {
     width: 500,
@@ -64,7 +64,7 @@ const { canvas } = await renderHTML(
 ### High-DPI / Retina
 
 ```typescript
-const { canvas } = await renderHTML(html, {
+const { canvas } = renderHTML(html, {
   width: 600,
   pixelRatio: window.devicePixelRatio,
 });
@@ -74,12 +74,12 @@ const { canvas } = await renderHTML(html, {
 
 ```typescript
 const canvas = document.getElementById('my-canvas');
-await renderHTML(html, { canvas, width: 800, height: 600 });
+renderHTML(html, { canvas, width: 800, height: 600 });
 ```
 
 ## API
 
-### `renderHTML(html, options): Promise<RenderResult>`
+### `renderHTML(html, options): RenderResult`
 
 | Option | Type | Default | Description |
 |---|---|---|---|
@@ -88,8 +88,11 @@ await renderHTML(html, { canvas, width: 800, height: 600 });
 | `css` | `string` | `''` | CSS stylesheet (supports `@font-face`, classes, selectors) |
 | `canvas` | `HTMLCanvasElement` | created | Target canvas element |
 | `pixelRatio` | `number` | `1` | Device pixel ratio for sharp rendering |
+| `useDomMeasurements` | `boolean` | `true` | Use DOM probes for cross-browser line height accuracy. Disable for DOM-free rendering (pure canvas). |
 
 Returns `{ canvas: HTMLCanvasElement, height: number }`.
+
+The function is **synchronous**. Fonts must be loaded before calling.
 
 ## What it renders
 
@@ -109,6 +112,18 @@ Returns `{ canvas: HTMLCanvasElement, height: number }`.
 - `pre-wrap` whitespace handling
 - `overflow-wrap: break-word`
 
+## Cross-browser consistency
+
+The library targets Chrome as the primary browser. For consistent rendering across Chrome and Firefox, add these CSS rules to your input:
+
+```css
+/* Suppress Firefox's ::marker extra line height (~1.5px per list item).
+   render-tag draws list markers itself, so this loses nothing visually. */
+li::marker { content: none; font-size: 0; line-height: 0; }
+```
+
+With `useDomMeasurements: true` (the default), the library uses hidden DOM probes to match Firefox's actual line box heights. If you disable DOM measurements (`useDomMeasurements: false`), the CSS above becomes especially important for Firefox consistency.
+
 ## How it works
 
 1. **Parse** HTML with `DOMParser`
@@ -116,7 +131,7 @@ Returns `{ canvas: HTMLCanvasElement, height: number }`.
 3. **Layout** with pure canvas `measureText` (block flow, inline wrapping, margin collapsing)
 4. **Render** with canvas 2D API (`fillText`, `fillRect`, `strokeText`, etc.)
 
-No DOM measurements (`getBoundingClientRect`) are used for layout — all positioning is computed from CSS values and canvas text metrics.
+Layout is computed from CSS values and canvas text metrics. Optional DOM probes (`useDomMeasurements`) improve cross-browser accuracy for line heights and mixed-font wrapping.
 
 ## Development
 

@@ -9,6 +9,14 @@ export interface RenderOptions {
   css?: string;
   /** Device pixel ratio (default: 1) */
   pixelRatio?: number;
+  /**
+   * Use DOM measurements for improved cross-browser consistency (default: true).
+   * When enabled, uses hidden DOM elements to measure line heights and verify
+   * text wrapping at font boundaries. When disabled, uses pure canvas API
+   * measurements only — faster and DOM-free, but may have slight differences
+   * across browsers (e.g. Firefox list item heights).
+   */
+  useDomMeasurements?: boolean;
 }
 
 export interface RenderResult {

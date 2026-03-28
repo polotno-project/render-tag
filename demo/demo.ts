@@ -43,7 +43,12 @@ interface CaseResult {
   canvasTime: number;
 }
 
-async function renderComparison(tc: BenchmarkCase, container: HTMLElement): Promise<CaseResult> {
+interface RenderedCase {
+  section: HTMLElement;
+  result: CaseResult;
+}
+
+async function renderComparison(tc: BenchmarkCase): Promise<RenderedCase> {
   const section = document.createElement('div');
   section.className = 'case';
 
@@ -85,13 +90,15 @@ async function renderComparison(tc: BenchmarkCase, container: HTMLElement): Prom
   diffLabelEl.style.color = pct < 5 ? '#16a34a' : pct < 20 ? '#ca8a04' : '#dc2626';
 
   section.appendChild(row);
-  container.appendChild(section);
 
   return {
-    name: tc.name,
-    contentMismatch: pct,
-    referenceTime: result.referenceTime,
-    canvasTime: result.canvasLibTime,
+    section,
+    result: {
+      name: tc.name,
+      contentMismatch: pct,
+      referenceTime: result.referenceTime,
+      canvasTime: result.canvasLibTime,
+    },
   };
 }
 
@@ -144,13 +151,19 @@ async function main() {
   const googleFontCase = await loadGoogleFontCase();
   const allCases = [...basicCases, googleFontCase, polotnoCase, polotnoListsCase];
 
-  const results: CaseResult[] = [];
+  const rendered: RenderedCase[] = [];
   const dashboard = createDashboard(allCases.length, app);
 
   for (const tc of allCases) {
-    const result = await renderComparison(tc, app);
-    results.push(result);
-    updateDashboard(dashboard, results, allCases.length);
+    const entry = await renderComparison(tc);
+    rendered.push(entry);
+    updateDashboard(dashboard, rendered.map(r => r.result), allCases.length);
+  }
+
+  // Sort by mismatch (highest first) and append to DOM
+  rendered.sort((a, b) => b.result.contentMismatch - a.result.contentMismatch);
+  for (const entry of rendered) {
+    app.appendChild(entry.section);
   }
 }
 

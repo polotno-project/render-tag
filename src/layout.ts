@@ -1,5 +1,9 @@
 import type { StyledNode, LayoutNode, LayoutBox, LayoutText, ResolvedStyle } from './types.ts';
 
+// Module-level flag controlling DOM measurement usage.
+// Set by buildLayoutTree() based on the useDomMeasurements option.
+let _useDomMeasurements = true;
+
 // ─── DOM-based line width measurement ──────────────────────────────────
 
 /**
@@ -100,33 +104,58 @@ export function buildCanvasFont(style: ResolvedStyle): string {
 
 /**
  * Cache for DOM-measured line heights.
- * Key: "font|lineHeight" → actual pixel height from the browser.
+ * Key: "font|lineHeight|probeType" → actual pixel height from the browser.
  */
 const _lineHeightCache = new Map<string, number>();
-let _lineHeightProbe: HTMLSpanElement | null = null;
+
+// Probe elements: a <div> for general use, and a <ul><li> for unordered list items.
+// Firefox renders <ul><li> with bullet markers (disc/circle/square) 1.5px taller
+// than other elements for the same line-height, due to the ::marker pseudo-element.
+// <ol><li> items do NOT have this extra height.
+let _blockProbe: HTMLDivElement | null = null;
+let _ulProbeContainer: HTMLUListElement | null = null;
+let _ulProbeLi: HTMLLIElement | null = null;
+
+const BULLET_MARKERS = new Set(['disc', 'circle', 'square']);
 
 /**
  * Measure the actual line height using a hidden DOM element.
- * This gives the browser's true line box height, which can differ
- * from the CSS line-height value (e.g. Firefox adds ~1.5px).
- * Results are cached per font+lineHeight combination.
+ * Uses an actual <li> inside a <ul> when listStyleType is a bullet marker
+ * (disc/circle/square) to capture Firefox's ::marker line box contribution.
+ * Results are cached per font+lineHeight+probeType combination.
  */
-function measureDomLineHeight(font: string, lineHeight: string): number {
-  const key = `${font}|${lineHeight}`;
+function measureDomLineHeight(font: string, lineHeight: string, useBulletProbe = false): number {
+  const key = `${font}|${lineHeight}|${useBulletProbe ? 'ul-li' : 'block'}`;
   const cached = _lineHeightCache.get(key);
   if (cached !== undefined) return cached;
 
-  if (!_lineHeightProbe) {
-    _lineHeightProbe = document.createElement('span');
-    _lineHeightProbe.style.cssText =
-      'position:absolute;top:-9999px;left:-9999px;visibility:hidden;white-space:nowrap;padding:0;margin:0;border:0;';
-    _lineHeightProbe.textContent = 'Mg';
-    document.body.appendChild(_lineHeightProbe);
+  let probe: HTMLElement;
+  if (useBulletProbe) {
+    if (!_ulProbeContainer) {
+      _ulProbeContainer = document.createElement('ul');
+      _ulProbeContainer.style.cssText =
+        'position:absolute;top:-9999px;left:-9999px;visibility:hidden;padding:0;margin:0;border:0;list-style:disc;';
+      _ulProbeLi = document.createElement('li');
+      _ulProbeLi.style.cssText = 'white-space:nowrap;padding:0;margin:0;border:0;';
+      _ulProbeLi.textContent = 'Mg';
+      _ulProbeContainer.appendChild(_ulProbeLi);
+      document.body.appendChild(_ulProbeContainer);
+    }
+    probe = _ulProbeLi!;
+  } else {
+    if (!_blockProbe) {
+      _blockProbe = document.createElement('div');
+      _blockProbe.style.cssText =
+        'position:absolute;top:-9999px;left:-9999px;visibility:hidden;white-space:nowrap;padding:0;margin:0;border:0;';
+      _blockProbe.textContent = 'Mg';
+      document.body.appendChild(_blockProbe);
+    }
+    probe = _blockProbe;
   }
 
-  _lineHeightProbe.style.font = font;
-  _lineHeightProbe.style.lineHeight = lineHeight;
-  const height = _lineHeightProbe.getBoundingClientRect().height;
+  probe.style.font = font;
+  probe.style.lineHeight = lineHeight;
+  const height = probe.getBoundingClientRect().height;
 
   _lineHeightCache.set(key, height);
   return height;
@@ -137,16 +166,27 @@ function measureDomLineHeight(font: string, lineHeight: string): number {
  * Uses DOM measurement for accuracy across browsers (Firefox vs Chrome).
  * Falls back to canvas metrics for "normal" line-height.
  */
-function getLineHeight(ctx: CanvasRenderingContext2D, style: ResolvedStyle): number {
-  const font = buildCanvasFont(style);
-
+function getLineHeight(ctx: CanvasRenderingContext2D, style: ResolvedStyle, useBulletProbe = false): number {
   if (style.lineHeight > 0) {
-    // Use DOM to get the browser's actual line box height
-    return measureDomLineHeight(font, `${style.lineHeight}px`);
+    if (_useDomMeasurements) {
+      const font = buildCanvasFont(style);
+      return measureDomLineHeight(font, `${style.lineHeight}px`, useBulletProbe);
+    }
+    // Canvas-only: use the CSS line-height value directly
+    return style.lineHeight;
   }
 
-  // "normal" line-height: also measure via DOM for consistency
-  return measureDomLineHeight(font, 'normal');
+  if (_useDomMeasurements) {
+    const font = buildCanvasFont(style);
+    return measureDomLineHeight(font, 'normal', useBulletProbe);
+  }
+
+  // Canvas-only fallback for "normal" line-height: use font metrics
+  ctx.font = buildCanvasFont(style);
+  const metrics = ctx.measureText('M');
+  const ascent = metrics.fontBoundingBoxAscent ?? metrics.actualBoundingBoxAscent;
+  const descent = metrics.fontBoundingBoxDescent ?? metrics.actualBoundingBoxDescent;
+  return (ascent + descent) * 1.2;
 }
 
 /**
@@ -574,6 +614,7 @@ function flowWordsIntoLines(
   words: Word[],
   contentWidth: number,
   whiteSpace: string,
+  useBulletProbe = false,
 ): PositionedLine[] {
   const lines: PositionedLine[] = [];
   let currentLine: PositionedLine = { words: [], totalWidth: 0, lineHeight: 0 };
@@ -598,7 +639,7 @@ function flowWordsIntoLines(
   let afterHardBreak = true; // start of content is like after a hard break
 
   for (const word of words) {
-    let wordLineHeight = getLineHeight(ctx, word.style);
+    let wordLineHeight = getLineHeight(ctx, word.style, useBulletProbe);
     // Inline-block elements expand line height with their vertical padding+margin
     if (word.boxStyle && word.boxStyle.display === 'inline-block') {
       const bs = word.boxStyle;
@@ -641,7 +682,7 @@ function flowWordsIntoLines(
         // rounding errors across font boundaries.
         let shouldWrap = true;
         const overflow = currentLine.totalWidth + piece.width - contentWidth;
-        if (overflow < 5 && hasMixedFonts(currentLine.words)) {
+        if (_useDomMeasurements && overflow < 5 && hasMixedFonts(currentLine.words)) {
           const candidateWords = [...currentLine.words, piece];
           const domWidth = measureLineWidthViaDom(candidateWords);
           if (domWidth <= contentWidth) {
@@ -660,7 +701,7 @@ function flowWordsIntoLines(
       // Reverse check: canvas says it fits, but with mixed fonts near boundary,
       // DOM might say it doesn't fit. Verify before committing.
       // Only check when line is >80% full to avoid excessive DOM measurements.
-      if (!piece.isSpace && currentLine.words.length > 0 &&
+      if (_useDomMeasurements && !piece.isSpace && currentLine.words.length > 0 &&
           currentLine.totalWidth > contentWidth * 0.8) {
         const remaining = contentWidth - (currentLine.totalWidth + piece.width);
         if (remaining >= 0 && remaining < 5 && hasMixedFonts(currentLine.words)) {
@@ -694,13 +735,14 @@ function layoutInlineContent(
   x: number,
   y: number,
   contentWidth: number,
+  useBulletProbe = false,
 ): { nodes: LayoutNode[]; height: number } {
   const results: LayoutNode[] = [];
   const runs = collectTextRuns(node);
   if (runs.length === 0) return { nodes: results, height: 0 };
 
   const words = tokenizeRuns(ctx, runs);
-  const lines = flowWordsIntoLines(ctx, words, contentWidth, node.style.whiteSpace);
+  const lines = flowWordsIntoLines(ctx, words, contentWidth, node.style.whiteSpace, useBulletProbe);
   const isRTL = node.style.direction === 'rtl';
   let textAlign = node.style.textAlign;
   // In RTL, default alignment is right; 'start'='right', 'end'='left'
@@ -835,7 +877,47 @@ function layoutInlineContent(
     }
     // Center the text block (ascent + descent) within the lineHeight
     const textBlockHeight = maxAscent + maxDescent;
-    const lineBaselineY = curY + (lineHeight - textBlockHeight) / 2 + maxAscent;
+    let lineBaselineY = curY + (lineHeight - textBlockHeight) / 2 + maxAscent;
+
+    // Expand line height if sub/sup extends beyond the line box.
+    // Browsers grow the line box to fit all content, but keep
+    // the normal text baseline position unchanged.
+    let effectiveLineHeight = lineHeight;
+    {
+      const lineNormalWords = line.words.filter(w =>
+        w.text !== '' && w.style.verticalAlign !== 'super' && w.style.verticalAlign !== 'sub');
+      const parentFontSize = lineNormalWords.length > 0
+        ? Math.max(...lineNormalWords.map(w => w.style.fontSize)) : 0;
+
+      let minTop = curY;
+      let maxBottom = curY + lineHeight;
+
+      for (const word of line.words) {
+        if (word.text === '') continue;
+        const va = word.style.verticalAlign;
+        if (va !== 'super' && va !== 'sub') continue;
+        if (parentFontSize === 0) break;
+
+        ctx.font = buildCanvasFont(word.style);
+        const m = ctx.measureText('M');
+        const wAscent = m.fontBoundingBoxAscent ?? m.actualBoundingBoxAscent;
+        const wDescent = m.fontBoundingBoxDescent ?? m.actualBoundingBoxDescent;
+
+        let shiftedBaseline = lineBaselineY;
+        if (va === 'super') {
+          shiftedBaseline -= parentFontSize * 0.4;
+        } else {
+          shiftedBaseline += parentFontSize * 0.26;
+        }
+
+        const wordTop = shiftedBaseline - wAscent;
+        const wordBottom = shiftedBaseline + wDescent;
+        if (wordTop < minTop) minTop = wordTop;
+        if (wordBottom > maxBottom) maxBottom = wordBottom;
+      }
+
+      effectiveLineHeight = maxBottom - minTop;
+    }
 
     // Pass 2: emit text
     // For RTL lines with uniform style, emit as a single text node
@@ -930,11 +1012,11 @@ function layoutInlineContent(
             ? Math.max(...normalWords.map(w => w.style.fontSize))
             : word.style.fontSize;
           if (va === 'super') {
-            // Browser raises super by ~0.33em of parent
-            baselineY -= parentFontSize * 0.33;
+            // Chrome raises super baseline by ~0.4em of parent font size
+            baselineY -= parentFontSize * 0.4;
           } else {
-            // Browser lowers sub by ~0.25em of parent
-            baselineY += parentFontSize * 0.25;
+            // Chrome lowers sub baseline by ~0.26em of parent font size
+            baselineY += parentFontSize * 0.26;
           }
         }
         const effectiveWidth = word.width + (word.isSpace ? justifyExtraPerSpace : 0);
@@ -952,7 +1034,7 @@ function layoutInlineContent(
       }
     }
 
-    curY += lineHeight;
+    curY += effectiveLineHeight;
   }
 
   return { nodes: results, height: curY - y };
@@ -1062,7 +1144,8 @@ function layoutBlock(
   // Layout children
   if (hasOnlyInlineChildren(node)) {
     // Inline formatting context
-    const { nodes, height } = layoutInlineContent(ctx, node, contentX, contentStartY, contentWidth);
+    const bulletProbe = node.tagName === 'li' && BULLET_MARKERS.has(style.listStyleType);
+    const { nodes, height } = layoutInlineContent(ctx, node, contentX, contentStartY, contentWidth, bulletProbe);
     box.children = nodes;
     box.height = borderTop + padTop + height + padBottom + borderBottom;
   } else {
@@ -1104,7 +1187,8 @@ function layoutBlock(
           children: inlineChildren,
           textContent: null,
         };
-        const { nodes, height } = layoutInlineContent(ctx, inlineGroup, contentX, curY, contentWidth);
+        const bulletProbe2 = node.tagName === 'li' && BULLET_MARKERS.has(style.listStyleType);
+        const { nodes, height } = layoutInlineContent(ctx, inlineGroup, contentX, curY, contentWidth, bulletProbe2);
         box.children.push(...nodes);
         curY += height;
         prevMarginBottom = 0;
@@ -1316,7 +1400,10 @@ export function buildLayoutTree(
   ctx: CanvasRenderingContext2D,
   styledTree: StyledNode,
   containerWidth: number,
+  useDomMeasurements = true,
 ): { root: LayoutBox; height: number } {
+  _useDomMeasurements = useDomMeasurements;
+
   // The styledTree root is our container div — layout its children as a block flow
   const { box, height } = layoutBlock(ctx, styledTree, 0, 0, containerWidth);
 

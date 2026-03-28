@@ -9,8 +9,8 @@ HTML string + CSS → parseHTML (DOMParser) → resolveStyles (hidden DOM + getC
 → buildLayoutTree (canvas measureText) → renderNode (canvas fillText/fillRect)
 ```
 
-- **No DOM measurements** for layout — all positions computed from CSS values + `canvas.measureText`
-- **DOM used only for** `getComputedStyle` (CSS cascade/inheritance) and `getComputedStyle(el, '::before')` (list markers)
+- **DOM used for** `getComputedStyle` (CSS cascade/inheritance), `getComputedStyle(el, '::before')` (list markers), and optional DOM probes for cross-browser line height accuracy
+- **`useDomMeasurements` option** (default: `true`) — enables DOM probes for line heights and mixed-font width verification. When `false`, uses pure canvas API only.
 - **`renderHTML()` is synchronous** — no async, no font loading. Caller must load fonts first.
 
 ### Key files
@@ -109,15 +109,20 @@ Delete debug test files after fixing. Never commit them.
 - Font preloading happens in `tests/helpers/compare.ts` before both renders
 
 ### Firefox cross-browser differences
-Firefox's line box height is 1.5px taller than Chrome for the same `line-height`
-value. `getComputedStyle` reports the same value in both browsers, but Firefox's
-actual element height is larger. This accumulates in lists (1.5px × N items).
+Firefox renders `<ul><li>` elements ~1.5px taller than Chrome due to the
+`::marker` pseudo-element (disc/circle/square markers). This accumulates
+in long lists (1.5px × N items). `<ol><li>` items are NOT affected.
 
-No CSS property fixes this except `display: flex` on the element, which changes
-the layout model entirely. For users needing cross-browser consistency:
+**Library fix:** When `useDomMeasurements: true`, the layout engine uses a
+hidden `<ul><li>` DOM probe to measure actual line heights for bullet-type
+list items, matching Firefox's rendering.
+
+**CSS fix (recommended for users):** Adding this CSS to input HTML eliminates
+the difference at the source:
 ```css
-li { display: flex; align-items: center; }
+li::marker { content: none; font-size: 0; line-height: 0; }
 ```
+This is safe because render-tag draws list markers itself via canvas.
 
 The test suite uses Chromium baselines with 35% tolerance for Firefox.
 

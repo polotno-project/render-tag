@@ -18,7 +18,7 @@ export function renderHTML(
   html: string,
   options: RenderOptions,
 ): RenderResult {
-  const { width, height, css: extraCSS, pixelRatio = 1 } = options;
+  const { width, height, css: extraCSS, pixelRatio = 1, useDomMeasurements = true } = options;
 
   // 1. Parse HTML and extract CSS
   const { fragment, css } = parseHTML(html, extraCSS);
@@ -33,7 +33,7 @@ export function renderHTML(
   ctx.fontKerning = 'normal';
 
   // 4. Build layout tree using pure canvas measurement
-  const { root, height: contentHeight } = buildLayoutTree(ctx, tree, width);
+  const { root, height: contentHeight } = buildLayoutTree(ctx, tree, width, useDomMeasurements);
 
   // 5. Size the output canvas
   const finalHeight = height || contentHeight;
