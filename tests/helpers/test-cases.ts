@@ -30,6 +30,19 @@ async function getOpenSansCss(): Promise<string> {
   return _openSansCss;
 }
 
+/** Font definitions for the multi-font test matrix */
+export const FONT_VARIANTS = [
+  { name: 'Open Sans', family: "'Open Sans', sans-serif" },
+  { name: 'Roboto', family: "'Roboto', sans-serif" },
+  { name: 'Playfair Display', family: "'Playfair Display', serif" },
+  { name: 'Merriweather', family: "'Merriweather', serif" },
+  { name: 'Lobster', family: "'Lobster', cursive" },
+] as const;
+
+export async function loadMultiFontCss(): Promise<string> {
+  return getMultiFontCss();
+}
+
 async function getMultiFontCss(): Promise<string> {
   if (_multiFontCss) return _multiFontCss;
   try {
@@ -1149,123 +1162,16 @@ console.log(msg);</pre>
 </div>`,
     },
     // =========================================================================
-    // MULTI-FONT TEST CASES
+    // 48. Mixed Google Fonts on same line — baseline alignment stress test
     // =========================================================================
-
-    // 48. Playfair Display — high contrast serif with tall ascenders/descenders
     {
-      name: 'Playfair Display serif',
-      width: 500,
-      height: 300,
-      css: withMultiFont(`body { font-family: 'Playfair Display', serif; font-size: 18px; line-height: 1.6; }`),
-      html: `<p>Typography matters. <strong>Bold Playfair</strong> has dramatic thick-thin contrast.</p>
-<p><em>Italic Playfair</em> is especially distinctive with swash-like letterforms.</p>
-<p style="font-size: 32px; font-weight: 900; line-height: 1.2;">Large Black Weight</p>
-<p>Mixed: <span style="font-size: 14px;">small</span> and <span style="font-size: 28px;">large</span> on one line.</p>`,
-    },
-
-    // 49. Roboto multi-weight paragraph
-    {
-      name: 'Roboto multi-weight text',
-      width: 500,
-      height: 350,
-      css: withMultiFont(`body { font-family: 'Roboto', sans-serif; font-size: 16px; line-height: 1.5; }`),
-      html: `<p style="font-weight:400">Regular weight text flows naturally across the line with good readability.</p>
-<p><span style="font-weight:400">Regular </span><span style="font-weight:700">Bold </span><span style="font-weight:400">Regular </span><span style="font-weight:700">Bold </span>alternating weights.</p>
-<p style="font-weight:700">Bold paragraph with <em>bold italic</em> and <span style="font-weight:400">regular</span> inline.</p>
-<p>Text with <span style="font-size:12px">12px</span>, <span style="font-size:16px">16px</span>, <span style="font-size:24px">24px</span> sizes mixed on one line in Roboto.</p>
-<p style="letter-spacing: 2px;">Roboto with 2px letter-spacing applied across the paragraph text.</p>`,
-    },
-
-    // 50. Inconsolata monospace — different metrics than system mono
-    {
-      name: 'Inconsolata monospace',
-      width: 500,
-      height: 250,
-      css: withMultiFont(`body { font-family: 'Inconsolata', monospace; font-size: 15px; line-height: 1.6; }`),
-      html: `<p>function greet(name) {</p>
-<p>&nbsp;&nbsp;return \`Hello, \${name}!\`;</p>
-<p>}</p>
-<p>const result = greet("World");</p>
-<p>Mixed: <span style="font-family: 'Roboto', sans-serif;">Roboto text</span> then <span>Inconsolata again</span></p>`,
-    },
-
-    // 51. Lobster cursive — extreme kerning pairs
-    {
-      name: 'Lobster cursive font',
-      width: 500,
-      height: 200,
-      css: withMultiFont(`body { font-family: 'Lobster', cursive; font-size: 24px; line-height: 1.4; }`),
-      html: `<p>Beautiful Typography</p>
-<p>WAVE AV To Ty Wa</p>
-<p style="font-size: 16px;">Smaller Lobster text with <span style="font-family: 'Roboto', sans-serif; font-size: 14px;">inline Roboto</span> mixed in.</p>`,
-    },
-
-    // 52. Merriweather — large x-height serif, tight spacing
-    {
-      name: 'Merriweather body text',
-      width: 500,
-      height: 350,
-      css: withMultiFont(`
-        body { font-family: 'Merriweather', serif; font-size: 15px; line-height: 1.8; }
-        h2 { font-family: 'Playfair Display', serif; font-size: 24px; line-height: 1.3; margin: 0 0 8px; }
-      `),
-      html: `<h2>Article Title in Playfair</h2>
-<p>Body text in Merriweather. This serif font has a large x-height making it very readable at small sizes. <strong>Bold Merriweather</strong> and <em>italic Merriweather</em> both work well.</p>
-<p>Second paragraph continues the article with different formatting: <span style="color: #b91c1c;">red text</span>, <u>underlined words</u>, and <span style="font-size: 12px;">small footnote text</span>.</p>`,
-    },
-
-    // 53. Mixed fonts on same line — stress test for baseline alignment
-    {
-      name: 'Mixed fonts same line',
+      name: 'Mixed Google Fonts inline',
       width: 600,
       height: 300,
       css: withMultiFont(`body { font-size: 16px; line-height: 1.6; }`),
       html: `<p><span style="font-family:'Roboto',sans-serif">Roboto</span> then <span style="font-family:'Playfair Display',serif">Playfair</span> then <span style="font-family:'Inconsolata',monospace">Inconsolata</span> then <span style="font-family:'Merriweather',serif">Merriweather</span>.</p>
 <p><span style="font-family:'Lobster',cursive;font-size:20px">Lobster Big</span> next to <span style="font-family:'Roboto',sans-serif;font-size:12px">small Roboto</span> next to <span style="font-family:'Playfair Display',serif;font-size:18px">medium Playfair</span></p>
 <p style="font-family:'Roboto',sans-serif">Roboto paragraph with <span style="font-family:'Inconsolata',monospace;background:#f3f4f6;padding:1px 4px">code in Inconsolata</span> inline.</p>`,
-    },
-
-    // 54. Font with tight line-height — tests vertical clipping
-    {
-      name: 'Tight line-height fonts',
-      width: 500,
-      height: 300,
-      css: withMultiFont(`body { font-size: 16px; }`),
-      html: `<p style="font-family:'Playfair Display',serif;line-height:1.0;font-size:20px">Playfair at line-height 1.0 — descenders like g, p, y may clip into the next line of text below.</p>
-<p style="font-family:'Roboto',sans-serif;line-height:1.0">Roboto at line-height 1.0 — this sans-serif has smaller descenders but still wraps tightly for multi-line text.</p>
-<p style="font-family:'Merriweather',serif;line-height:1.1">Merriweather at 1.1 line-height. Large x-height means less vertical room between lines of text content here.</p>`,
-    },
-
-    // 55. Lists with different fonts
-    {
-      name: 'Lists with multiple fonts',
-      width: 500,
-      height: 400,
-      css: withMultiFont(`body { font-size: 15px; line-height: 1.6; }`),
-      html: `<ul style="font-family:'Roboto',sans-serif">
-<li>Roboto list item one</li>
-<li style="font-family:'Merriweather',serif">Merriweather list item</li>
-<li>Back to Roboto <strong>with bold</strong></li>
-<li style="font-family:'Playfair Display',serif;font-size:18px">Larger Playfair item</li>
-</ul>
-<ol style="font-family:'Merriweather',serif">
-<li>First ordered item</li>
-<li>Second item with <span style="font-family:'Inconsolata',monospace;background:#f0f0f0;padding:0 3px">inline code</span></li>
-<li style="font-family:'Roboto',sans-serif">Third in Roboto</li>
-</ol>`,
-    },
-
-    // 56. Roboto wrapping stress — long text that wraps differently with kerning
-    {
-      name: 'Roboto long wrapping',
-      width: 350,
-      height: 400,
-      css: withMultiFont(`body { font-family: 'Roboto', sans-serif; font-size: 16px; line-height: 1.5; }`),
-      html: `<p>The quick brown fox jumps over the lazy dog. This sentence contains every letter of the alphabet and tests how Roboto handles word wrapping in a narrow container.</p>
-<p><strong>Bold variant:</strong> The quick brown fox jumps over the lazy dog again with bold weight applied throughout the entire paragraph text.</p>
-<p><em>Italic variant:</em> The quick brown fox jumps over the lazy dog once more, this time with italic style to test different glyph widths during wrapping.</p>
-<p style="text-align:justify">Justified text in Roboto: The quick brown fox jumps over the lazy dog with justified alignment stretching spaces between each word.</p>`,
     },
   ];
 }

@@ -1,8 +1,34 @@
 import { compareRenders } from '../tests/helpers/compare.ts';
-import { loadBasicCases, loadGoogleFontCase, polotnoCase, polotnoListsCase } from '../tests/helpers/test-cases.ts';
+import { loadBasicCases, loadGoogleFontCase, polotnoCase, polotnoListsCase, FONT_VARIANTS, loadMultiFontCss } from '../tests/helpers/test-cases.ts';
 import type { BenchmarkCase } from '../tests/helpers/test-cases.ts';
 
 const PIXEL_RATIO = window.devicePixelRatio || 2;
+
+// ─── Types ──────────────────────────────────────────────────────────────
+
+interface CellResult {
+  mismatch: number;
+}
+
+// 2D grid: grid[testIndex][fontIndex] = CellResult
+type ResultGrid = (CellResult | null)[][];
+
+// ─── Font override ──────────────────────────────────────────────────────
+
+let _multiFontCss = '';
+
+/**
+ * Create a variant of a test case with a different font.
+ * Prepends the multi-font @font-face CSS and adds a body font-family override.
+ */
+function withFont(tc: BenchmarkCase, fontFamily: string): BenchmarkCase {
+  return {
+    ...tc,
+    css: _multiFontCss + '\n' + tc.css + `\nbody { font-family: ${fontFamily} !important; }`,
+  };
+}
+
+// ─── Detail view (click to expand) ──────────────────────────────────────
 
 function addColumn(
   row: HTMLElement,
@@ -36,51 +62,36 @@ function createIsolatedDOM(tc: BenchmarkCase): HTMLIFrameElement {
   return iframe;
 }
 
-interface CaseResult {
-  name: string;
-  contentMismatch: number;
-  referenceTime: number;
-  canvasTime: number;
-}
-
-interface RenderedCase {
-  section: HTMLElement;
-  result: CaseResult;
-}
-
-async function renderComparison(tc: BenchmarkCase): Promise<RenderedCase> {
-  const section = document.createElement('div');
-  section.className = 'case';
-
-  const result = await compareRenders(tc.html, tc.css, tc.width, tc.height, 0.1, PIXEL_RATIO);
+async function showDetail(tc: BenchmarkCase, fontFamily: string, container: HTMLElement) {
+  const variant = withFont(tc, fontFamily);
+  const result = await compareRenders(variant.html, variant.css, variant.width, variant.height, 0.1, PIXEL_RATIO);
   const pct = result.contentMismatchPercentage;
   const filled = (result.contentPixels / result.totalPixels * 100).toFixed(0);
-  const speedup = (result.referenceTime / result.canvasLibTime).toFixed(0);
 
-  // Title with inline stats
+  const section = document.createElement('div');
+  section.className = 'case';
+  section.id = 'detail-view';
+
   const title = document.createElement('h2');
+  title.textContent = `${tc.name} — ${fontFamily} `;
   const badge = document.createElement('span');
   badge.className = pct < 5 ? 'badge good' : pct < 20 ? 'badge warn' : 'badge bad';
   badge.textContent = `${pct.toFixed(1)}%`;
-  title.textContent = `${tc.name} `;
   title.appendChild(badge);
-  const timing = document.createElement('span');
-  timing.className = 'timing';
-  timing.textContent = `${result.canvasLibTime.toFixed(0)}ms (${speedup}x)`;
-  title.appendChild(timing);
+  const closeBtn = document.createElement('button');
+  closeBtn.textContent = 'Close';
+  closeBtn.style.cssText = 'margin-left:12px;font-size:12px;padding:2px 8px;cursor:pointer;';
+  closeBtn.onclick = () => section.remove();
+  title.appendChild(closeBtn);
   section.appendChild(title);
 
   const row = document.createElement('div');
   row.className = 'comparison';
 
-  // Diff first for quick scanning
-  const diffLabel = `Diff: ${pct.toFixed(1)}% (${filled}% filled)`;
-  addColumn(row, diffLabel, result.diffCanvas, PIXEL_RATIO);
-
-  // Then reference and our render
+  addColumn(row, `Diff: ${pct.toFixed(1)}% (${filled}% filled)`, result.diffCanvas, PIXEL_RATIO);
   addColumn(row, 'html-to-svg', result.domCanvas, PIXEL_RATIO);
 
-  // Canvas (lib) with click-to-swap to DOM
+  // Canvas with click-to-swap
   const libCol = document.createElement('div');
   const libH3 = document.createElement('h3');
   libH3.textContent = 'Canvas (lib) — click to compare';
@@ -93,12 +104,10 @@ async function renderComparison(tc: BenchmarkCase): Promise<RenderedCase> {
   libCanvas.style.height = `${libCanvas.height / PIXEL_RATIO}px`;
   libCanvas.style.cursor = 'pointer';
 
-  const iframe = createIsolatedDOM(tc);
-
+  const iframe = createIsolatedDOM(variant);
   let showingCanvas = true;
   const swapContainer = document.createElement('div');
   swapContainer.appendChild(libCanvas);
-
   const toggleView = () => {
     showingCanvas = !showingCanvas;
     swapContainer.innerHTML = '';
@@ -112,106 +121,134 @@ async function renderComparison(tc: BenchmarkCase): Promise<RenderedCase> {
   };
   libH3.addEventListener('click', toggleView);
   swapContainer.addEventListener('click', toggleView);
-
   libCol.appendChild(swapContainer);
   row.appendChild(libCol);
 
-  // Color the diff label
   const diffLabelEl = row.firstElementChild!.querySelector('h3') as HTMLElement;
   diffLabelEl.style.color = pct < 5 ? '#16a34a' : pct < 20 ? '#ca8a04' : '#dc2626';
 
   section.appendChild(row);
 
-  return {
-    section,
-    result: {
-      name: tc.name,
-      contentMismatch: pct,
-      referenceTime: result.referenceTime,
-      canvasTime: result.canvasLibTime,
-    },
-  };
+  // Remove existing detail view
+  document.getElementById('detail-view')?.remove();
+  container.prepend(section);
+  section.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
-function createDashboard(total: number, container: HTMLElement): HTMLElement {
-  const dashboard = document.createElement('div');
-  dashboard.id = 'dashboard';
-  container.prepend(dashboard);
-  updateDashboard(dashboard, [], total);
-  return dashboard;
-}
+// ─── 2D Results Table ───────────────────────────────────────────────────
 
-function updateDashboard(dashboard: HTMLElement, results: CaseResult[], total: number) {
-  const done = results.length;
-  const passed = results.filter(r => r.contentMismatch < 5).length;
-  const warn = results.filter(r => r.contentMismatch >= 5 && r.contentMismatch < 20).length;
-  const failed = results.filter(r => r.contentMismatch >= 20).length;
-  const avgMismatch = done > 0 ? results.reduce((s, r) => s + r.contentMismatch, 0) / done : 0;
-  const progress = total > 0 ? (done / total * 100).toFixed(0) : '0';
+function renderResultsTable(
+  cases: BenchmarkCase[],
+  fonts: typeof FONT_VARIANTS,
+  grid: ResultGrid,
+  container: HTMLElement,
+  detailContainer: HTMLElement,
+): HTMLElement {
+  const table = document.createElement('div');
+  table.id = 'results-grid';
 
-  // Use median to avoid first-render outlier skewing
-  const median = (arr: number[]) => {
-    if (arr.length === 0) return 0;
-    const sorted = [...arr].sort((a, b) => a - b);
-    const mid = Math.floor(sorted.length / 2);
-    return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
-  };
-  const medCanvas = median(results.map(r => r.canvasTime));
-  const medRef = median(results.map(r => r.referenceTime));
-  const speedup = medCanvas > 0 ? (medRef / medCanvas).toFixed(1) : '-';
+  const fontNames = fonts.map(f => f.name);
 
-  // Build results table rows
-  const sortedResults = [...results].sort((a, b) => b.contentMismatch - a.contentMismatch);
-  const tableRows = sortedResults.map(r => {
-    const cls = r.contentMismatch < 5 ? 'good' : r.contentMismatch < 20 ? 'warn' : 'bad';
-    return `<tr class="${cls}">
-      <td>${r.name}</td>
-      <td>${r.contentMismatch.toFixed(1)}%</td>
-      <td>${r.canvasTime.toFixed(0)}ms</td>
-    </tr>`;
-  }).join('');
+  // Build HTML table
+  const headerCells = fontNames.map(n => `<th>${n}</th>`).join('');
+  let rows = '';
+  for (let ti = 0; ti < cases.length; ti++) {
+    let cells = '';
+    for (let fi = 0; fi < fonts.length; fi++) {
+      const cell = grid[ti][fi];
+      if (cell === null) {
+        cells += '<td class="pending">...</td>';
+      } else {
+        const pct = cell.mismatch;
+        const cls = pct < 5 ? 'good' : pct < 20 ? 'warn' : 'bad';
+        cells += `<td class="${cls}" data-test="${ti}" data-font="${fi}">${pct.toFixed(1)}</td>`;
+      }
+    }
+    rows += `<tr><td class="test-name">${cases[ti].name}</td>${cells}</tr>`;
+  }
 
-  dashboard.innerHTML = `
-    <div class="progress-bar"><div class="progress-fill" style="width: ${progress}%"></div></div>
-    <div class="stats">
-      <div class="stat"><div class="stat-value">${done}/${total}</div><div class="stat-label">Done</div></div>
-      <div class="stat good"><div class="stat-value">${passed}</div><div class="stat-label">&lt; 5%</div></div>
-      <div class="stat warn"><div class="stat-value">${warn}</div><div class="stat-label">5-20%</div></div>
-      <div class="stat bad"><div class="stat-value">${failed}</div><div class="stat-label">&gt; 20%</div></div>
-      <div class="stat"><div class="stat-value">${avgMismatch.toFixed(1)}%</div><div class="stat-label">Avg mismatch</div></div>
-      <div class="stat"><div class="stat-value">${medCanvas.toFixed(0)}ms</div><div class="stat-label">Median render</div></div>
-      <div class="stat"><div class="stat-value">${medRef.toFixed(0)}ms</div><div class="stat-label">Median ref</div></div>
-      <div class="stat"><div class="stat-value">${speedup}x</div><div class="stat-label">Speedup</div></div>
-    </div>
-    ${done > 0 ? `<details style="margin-top:12px"><summary style="cursor:pointer;font-size:13px;color:#6b7280">Results table (${done} cases)</summary>
-    <table class="results-table">
-      <thead><tr><th>Test</th><th>Mismatch</th><th>Time</th></tr></thead>
-      <tbody>${tableRows}</tbody>
-    </table></details>` : ''}
+  table.innerHTML = `
+    <table class="results-table grid-table">
+      <thead><tr><th>Test Case</th>${headerCells}</tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
   `;
+
+  // Click handler for cells — show detail view
+  table.addEventListener('click', (e) => {
+    const td = (e.target as HTMLElement).closest('td[data-test]') as HTMLElement | null;
+    if (!td) return;
+    const ti = parseInt(td.dataset.test!);
+    const fi = parseInt(td.dataset.font!);
+    showDetail(cases[ti], fonts[fi].family, detailContainer);
+  });
+
+  container.innerHTML = '';
+  container.appendChild(table);
+  return table;
 }
+
+// ─── Main ───────────────────────────────────────────────────────────────
 
 async function main() {
   const app = document.getElementById('app')!;
 
+  // Status
+  const status = document.createElement('div');
+  status.id = 'status';
+  status.textContent = 'Loading fonts and test cases...';
+  app.appendChild(status);
+
+  // Load everything
+  _multiFontCss = await loadMultiFontCss();
   const basicCases = await loadBasicCases();
   const googleFontCase = await loadGoogleFontCase();
   const allCases = [...basicCases, googleFontCase, polotnoCase, polotnoListsCase];
+  const fonts = FONT_VARIANTS;
 
-  const rendered: RenderedCase[] = [];
-  const dashboard = createDashboard(allCases.length, app);
+  // Create grid
+  const grid: ResultGrid = allCases.map(() => fonts.map(() => null));
 
-  for (const tc of allCases) {
-    const entry = await renderComparison(tc);
-    rendered.push(entry);
-    updateDashboard(dashboard, rendered.map(r => r.result), allCases.length);
+  // Table container
+  const tableContainer = document.createElement('div');
+  tableContainer.id = 'table-container';
+  app.appendChild(tableContainer);
+
+  // Detail container (for clicked cells)
+  const detailContainer = document.createElement('div');
+  detailContainer.id = 'detail-container';
+  app.appendChild(detailContainer);
+
+  // Initial render
+  renderResultsTable(allCases, fonts, grid, tableContainer, detailContainer);
+
+  // Run all comparisons
+  const total = allCases.length * fonts.length;
+  let done = 0;
+
+  for (let ti = 0; ti < allCases.length; ti++) {
+    for (let fi = 0; fi < fonts.length; fi++) {
+      const tc = allCases[ti];
+      const variant = withFont(tc, fonts[fi].family);
+      try {
+        const result = await compareRenders(variant.html, variant.css, variant.width, variant.height, 0.1, PIXEL_RATIO);
+        grid[ti][fi] = { mismatch: result.contentMismatchPercentage };
+      } catch (e) {
+        grid[ti][fi] = { mismatch: -1 };
+      }
+      done++;
+      status.textContent = `Running: ${done}/${total} (${(done/total*100).toFixed(0)}%)`;
+      renderResultsTable(allCases, fonts, grid, tableContainer, detailContainer);
+    }
   }
 
-  // Sort by mismatch (highest first) and append to DOM
-  rendered.sort((a, b) => b.result.contentMismatch - a.result.contentMismatch);
-  for (const entry of rendered) {
-    app.appendChild(entry.section);
-  }
+  // Summary
+  const allResults = grid.flat().filter((c): c is CellResult => c !== null && c.mismatch >= 0);
+  const avg = allResults.reduce((s, r) => s + r.mismatch, 0) / allResults.length;
+  const good = allResults.filter(r => r.mismatch < 5).length;
+  const warn = allResults.filter(r => r.mismatch >= 5 && r.mismatch < 20).length;
+  const bad = allResults.filter(r => r.mismatch >= 20).length;
+  status.innerHTML = `Done: ${allResults.length} cells | <span style="color:#16a34a">${good} &lt;5%</span> | <span style="color:#ca8a04">${warn} 5-20%</span> | <span style="color:#dc2626">${bad} &gt;20%</span> | avg ${avg.toFixed(1)}%`;
 }
 
 main().catch(console.error);
