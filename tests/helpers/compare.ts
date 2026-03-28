@@ -147,7 +147,7 @@ export function extractDomLines(
   // Collect word positions using getClientRects() on word-level ranges.
   // getClientRects() returns one rect per visual line when a word wraps
   // mid-word (overflow-wrap: break-word), handling long unbroken words.
-  const wordPositions: { y: number; height: number; text: string }[] = [];
+  const wordPositions: { x: number; y: number; height: number; text: string }[] = [];
   const range = document.createRange();
   for (const textNode of textNodes) {
     const text = textNode.textContent || '';
@@ -160,12 +160,9 @@ export function extractDomLines(
       range.setEnd(textNode, offset + w.length);
       const rects = range.getClientRects();
       if (rects.length <= 1) {
-        // Word fits on one line
         const rect = rects[0] || range.getBoundingClientRect();
-        wordPositions.push({ y: rect.top - cTop, height: rect.height, text: w });
+        wordPositions.push({ x: rect.left, y: rect.top - cTop, height: rect.height, text: w });
       } else {
-        // Word wraps across lines — split by rect boundaries
-        // Use character-level measurement to find the break point
         let charIdx = 0;
         for (let ri = 0; ri < rects.length; ri++) {
           const rectY = rects[ri].top - cTop;
@@ -176,7 +173,6 @@ export function extractDomLines(
             const charRect = range.getClientRects()[0];
             if (!charRect) { charIdx++; continue; }
             const charY = charRect.top - cTop;
-            // If this char's Y is closer to the next rect, break
             if (ri + 1 < rects.length && Math.abs(charY - rects[ri + 1].top + cTop) < Math.abs(charY - rectY)) {
               break;
             }
@@ -184,7 +180,7 @@ export function extractDomLines(
             charIdx++;
           }
           if (fragment) {
-            wordPositions.push({ y: rectY, height: rects[ri].height, text: fragment });
+            wordPositions.push({ x: rects[ri].left, y: rectY, height: rects[ri].height, text: fragment });
           }
         }
       }
@@ -200,18 +196,21 @@ export function extractDomLines(
   // on word height. This avoids merging overlapping lines (tight line-height)
   // while still grouping mixed-size words on the same baseline.
   wordPositions.sort((a, b) => a.y - b.y);
-  const lines: { yMid: number; text: string }[] = [];
+  const lineGroups: { yMid: number; words: typeof wordPositions }[] = [];
   for (const wp of wordPositions) {
     const wpMid = wp.y + wp.height / 2;
-    const lastLine = lines[lines.length - 1];
-    // Same line if midpoints are within half the word height
+    const lastLine = lineGroups[lineGroups.length - 1];
     if (lastLine && Math.abs(wpMid - lastLine.yMid) < wp.height * 0.5) {
-      lastLine.text += ' ' + wp.text;
+      lastLine.words.push(wp);
     } else {
-      lines.push({ yMid: wpMid, text: wp.text });
+      lineGroups.push({ yMid: wpMid, words: [wp] });
     }
   }
-  return lines.map(l => ({ y: Math.round(l.yMid), text: l.text }));
+  // Sort words within each line by X position
+  return lineGroups.map(l => {
+    l.words.sort((a, b) => a.x - b.x);
+    return { y: Math.round(l.yMid), text: l.words.map(w => w.text).join(' ') };
+  });
 }
 
 export interface LayoutComparisonResult {
@@ -234,12 +233,12 @@ export function compareWrapping(
   const { lines: canvasLines } = renderHTML(html, { width, height, css });
   const domLines = extractDomLines(html, css, width);
 
-  // Strip whitespace and list markers for comparison — we only care about which
-  // characters appear on which line, not spacing or marker differences.
-  // List markers are rendered by our canvas but appear as ::marker pseudo-elements
-  // in DOM, so text walkers don't see them.
+  // Normalize for comparison: strip whitespace and list markers, then sort
+  // characters. We only care that the same characters appear on the same line,
+  // not their order (RTL text reverses word order in DOM extraction).
   const MARKERS = /^[•○■▪▸▹◦]|^\d+\./;
-  const normalize = (s: string) => s.replace(/\s+/g, '').replace(MARKERS, '');
+  const normalize = (s: string) =>
+    s.replace(/\s+/g, '').replace(MARKERS, '').split('').sort().join('');
 
   const maxLines = Math.max(canvasLines.length, domLines.length);
   const differentLines: LayoutComparisonResult['differentLines'] = [];

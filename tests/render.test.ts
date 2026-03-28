@@ -115,17 +115,13 @@ describe('HTML Canvas Renderer', () => {
       // Known wrapping issues — fail only if NEW cases break
       const KNOWN_WRAPPING_ISSUES = new Set([
         'Formatted text (bold, italic, colors)',
-        'Styled table',
         'Multi-column layout',
         'Mixed font sizes inline',
         'Subscript and superscript',
         'Mixed font-sizes same line',
         'Soft hyphens and zero-width spaces',
-        'List items with rich formatting',
         'Empty list items mixed with content',
-        'Monospace vs proportional text',
         'Very narrow container',
-        'Mixed Google Fonts inline',
       ]);
 
       const newFailures: string[] = [];
