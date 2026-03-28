@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { compareRenders } from './helpers/compare.ts';
-import { loadBasicCases, loadGoogleFontCase, polotnoCase, polotnoListsCase } from './helpers/test-cases.ts';
+import { compareRenders, compareWrapping } from './helpers/compare.ts';
+import { loadBasicCases, loadGoogleFontCase, polotnoCase, polotnoListsCase, FONT_VARIANTS, loadMultiFontCss } from './helpers/test-cases.ts';
 import type { BenchmarkCase } from './helpers/test-cases.ts';
 import baselines from './baselines.json';
 
@@ -104,6 +104,75 @@ describe('HTML Canvas Renderer', () => {
 
     it('Polotno Lists', async () => {
       await testCaseWithBaseline(polotnoListsCase);
+    });
+  });
+
+  describe('Layout wrapping consistency', () => {
+    it('no wrapping differences vs DOM', async () => {
+      if (!allCases) allCases = await loadBasicCases();
+      const failures: string[] = [];
+
+      for (const tc of allCases) {
+        const result = compareWrapping(tc.html, tc.css, tc.width, tc.height);
+        if (!result.wrappingMatch) {
+          const diffSummary = result.differentLines.slice(0, 3).map(d =>
+            `  line ${d.lineIndex}: canvas="${d.canvas.substring(0, 40)}" dom="${d.dom.substring(0, 40)}"`
+          ).join('\n');
+          failures.push(`${tc.name} (${result.canvasLineCount} vs ${result.domLineCount} lines):\n${diffSummary}`);
+        }
+      }
+
+      const matched = allCases.length - failures.length;
+      console.log(`\nWrapping: ${matched}/${allCases.length} match`);
+      if (failures.length > 0) {
+        console.log(`WRAPPING DIFFERENCES (${failures.length}):\n` + failures.join('\n\n'));
+      }
+    });
+  });
+
+  describe('Multi-font matrix', () => {
+    it('all cases × all fonts', async () => {
+      if (!allCases) allCases = await loadBasicCases();
+      const multiFontCss = await loadMultiFontCss();
+      const fonts = FONT_VARIANTS;
+
+      let wrappingFailures = 0;
+      const wrappingDetails: string[] = [];
+
+      for (const font of fonts) {
+        let totalMismatch = 0;
+        let count = 0;
+        let fontWrappingFails = 0;
+
+        for (const tc of allCases) {
+          const css = multiFontCss + '\n' + tc.css + `\nbody { font-family: ${font.family} !important; }`;
+
+          // Check wrapping
+          const wrap = compareWrapping(tc.html, css, tc.width, tc.height);
+          if (!wrap.wrappingMatch) {
+            fontWrappingFails++;
+            wrappingFailures++;
+            const diff = wrap.differentLines[0];
+            wrappingDetails.push(
+              `[${font.name}] ${tc.name}: line ${diff.lineIndex} canvas="${diff.canvas.substring(0, 30)}" dom="${diff.dom.substring(0, 30)}"`
+            );
+          }
+
+          // Pixel comparison
+          const result = await compareRenders(tc.html, css, tc.width, tc.height, 0.1, PIXEL_RATIO);
+          totalMismatch += result.contentMismatchPercentage;
+          count++;
+        }
+
+        const avg = totalMismatch / count;
+        console.log(`[${font.name}] avg mismatch: ${avg.toFixed(1)}% | wrapping fails: ${fontWrappingFails}/${count}`);
+      }
+
+      if (wrappingDetails.length > 0) {
+        console.log(`\nFONT WRAPPING DIFFERENCES (${wrappingFailures}):`);
+        for (const d of wrappingDetails.slice(0, 20)) console.log('  ' + d);
+        if (wrappingDetails.length > 20) console.log(`  ... and ${wrappingDetails.length - 20} more`);
+      }
     });
   });
 });

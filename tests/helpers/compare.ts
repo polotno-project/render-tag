@@ -120,6 +120,106 @@ export function renderToCanvas(
 }
 
 /**
+ * Extract text lines from DOM using Range API.
+ * Groups words by their Y position to detect line breaks.
+ */
+export function extractDomLines(
+  html: string,
+  css: string,
+  width: number,
+): { y: number; text: string }[] {
+  const container = document.createElement('div');
+  container.style.cssText = `position:absolute;left:-9999px;width:${width}px;margin:0;padding:0;overflow:hidden;`;
+  const styleEl = document.createElement('style');
+  styleEl.textContent = css;
+  container.appendChild(styleEl);
+  const content = document.createElement('div');
+  content.style.cssText = 'margin:0;padding:0;overflow:hidden;';
+  content.innerHTML = html;
+  container.appendChild(content);
+  document.body.appendChild(container);
+  const cTop = content.getBoundingClientRect().top;
+
+  const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT);
+  const lineMap = new Map<number, string[]>();
+  const textNodes: Text[] = [];
+  while (walker.nextNode()) textNodes.push(walker.currentNode as Text);
+
+  const range = document.createRange();
+  for (const textNode of textNodes) {
+    const text = textNode.textContent || '';
+    if (!text.trim()) continue;
+    const words = text.split(/(\s+)/);
+    let offset = 0;
+    for (const w of words) {
+      if (!w || !w.trim()) { offset += w.length; continue; }
+      range.setStart(textNode, offset);
+      range.setEnd(textNode, offset + w.length);
+      const rect = range.getBoundingClientRect();
+      const y = Math.round(rect.top - cTop);
+      if (!lineMap.has(y)) lineMap.set(y, []);
+      lineMap.get(y)!.push(w);
+      offset += w.length;
+    }
+  }
+
+  document.body.removeChild(container);
+  return [...lineMap.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([y, texts]) => ({ y, text: texts.join(' ') }));
+}
+
+export interface LayoutComparisonResult {
+  wrappingMatch: boolean;
+  canvasLineCount: number;
+  domLineCount: number;
+  differentLines: { lineIndex: number; canvas: string; dom: string }[];
+}
+
+/**
+ * Compare text wrapping between our canvas layout and the DOM.
+ * Normalizes whitespace — only flags when different words appear on different lines.
+ */
+export function compareWrapping(
+  html: string,
+  css: string,
+  width: number,
+  height: number,
+): LayoutComparisonResult {
+  const { lines: canvasLines } = renderHTML(html, { width, height, css });
+  const domLines = extractDomLines(html, css, width);
+
+  // Strip whitespace and list markers for comparison — we only care about which
+  // characters appear on which line, not spacing or marker differences.
+  // List markers are rendered by our canvas but appear as ::marker pseudo-elements
+  // in DOM, so text walkers don't see them.
+  const MARKERS = /^[•○■▪▸▹◦]|^\d+\./;
+  const normalize = (s: string) => s.replace(/\s+/g, '').replace(MARKERS, '');
+
+  const maxLines = Math.max(canvasLines.length, domLines.length);
+  const differentLines: LayoutComparisonResult['differentLines'] = [];
+
+  for (let i = 0; i < maxLines; i++) {
+    const cText = normalize(canvasLines[i]?.text || '');
+    const dText = normalize(domLines[i]?.text || '');
+    if (cText !== dText) {
+      differentLines.push({
+        lineIndex: i,
+        canvas: canvasLines[i]?.text || '',
+        dom: domLines[i]?.text || '',
+      });
+    }
+  }
+
+  return {
+    wrappingMatch: differentLines.length === 0,
+    canvasLineCount: canvasLines.length,
+    domLineCount: domLines.length,
+    differentLines,
+  };
+}
+
+/**
  * Pad an ImageData to target dimensions (filling with white).
  */
 function padImageData(

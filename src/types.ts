@@ -19,10 +19,22 @@ export interface RenderOptions {
   useDomMeasurements?: boolean;
 }
 
+/** A text line extracted from the layout tree */
+export interface LayoutLine {
+  /** Y coordinate of the text baseline */
+  y: number;
+  /** Concatenated text content on this line */
+  text: string;
+}
+
 export interface RenderResult {
   canvas: HTMLCanvasElement;
   /** Actual content height after layout */
   height: number;
+  /** The layout tree root (for debugging/comparison) */
+  layoutRoot: LayoutBox;
+  /** Text lines extracted from the layout tree, grouped by Y coordinate */
+  lines: LayoutLine[];
 }
 
 /** Resolved style for a single element — all values in px / concrete strings */

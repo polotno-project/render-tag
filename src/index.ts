@@ -1,10 +1,10 @@
-import type { RenderOptions, RenderResult } from './types.ts';
+import type { RenderOptions, RenderResult, LayoutLine, LayoutNode } from './types.ts';
 import { parseHTML } from './parse.ts';
 import { resolveStyles } from './style-resolver.ts';
 import { buildLayoutTree } from './layout.ts';
 import { renderNode } from './render.ts';
 
-export type { RenderOptions, RenderResult };
+export type { RenderOptions, RenderResult, LayoutLine };
 
 /**
  * Render an HTML string onto a canvas element using pure 2D canvas API.
@@ -48,8 +48,25 @@ export function renderHTML(
   // 6. Render to canvas
   renderNode(renderCtx, root);
 
-  // 7. Cleanup
+  // 7. Extract lines from layout tree
+  const lineMap = new Map<number, string[]>();
+  function walkLines(node: LayoutNode) {
+    if (node.type === 'text' && node.text.trim()) {
+      const roundedY = Math.round(node.y);
+      if (!lineMap.has(roundedY)) lineMap.set(roundedY, []);
+      lineMap.get(roundedY)!.push(node.text);
+    }
+    if (node.type === 'box') {
+      for (const child of node.children) walkLines(child);
+    }
+  }
+  walkLines(root);
+  const lines: LayoutLine[] = [...lineMap.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([y, texts]) => ({ y, text: texts.join('') }));
+
+  // 8. Cleanup
   cleanup();
 
-  return { canvas, height: finalHeight };
+  return { canvas, height: finalHeight, layoutRoot: root, lines };
 }
