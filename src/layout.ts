@@ -99,17 +99,54 @@ export function buildCanvasFont(style: ResolvedStyle): string {
 }
 
 /**
+ * Cache for DOM-measured line heights.
+ * Key: "font|lineHeight" → actual pixel height from the browser.
+ */
+const _lineHeightCache = new Map<string, number>();
+let _lineHeightProbe: HTMLSpanElement | null = null;
+
+/**
+ * Measure the actual line height using a hidden DOM element.
+ * This gives the browser's true line box height, which can differ
+ * from the CSS line-height value (e.g. Firefox adds ~1.5px).
+ * Results are cached per font+lineHeight combination.
+ */
+function measureDomLineHeight(font: string, lineHeight: string): number {
+  const key = `${font}|${lineHeight}`;
+  const cached = _lineHeightCache.get(key);
+  if (cached !== undefined) return cached;
+
+  if (!_lineHeightProbe) {
+    _lineHeightProbe = document.createElement('span');
+    _lineHeightProbe.style.cssText =
+      'position:absolute;top:-9999px;left:-9999px;visibility:hidden;white-space:nowrap;padding:0;margin:0;border:0;';
+    _lineHeightProbe.textContent = 'Mg';
+    document.body.appendChild(_lineHeightProbe);
+  }
+
+  _lineHeightProbe.style.font = font;
+  _lineHeightProbe.style.lineHeight = lineHeight;
+  const height = _lineHeightProbe.getBoundingClientRect().height;
+
+  _lineHeightCache.set(key, height);
+  return height;
+}
+
+/**
  * Get the effective line height for a style.
- * If lineHeight is 0 (meaning "normal"), compute from font metrics.
+ * Uses DOM measurement for accuracy across browsers (Firefox vs Chrome).
+ * Falls back to canvas metrics for "normal" line-height.
  */
 function getLineHeight(ctx: CanvasRenderingContext2D, style: ResolvedStyle): number {
-  if (style.lineHeight > 0) return style.lineHeight;
-  // "normal" line-height: use font metrics
-  ctx.font = buildCanvasFont(style);
-  const metrics = ctx.measureText('Mgy');
-  const ascent = metrics.fontBoundingBoxAscent ?? metrics.actualBoundingBoxAscent;
-  const descent = metrics.fontBoundingBoxDescent ?? metrics.actualBoundingBoxDescent;
-  return ascent + descent;
+  const font = buildCanvasFont(style);
+
+  if (style.lineHeight > 0) {
+    // Use DOM to get the browser's actual line box height
+    return measureDomLineHeight(font, `${style.lineHeight}px`);
+  }
+
+  // "normal" line-height: also measure via DOM for consistency
+  return measureDomLineHeight(font, 'normal');
 }
 
 /**
