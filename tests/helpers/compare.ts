@@ -140,7 +140,16 @@ export function extractDomLines(
   document.body.appendChild(container);
   const cTop = content.getBoundingClientRect().top;
 
-  const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT);
+  const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT, {
+    acceptNode: (node) => {
+      // Skip text inside <style>, <script>, and other non-visual elements
+      const parent = node.parentElement;
+      if (parent && /^(style|script|noscript)$/i.test(parent.tagName)) {
+        return NodeFilter.FILTER_REJECT;
+      }
+      return NodeFilter.FILTER_ACCEPT;
+    },
+  });
   const textNodes: Text[] = [];
   while (walker.nextNode()) textNodes.push(walker.currentNode as Text);
 
