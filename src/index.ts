@@ -48,11 +48,13 @@ export function renderHTML(
   // 6. Render to canvas
   renderNode(renderCtx, root);
 
-  // 7. Extract lines from layout tree — group by Y with tolerance
-  const wordPositions: { y: number; text: string }[] = [];
+  // 7. Extract lines from layout tree — group by Y with tolerance.
+  // Use fontSize as proxy for height when grouping. Sub/sup text has
+  // different Y but belongs on the same visual line as parent text.
+  const wordPositions: { y: number; fontSize: number; text: string }[] = [];
   function walkLines(node: LayoutNode) {
     if (node.type === 'text' && node.text.trim()) {
-      wordPositions.push({ y: node.y, text: node.text });
+      wordPositions.push({ y: node.y, fontSize: node.style.fontSize, text: node.text });
     }
     if (node.type === 'box') {
       for (const child of node.children) walkLines(child);
@@ -62,12 +64,16 @@ export function renderHTML(
   wordPositions.sort((a, b) => a.y - b.y);
 
   const lines: LayoutLine[] = [];
+  let lineMaxFontSize = 0;
   for (const wp of wordPositions) {
     const lastLine = lines[lines.length - 1];
-    if (lastLine && Math.abs(wp.y - lastLine.y) < 4) {
+    const tolerance = Math.max(lineMaxFontSize, wp.fontSize) * 0.5;
+    if (lastLine && Math.abs(wp.y - lastLine.y) < tolerance) {
       lastLine.text += wp.text;
+      lineMaxFontSize = Math.max(lineMaxFontSize, wp.fontSize);
     } else {
       lines.push({ y: Math.round(wp.y), text: wp.text });
+      lineMaxFontSize = wp.fontSize;
     }
   }
 

@@ -196,14 +196,19 @@ export function extractDomLines(
   // on word height. This avoids merging overlapping lines (tight line-height)
   // while still grouping mixed-size words on the same baseline.
   wordPositions.sort((a, b) => a.y - b.y);
-  const lineGroups: { yMid: number; words: typeof wordPositions }[] = [];
+  const lineGroups: { yMid: number; maxHeight: number; words: typeof wordPositions }[] = [];
   for (const wp of wordPositions) {
     const wpMid = wp.y + wp.height / 2;
     const lastLine = lineGroups[lineGroups.length - 1];
-    if (lastLine && Math.abs(wpMid - lastLine.yMid) < wp.height * 0.5) {
+    // Use the tallest word in the line for tolerance — small fonts next to
+    // large fonts on the same baseline have very different midpoints, but
+    // the large font's height covers the range.
+    const tolerance = lastLine ? Math.max(lastLine.maxHeight, wp.height) * 0.5 : 0;
+    if (lastLine && Math.abs(wpMid - lastLine.yMid) < tolerance) {
       lastLine.words.push(wp);
+      lastLine.maxHeight = Math.max(lastLine.maxHeight, wp.height);
     } else {
-      lineGroups.push({ yMid: wpMid, words: [wp] });
+      lineGroups.push({ yMid: wpMid, maxHeight: wp.height, words: [wp] });
     }
   }
   // Sort words within each line by X position
@@ -230,15 +235,27 @@ export function compareWrapping(
   width: number,
   height: number,
 ): LayoutComparisonResult {
-  const { lines: canvasLines } = renderHTML(html, { width, height, css });
-  const domLines = extractDomLines(html, css, width);
+  const { lines: rawCanvasLines } = renderHTML(html, { width, height, css });
+  const rawDomLines = extractDomLines(html, css, width);
 
-  // Normalize for comparison: strip whitespace and list markers, then sort
-  // characters. We only care that the same characters appear on the same line,
-  // not their order (RTL text reverses word order in DOM extraction).
-  const MARKERS = /^[•○■▪▸▹◦]|^\d+\./;
-  const normalize = (s: string) =>
-    s.replace(/\s+/g, '').replace(MARKERS, '').split('').sort().join('');
+  // Normalize: strip whitespace and list markers, sort characters.
+  // We only care that the same characters appear on the same line,
+  // not their order (RTL) or spacing differences.
+  // Strip whitespace, then remove list markers (bullet chars and "N." patterns).
+  // Use global replace since multi-column layouts put multiple list items on one line.
+  const normalize = (s: string) => {
+    let n = s.replace(/\s+/g, '');
+    // Remove bullet markers
+    n = n.replace(/[•○■▪▸▹◦]/g, '');
+    // Remove ordered list markers like "1." "2." "10." — but only when
+    // they appear as standalone markers (followed by text, not mid-number)
+    n = n.replace(/(?:^|\b)(\d+)\./g, '');
+    return n.split('').sort().join('');
+  };
+
+  // Filter out empty lines (e.g. list markers without content)
+  const canvasLines = rawCanvasLines.filter(l => normalize(l.text).length > 0);
+  const domLines = rawDomLines.filter(l => normalize(l.text).length > 0);
 
   const maxLines = Math.max(canvasLines.length, domLines.length);
   const differentLines: LayoutComparisonResult['differentLines'] = [];

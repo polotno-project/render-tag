@@ -112,40 +112,23 @@ describe('HTML Canvas Renderer', () => {
       if (!allCases) allCases = await loadBasicCases();
       const failures: string[] = [];
 
-      // Known wrapping issues — fail only if NEW cases break
-      const KNOWN_WRAPPING_ISSUES = new Set([
-        'Formatted text (bold, italic, colors)',
-        'Multi-column layout',
-        'Mixed font sizes inline',
-        'Subscript and superscript',
-        'Mixed font-sizes same line',
-        'Soft hyphens and zero-width spaces',
-        'Empty list items mixed with content',
-        'Very narrow container',
-      ]);
-
-      const newFailures: string[] = [];
       for (const tc of allCases) {
         const result = compareWrapping(tc.html, tc.css, tc.width, tc.height);
         if (!result.wrappingMatch) {
           const diffSummary = result.differentLines.slice(0, 3).map(d =>
             `  line ${d.lineIndex}: canvas="${d.canvas.substring(0, 40)}" dom="${d.dom.substring(0, 40)}"`
           ).join('\n');
-          const msg = `${tc.name} (${result.canvasLineCount} vs ${result.domLineCount} lines):\n${diffSummary}`;
-          failures.push(msg);
-          if (!KNOWN_WRAPPING_ISSUES.has(tc.name)) {
-            newFailures.push(msg);
-          }
+          failures.push(`${tc.name} (${result.canvasLineCount} vs ${result.domLineCount} lines):\n${diffSummary}`);
         }
       }
 
       const matched = allCases.length - failures.length;
-      console.log(`\nWrapping: ${matched}/${allCases.length} match (${failures.length} known issues)`);
+      console.log(`\nWrapping: ${matched}/${allCases.length} match`);
       if (failures.length > 0) {
-        console.log(`WRAPPING DIFFERENCES:\n` + failures.join('\n\n'));
+        console.log(`WRAPPING DIFFERENCES (${failures.length}):\n` + failures.join('\n\n'));
       }
 
-      expect(newFailures.length, `${newFailures.length} NEW wrapping failures:\n${newFailures.join('\n\n')}`).toBe(0);
+      expect(failures.length, `${failures.length} wrapping failures:\n${failures.join('\n\n')}`).toBe(0);
     });
   });
 
