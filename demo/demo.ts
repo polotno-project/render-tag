@@ -1,4 +1,5 @@
-import { compareRenders, compareWrapping } from '../tests/helpers/compare.ts';
+import { compareRenders, compareWrapping, extractDomLines } from '../tests/helpers/compare.ts';
+import { renderHTML } from '../src/index.ts';
 import { loadBasicCases, loadGoogleFontCase, polotnoCase, polotnoListsCase, FONT_VARIANTS, loadMultiFontCss } from '../tests/helpers/test-cases.ts';
 import type { BenchmarkCase } from '../tests/helpers/test-cases.ts';
 
@@ -226,9 +227,19 @@ async function main() {
   const basicCases = await loadBasicCases();
   const googleFontCase = await loadGoogleFontCase();
   const allCases = [...basicCases, googleFontCase, polotnoCase, polotnoListsCase];
-  const fonts = FONT_VARIANTS;
 
-  const grid: ResultGrid = allCases.map(() => fonts.map(() => null));
+  // Debug filter: set to a test name to run only that test, or '' for all
+  const DEBUG_TEST = '';
+  const DEBUG_FONT = ''; // or '' for all fonts
+
+  const filteredCases = DEBUG_TEST
+    ? allCases.filter(c => c.name === DEBUG_TEST)
+    : allCases;
+  const fonts = DEBUG_FONT
+    ? FONT_VARIANTS.filter(f => f.name === DEBUG_FONT)
+    : FONT_VARIANTS;
+
+  const grid: ResultGrid = filteredCases.map(() => fonts.map(() => null));
 
   const tableContainer = document.createElement('div');
   tableContainer.id = 'table-container';
@@ -238,21 +249,37 @@ async function main() {
   detailContainer.id = 'detail-container';
   app.appendChild(detailContainer);
 
-  renderResultsTable(allCases, fonts, grid, tableContainer, detailContainer);
+  renderResultsTable(filteredCases, fonts, grid, tableContainer, detailContainer);
 
-  const total = allCases.length * fonts.length;
+  const total = filteredCases.length * fonts.length;
   let done = 0;
   const failedCells: { ti: number; fi: number }[] = [];
 
-  for (let ti = 0; ti < allCases.length; ti++) {
+  for (let ti = 0; ti < filteredCases.length; ti++) {
     for (let fi = 0; fi < fonts.length; fi++) {
-      const tc = allCases[ti];
+      const tc = filteredCases[ti];
       const variant = withFont(tc, fonts[fi].family);
       try {
         const wrap = compareWrapping(variant.html, variant.css, variant.width, variant.height);
         const result = await compareRenders(variant.html, variant.css, variant.width, variant.height, 0.1, PIXEL_RATIO);
         const wrappingFail = !wrap.wrappingMatch;
         grid[ti][fi] = { mismatch: result.contentMismatchPercentage, wrappingFail };
+
+        // Log wrapping details for debugging
+        if (DEBUG_TEST) {
+          const { lines: cl } = renderHTML(variant.html, { width: variant.width, height: variant.height, css: variant.css });
+          const dl = extractDomLines(variant.html, variant.css, variant.width);
+          console.log(`\n[${tc.name} × ${fonts[fi].name}] wrapping=${wrap.wrappingMatch} mismatch=${result.contentMismatchPercentage.toFixed(1)}%`);
+          console.log('Canvas lines:');
+          for (const l of cl) console.log(`  y=${l.y}: "${l.text.substring(0, 80)}"`);
+          console.log('DOM lines:');
+          for (const l of dl) console.log(`  y=${l.y}: "${l.text.substring(0, 80)}"`);
+          if (!wrap.wrappingMatch) {
+            console.log('Differences:');
+            for (const d of wrap.differentLines) console.log(`  line ${d.lineIndex}: canvas="${d.canvas.substring(0, 50)}" dom="${d.dom.substring(0, 50)}"`);
+          }
+        }
+
         if (wrappingFail || result.contentMismatchPercentage >= 30) {
           failedCells.push({ ti, fi });
         }
@@ -261,7 +288,7 @@ async function main() {
       }
       done++;
       status.textContent = `Running: ${done}/${total} (${(done/total*100).toFixed(0)}%)`;
-      renderResultsTable(allCases, fonts, grid, tableContainer, detailContainer);
+      renderResultsTable(filteredCases, fonts, grid, tableContainer, detailContainer);
     }
   }
 
