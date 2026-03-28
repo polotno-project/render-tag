@@ -108,7 +108,22 @@ Delete debug test files after fixing. Never commit them.
 - Used only in tests as the "ground truth" reference
 - Font preloading happens in `tests/helpers/compare.ts` before both renders
 
+### Firefox cross-browser differences
+Firefox's line box height is 1.5px taller than Chrome for the same `line-height`
+value. `getComputedStyle` reports the same value in both browsers, but Firefox's
+actual element height is larger. This accumulates in lists (1.5px × N items).
+
+No CSS property fixes this except `display: flex` on the element, which changes
+the layout model entirely. For users needing cross-browser consistency:
+```css
+li { display: flex; align-items: center; }
+```
+
+The test suite uses Chromium baselines with 35% tolerance for Firefox.
+
 ## Commands
 - `npm run dev` — demo page with side-by-side comparison
 - `npm test` — vitest in Chromium
+- `npm run test:firefox` — vitest in Firefox (wider tolerance)
+- `npm run test:stress` — layout width sweep stress test
 - `npm run build` — TypeScript compilation
