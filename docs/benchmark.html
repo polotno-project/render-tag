@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Benchmark — render-tag</title>
+  <meta name="description" content="Visual accuracy stress test: render-tag vs DOM across test cases and fonts.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    /* All selectors scoped under .bench-shell so nothing leaks to compareRenders DOM */
+    .bench-shell { font-family: 'IBM Plex Sans', system-ui, -apple-system, sans-serif; font-size: 14px; line-height: 1.5; color: #161616; margin: 0; }
+    .bench-shell *, .bench-shell *::before, .bench-shell *::after { box-sizing: border-box; }
+
+    .bench-shell .container { max-width: 1056px; margin: 0 auto; padding: 0 32px; }
+
+    /* Nav */
+    .bench-shell .site-nav { border-bottom: 1px solid #e0e0e0; }
+    .bench-shell .site-nav .container { display: flex; align-items: center; height: 48px; gap: 24px; }
+    .bench-shell .nav-logo { font-size: 14px; font-weight: 600; color: #161616; text-decoration: none; }
+    .bench-shell .nav-links { display: flex; gap: 16px; }
+    .bench-shell .nav-links a { font-size: 13px; color: #525252; text-decoration: none; }
+    .bench-shell .nav-links a:hover { color: #161616; }
+    .bench-shell .nav-links a.active { color: #161616; font-weight: 500; }
+
+    /* Page */
+    .bench-shell .benchmark-section { padding: 48px 0 64px; }
+    .bench-shell .section-header { margin-bottom: 32px; }
+    .bench-shell .section-header h1 { font-size: 20px; font-weight: 600; margin: 0; }
+    .bench-shell .section-header p { margin: 4px 0 0; font-size: 14px; color: #525252; }
+
+    /* Status bar */
+    .bench-shell .bench-status { background: #f4f4f4; padding: 12px 20px; border: 1px solid #e0e0e0; font-size: 14px; color: #525252; margin-bottom: 16px; display: flex; align-items: center; gap: 16px; }
+
+    /* Pause button */
+    .bench-shell .btn-pause { height: 36px; padding: 0 20px; background: #fff; border: 1px solid #e0e0e0; font-family: inherit; font-size: 13px; font-weight: 500; color: #161616; cursor: pointer; }
+    .bench-shell .btn-pause:hover { background: #f4f4f4; border-color: #c6c6c6; }
+
+    /* Grid table */
+    .bench-shell .grid-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; margin-bottom: 24px; }
+    .bench-shell .grid-table { width: 100%; border-collapse: collapse; font-size: 13px; background: #fff; border: 1px solid #e0e0e0; }
+    .bench-shell .grid-table th { text-align: center; padding: 8px 6px; border-bottom: 2px solid #e0e0e0; color: #525252; font-weight: 600; font-size: 12px; background: #f4f4f4; }
+    .bench-shell .grid-table th:first-child { text-align: left; min-width: 200px; }
+    .bench-shell .grid-table td { padding: 4px 6px; border-bottom: 1px solid #e0e0e0; text-align: center; cursor: pointer; }
+    .bench-shell .grid-table td:hover { background: #f0f4ff; }
+    .bench-shell .grid-table td.test-name { text-align: left; font-weight: 500; color: #161616; cursor: default; font-size: 12px; }
+    .bench-shell .grid-table td.test-name:hover { background: transparent; }
+    .bench-shell .grid-table td.good { background: #dcfce7; color: #166534; }
+    .bench-shell .grid-table td.warn { background: #fef9c3; color: #854d0e; }
+    .bench-shell .grid-table td.bad { background: #fee2e2; color: #991b1b; font-weight: 600; }
+    .bench-shell .grid-table td.wrap-fail { background: #dc2626; color: white; font-weight: 700; font-size: 11px; }
+    .bench-shell .grid-table td.pending { color: #8d8d8d; font-style: italic; }
+    .bench-shell .grid-table tr.has-failure td.test-name { color: #dc2626; font-weight: 600; }
+
+    /* Footer */
+    .bench-shell .footer { padding: 32px 0; font-size: 12px; color: #8d8d8d; }
+    .bench-shell .footer .container { display: flex; align-items: center; gap: 8px; }
+    .bench-shell .footer-sep { color: #c6c6c6; }
+    .bench-shell .footer a { color: #0f62fe; text-decoration: none; }
+    .bench-shell .footer a:hover { text-decoration: underline; }
+
+    @media (max-width: 672px) {
+      .bench-shell .container { padding: 0 16px; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="bench-shell">
+    <!-- Nav -->
+    <nav class="site-nav">
+      <div class="container">
+        <a href="index.html" class="nav-logo">render-tag</a>
+        <div class="nav-links">
+          <a href="index.html">Home</a>
+          <a href="benchmark.html" class="active">Benchmark</a>
+          <a href="https://github.com/polotno-project/render-tag" target="_blank" rel="noopener">GitHub</a>
+        </div>
+      </div>
+    </nav>
+
+    <section class="benchmark-section">
+      <div class="container">
+        <div class="section-header">
+          <h1>Benchmark</h1>
+          <p>Visual accuracy stress test — render-tag vs DOM reference across test cases and font families. Click any cell for a detailed comparison.</p>
+        </div>
+
+        <div class="bench-status">
+          <span id="status">Loading fonts and test cases...</span>
+          <button class="btn-pause" id="btn-pause" hidden>Pause</button>
+        </div>
+
+        <div class="grid-table-wrap" id="table-container"></div>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <div class="container">
+        <span>render-tag</span>
+        <span class="footer-sep">/</span>
+        <span>MIT</span>
+        <span class="footer-sep">/</span>
+        <a href="https://github.com/polotno-project/render-tag" target="_blank" rel="noopener">GitHub</a>
+      </div>
+    </footer>
+  </div>
+
+  <!-- Detail view lives OUTSIDE .bench-shell so styles can't pollute test case DOM -->
+  <div id="detail-container"></div>
+
+  <script type="module" src="benchmark.ts"></script>
+</body>
+</html>

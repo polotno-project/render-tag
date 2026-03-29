@@ -96,14 +96,142 @@ const DEMO_BASE_CSS = `body { font-family: 'IBM Plex Sans', system-ui, -apple-sy
 // ── Init ──
 
 document.addEventListener('DOMContentLoaded', async () => {
-  // Wait for all fonts (IBM Plex Sans, Playfair Display, Roboto, etc.) before any rendering
-  await document.fonts.ready;
+  // Explicitly trigger loading of all font variants used across the page
+  await Promise.all([
+    document.fonts.load('400 16px "IBM Plex Sans"'),
+    document.fonts.load('500 16px "IBM Plex Sans"'),
+    document.fonts.load('600 16px "IBM Plex Sans"'),
+    document.fonts.load('italic 400 16px "IBM Plex Sans"'),
+    document.fonts.load('400 16px "IBM Plex Mono"'),
+    document.fonts.load('500 16px "IBM Plex Mono"'),
+    document.fonts.load('400 16px "Playfair Display"'),
+    document.fonts.load('700 16px "Playfair Display"'),
+    document.fonts.load('italic 400 16px "Playfair Display"'),
+    document.fonts.load('400 16px "Roboto"'),
+    document.fonts.load('700 16px "Roboto"'),
+    document.fonts.load('italic 400 16px "Roboto"'),
+    document.fonts.load('400 16px "Merriweather"'),
+    document.fonts.load('700 16px "Merriweather"'),
+    document.fonts.load('italic 400 16px "Merriweather"'),
+    document.fonts.load('400 16px "Lobster"'),
+    document.fonts.load('700 16px "Caveat"'),
+  ]);
+  initHeroAnimation();
   initDemo();
   renderFeatureGallery();
   initBenchmark();
   initCopyButtons();
   initFeatureToggles();
 });
+
+// ── Hero Animation ──
+
+const HERO_STAGES: { html: string; duration: number }[] = [
+  {
+    duration: 2500,
+    html: `<p style="font-size: clamp(2rem, 5vw, 3.25rem); font-weight: 600; line-height: 1.15; letter-spacing: -0.02em; font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #161616;">HTML rich text,<br>drawn on canvas.</p>`,
+  },
+  {
+    duration: 2500,
+    html: `<p style="font-size: clamp(2rem, 5vw, 3.25rem); font-weight: 600; line-height: 1.15; letter-spacing: -0.02em; font-family: 'Playfair Display', serif; color: #161616;">HTML rich text,<br>drawn on canvas.</p>`,
+  },
+  {
+    duration: 2500,
+    html: `<p style="font-size: clamp(2rem, 5vw, 3.25rem); font-weight: 600; line-height: 1.15; letter-spacing: -0.02em; font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #161616;">HTML <span style="color: #da1e28;">rich</span> <span style="color: #0f62fe;">text</span>,<br><span style="color: #198038;">drawn</span> on <span style="color: #6a0dad;">canvas</span>.</p>`,
+  },
+  {
+    duration: 2500,
+    html: `<p style="font-size: clamp(2rem, 5vw, 3.25rem); font-weight: 600; line-height: 1.15; letter-spacing: -0.02em; font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #161616;">HTML <span style="text-decoration: underline wavy #e74c3c;">rich</span> <span style="text-decoration: underline dotted #0f62fe;">text</span>,<br><span style="background: #ffeaa7; padding: 0 4px;">drawn</span> on <span style="text-decoration: line-through #da1e28;">canvas</span>.</p>`,
+  },
+  {
+    duration: 2500,
+    html: `<p style="font-size: clamp(2rem, 5vw, 3.25rem); line-height: 1.15; letter-spacing: -0.02em; font-family: 'Lobster', cursive; color: #6a0dad;">HTML rich text,<br>drawn on canvas.</p>`,
+  },
+  {
+    duration: 2500,
+    html: `<p style="font-size: clamp(2rem, 5vw, 3.25rem); font-weight: 600; line-height: 1.15; letter-spacing: -0.02em; font-family: 'Merriweather', serif; font-style: italic; color: #333;">HTML rich text,<br>drawn on canvas.</p>`,
+  },
+];
+
+function initHeroAnimation() {
+  const title = document.querySelector('.hero-title') as HTMLElement;
+  if (!title) return;
+
+  const wrapper = document.createElement('div');
+  wrapper.className = 'hero-canvas-wrap';
+  title.parentNode!.insertBefore(wrapper, title);
+  wrapper.appendChild(title);
+
+  const canvasEl = document.createElement('canvas');
+  canvasEl.className = 'hero-canvas';
+  wrapper.appendChild(canvasEl);
+
+  let stage = 0;
+  let opacity = 1;
+  let fadeDir: 'in' | 'out' | 'hold' = 'hold';
+  let holdTimer = 0;
+  const FADE_MS = 400;
+
+  function renderStage() {
+    const width = title.offsetWidth;
+    // Resolve clamp() to the actual computed font size from the real title
+    const computedSize = getComputedStyle(title).fontSize;
+    const stageHtml = HERO_STAGES[stage].html.replace(/clamp\([^)]+\)/g, computedSize);
+    const { canvas, height } = renderHTML(stageHtml, {
+      width,
+      pixelRatio: window.devicePixelRatio,
+    });
+
+    canvasEl.width = canvas.width;
+    canvasEl.height = canvas.height;
+    canvasEl.style.width = width + 'px';
+    canvasEl.style.height = height + 'px';
+
+    const ctx = canvasEl.getContext('2d')!;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.globalAlpha = opacity;
+    ctx.drawImage(canvas, 0, 0);
+  }
+
+  // Initial render
+  renderStage();
+  title.style.visibility = 'hidden';
+
+  let lastTime = performance.now();
+
+  function animate(now: number) {
+    const dt = now - lastTime;
+    lastTime = now;
+
+    if (fadeDir === 'hold') {
+      holdTimer += dt;
+      if (holdTimer >= HERO_STAGES[stage].duration) {
+        fadeDir = 'out';
+        holdTimer = 0;
+      }
+    } else if (fadeDir === 'out') {
+      opacity = Math.max(0, opacity - dt / FADE_MS);
+      if (opacity <= 0) {
+        stage = (stage + 1) % HERO_STAGES.length;
+        fadeDir = 'in';
+      }
+    } else if (fadeDir === 'in') {
+      opacity = Math.min(1, opacity + dt / FADE_MS);
+      if (opacity >= 1) {
+        fadeDir = 'hold';
+        holdTimer = 0;
+      }
+    }
+
+    renderStage();
+    requestAnimationFrame(animate);
+  }
+
+  requestAnimationFrame(animate);
+
+  // Resize handling
+  window.addEventListener('resize', renderStage);
+}
 
 // ── Interactive Demo ──
 
@@ -179,12 +307,14 @@ function initDemo() {
 
     try {
       const debugLogs: { type: string; message: string }[] = [];
+      const t0 = performance.now();
       const { canvas } = renderHTML(html, {
         width,
         css: DEMO_BASE_CSS,
         pixelRatio: window.devicePixelRatio,
         debug: (entry) => { debugLogs.push(entry); },
       });
+      const elapsed = performance.now() - t0;
       console.groupCollapsed(`[render-tag] width=${width}, ${debugLogs.length} entries`);
       for (const log of debugLogs) {
         if (log.type === 'line-commit' || log.type === 'line-wrap') {
@@ -194,6 +324,10 @@ function initDemo() {
       console.groupEnd();
       canvasFrame.innerHTML = '';
       canvasFrame.appendChild(canvas);
+
+      // Update speed ticker
+      const ticker = document.getElementById('render-speed');
+      if (ticker) ticker.textContent = elapsed.toFixed(1);
     } catch (e) {
       canvasFrame.innerHTML = `<p style="color: #da1e28; font-size: 13px;">${(e as Error).message}</p>`;
     }

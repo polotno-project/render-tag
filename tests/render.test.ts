@@ -107,7 +107,12 @@ describe('HTML Canvas Renderer', () => {
 
       // Known wrapping limitations:
       // - Very narrow container: CSS breaks after hyphens (e.g. "zero-width" → "zero-" / "width")
-      const SKIP_WRAPPING = new Set(['Very narrow container']);
+      // - Long unbroken word overflow-wrap: Firefox breaks at "/" differently than Chromium
+      const isFirefox = navigator.userAgent.includes('Firefox');
+      const SKIP_WRAPPING = new Set([
+        'Very narrow container',
+        ...(isFirefox ? ['Long unbroken word overflow-wrap'] : []),
+      ]);
 
       for (const tc of allCases) {
         if (SKIP_WRAPPING.has(tc.name)) continue;

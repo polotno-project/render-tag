@@ -13,6 +13,24 @@ interface CellResult {
 
 type ResultGrid = (CellResult | null)[][];
 
+// ─── Pause control ──────────────────────────────────────────────────────
+
+let paused = false;
+let pauseResolve: (() => void) | null = null;
+
+function waitIfPaused(): Promise<void> {
+  if (!paused) return Promise.resolve();
+  return new Promise(resolve => { pauseResolve = resolve; });
+}
+
+function resume() {
+  paused = false;
+  if (pauseResolve) {
+    pauseResolve();
+    pauseResolve = null;
+  }
+}
+
 // ─── Font override ──────────────────────────────────────────────────────
 
 let _multiFontCss = '';
@@ -33,8 +51,10 @@ function addColumn(
   pixelRatio: number,
 ): void {
   const col = document.createElement('div');
+  col.style.flexShrink = '0';
   const h3 = document.createElement('h3');
   h3.textContent = label;
+  h3.style.cssText = 'margin:0 0 6px;font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:0.05em;';
   col.appendChild(h3);
   content.style.border = '1px solid #ccc';
   if (content instanceof HTMLCanvasElement) {
@@ -49,7 +69,6 @@ function createIsolatedDOM(tc: BenchmarkCase): HTMLDivElement {
   const wrapper = document.createElement('div');
   wrapper.style.cssText = `width:${tc.width}px;height:${tc.height}px;border:1px solid #ccc;overflow:hidden;position:relative;`;
 
-  // Scope CSS to this container
   const id = `__dom_preview_${Date.now()}_${Math.random().toString(36).slice(2)}__`;
   wrapper.id = id;
   const scopedCss = (tc.css || '').replace(
@@ -68,6 +87,8 @@ function createIsolatedDOM(tc: BenchmarkCase): HTMLDivElement {
   return wrapper;
 }
 
+let allCases: BenchmarkCase[] = [];
+
 async function showDetail(tc: BenchmarkCase, fontFamily: string, container: HTMLElement) {
   const variant = withFont(tc, fontFamily);
   const result = await compareRenders(variant.html, variant.css, variant.width, variant.height, 0.1, PIXEL_RATIO);
@@ -76,21 +97,26 @@ async function showDetail(tc: BenchmarkCase, fontFamily: string, container: HTML
   const filled = (result.contentPixels / result.totalPixels * 100).toFixed(0);
 
   const section = document.createElement('div');
-  section.className = 'case';
   section.id = 'detail-view';
+  section.style.cssText = 'margin:24px auto;max-width:1056px;padding:16px 32px;background:#fff;border:1px solid #e0e0e0;font-family:system-ui,sans-serif;';
 
   const title = document.createElement('h2');
+  title.style.cssText = 'margin:0 0 12px;font-size:16px;color:#374151;display:flex;align-items:center;gap:8px;flex-wrap:wrap;';
   title.textContent = `${tc.name} — ${fontFamily} `;
+
+  const badgeColor = pct < 5 ? '#dcfce7;color:#166534' : pct < 30 ? '#fef9c3;color:#854d0e' : '#fee2e2;color:#991b1b';
   const badge = document.createElement('span');
-  badge.className = pct < 5 ? 'badge good' : pct < 30 ? 'badge warn' : 'badge bad';
+  badge.style.cssText = `display:inline-block;padding:2px 8px;font-size:12px;font-weight:600;background:${badgeColor};`;
   badge.textContent = `${pct.toFixed(1)}%`;
   title.appendChild(badge);
+
   if (!wrap.wrappingMatch) {
     const wrapBadge = document.createElement('span');
-    wrapBadge.className = 'badge bad';
+    wrapBadge.style.cssText = 'display:inline-block;padding:2px 8px;font-size:12px;font-weight:600;background:#fee2e2;color:#991b1b;';
     wrapBadge.textContent = `WRAPPING FAIL (${wrap.canvasLineCount} vs ${wrap.domLineCount} lines)`;
     title.appendChild(wrapBadge);
   }
+
   const closeBtn = document.createElement('button');
   closeBtn.textContent = 'Close';
   closeBtn.style.cssText = 'margin-left:12px;font-size:12px;padding:2px 8px;cursor:pointer;';
@@ -98,7 +124,6 @@ async function showDetail(tc: BenchmarkCase, fontFamily: string, container: HTML
   title.appendChild(closeBtn);
   section.appendChild(title);
 
-  // Show wrapping differences
   if (!wrap.wrappingMatch) {
     const wrapInfo = document.createElement('div');
     wrapInfo.style.cssText = 'background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:8px 12px;margin-bottom:12px;font-size:12px;font-family:monospace;white-space:pre-wrap;';
@@ -110,16 +135,16 @@ async function showDetail(tc: BenchmarkCase, fontFamily: string, container: HTML
   }
 
   const row = document.createElement('div');
-  row.className = 'comparison';
+  row.style.cssText = 'display:flex;gap:12px;overflow-x:auto;';
 
   addColumn(row, `Diff: ${pct.toFixed(1)}% (${filled}% filled)`, result.diffCanvas, PIXEL_RATIO);
   addColumn(row, 'html-to-svg', result.domCanvas, PIXEL_RATIO);
 
-  // Canvas with click-to-swap
   const libCol = document.createElement('div');
+  libCol.style.flexShrink = '0';
   const libH3 = document.createElement('h3');
   libH3.textContent = 'Canvas (lib) — click to compare';
-  libH3.style.cursor = 'pointer';
+  libH3.style.cssText = 'margin:0 0 6px;font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:0.05em;cursor:pointer;';
   libCol.appendChild(libH3);
 
   const libCanvas = result.libCanvas;
@@ -134,7 +159,7 @@ async function showDetail(tc: BenchmarkCase, fontFamily: string, container: HTML
   let showingCanvas = true;
   const swapContainer = document.createElement('div');
   swapContainer.appendChild(libCanvas);
-  swapContainer.appendChild(iframe); // preload iframe in DOM (hidden)
+  swapContainer.appendChild(iframe);
 
   const toggleView = () => {
     showingCanvas = !showingCanvas;
@@ -178,7 +203,6 @@ function renderResultsTable(
   const fontNames = fonts.map(f => f.name);
   const headerCells = fontNames.map(n => `<th>${n}</th>`).join('');
   let rows = '';
-  let hasFailures = false;
 
   for (let ti = 0; ti < cases.length; ti++) {
     let cells = '';
@@ -190,11 +214,10 @@ function renderResultsTable(
       } else if (cell.wrappingFail) {
         cells += `<td class="wrap-fail" data-test="${ti}" data-font="${fi}">WRAP</td>`;
         rowHasFailure = true;
-        hasFailures = true;
       } else {
         const pct = cell.mismatch;
         const cls = pct < 5 ? 'good' : pct < 30 ? 'warn' : 'bad';
-        if (pct >= 30) { rowHasFailure = true; hasFailures = true; }
+        if (pct >= 30) { rowHasFailure = true; }
         cells += `<td class="${cls}" data-test="${ti}" data-font="${fi}">${pct.toFixed(1)}</td>`;
       }
     }
@@ -225,21 +248,27 @@ function renderResultsTable(
 // ─── Main ───────────────────────────────────────────────────────────────
 
 async function main() {
-  const app = document.getElementById('app')!;
+  const status = document.getElementById('status')!;
+  const btnPause = document.getElementById('btn-pause') as HTMLButtonElement;
+  const tableContainer = document.getElementById('table-container')!;
+  const detailContainer = document.getElementById('detail-container')!;
 
-  const status = document.createElement('div');
-  status.id = 'status';
-  status.textContent = 'Loading fonts and test cases...';
-  app.appendChild(status);
+  // Pause/Resume button
+  btnPause.addEventListener('click', () => {
+    if (paused) {
+      resume();
+      btnPause.textContent = 'Pause';
+    } else {
+      paused = true;
+      btnPause.textContent = 'Resume';
+    }
+  });
 
   _multiFontCss = await loadMultiFontCss();
   const basicCases = await loadBasicCases();
-  const allCases = [...basicCases, polotnoCase, polotnoListsCase];
+  allCases = [...basicCases, polotnoCase, polotnoListsCase];
 
-  // Preload all fonts upfront — inject only @font-face rules and wait for
-  // fonts.ready so individual compareWrapping calls don't each wait for fonts.
-  // IMPORTANT: only inject @font-face, NOT full CSS — global body/html rules
-  // would leak into the hidden DOM containers used by renderHTML's style resolver.
+  // Preload fonts
   status.textContent = 'Loading fonts...';
   const allCss = [_multiFontCss];
   for (const tc of allCases) {
@@ -249,7 +278,6 @@ async function main() {
   const preloadStyle = document.createElement('style');
   preloadStyle.textContent = fontFaceOnly.join('\n');
   document.head.appendChild(preloadStyle);
-  // Trigger font loading by rendering a hidden element with each font
   const fontProbe = document.createElement('div');
   fontProbe.style.cssText = 'position:absolute;left:-9999px;visibility:hidden;';
   fontProbe.innerHTML = FONT_VARIANTS.map(f =>
@@ -258,62 +286,30 @@ async function main() {
   document.body.appendChild(fontProbe);
   await document.fonts.ready;
   fontProbe.remove();
-  // Keep preloadStyle in DOM — @font-face rules must remain available
-  // for extractDomLines to render text with correct fonts.
 
-  // Debug filter: set to a test name to run only that test, or '' for all
-  const DEBUG_TEST = '';
-  const DEBUG_FONT = ''; // or '' for all fonts
+  const fonts = FONT_VARIANTS;
+  const grid: ResultGrid = allCases.map(() => fonts.map(() => null));
 
-  const filteredCases = DEBUG_TEST
-    ? allCases.filter(c => c.name === DEBUG_TEST)
-    : allCases;
-  const fonts = DEBUG_FONT
-    ? FONT_VARIANTS.filter(f => f.name === DEBUG_FONT)
-    : FONT_VARIANTS;
+  renderResultsTable(allCases, fonts, grid, tableContainer, detailContainer);
 
-  const grid: ResultGrid = filteredCases.map(() => fonts.map(() => null));
-
-  const tableContainer = document.createElement('div');
-  tableContainer.id = 'table-container';
-  app.appendChild(tableContainer);
-
-  const detailContainer = document.createElement('div');
-  detailContainer.id = 'detail-container';
-  app.appendChild(detailContainer);
-
-  renderResultsTable(filteredCases, fonts, grid, tableContainer, detailContainer);
-
-  const total = filteredCases.length * fonts.length;
+  const total = allCases.length * fonts.length;
   let done = 0;
   const failedCells: { ti: number; fi: number }[] = [];
 
-  for (let ti = 0; ti < filteredCases.length; ti++) {
+  btnPause.hidden = false;
+
+  for (let ti = 0; ti < allCases.length; ti++) {
     for (let fi = 0; fi < fonts.length; fi++) {
-      const tc = filteredCases[ti];
+      // Wait if paused
+      await waitIfPaused();
+
+      const tc = allCases[ti];
       const variant = withFont(tc, fonts[fi].family);
       try {
-        // Render first, then check wrapping using the SAME canvas lines
-        // (avoids font-timing issues where a fresh renderHTML gives different results)
         const result = await compareRenders(variant.html, variant.css, variant.width, variant.height, 0.1, PIXEL_RATIO);
         const wrap = await compareWrapping(variant.html, variant.css, variant.width, variant.height, result.canvasLines);
         const wrappingFail = !wrap.wrappingMatch;
         grid[ti][fi] = { mismatch: result.contentMismatchPercentage, wrappingFail };
-
-        // Log wrapping details for debugging
-        if (DEBUG_TEST) {
-          const cl = result.canvasLines;
-          const dl = await extractDomLines(variant.html, variant.css, variant.width);
-          console.log(`\n[${tc.name} × ${fonts[fi].name}] wrapping=${wrap.wrappingMatch} mismatch=${result.contentMismatchPercentage.toFixed(1)}%`);
-          console.log('Canvas lines:');
-          for (const l of cl) console.log(`  y=${l.y}: "${l.text.substring(0, 80)}"`);
-          console.log('DOM lines:');
-          for (const l of dl) console.log(`  y=${l.y}: "${l.text.substring(0, 80)}"`);
-          if (!wrap.wrappingMatch) {
-            console.log('Differences:');
-            for (const d of wrap.differentLines) console.log(`  line ${d.lineIndex}: canvas="${d.canvas.substring(0, 50)}" dom="${d.dom.substring(0, 50)}"`);
-          }
-        }
 
         if (wrappingFail || result.contentMismatchPercentage >= 30) {
           failedCells.push({ ti, fi });
@@ -322,10 +318,12 @@ async function main() {
         grid[ti][fi] = { mismatch: -1, wrappingFail: false };
       }
       done++;
-      status.textContent = `Running: ${done}/${total} (${(done/total*100).toFixed(0)}%)`;
-      renderResultsTable(filteredCases, fonts, grid, tableContainer, detailContainer);
+      status.textContent = `Running: ${done}/${total} (${(done / total * 100).toFixed(0)}%)`;
+      renderResultsTable(allCases, fonts, grid, tableContainer, detailContainer);
     }
   }
+
+  btnPause.hidden = true;
 
   // Summary
   const allResults = grid.flat().filter((c): c is CellResult => c !== null && c.mismatch >= 0);
@@ -341,7 +339,6 @@ async function main() {
     `<span style="color:#dc2626;font-weight:700">${wrapFails} WRAP</span> | ` +
     `avg ${avg.toFixed(1)}%`;
 
-  // Auto-show first failed cell
   if (failedCells.length > 0) {
     const { ti, fi } = failedCells[0];
     showDetail(allCases[ti], fonts[fi].family, detailContainer);

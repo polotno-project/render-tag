@@ -14,6 +14,18 @@
 </head>
 <body>
 
+  <!-- Nav -->
+  <nav class="site-nav">
+    <div class="container">
+      <a href="index.html" class="nav-logo">render-tag</a>
+      <div class="nav-links">
+        <a href="index.html" class="active">Home</a>
+        <a href="benchmark.html">Benchmark</a>
+        <a href="https://github.com/polotno-project/render-tag" target="_blank" rel="noopener">GitHub</a>
+      </div>
+    </div>
+  </nav>
+
   <!-- Hero -->
   <section class="hero">
     <div class="container">
@@ -41,12 +53,13 @@
         <p>Edit the text. The canvas below renders the identical content at the same width.</p>
       </div>
 
-      <div class="demo-width-bar">
+      <div class="demo-controls-bar">
         <label class="demo-width-control">
           <span>Width</span>
           <input type="range" id="width-slider" min="200" max="800" value="480">
           <span id="width-value">480</span><span class="unit">px</span>
         </label>
+        <span class="demo-speed-ticker">Rendered in <strong><span id="render-speed">—</span> ms</strong></span>
       </div>
 
       <div class="demo-stack">
@@ -92,6 +105,7 @@
           </div>
         </div>
       </div>
+
     </div>
   </section>
 

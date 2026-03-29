@@ -47,6 +47,34 @@ code { font-family: var(--mono); font-size: 0.875em; }
   padding: 0 32px;
 }
 
+/* ═══ Nav ═══ */
+.site-nav {
+  border-bottom: 1px solid var(--ui-03);
+}
+.site-nav .container {
+  display: flex;
+  align-items: center;
+  height: 48px;
+  gap: 24px;
+}
+.nav-logo {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-01);
+  text-decoration: none;
+}
+.nav-links {
+  display: flex;
+  gap: 16px;
+}
+.nav-links a {
+  font-size: 13px;
+  color: var(--text-02);
+  text-decoration: none;
+}
+.nav-links a:hover { color: var(--text-01); }
+.nav-links a.active { color: var(--text-01); font-weight: 500; }
+
 /* ═══ Hero ═══ */
 .hero {
   padding: 96px 0 64px;
@@ -156,14 +184,30 @@ code { font-family: var(--mono); font-size: 0.875em; }
   color: var(--text-02);
 }
 
+/* ═══ Hero Canvas Animation ═══ */
+.hero-canvas-wrap {
+  position: relative;
+  max-width: 640px;
+}
+.hero-canvas {
+  display: block;
+}
+.hero-title {
+  /* Hidden but still in DOM for SEO/a11y */
+}
+
 /* ═══ Demo ═══ */
 .demo-section {
   padding: 64px 0;
   border-bottom: 1px solid var(--ui-03);
 }
 
-.demo-width-bar {
+.demo-controls-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
   margin-bottom: 16px;
+  flex-wrap: wrap;
 }
 .demo-width-control {
   display: inline-flex;
@@ -178,6 +222,17 @@ code { font-family: var(--mono); font-size: 0.875em; }
   accent-color: var(--blue);
 }
 .demo-width-control .unit { color: var(--text-03); }
+
+.demo-speed-ticker {
+  font-size: 12px;
+  color: var(--text-03);
+  font-variant-numeric: tabular-nums;
+}
+.demo-speed-ticker strong {
+  color: var(--green);
+  font-weight: 600;
+}
+
 
 .demo-stack {
   display: flex;
@@ -517,6 +572,7 @@ code { font-family: var(--mono); font-size: 0.875em; }
   .feature-grid { grid-template-columns: 1fr 1fr; }
   .demo-annotation { display: none; }
   .demo-width-control input[type="range"] { width: 120px; }
+  .demo-controls-bar { gap: 8px; }
   .install-box pre { padding: 16px; }
   .api-sig code { font-size: 12px; word-break: break-all; }
   .btn-primary { padding: 0 32px; height: 44px; }

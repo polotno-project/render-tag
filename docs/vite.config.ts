@@ -7,11 +7,18 @@ export default defineConfig({
   resolve: {
     alias: {
       'render-tag': path.resolve(__dirname, '../src/index.ts'),
+      'html-to-svg': path.resolve(__dirname, '../html-to-svg/src/index.ts'),
     },
   },
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    rollupOptions: {
+      input: {
+        main: path.resolve(__dirname, 'index.html'),
+        benchmark: path.resolve(__dirname, 'benchmark.html'),
+      },
+    },
   },
   server: {
     port: 3001,
