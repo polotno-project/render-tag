@@ -30,14 +30,15 @@ npx vitest run tests/stress.test.ts   # layout width sweep
 ```
 
 ### Baseline regression system
-- `tests/baselines.json` has locked best-known content mismatch % per test case
-- Tests fail if any case regresses by >2% above its baseline
-- **After improvements**: update `baselines.json` with new values and commit
+- `tests/baselines.json` stores `{ score, wrap }` per test case (default font + 5 font variants)
+- `score`: content mismatch %. Tests fail if any case regresses by >2% above its baseline
+- `wrap`: whether text wrapping matches DOM. Tests fail if a passing case starts failing
+- Baselines cover default font cases, Polotno cases, and all cases × 5 fonts (Open Sans, Roboto, Playfair Display, Merriweather, Lobster)
 
 ### Updating baselines
-1. Run tests, note improved cases in output (shows "improved" with delta)
-2. Update the values in `tests/baselines.json`
-3. Commit baselines alongside the code change
+- **Improvements auto-lock**: when `npm test` detects only improvements (better scores or wrapping fixes) with no regressions, it automatically writes updated values to `baselines.json`. Commit the updated file alongside the code change.
+- **Regressions require human action**: if any score or wrapping regresses, the test fails and baselines are NOT updated. Investigate the cause first.
+- **Full regeneration**: `npm run test:update-baselines` — rewrites `baselines.json` from scratch (use when adding new test cases or after intentional regressions)
 
 ### Content-based mismatch
 - Mismatch is measured against **content pixels only** (non-white/non-transparent), not total canvas area

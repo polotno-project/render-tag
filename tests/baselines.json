@@ -1,63 +1,1426 @@
 {
-  "Simple paragraph": 0.00,
-  "Formatted text (bold, italic, colors)": 10.95,
-  "Multi-heading article": 7.93,
-  "Nested lists": 10.52,
-  "Rich blog post": 3.74,
-  "Styled table": 57.42,
-  "Multi-column layout": 6.94,
-  "Text decorations & shadows": 9.25,
-  "Code blocks & quotes": 19.06,
-  "Dense inline formatting": 15.65,
-  "Long paragraph word wrapping": 0.00,
-  "Empty paragraphs and blank lines": 0.00,
-  "Long unbroken word overflow-wrap": 0.00,
-  "Narrow container single char per line": 1.56,
-  "Mixed font sizes inline": 0.02,
-  "Line-height variations": 1.84,
-  "Whitespace handling pre-wrap vs normal": 0.00,
-  "Deeply nested inline styles": 16.38,
-  "Adjacent styled spans no space": 13.43,
-  "Subscript and superscript": 30.60,
-  "Mixed font-sizes same line": 1.08,
-  "Strikethrough and underline combined": 27.63,
-  "All text decorations combined": 15.38,
-  "Rainbow colored text": 1.66,
-  "Pure RTL Arabic text": 10.57,
-  "Mixed LTR and RTL (English + Arabic)": 8.06,
-  "RTL with embedded numbers": 1.24,
-  "Hebrew text with punctuation": 6.99,
-  "Japanese text mixed scripts": 8.41,
-  "Simplified Chinese text": 6.15,
-  "Korean Hangul text": 11.06,
-  "Mixed CJK and Latin text": 19.03,
-  "Thai text no word boundaries": 4.67,
-  "Emoji and ZWJ sequences": 0.00,
-  "Pre-wrap preserved whitespace": 19.21,
-  "Soft hyphens and zero-width spaces": 3.84,
-  "Non-breaking spaces vs regular spaces": 0.00,
-  "Explicit br line breaks": 0.00,
-  "Long wrapping list items": 12.32,
-  "Deeply nested mixed lists": 16.47,
-  "List items with rich formatting": 11.83,
-  "Empty list items mixed with content": 5.66,
-  "Center aligned text": 11.46,
-  "Right aligned text": 10.77,
-  "Justified text": 11.89,
-  "Mixed alignment paragraphs": 0.00,
-  "Font stack fallback": 3.65,
-  "Monospace vs proportional text": 13.08,
-  "Extreme font sizes 8px and 48px": 0.30,
-  "Font weight variations 100-900": 5.19,
-  "Very narrow container": 14.38,
-  "Nowrap overflow text": 0.00,
-  "Special HTML entities": 5.68,
-  "Long document 20+ paragraphs": 18.06,
-  "Single word paragraphs": 11.46,
-  "Whitespace-only paragraphs": 0.00,
-  "Nested divs with margins": 0.00,
-  "Mixed Google Fonts inline": 22.90,
-  "Dense mixed inline styles": 15.68,
-  "Polotno HTML": 10.29,
-  "Polotno Lists": 2.87
+  "Simple paragraph": {
+    "score": 0,
+    "wrap": true
+  },
+  "Formatted text (bold, italic, colors)": {
+    "score": 10.95,
+    "wrap": true
+  },
+  "Multi-heading article": {
+    "score": 7.93,
+    "wrap": true
+  },
+  "Nested lists": {
+    "score": 10.52,
+    "wrap": true
+  },
+  "Rich blog post": {
+    "score": 3.74,
+    "wrap": true
+  },
+  "Styled table": {
+    "score": 57.42,
+    "wrap": true
+  },
+  "Multi-column layout": {
+    "score": 6.94,
+    "wrap": true
+  },
+  "Text decorations & shadows": {
+    "score": 9.25,
+    "wrap": true
+  },
+  "Code blocks & quotes": {
+    "score": 19.06,
+    "wrap": true
+  },
+  "Dense inline formatting": {
+    "score": 15.65,
+    "wrap": true
+  },
+  "Long paragraph word wrapping": {
+    "score": 0,
+    "wrap": true
+  },
+  "Empty paragraphs and blank lines": {
+    "score": 0,
+    "wrap": true
+  },
+  "Long unbroken word overflow-wrap": {
+    "score": 0,
+    "wrap": true
+  },
+  "Narrow container single char per line": {
+    "score": 1.56,
+    "wrap": true
+  },
+  "Mixed font sizes inline": {
+    "score": 0.02,
+    "wrap": true
+  },
+  "Line-height variations": {
+    "score": 1.84,
+    "wrap": true
+  },
+  "Whitespace handling pre-wrap vs normal": {
+    "score": 0,
+    "wrap": true
+  },
+  "Deeply nested inline styles": {
+    "score": 16.38,
+    "wrap": true
+  },
+  "Adjacent styled spans no space": {
+    "score": 13.43,
+    "wrap": true
+  },
+  "Subscript and superscript": {
+    "score": 30.6,
+    "wrap": true
+  },
+  "Mixed font-sizes same line": {
+    "score": 1.08,
+    "wrap": true
+  },
+  "Strikethrough and underline combined": {
+    "score": 27.63,
+    "wrap": true
+  },
+  "All text decorations combined": {
+    "score": 15.38,
+    "wrap": true
+  },
+  "Rainbow colored text": {
+    "score": 1.66,
+    "wrap": true
+  },
+  "Pure RTL Arabic text": {
+    "score": 10.57,
+    "wrap": true
+  },
+  "Mixed LTR and RTL (English + Arabic)": {
+    "score": 8.06,
+    "wrap": true
+  },
+  "RTL with embedded numbers": {
+    "score": 1.24,
+    "wrap": true
+  },
+  "Hebrew text with punctuation": {
+    "score": 6.99,
+    "wrap": true
+  },
+  "Japanese text mixed scripts": {
+    "score": 8.41,
+    "wrap": true
+  },
+  "Simplified Chinese text": {
+    "score": 6.15,
+    "wrap": true
+  },
+  "Korean Hangul text": {
+    "score": 11.06,
+    "wrap": true
+  },
+  "Mixed CJK and Latin text": {
+    "score": 19.03,
+    "wrap": true
+  },
+  "Thai text no word boundaries": {
+    "score": 4.67,
+    "wrap": true
+  },
+  "Emoji and ZWJ sequences": {
+    "score": 0,
+    "wrap": true
+  },
+  "Pre-wrap preserved whitespace": {
+    "score": 19.21,
+    "wrap": true
+  },
+  "Soft hyphens and zero-width spaces": {
+    "score": 3.84,
+    "wrap": true
+  },
+  "Non-breaking spaces vs regular spaces": {
+    "score": 0,
+    "wrap": true
+  },
+  "Explicit br line breaks": {
+    "score": 0,
+    "wrap": true
+  },
+  "Long wrapping list items": {
+    "score": 12.32,
+    "wrap": true
+  },
+  "Deeply nested mixed lists": {
+    "score": 16.47,
+    "wrap": true
+  },
+  "List items with rich formatting": {
+    "score": 11.83,
+    "wrap": true
+  },
+  "Empty list items mixed with content": {
+    "score": 5.66,
+    "wrap": true
+  },
+  "Center aligned text": {
+    "score": 11.46,
+    "wrap": true
+  },
+  "Right aligned text": {
+    "score": 10.77,
+    "wrap": true
+  },
+  "Justified text": {
+    "score": 11.89,
+    "wrap": true
+  },
+  "Mixed alignment paragraphs": {
+    "score": 0,
+    "wrap": true
+  },
+  "Font stack fallback": {
+    "score": 3.65,
+    "wrap": true
+  },
+  "Monospace vs proportional text": {
+    "score": 13.08,
+    "wrap": true
+  },
+  "Extreme font sizes 8px and 48px": {
+    "score": 0.3,
+    "wrap": true
+  },
+  "Font weight variations 100-900": {
+    "score": 5.19,
+    "wrap": true
+  },
+  "Very narrow container": {
+    "score": 14.38,
+    "wrap": true
+  },
+  "Nowrap overflow text": {
+    "score": 0,
+    "wrap": true
+  },
+  "Special HTML entities": {
+    "score": 5.68,
+    "wrap": true
+  },
+  "Long document 20+ paragraphs": {
+    "score": 18.06,
+    "wrap": true
+  },
+  "Single word paragraphs": {
+    "score": 11.46,
+    "wrap": true
+  },
+  "Whitespace-only paragraphs": {
+    "score": 0,
+    "wrap": true
+  },
+  "Nested divs with margins": {
+    "score": 0,
+    "wrap": true
+  },
+  "Mixed Google Fonts inline": {
+    "score": 22.9,
+    "wrap": true
+  },
+  "Dense mixed inline styles": {
+    "score": 15.68,
+    "wrap": true
+  },
+  "Polotno HTML": {
+    "score": 10.29,
+    "wrap": true
+  },
+  "Polotno Lists": {
+    "score": 2.87,
+    "wrap": true
+  },
+  "Simple paragraph@Open Sans": {
+    "score": 0,
+    "wrap": true
+  },
+  "Formatted text (bold, italic, colors)@Open Sans": {
+    "score": 10.95,
+    "wrap": true
+  },
+  "Multi-heading article@Open Sans": {
+    "score": 7.93,
+    "wrap": true
+  },
+  "Nested lists@Open Sans": {
+    "score": 10.52,
+    "wrap": true
+  },
+  "Rich blog post@Open Sans": {
+    "score": 3.74,
+    "wrap": true
+  },
+  "Styled table@Open Sans": {
+    "score": 57.42,
+    "wrap": true
+  },
+  "Multi-column layout@Open Sans": {
+    "score": 6.94,
+    "wrap": true
+  },
+  "Text decorations & shadows@Open Sans": {
+    "score": 9.25,
+    "wrap": true
+  },
+  "Code blocks & quotes@Open Sans": {
+    "score": 19.06,
+    "wrap": true
+  },
+  "Dense inline formatting@Open Sans": {
+    "score": 15.65,
+    "wrap": true
+  },
+  "Long paragraph word wrapping@Open Sans": {
+    "score": 0,
+    "wrap": true
+  },
+  "Empty paragraphs and blank lines@Open Sans": {
+    "score": 0,
+    "wrap": true
+  },
+  "Long unbroken word overflow-wrap@Open Sans": {
+    "score": 0,
+    "wrap": true
+  },
+  "Narrow container single char per line@Open Sans": {
+    "score": 1.56,
+    "wrap": true
+  },
+  "Mixed font sizes inline@Open Sans": {
+    "score": 0.02,
+    "wrap": true
+  },
+  "Line-height variations@Open Sans": {
+    "score": 1.84,
+    "wrap": true
+  },
+  "Whitespace handling pre-wrap vs normal@Open Sans": {
+    "score": 0,
+    "wrap": true
+  },
+  "Deeply nested inline styles@Open Sans": {
+    "score": 16.38,
+    "wrap": true
+  },
+  "Adjacent styled spans no space@Open Sans": {
+    "score": 13.43,
+    "wrap": true
+  },
+  "Subscript and superscript@Open Sans": {
+    "score": 30.6,
+    "wrap": true
+  },
+  "Mixed font-sizes same line@Open Sans": {
+    "score": 1.08,
+    "wrap": true
+  },
+  "Strikethrough and underline combined@Open Sans": {
+    "score": 27.63,
+    "wrap": true
+  },
+  "All text decorations combined@Open Sans": {
+    "score": 15.38,
+    "wrap": true
+  },
+  "Rainbow colored text@Open Sans": {
+    "score": 1.66,
+    "wrap": true
+  },
+  "Pure RTL Arabic text@Open Sans": {
+    "score": 13,
+    "wrap": true
+  },
+  "Mixed LTR and RTL (English + Arabic)@Open Sans": {
+    "score": 7.26,
+    "wrap": true
+  },
+  "RTL with embedded numbers@Open Sans": {
+    "score": 1.77,
+    "wrap": true
+  },
+  "Hebrew text with punctuation@Open Sans": {
+    "score": 7.53,
+    "wrap": true
+  },
+  "Japanese text mixed scripts@Open Sans": {
+    "score": 16.05,
+    "wrap": true
+  },
+  "Simplified Chinese text@Open Sans": {
+    "score": 7.02,
+    "wrap": true
+  },
+  "Korean Hangul text@Open Sans": {
+    "score": 11.17,
+    "wrap": true
+  },
+  "Mixed CJK and Latin text@Open Sans": {
+    "score": 9.58,
+    "wrap": true
+  },
+  "Thai text no word boundaries@Open Sans": {
+    "score": 4.5,
+    "wrap": true
+  },
+  "Emoji and ZWJ sequences@Open Sans": {
+    "score": 0,
+    "wrap": true
+  },
+  "Pre-wrap preserved whitespace@Open Sans": {
+    "score": 19.21,
+    "wrap": true
+  },
+  "Soft hyphens and zero-width spaces@Open Sans": {
+    "score": 3.84,
+    "wrap": true
+  },
+  "Non-breaking spaces vs regular spaces@Open Sans": {
+    "score": 0,
+    "wrap": true
+  },
+  "Explicit br line breaks@Open Sans": {
+    "score": 0,
+    "wrap": true
+  },
+  "Long wrapping list items@Open Sans": {
+    "score": 12.32,
+    "wrap": true
+  },
+  "Deeply nested mixed lists@Open Sans": {
+    "score": 16.47,
+    "wrap": true
+  },
+  "List items with rich formatting@Open Sans": {
+    "score": 11.83,
+    "wrap": true
+  },
+  "Empty list items mixed with content@Open Sans": {
+    "score": 5.66,
+    "wrap": true
+  },
+  "Center aligned text@Open Sans": {
+    "score": 11.46,
+    "wrap": true
+  },
+  "Right aligned text@Open Sans": {
+    "score": 10.77,
+    "wrap": true
+  },
+  "Justified text@Open Sans": {
+    "score": 11.89,
+    "wrap": true
+  },
+  "Mixed alignment paragraphs@Open Sans": {
+    "score": 0,
+    "wrap": true
+  },
+  "Font stack fallback@Open Sans": {
+    "score": 3.65,
+    "wrap": true
+  },
+  "Monospace vs proportional text@Open Sans": {
+    "score": 13.08,
+    "wrap": true
+  },
+  "Extreme font sizes 8px and 48px@Open Sans": {
+    "score": 0.3,
+    "wrap": true
+  },
+  "Font weight variations 100-900@Open Sans": {
+    "score": 5.19,
+    "wrap": true
+  },
+  "Very narrow container@Open Sans": {
+    "score": 14.38,
+    "wrap": true
+  },
+  "Nowrap overflow text@Open Sans": {
+    "score": 0,
+    "wrap": true
+  },
+  "Special HTML entities@Open Sans": {
+    "score": 5.68,
+    "wrap": true
+  },
+  "Long document 20+ paragraphs@Open Sans": {
+    "score": 18.06,
+    "wrap": true
+  },
+  "Single word paragraphs@Open Sans": {
+    "score": 11.46,
+    "wrap": true
+  },
+  "Whitespace-only paragraphs@Open Sans": {
+    "score": 0,
+    "wrap": true
+  },
+  "Nested divs with margins@Open Sans": {
+    "score": 0,
+    "wrap": true
+  },
+  "Mixed Google Fonts inline@Open Sans": {
+    "score": 22.42,
+    "wrap": true
+  },
+  "Dense mixed inline styles@Open Sans": {
+    "score": 25.99,
+    "wrap": true
+  },
+  "Simple paragraph@Roboto": {
+    "score": 0,
+    "wrap": true
+  },
+  "Formatted text (bold, italic, colors)@Roboto": {
+    "score": 10.52,
+    "wrap": true
+  },
+  "Multi-heading article@Roboto": {
+    "score": 1.23,
+    "wrap": true
+  },
+  "Nested lists@Roboto": {
+    "score": 9.13,
+    "wrap": true
+  },
+  "Rich blog post@Roboto": {
+    "score": 3.74,
+    "wrap": true
+  },
+  "Styled table@Roboto": {
+    "score": 57.54,
+    "wrap": true
+  },
+  "Multi-column layout@Roboto": {
+    "score": 1.66,
+    "wrap": true
+  },
+  "Text decorations & shadows@Roboto": {
+    "score": 6.95,
+    "wrap": true
+  },
+  "Code blocks & quotes@Roboto": {
+    "score": 19.07,
+    "wrap": true
+  },
+  "Dense inline formatting@Roboto": {
+    "score": 15.65,
+    "wrap": true
+  },
+  "Long paragraph word wrapping@Roboto": {
+    "score": 0,
+    "wrap": true
+  },
+  "Empty paragraphs and blank lines@Roboto": {
+    "score": 0,
+    "wrap": true
+  },
+  "Long unbroken word overflow-wrap@Roboto": {
+    "score": 9.53,
+    "wrap": true
+  },
+  "Narrow container single char per line@Roboto": {
+    "score": 4.23,
+    "wrap": true
+  },
+  "Mixed font sizes inline@Roboto": {
+    "score": 0,
+    "wrap": true
+  },
+  "Line-height variations@Roboto": {
+    "score": 1.07,
+    "wrap": true
+  },
+  "Whitespace handling pre-wrap vs normal@Roboto": {
+    "score": 0,
+    "wrap": true
+  },
+  "Deeply nested inline styles@Roboto": {
+    "score": 10.56,
+    "wrap": true
+  },
+  "Adjacent styled spans no space@Roboto": {
+    "score": 2.16,
+    "wrap": true
+  },
+  "Subscript and superscript@Roboto": {
+    "score": 24.99,
+    "wrap": true
+  },
+  "Mixed font-sizes same line@Roboto": {
+    "score": 1.17,
+    "wrap": true
+  },
+  "Strikethrough and underline combined@Roboto": {
+    "score": 12.52,
+    "wrap": true
+  },
+  "All text decorations combined@Roboto": {
+    "score": 28.45,
+    "wrap": true
+  },
+  "Rainbow colored text@Roboto": {
+    "score": 10.27,
+    "wrap": true
+  },
+  "Pure RTL Arabic text@Roboto": {
+    "score": 12.92,
+    "wrap": true
+  },
+  "Mixed LTR and RTL (English + Arabic)@Roboto": {
+    "score": 14.62,
+    "wrap": true
+  },
+  "RTL with embedded numbers@Roboto": {
+    "score": 10.56,
+    "wrap": true
+  },
+  "Hebrew text with punctuation@Roboto": {
+    "score": 7.26,
+    "wrap": true
+  },
+  "Japanese text mixed scripts@Roboto": {
+    "score": 26.32,
+    "wrap": true
+  },
+  "Simplified Chinese text@Roboto": {
+    "score": 18.85,
+    "wrap": true
+  },
+  "Korean Hangul text@Roboto": {
+    "score": 23.71,
+    "wrap": true
+  },
+  "Mixed CJK and Latin text@Roboto": {
+    "score": 14.18,
+    "wrap": true
+  },
+  "Thai text no word boundaries@Roboto": {
+    "score": 15.21,
+    "wrap": true
+  },
+  "Emoji and ZWJ sequences@Roboto": {
+    "score": 15.04,
+    "wrap": true
+  },
+  "Pre-wrap preserved whitespace@Roboto": {
+    "score": 17.78,
+    "wrap": true
+  },
+  "Soft hyphens and zero-width spaces@Roboto": {
+    "score": 2.13,
+    "wrap": true
+  },
+  "Non-breaking spaces vs regular spaces@Roboto": {
+    "score": 0,
+    "wrap": true
+  },
+  "Explicit br line breaks@Roboto": {
+    "score": 0,
+    "wrap": true
+  },
+  "Long wrapping list items@Roboto": {
+    "score": 1.56,
+    "wrap": true
+  },
+  "Deeply nested mixed lists@Roboto": {
+    "score": 4.64,
+    "wrap": true
+  },
+  "List items with rich formatting@Roboto": {
+    "score": 11.19,
+    "wrap": true
+  },
+  "Empty list items mixed with content@Roboto": {
+    "score": 5.27,
+    "wrap": true
+  },
+  "Center aligned text@Roboto": {
+    "score": 1.01,
+    "wrap": true
+  },
+  "Right aligned text@Roboto": {
+    "score": 1.06,
+    "wrap": true
+  },
+  "Justified text@Roboto": {
+    "score": 0.99,
+    "wrap": true
+  },
+  "Mixed alignment paragraphs@Roboto": {
+    "score": 0,
+    "wrap": true
+  },
+  "Font stack fallback@Roboto": {
+    "score": 3.65,
+    "wrap": true
+  },
+  "Monospace vs proportional text@Roboto": {
+    "score": 12.85,
+    "wrap": true
+  },
+  "Extreme font sizes 8px and 48px@Roboto": {
+    "score": 0.31,
+    "wrap": true
+  },
+  "Font weight variations 100-900@Roboto": {
+    "score": 10.43,
+    "wrap": true
+  },
+  "Very narrow container@Roboto": {
+    "score": 12.52,
+    "wrap": true
+  },
+  "Nowrap overflow text@Roboto": {
+    "score": 0,
+    "wrap": true
+  },
+  "Special HTML entities@Roboto": {
+    "score": 3.34,
+    "wrap": true
+  },
+  "Long document 20+ paragraphs@Roboto": {
+    "score": 5.15,
+    "wrap": true
+  },
+  "Single word paragraphs@Roboto": {
+    "score": 0.78,
+    "wrap": true
+  },
+  "Whitespace-only paragraphs@Roboto": {
+    "score": 0,
+    "wrap": true
+  },
+  "Nested divs with margins@Roboto": {
+    "score": 3.52,
+    "wrap": true
+  },
+  "Mixed Google Fonts inline@Roboto": {
+    "score": 12.76,
+    "wrap": true
+  },
+  "Dense mixed inline styles@Roboto": {
+    "score": 15.68,
+    "wrap": true
+  },
+  "Simple paragraph@Playfair Display": {
+    "score": 0.43,
+    "wrap": true
+  },
+  "Formatted text (bold, italic, colors)@Playfair Display": {
+    "score": 12.52,
+    "wrap": true
+  },
+  "Multi-heading article@Playfair Display": {
+    "score": 5.64,
+    "wrap": true
+  },
+  "Nested lists@Playfair Display": {
+    "score": 15.18,
+    "wrap": true
+  },
+  "Rich blog post@Playfair Display": {
+    "score": 3.74,
+    "wrap": true
+  },
+  "Styled table@Playfair Display": {
+    "score": 57.01,
+    "wrap": true
+  },
+  "Multi-column layout@Playfair Display": {
+    "score": 7.55,
+    "wrap": true
+  },
+  "Text decorations & shadows@Playfair Display": {
+    "score": 12.65,
+    "wrap": true
+  },
+  "Code blocks & quotes@Playfair Display": {
+    "score": 19.11,
+    "wrap": true
+  },
+  "Dense inline formatting@Playfair Display": {
+    "score": 15.65,
+    "wrap": true
+  },
+  "Long paragraph word wrapping@Playfair Display": {
+    "score": 0.2,
+    "wrap": true
+  },
+  "Empty paragraphs and blank lines@Playfair Display": {
+    "score": 0.46,
+    "wrap": true
+  },
+  "Long unbroken word overflow-wrap@Playfair Display": {
+    "score": 8.97,
+    "wrap": true
+  },
+  "Narrow container single char per line@Playfair Display": {
+    "score": 14.32,
+    "wrap": true
+  },
+  "Mixed font sizes inline@Playfair Display": {
+    "score": 0.47,
+    "wrap": true
+  },
+  "Line-height variations@Playfair Display": {
+    "score": 4.14,
+    "wrap": true
+  },
+  "Whitespace handling pre-wrap vs normal@Playfair Display": {
+    "score": 0.33,
+    "wrap": true
+  },
+  "Deeply nested inline styles@Playfair Display": {
+    "score": 12.97,
+    "wrap": true
+  },
+  "Adjacent styled spans no space@Playfair Display": {
+    "score": 6.76,
+    "wrap": true
+  },
+  "Subscript and superscript@Playfair Display": {
+    "score": 22.07,
+    "wrap": true
+  },
+  "Mixed font-sizes same line@Playfair Display": {
+    "score": 1.94,
+    "wrap": true
+  },
+  "Strikethrough and underline combined@Playfair Display": {
+    "score": 18.31,
+    "wrap": true
+  },
+  "All text decorations combined@Playfair Display": {
+    "score": 35.13,
+    "wrap": true
+  },
+  "Rainbow colored text@Playfair Display": {
+    "score": 19.03,
+    "wrap": true
+  },
+  "Pure RTL Arabic text@Playfair Display": {
+    "score": 2.17,
+    "wrap": true
+  },
+  "Mixed LTR and RTL (English + Arabic)@Playfair Display": {
+    "score": 17.75,
+    "wrap": true
+  },
+  "RTL with embedded numbers@Playfair Display": {
+    "score": 14.03,
+    "wrap": true
+  },
+  "Hebrew text with punctuation@Playfair Display": {
+    "score": 1.28,
+    "wrap": true
+  },
+  "Japanese text mixed scripts@Playfair Display": {
+    "score": 26.39,
+    "wrap": true
+  },
+  "Simplified Chinese text@Playfair Display": {
+    "score": 18.87,
+    "wrap": true
+  },
+  "Korean Hangul text@Playfair Display": {
+    "score": 23.67,
+    "wrap": true
+  },
+  "Mixed CJK and Latin text@Playfair Display": {
+    "score": 19.01,
+    "wrap": true
+  },
+  "Thai text no word boundaries@Playfair Display": {
+    "score": 15.08,
+    "wrap": true
+  },
+  "Emoji and ZWJ sequences@Playfair Display": {
+    "score": 19.14,
+    "wrap": true
+  },
+  "Pre-wrap preserved whitespace@Playfair Display": {
+    "score": 24.19,
+    "wrap": true
+  },
+  "Soft hyphens and zero-width spaces@Playfair Display": {
+    "score": 8.44,
+    "wrap": true
+  },
+  "Non-breaking spaces vs regular spaces@Playfair Display": {
+    "score": 0.03,
+    "wrap": true
+  },
+  "Explicit br line breaks@Playfair Display": {
+    "score": 0.75,
+    "wrap": true
+  },
+  "Long wrapping list items@Playfair Display": {
+    "score": 15,
+    "wrap": true
+  },
+  "Deeply nested mixed lists@Playfair Display": {
+    "score": 18.09,
+    "wrap": true
+  },
+  "List items with rich formatting@Playfair Display": {
+    "score": 14.02,
+    "wrap": true
+  },
+  "Empty list items mixed with content@Playfair Display": {
+    "score": 7.07,
+    "wrap": true
+  },
+  "Center aligned text@Playfair Display": {
+    "score": 6.98,
+    "wrap": true
+  },
+  "Right aligned text@Playfair Display": {
+    "score": 5.87,
+    "wrap": true
+  },
+  "Justified text@Playfair Display": {
+    "score": 5.97,
+    "wrap": true
+  },
+  "Mixed alignment paragraphs@Playfair Display": {
+    "score": 0.84,
+    "wrap": true
+  },
+  "Font stack fallback@Playfair Display": {
+    "score": 3.65,
+    "wrap": true
+  },
+  "Monospace vs proportional text@Playfair Display": {
+    "score": 13.4,
+    "wrap": true
+  },
+  "Extreme font sizes 8px and 48px@Playfair Display": {
+    "score": 9.91,
+    "wrap": true
+  },
+  "Font weight variations 100-900@Playfair Display": {
+    "score": 13.97,
+    "wrap": true
+  },
+  "Very narrow container@Playfair Display": {
+    "score": 11.66,
+    "wrap": true
+  },
+  "Nowrap overflow text@Playfair Display": {
+    "score": 1.26,
+    "wrap": true
+  },
+  "Special HTML entities@Playfair Display": {
+    "score": 11.69,
+    "wrap": true
+  },
+  "Long document 20+ paragraphs@Playfair Display": {
+    "score": 31.87,
+    "wrap": false
+  },
+  "Single word paragraphs@Playfair Display": {
+    "score": 6.02,
+    "wrap": true
+  },
+  "Whitespace-only paragraphs@Playfair Display": {
+    "score": 0,
+    "wrap": true
+  },
+  "Nested divs with margins@Playfair Display": {
+    "score": 0.53,
+    "wrap": true
+  },
+  "Mixed Google Fonts inline@Playfair Display": {
+    "score": 14.09,
+    "wrap": true
+  },
+  "Dense mixed inline styles@Playfair Display": {
+    "score": 11.32,
+    "wrap": true
+  },
+  "Simple paragraph@Merriweather": {
+    "score": 0,
+    "wrap": true
+  },
+  "Formatted text (bold, italic, colors)@Merriweather": {
+    "score": 11.65,
+    "wrap": true
+  },
+  "Multi-heading article@Merriweather": {
+    "score": 9.18,
+    "wrap": true
+  },
+  "Nested lists@Merriweather": {
+    "score": 6.7,
+    "wrap": true
+  },
+  "Rich blog post@Merriweather": {
+    "score": 3.74,
+    "wrap": true
+  },
+  "Styled table@Merriweather": {
+    "score": 56.77,
+    "wrap": true
+  },
+  "Multi-column layout@Merriweather": {
+    "score": 2.43,
+    "wrap": true
+  },
+  "Text decorations & shadows@Merriweather": {
+    "score": 14.59,
+    "wrap": false
+  },
+  "Code blocks & quotes@Merriweather": {
+    "score": 19.24,
+    "wrap": true
+  },
+  "Dense inline formatting@Merriweather": {
+    "score": 15.65,
+    "wrap": true
+  },
+  "Long paragraph word wrapping@Merriweather": {
+    "score": 6.85,
+    "wrap": true
+  },
+  "Empty paragraphs and blank lines@Merriweather": {
+    "score": 0,
+    "wrap": true
+  },
+  "Long unbroken word overflow-wrap@Merriweather": {
+    "score": 22.47,
+    "wrap": true
+  },
+  "Narrow container single char per line@Merriweather": {
+    "score": 1.7,
+    "wrap": true
+  },
+  "Mixed font sizes inline@Merriweather": {
+    "score": 0,
+    "wrap": true
+  },
+  "Line-height variations@Merriweather": {
+    "score": 7.05,
+    "wrap": true
+  },
+  "Whitespace handling pre-wrap vs normal@Merriweather": {
+    "score": 4.49,
+    "wrap": true
+  },
+  "Deeply nested inline styles@Merriweather": {
+    "score": 18.15,
+    "wrap": true
+  },
+  "Adjacent styled spans no space@Merriweather": {
+    "score": 15.91,
+    "wrap": true
+  },
+  "Subscript and superscript@Merriweather": {
+    "score": 27.91,
+    "wrap": true
+  },
+  "Mixed font-sizes same line@Merriweather": {
+    "score": 0,
+    "wrap": true
+  },
+  "Strikethrough and underline combined@Merriweather": {
+    "score": 26.02,
+    "wrap": true
+  },
+  "All text decorations combined@Merriweather": {
+    "score": 14.54,
+    "wrap": true
+  },
+  "Rainbow colored text@Merriweather": {
+    "score": 15.05,
+    "wrap": true
+  },
+  "Pure RTL Arabic text@Merriweather": {
+    "score": 12.87,
+    "wrap": true
+  },
+  "Mixed LTR and RTL (English + Arabic)@Merriweather": {
+    "score": 8.56,
+    "wrap": true
+  },
+  "RTL with embedded numbers@Merriweather": {
+    "score": 1.93,
+    "wrap": true
+  },
+  "Hebrew text with punctuation@Merriweather": {
+    "score": 7.36,
+    "wrap": true
+  },
+  "Japanese text mixed scripts@Merriweather": {
+    "score": 16.97,
+    "wrap": true
+  },
+  "Simplified Chinese text@Merriweather": {
+    "score": 7,
+    "wrap": true
+  },
+  "Korean Hangul text@Merriweather": {
+    "score": 11.01,
+    "wrap": true
+  },
+  "Mixed CJK and Latin text@Merriweather": {
+    "score": 41.95,
+    "wrap": false
+  },
+  "Thai text no word boundaries@Merriweather": {
+    "score": 4.38,
+    "wrap": true
+  },
+  "Emoji and ZWJ sequences@Merriweather": {
+    "score": 0,
+    "wrap": true
+  },
+  "Pre-wrap preserved whitespace@Merriweather": {
+    "score": 16.86,
+    "wrap": true
+  },
+  "Soft hyphens and zero-width spaces@Merriweather": {
+    "score": 17.82,
+    "wrap": true
+  },
+  "Non-breaking spaces vs regular spaces@Merriweather": {
+    "score": 7.08,
+    "wrap": true
+  },
+  "Explicit br line breaks@Merriweather": {
+    "score": 7.29,
+    "wrap": true
+  },
+  "Long wrapping list items@Merriweather": {
+    "score": 4.55,
+    "wrap": true
+  },
+  "Deeply nested mixed lists@Merriweather": {
+    "score": 7.56,
+    "wrap": true
+  },
+  "List items with rich formatting@Merriweather": {
+    "score": 11.97,
+    "wrap": true
+  },
+  "Empty list items mixed with content@Merriweather": {
+    "score": 10.5,
+    "wrap": true
+  },
+  "Center aligned text@Merriweather": {
+    "score": 12.46,
+    "wrap": true
+  },
+  "Right aligned text@Merriweather": {
+    "score": 11.96,
+    "wrap": true
+  },
+  "Justified text@Merriweather": {
+    "score": 12.97,
+    "wrap": true
+  },
+  "Mixed alignment paragraphs@Merriweather": {
+    "score": 6.96,
+    "wrap": true
+  },
+  "Font stack fallback@Merriweather": {
+    "score": 3.65,
+    "wrap": true
+  },
+  "Monospace vs proportional text@Merriweather": {
+    "score": 13.12,
+    "wrap": true
+  },
+  "Extreme font sizes 8px and 48px@Merriweather": {
+    "score": 6.07,
+    "wrap": true
+  },
+  "Font weight variations 100-900@Merriweather": {
+    "score": 5.18,
+    "wrap": true
+  },
+  "Very narrow container@Merriweather": {
+    "score": 13.01,
+    "wrap": true
+  },
+  "Nowrap overflow text@Merriweather": {
+    "score": 0,
+    "wrap": true
+  },
+  "Special HTML entities@Merriweather": {
+    "score": 0,
+    "wrap": true
+  },
+  "Long document 20+ paragraphs@Merriweather": {
+    "score": 9.51,
+    "wrap": true
+  },
+  "Single word paragraphs@Merriweather": {
+    "score": 12.74,
+    "wrap": true
+  },
+  "Whitespace-only paragraphs@Merriweather": {
+    "score": 0,
+    "wrap": true
+  },
+  "Nested divs with margins@Merriweather": {
+    "score": 8.43,
+    "wrap": true
+  },
+  "Mixed Google Fonts inline@Merriweather": {
+    "score": 13.17,
+    "wrap": true
+  },
+  "Dense mixed inline styles@Merriweather": {
+    "score": 50.39,
+    "wrap": false
+  },
+  "Simple paragraph@Lobster": {
+    "score": 0,
+    "wrap": true
+  },
+  "Formatted text (bold, italic, colors)@Lobster": {
+    "score": 13.01,
+    "wrap": true
+  },
+  "Multi-heading article@Lobster": {
+    "score": 6.81,
+    "wrap": true
+  },
+  "Nested lists@Lobster": {
+    "score": 6.26,
+    "wrap": true
+  },
+  "Rich blog post@Lobster": {
+    "score": 3.74,
+    "wrap": true
+  },
+  "Styled table@Lobster": {
+    "score": 57.33,
+    "wrap": true
+  },
+  "Multi-column layout@Lobster": {
+    "score": 1.96,
+    "wrap": true
+  },
+  "Text decorations & shadows@Lobster": {
+    "score": 13.27,
+    "wrap": true
+  },
+  "Code blocks & quotes@Lobster": {
+    "score": 19.9,
+    "wrap": true
+  },
+  "Dense inline formatting@Lobster": {
+    "score": 15.65,
+    "wrap": true
+  },
+  "Long paragraph word wrapping@Lobster": {
+    "score": 3.48,
+    "wrap": true
+  },
+  "Empty paragraphs and blank lines@Lobster": {
+    "score": 0,
+    "wrap": true
+  },
+  "Long unbroken word overflow-wrap@Lobster": {
+    "score": 15.78,
+    "wrap": false
+  },
+  "Narrow container single char per line@Lobster": {
+    "score": 0.91,
+    "wrap": true
+  },
+  "Mixed font sizes inline@Lobster": {
+    "score": 0.01,
+    "wrap": true
+  },
+  "Line-height variations@Lobster": {
+    "score": 4.42,
+    "wrap": true
+  },
+  "Whitespace handling pre-wrap vs normal@Lobster": {
+    "score": 0,
+    "wrap": true
+  },
+  "Deeply nested inline styles@Lobster": {
+    "score": 17.91,
+    "wrap": true
+  },
+  "Adjacent styled spans no space@Lobster": {
+    "score": 12.36,
+    "wrap": true
+  },
+  "Subscript and superscript@Lobster": {
+    "score": 24.91,
+    "wrap": true
+  },
+  "Mixed font-sizes same line@Lobster": {
+    "score": 0.02,
+    "wrap": true
+  },
+  "Strikethrough and underline combined@Lobster": {
+    "score": 18.73,
+    "wrap": true
+  },
+  "All text decorations combined@Lobster": {
+    "score": 10.7,
+    "wrap": true
+  },
+  "Rainbow colored text@Lobster": {
+    "score": 16.75,
+    "wrap": true
+  },
+  "Pure RTL Arabic text@Lobster": {
+    "score": 12.91,
+    "wrap": true
+  },
+  "Mixed LTR and RTL (English + Arabic)@Lobster": {
+    "score": 6.83,
+    "wrap": true
+  },
+  "RTL with embedded numbers@Lobster": {
+    "score": 1.56,
+    "wrap": true
+  },
+  "Hebrew text with punctuation@Lobster": {
+    "score": 7.35,
+    "wrap": true
+  },
+  "Japanese text mixed scripts@Lobster": {
+    "score": 22.55,
+    "wrap": false
+  },
+  "Simplified Chinese text@Lobster": {
+    "score": 7,
+    "wrap": true
+  },
+  "Korean Hangul text@Lobster": {
+    "score": 11.04,
+    "wrap": true
+  },
+  "Mixed CJK and Latin text@Lobster": {
+    "score": 20.96,
+    "wrap": false
+  },
+  "Thai text no word boundaries@Lobster": {
+    "score": 4.44,
+    "wrap": true
+  },
+  "Emoji and ZWJ sequences@Lobster": {
+    "score": 0,
+    "wrap": true
+  },
+  "Pre-wrap preserved whitespace@Lobster": {
+    "score": 19.37,
+    "wrap": true
+  },
+  "Soft hyphens and zero-width spaces@Lobster": {
+    "score": 26.35,
+    "wrap": false
+  },
+  "Non-breaking spaces vs regular spaces@Lobster": {
+    "score": 3.47,
+    "wrap": true
+  },
+  "Explicit br line breaks@Lobster": {
+    "score": 3.26,
+    "wrap": true
+  },
+  "Long wrapping list items@Lobster": {
+    "score": 2.01,
+    "wrap": true
+  },
+  "Deeply nested mixed lists@Lobster": {
+    "score": 5.02,
+    "wrap": true
+  },
+  "List items with rich formatting@Lobster": {
+    "score": 9.72,
+    "wrap": true
+  },
+  "Empty list items mixed with content@Lobster": {
+    "score": 7.35,
+    "wrap": true
+  },
+  "Center aligned text@Lobster": {
+    "score": 8.44,
+    "wrap": true
+  },
+  "Right aligned text@Lobster": {
+    "score": 8.37,
+    "wrap": true
+  },
+  "Justified text@Lobster": {
+    "score": 9.24,
+    "wrap": true
+  },
+  "Mixed alignment paragraphs@Lobster": {
+    "score": 3.58,
+    "wrap": true
+  },
+  "Font stack fallback@Lobster": {
+    "score": 3.65,
+    "wrap": true
+  },
+  "Monospace vs proportional text@Lobster": {
+    "score": 12.77,
+    "wrap": true
+  },
+  "Extreme font sizes 8px and 48px@Lobster": {
+    "score": 4.74,
+    "wrap": true
+  },
+  "Font weight variations 100-900@Lobster": {
+    "score": 4.63,
+    "wrap": true
+  },
+  "Very narrow container@Lobster": {
+    "score": 13.45,
+    "wrap": true
+  },
+  "Nowrap overflow text@Lobster": {
+    "score": 0,
+    "wrap": true
+  },
+  "Special HTML entities@Lobster": {
+    "score": 0,
+    "wrap": true
+  },
+  "Long document 20+ paragraphs@Lobster": {
+    "score": 4.76,
+    "wrap": true
+  },
+  "Single word paragraphs@Lobster": {
+    "score": 8.97,
+    "wrap": true
+  },
+  "Whitespace-only paragraphs@Lobster": {
+    "score": 0,
+    "wrap": true
+  },
+  "Nested divs with margins@Lobster": {
+    "score": 4.08,
+    "wrap": true
+  },
+  "Mixed Google Fonts inline@Lobster": {
+    "score": 12.63,
+    "wrap": true
+  },
+  "Dense mixed inline styles@Lobster": {
+    "score": 15.03,
+    "wrap": false
+  }
 }

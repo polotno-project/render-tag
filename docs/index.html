@@ -3,198 +3,152 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>render-tag — Render HTML rich text onto canvas</title>
-  <meta name="description" content="Render HTML rich text onto canvas with the 2D API. No SVG, no foreignObject. 10-60x faster than alternatives. Synchronous, zero dependencies.">
+  <title>render-tag — HTML rich text on canvas</title>
+  <meta name="description" content="Render HTML rich text onto canvas with the 2D API. No SVG, no foreignObject. Synchronous, zero dependencies.">
   <link rel="stylesheet" href="style.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&family=Caveat:wght@700&display=swap" rel="stylesheet">
-  <!-- No Quill CSS loaded — zero style pollution on editor content -->
-  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Roboto:ital,wght@0,400;0,700;1,400&family=Merriweather:ital,wght@0,400;0,700;1,400&family=Lobster&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&family=Caveat:wght@700&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Roboto:ital,wght@0,400;0,700;1,400&family=Merriweather:ital,wght@0,400;0,700;1,400&family=Lobster&display=swap" rel="stylesheet">
 </head>
 <body>
 
-  <!-- Nav -->
-  <nav class="site-nav">
-    <div class="container">
-      <a href="index.html" class="nav-logo">render-tag</a>
-      <div class="nav-links">
-        <a href="index.html" class="active">Home</a>
-        <a href="benchmark.html">Benchmark</a>
-        <a href="https://github.com/polotno-project/render-tag" target="_blank" rel="noopener">GitHub</a>
-      </div>
+  <nav class="nav">
+    <a href="index.html" class="nav-logo">render-tag</a>
+    <div class="nav-links">
+      <a href="benchmark.html">Benchmark</a>
+      <a href="https://github.com/polotno-project/render-tag" target="_blank" rel="noopener">GitHub</a>
     </div>
   </nav>
 
-  <!-- Hero -->
   <section class="hero">
-    <div class="container">
-      <p class="hero-eyebrow">Canvas 2D text rendering</p>
+    <div class="hero-grid"></div>
+    <div class="hero-glow"></div>
+    <div class="hero-content">
       <h1 class="hero-title">HTML rich text,<br>drawn on canvas.</h1>
       <p class="hero-desc">render-tag takes HTML + CSS and draws it onto a canvas element with the 2D API. No SVG. No <code>foreignObject</code>. Synchronous. Zero dependencies.</p>
-      <p class="hero-note">By design, render-tag focuses on <strong>rich text only</strong> — paragraphs, headings, lists, tables, inline formatting. It is not designed for interactive elements like buttons, inputs, iframes, or complex layouts. This focus is what makes it fast.</p>
+      <p class="hero-note">Focused on <strong>rich text</strong> &mdash; paragraphs, headings, lists, tables, inline formatting. This focus is what makes it fast.</p>
       <div class="hero-actions">
-        <a href="#demo" class="btn-primary">Try it live</a>
+        <a href="#demo" class="btn">Try it live</a>
         <div class="hero-install">
-          <code>npm install render-tag</code>
-          <button class="btn-icon" data-copy="npm install render-tag" aria-label="Copy">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+          <code>npm i render-tag</code>
+          <button class="btn-copy" data-copy="npm install render-tag" aria-label="Copy">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
           </button>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- Interactive Demo -->
-  <section class="demo-section" id="demo">
+  <section class="section" id="demo">
     <div class="container">
-      <div class="section-header">
-        <h2>Interactive demo</h2>
-        <p>Edit the text. The canvas below renders the identical content at the same width.</p>
+      <div class="section-head">
+        <div>
+          <h2>Interactive demo</h2>
+          <p class="section-desc">Edit the rich text below. The canvas renders identical content at the same width.</p>
+        </div>
+        <div class="demo-meta">
+          <label class="width-ctrl">
+            <span>Width</span>
+            <input type="range" id="width-slider" min="200" max="800" value="480">
+            <output id="width-value">480</output><span class="dim">px</span>
+          </label>
+          <span class="render-time">Render <strong><span id="render-speed">&mdash;</span> ms</strong></span>
+        </div>
       </div>
-
-      <div class="demo-controls-bar">
-        <label class="demo-width-control">
-          <span>Width</span>
-          <input type="range" id="width-slider" min="200" max="800" value="480">
-          <span id="width-value">480</span><span class="unit">px</span>
-        </label>
-        <span class="demo-speed-ticker">Rendered in <strong><span id="render-speed">—</span> ms</strong></span>
-      </div>
-
       <div class="demo-stack">
-        <div class="demo-annotated">
-          <div class="demo-annotation">
-            <span class="annotation-text">edit here</span>
-            <svg class="annotation-arrow" viewBox="0 0 130 50" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M8 3 C 15 8, 30 18, 55 28 C 75 35, 100 40, 120 42" stroke="#da1e28" stroke-width="2.5" stroke-linecap="round" fill="none" />
-              <path d="M112 36 L 122 43 L 113 49" stroke="#da1e28" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none" />
-            </svg>
+        <div class="demo-panel">
+          <div class="demo-chrome">
+            <span class="demo-dot"></span><span class="demo-dot"></span><span class="demo-dot"></span>
+            <span class="demo-chrome-label">Editor</span>
           </div>
-          <div class="demo-card">
-            <div class="demo-bar" id="demo-toolbar">
-              <button data-fmt="bold" title="Bold"><b>B</b></button>
-              <button data-fmt="italic" title="Italic"><i>I</i></button>
-              <button data-fmt="underline" title="Underline"><u>U</u></button>
-              <button data-fmt="strike" title="Strikethrough"><s>S</s></button>
-              <span class="bar-sep"></span>
-              <button data-fmt="header" data-val="1" title="Heading 1">H1</button>
-              <button data-fmt="header" data-val="2" title="Heading 2">H2</button>
-              <span class="bar-sep"></span>
-              <button data-fmt="list" data-val="bullet" title="Bullet list">&#8226;</button>
-              <button data-fmt="list" data-val="ordered" title="Ordered list">1.</button>
-              <span class="bar-sep"></span>
-              <input type="color" data-fmt="color" value="#da1e28" title="Text color">
-            </div>
-            <div class="demo-pane" id="editor-frame">
-              <div id="editor"></div>
-            </div>
+          <div class="demo-bar" id="demo-toolbar">
+            <button data-fmt="bold" title="Bold"><b>B</b></button>
+            <button data-fmt="italic" title="Italic"><i>I</i></button>
+            <button data-fmt="underline" title="Underline"><u>U</u></button>
+            <button data-fmt="strike" title="Strikethrough"><s>S</s></button>
+            <span class="sep"></span>
+            <button data-fmt="header" data-val="1" title="H1">H1</button>
+            <button data-fmt="header" data-val="2" title="H2">H2</button>
+            <span class="sep"></span>
+            <button data-fmt="list" data-val="bullet" title="Bullets">&#8226;</button>
+            <button data-fmt="list" data-val="ordered" title="Numbers">1.</button>
+            <span class="sep"></span>
+            <input type="color" data-fmt="color" value="#da1e28" title="Text color">
+          </div>
+          <div class="demo-body" id="editor-frame">
+            <div id="editor"></div>
           </div>
         </div>
-        <div class="demo-annotated">
-          <div class="demo-annotation">
-            <span class="annotation-text">canvas output</span>
-            <svg class="annotation-arrow" viewBox="0 0 130 50" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M8 3 C 15 8, 30 18, 55 28 C 75 35, 100 40, 120 42" stroke="#da1e28" stroke-width="2.5" stroke-linecap="round" fill="none" />
-              <path d="M112 36 L 122 43 L 113 49" stroke="#da1e28" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none" />
-            </svg>
+        <div class="demo-panel">
+          <div class="demo-chrome">
+            <span class="demo-dot"></span><span class="demo-dot"></span><span class="demo-dot"></span>
+            <span class="demo-chrome-label">Canvas</span>
           </div>
-          <div class="demo-card">
-            <div class="demo-pane" id="canvas-frame">
-            </div>
-          </div>
+          <div class="demo-body" id="canvas-frame"></div>
         </div>
       </div>
-
     </div>
   </section>
 
-  <!-- Performance -->
-  <section class="perf-section" id="performance">
+  <section class="section" id="features">
     <div class="container">
-      <div class="section-header">
-        <h2>Performance</h2>
-        <p>Live benchmark in your browser. Median of 3 runs. Each run takes the median of multiple iterations.</p>
-      </div>
-      <div class="perf-preview">
-        <p class="perf-preview-label">Benchmark input (400px wide):</p>
-        <div class="perf-preview-canvas" id="perf-preview"></div>
-      </div>
-      <div class="perf-bench">
-        <button class="btn-primary" id="run-benchmark">Run benchmark</button>
-        <p class="perf-status" id="perf-status"></p>
-      </div>
-      <div class="perf-chart" id="perf-chart"></div>
-      <p class="perf-note">Log scale. Other libraries render <em>all</em> HTML — images, forms, SVG, etc. render-tag intentionally only supports rich text, which is why it's faster. Different tools for different jobs.</p>
-    </div>
-  </section>
-
-  <!-- Features Gallery -->
-  <section class="features-section" id="features">
-    <div class="container">
-      <div class="section-header">
-        <h2>What it renders</h2>
-        <p>Every example below is drawn live onto a canvas element.</p>
-      </div>
+      <h2>What it renders</h2>
+      <p class="section-sub">Every example below is drawn live onto a canvas element.</p>
       <div class="feature-grid" id="feature-grid">
         <div class="feature-card" data-feature="rich-text">
-          <h3>Rich text</h3>
+          <span class="feature-tag">Rich text</span>
           <div class="feature-canvas"></div>
-          <button class="feature-toggle">View source</button>
+          <button class="feature-toggle">Source</button>
           <pre class="feature-source" hidden></pre>
         </div>
         <div class="feature-card" data-feature="text-decorations">
-          <h3>Decorations</h3>
+          <span class="feature-tag">Decorations</span>
           <div class="feature-canvas"></div>
-          <button class="feature-toggle">View source</button>
+          <button class="feature-toggle">Source</button>
           <pre class="feature-source" hidden></pre>
         </div>
         <div class="feature-card" data-feature="lists">
-          <h3>Nested lists</h3>
+          <span class="feature-tag">Nested lists</span>
           <div class="feature-canvas"></div>
-          <button class="feature-toggle">View source</button>
+          <button class="feature-toggle">Source</button>
           <pre class="feature-source" hidden></pre>
         </div>
         <div class="feature-card" data-feature="mixed-fonts">
-          <h3>Mixed fonts</h3>
+          <span class="feature-tag">Mixed fonts</span>
           <div class="feature-canvas"></div>
-          <button class="feature-toggle">View source</button>
+          <button class="feature-toggle">Source</button>
           <pre class="feature-source" hidden></pre>
         </div>
         <div class="feature-card" data-feature="rtl">
-          <h3>RTL &amp; bidi</h3>
+          <span class="feature-tag">RTL &amp; bidi</span>
           <div class="feature-canvas"></div>
-          <button class="feature-toggle">View source</button>
-          <pre class="feature-source" hidden></pre>
-        </div>
-        <div class="feature-card" data-feature="cjk">
-          <h3>CJK &amp; emoji</h3>
-          <div class="feature-canvas"></div>
-          <button class="feature-toggle">View source</button>
-          <pre class="feature-source" hidden></pre>
-        </div>
-        <div class="feature-card" data-feature="font-weights">
-          <h3>Font weights</h3>
-          <div class="feature-canvas"></div>
-          <button class="feature-toggle">View source</button>
+          <button class="feature-toggle">Source</button>
           <pre class="feature-source" hidden></pre>
         </div>
         <div class="feature-card" data-feature="flexbox">
-          <h3>Flexbox</h3>
+          <span class="feature-tag">Flexbox</span>
           <div class="feature-canvas"></div>
-          <button class="feature-toggle">View source</button>
+          <button class="feature-toggle">Source</button>
           <pre class="feature-source" hidden></pre>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- API -->
-  <section class="api-section" id="api">
+  <section class="section section--raised" id="performance">
     <div class="container">
-      <div class="section-header">
-        <h2>API</h2>
-      </div>
+      <h2>Performance</h2>
+      <p class="section-sub">Live benchmark in your browser. Median of 3 runs. Each run takes the median of multiple iterations.</p>
+      <div class="perf-preview" id="perf-preview"></div>
+      <div class="perf-chart" id="perf-chart"></div>
+      <p class="perf-device-note">Results from MacBook Pro, Chrome. <button class="btn-text" id="run-benchmark">Run in your browser</button></p>
+      <p class="muted-note">Log scale. Other libraries render all HTML &mdash; render-tag only handles rich text.</p>
+    </div>
+  </section>
+
+  <section class="section" id="api">
+    <div class="container">
+      <h2>API</h2>
       <div class="api-sig"><code>render(config) &rarr; { canvas, height, layoutRoot, lines }</code></div>
       <div class="api-table-wrap">
         <table class="api-table">
@@ -202,29 +156,19 @@
             <tr><th>Option</th><th>Type</th><th>Default</th><th>Description</th></tr>
           </thead>
           <tbody>
-            <tr><td><code>html</code></td><td>string</td><td>&mdash;</td><td>HTML string to render. Include <code>&lt;style&gt;</code> tags for CSS.</td></tr>
-            <tr><td><code>width</code></td><td>number</td><td>&mdash;</td><td>Layout width in CSS pixels. Required.</td></tr>
-            <tr><td><code>height</code></td><td>number</td><td>auto</td><td>Fixed height. Auto-sized from content if omitted.</td></tr>
-            <tr><td><code>ctx</code></td><td>CanvasRenderingContext2D</td><td>&mdash;</td><td>Existing context to draw onto (no resizing/scaling).</td></tr>
-            <tr><td><code>canvas</code></td><td>HTMLCanvasElement | OffscreenCanvas</td><td>created</td><td>Target canvas (mutually exclusive with <code>ctx</code>).</td></tr>
-            <tr><td><code>pixelRatio</code></td><td>number</td><td><code>devicePixelRatio</code></td><td>Device pixel ratio for HiDPI.</td></tr>
-            <tr><td><code>accuracy</code></td><td>'balanced' | 'performance'</td><td><code>'balanced'</code></td><td>DOM probes for cross-browser line height accuracy.</td></tr>
+            <tr><td><code>html</code></td><td>string</td><td>&mdash;</td><td>HTML string to render</td></tr>
+            <tr><td><code>width</code></td><td>number</td><td>&mdash;</td><td>Layout width in CSS pixels</td></tr>
+            <tr><td><code>height</code></td><td>number</td><td>auto</td><td>Fixed height, or auto-sized from content</td></tr>
+            <tr><td><code>ctx</code></td><td>Context2D</td><td>&mdash;</td><td>Existing canvas context to draw onto</td></tr>
+            <tr><td><code>canvas</code></td><td>Canvas</td><td>created</td><td>Target canvas element</td></tr>
+            <tr><td><code>pixelRatio</code></td><td>number</td><td>devicePixelRatio</td><td>HiDPI scaling factor</td></tr>
+            <tr><td><code>accuracy</code></td><td>'balanced' | 'performance'</td><td>'balanced'</td><td>DOM probes for line height accuracy</td></tr>
           </tbody>
         </table>
       </div>
-      <p class="api-note">Synchronous. Fonts must be loaded before calling — use <code>document.fonts.load()</code> or <code>document.fonts.ready</code>. Re-render when fonts load if needed.</p>
-
-      <h3 style="margin-top:24px;">Advanced: layout once, draw many</h3>
-      <p class="api-note" style="margin-bottom:8px;">Split layout and rendering to draw the same content onto multiple targets:</p>
-      <div class="api-sig"><code>layout(config) &rarr; { layoutRoot, height, lines }</code></div>
-      <div class="api-sig" style="margin-top:4px;"><code>drawLayout(config) &rarr; { canvas }</code></div>
-    </div>
-  </section>
-
-  <!-- Install -->
-  <section class="install-section" id="install">
-    <div class="container">
-      <div class="install-box">
+      <p class="api-sync-note">Synchronous. Fonts must be loaded before calling &mdash; use <code>document.fonts.load()</code> or <code>document.fonts.ready</code>. Re-render when fonts load if needed.</p>
+      <div class="api-quickstart">
+        <h3>Quick start</h3>
         <pre><code><span class="t-kw">import</span> { render } <span class="t-kw">from</span> <span class="t-str">'render-tag'</span>;
 
 <span class="t-kw">const</span> { canvas, height } = render({
@@ -234,18 +178,30 @@
 
 document.body.appendChild(canvas);</code></pre>
       </div>
+      <div class="api-quickstart">
+        <h3>Layout once, draw many</h3>
+        <p class="api-advanced-desc">Split layout and rendering to draw the same content onto multiple targets:</p>
+        <pre><code><span class="t-kw">import</span> { layout, drawLayout } <span class="t-kw">from</span> <span class="t-str">'render-tag'</span>;
+
+<span class="t-cm">// Layout once</span>
+<span class="t-kw">const</span> { layoutRoot, height, lines } = layout({
+  html: <span class="t-str">'&lt;p&gt;Hello &lt;strong&gt;world&lt;/strong&gt;&lt;/p&gt;'</span>,
+  width: <span class="t-num">400</span>,
+});
+
+<span class="t-cm">// Draw to multiple canvases</span>
+<span class="t-kw">const</span> { canvas: canvas1 } = drawLayout({ layoutRoot, width: <span class="t-num">400</span>, height });
+<span class="t-kw">const</span> { canvas: canvas2 } = drawLayout({ layoutRoot, width: <span class="t-num">400</span>, height });</code></pre>
+      </div>
     </div>
   </section>
 
-  <!-- Footer -->
   <footer class="footer">
-    <div class="container">
-      <span>render-tag</span>
-      <span class="footer-sep">/</span>
-      <span>MIT</span>
-      <span class="footer-sep">/</span>
-      <a href="https://github.com/polotno-project/render-tag" target="_blank" rel="noopener">GitHub</a>
-    </div>
+    <span>render-tag</span>
+    <span class="dim">/</span>
+    <span>MIT</span>
+    <span class="dim">/</span>
+    <a href="https://github.com/polotno-project/render-tag" target="_blank" rel="noopener">GitHub</a>
   </footer>
 
   <script src="https://cdn.jsdelivr.net/npm/quill@2/dist/quill.js"></script>

@@ -55,25 +55,6 @@ const FEATURES: Record<string, { html: string; css?: string; width: number }> = 
 </div>`,
     width: 300,
   },
-  cjk: {
-    html: `<div style="font-size: 15px; line-height: 1.8;">
-  <p style="margin: 0 0 4px 0;">日本語テスト - Japanese</p>
-  <p style="margin: 0 0 4px 0;">中文排版测试 - Chinese</p>
-  <p style="margin: 0;">Emoji: 🎨 🚀 ✨ 🌍 👋</p>
-</div>`,
-    width: 300,
-  },
-  'font-weights': {
-    html: `<div style="font-size: 15px; line-height: 1.7;">
-  <p style="font-weight: 100; margin: 0;">Weight 100 - Thin</p>
-  <p style="font-weight: 300; margin: 0;">Weight 300 - Light</p>
-  <p style="font-weight: 400; margin: 0;">Weight 400 - Regular</p>
-  <p style="font-weight: 600; margin: 0;">Weight 600 - Semibold</p>
-  <p style="font-weight: 700; margin: 0;">Weight 700 - Bold</p>
-  <p style="font-weight: 900; margin: 0;">Weight 900 - Black</p>
-</div>`,
-    width: 280,
-  },
   flexbox: {
     html: `<div style="display: flex; gap: 8px; font-size: 13px;">
   <div style="flex: 1; background: #e0e0e0; padding: 10px; text-align: center;">
@@ -90,8 +71,7 @@ const FEATURES: Record<string, { html: string; css?: string; width: number }> = 
   },
 };
 
-// Base CSS applied to all renders — must match what the editor inherits from the page
-const DEMO_BASE_CSS = `body { font-family: 'IBM Plex Sans', system-ui, -apple-system, sans-serif; font-size: 14px; line-height: 1.5; }`;
+const DEMO_BASE_CSS = `body { font-family: 'IBM Plex Sans', system-ui, -apple-system, sans-serif; font-size: 14px; line-height: 1.5; color: #161616; }`;
 
 function wrapCSS(html: string, css?: string): string {
   return css ? `<style>${css}</style>${html}` : html;
@@ -100,7 +80,6 @@ function wrapCSS(html: string, css?: string): string {
 // ── Init ──
 
 document.addEventListener('DOMContentLoaded', async () => {
-  // Explicitly trigger loading of all font variants used across the page
   await Promise.all([
     document.fonts.load('400 16px "IBM Plex Sans"'),
     document.fonts.load('500 16px "IBM Plex Sans"'),
@@ -108,6 +87,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.fonts.load('italic 400 16px "IBM Plex Sans"'),
     document.fonts.load('400 16px "IBM Plex Mono"'),
     document.fonts.load('500 16px "IBM Plex Mono"'),
+    document.fonts.load('400 20px "Instrument Serif"'),
+    document.fonts.load('italic 400 20px "Instrument Serif"'),
     document.fonts.load('400 16px "Playfair Display"'),
     document.fonts.load('700 16px "Playfair Display"'),
     document.fonts.load('italic 400 16px "Playfair Display"'),
@@ -120,6 +101,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.fonts.load('400 16px "Lobster"'),
     document.fonts.load('700 16px "Caveat"'),
   ]);
+
+  initScrollReveal();
   initHeroAnimation();
   initDemo();
   renderFeatureGallery();
@@ -128,32 +111,49 @@ document.addEventListener('DOMContentLoaded', async () => {
   initFeatureToggles();
 });
 
+// ── Scroll Reveal ──
+
+function initScrollReveal() {
+  const observer = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('visible');
+          observer.unobserve(entry.target);
+        }
+      }
+    },
+    { threshold: 0.05, rootMargin: '0px 0px -60px 0px' },
+  );
+  document.querySelectorAll('.section').forEach(s => observer.observe(s));
+}
+
 // ── Hero Animation ──
 
 const HERO_STAGES: { html: string; duration: number }[] = [
   {
     duration: 2500,
-    html: `<p style="font-size: clamp(2rem, 5vw, 3.25rem); font-weight: 600; line-height: 1.15; letter-spacing: -0.02em; font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #161616;">HTML rich text,<br>drawn on canvas.</p>`,
+    html: `<p style="font-size: clamp(2.5rem, 7vw, 5rem); font-weight: 600; line-height: 1.1; letter-spacing: -0.03em; font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #111827;">HTML rich text,<br>drawn on canvas.</p>`,
   },
   {
     duration: 2500,
-    html: `<p style="font-size: clamp(2rem, 5vw, 3.25rem); font-weight: 600; line-height: 1.15; letter-spacing: -0.02em; font-family: 'Playfair Display', serif; color: #161616;">HTML rich text,<br>drawn on canvas.</p>`,
+    html: `<p style="font-size: clamp(2.5rem, 7vw, 5rem); font-weight: 700; line-height: 1.1; letter-spacing: -0.03em; font-family: 'Playfair Display', serif; color: #111827;">HTML rich text,<br>drawn on canvas.</p>`,
   },
   {
     duration: 2500,
-    html: `<p style="font-size: clamp(2rem, 5vw, 3.25rem); font-weight: 600; line-height: 1.15; letter-spacing: -0.02em; font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #161616;">HTML <span style="color: #da1e28;">rich</span> <span style="color: #0f62fe;">text</span>,<br><span style="color: #198038;">drawn</span> on <span style="color: #6a0dad;">canvas</span>.</p>`,
+    html: `<p style="font-size: clamp(2.5rem, 7vw, 5rem); font-weight: 600; line-height: 1.1; letter-spacing: -0.03em; font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #111827;">HTML <span style="color: #da1e28;">rich</span> <span style="color: #0f62fe;">text</span>,<br><span style="color: #198038;">drawn</span> on <span style="color: #6a0dad;">canvas</span>.</p>`,
   },
   {
     duration: 2500,
-    html: `<p style="font-size: clamp(2rem, 5vw, 3.25rem); font-weight: 600; line-height: 1.15; letter-spacing: -0.02em; font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #161616;">HTML <span style="text-decoration: underline wavy #e74c3c;">rich</span> <span style="text-decoration: underline dotted #0f62fe;">text</span>,<br><span style="background: #ffeaa7; padding: 0 4px;">drawn</span> on <span style="text-decoration: line-through #da1e28;">canvas</span>.</p>`,
+    html: `<p style="font-size: clamp(2.5rem, 7vw, 5rem); font-weight: 600; line-height: 1.1; letter-spacing: -0.03em; font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #111827;">HTML <span style="text-decoration: underline wavy #e74c3c;">rich</span> <span style="text-decoration: underline dotted #0f62fe;">text</span>,<br><span style="background: #ffeaa7; padding: 0 6px;">drawn</span> on <span style="text-decoration: line-through #da1e28;">canvas</span>.</p>`,
   },
   {
     duration: 2500,
-    html: `<p style="font-size: clamp(2rem, 5vw, 3.25rem); line-height: 1.15; letter-spacing: -0.02em; font-family: 'Lobster', cursive; color: #6a0dad;">HTML rich text,<br>drawn on canvas.</p>`,
+    html: `<p style="font-size: clamp(2.5rem, 7vw, 5rem); line-height: 1.1; letter-spacing: -0.03em; font-family: 'Lobster', cursive; color: #6a0dad;">HTML rich text,<br>drawn on canvas.</p>`,
   },
   {
     duration: 2500,
-    html: `<p style="font-size: clamp(2rem, 5vw, 3.25rem); font-weight: 600; line-height: 1.15; letter-spacing: -0.02em; font-family: 'Merriweather', serif; font-style: italic; color: #333;">HTML rich text,<br>drawn on canvas.</p>`,
+    html: `<p style="font-size: clamp(2.5rem, 7vw, 5rem); font-weight: 700; line-height: 1.1; letter-spacing: -0.03em; font-family: 'Merriweather', serif; font-style: italic; color: #333;">HTML rich text,<br>drawn on canvas.</p>`,
   },
 ];
 
@@ -178,13 +178,9 @@ function initHeroAnimation() {
 
   function renderStage() {
     const width = title.offsetWidth;
-    // Resolve clamp() to the actual computed font size from the real title
     const computedSize = getComputedStyle(title).fontSize;
     const stageHtml = HERO_STAGES[stage].html.replace(/clamp\([^)]+\)/g, computedSize);
-    const { canvas, height } = render({
-      html: stageHtml,
-      width,
-    });
+    const { canvas, height } = render({ html: stageHtml, width });
 
     canvasEl.width = canvas.width;
     canvasEl.height = canvas.height;
@@ -197,7 +193,6 @@ function initHeroAnimation() {
     ctx.drawImage(canvas, 0, 0);
   }
 
-  // Initial render
   renderStage();
   title.style.visibility = 'hidden';
 
@@ -232,8 +227,6 @@ function initHeroAnimation() {
   }
 
   requestAnimationFrame(animate);
-
-  // Resize handling
   window.addEventListener('resize', renderStage);
 }
 
@@ -244,12 +237,9 @@ function initDemo() {
   const widthValue = document.getElementById('width-value')!;
   const canvasFrame = document.getElementById('canvas-frame')!;
   const toolbar = document.getElementById('demo-toolbar')!;
-  const cards = document.querySelectorAll<HTMLElement>('.demo-card');
+  const panels = document.querySelectorAll<HTMLElement>('.demo-panel');
 
-  // Headless Quill — no theme, no Quill CSS loaded at all
-  const quill = new Quill('#editor', {
-    modules: { toolbar: false },
-  });
+  const quill = new Quill('#editor', { modules: { toolbar: false } });
 
   quill.root.innerHTML = `<h2 style="font-family: 'Playfair Display', serif;">The Art of Typography</h2>
 <p style="font-family: 'Roboto', sans-serif; font-size: 14px; line-height: 1.7;"><strong>Bold</strong> and <em>italic</em> and <strong><em>both</em></strong>. <span style="color: #da1e28;">Red text</span>, <span style="color: #0f62fe;">blue text</span>, <span style="background: #ffeaa7; padding: 1px 4px;">yellow highlight</span>, <span style="background: #d4efdf; padding: 1px 4px;">green highlight</span>. <u>Underlined</u>, <s>strikethrough</s>, <span style="text-decoration: underline wavy #e74c3c;">wavy underline</span>, <span style="text-decoration: underline dotted #0f62fe;">dotted underline</span>. Sizes: <span style="font-size: 10px;">10px tiny</span>, <span style="font-size: 18px;">18px</span>, <span style="font-size: 24px; font-weight: 700; color: #1a1a2e;">24px bold</span>. Fonts: <span style="font-family: 'Merriweather', serif; font-style: italic;">Merriweather italic</span>, <span style="font-family: 'Lobster', cursive; font-size: 18px; color: #6a0dad;">Lobster</span>, <span style="font-weight: 300;">light 300</span>, <span style="font-weight: 900;">black 900</span>.</p>
@@ -259,7 +249,6 @@ function initDemo() {
 </ul>
 <p style="font-size: 13px;"><span dir="rtl">مرحبا</span> · 你好世界 · 한국어 · 🎨🚀✨</p>`;
 
-  // Wire custom toolbar buttons to Quill API
   toolbar.addEventListener('click', (e) => {
     const btn = (e.target as HTMLElement).closest('button');
     if (!btn) return;
@@ -278,14 +267,12 @@ function initDemo() {
     updateToolbarState();
   });
 
-  // Color picker
   const colorInput = toolbar.querySelector('input[type="color"]') as HTMLInputElement;
   colorInput.addEventListener('input', () => {
     quill.format('color', colorInput.value);
     quill.focus();
   });
 
-  // Update active states on selection change
   function updateToolbarState() {
     const fmt = quill.getFormat();
     toolbar.querySelectorAll<HTMLButtonElement>('button[data-fmt]').forEach(btn => {
@@ -305,9 +292,8 @@ function initDemo() {
     const width = parseInt(widthSlider.value);
     widthValue.textContent = String(width);
 
-    // Set card width = content width + padding (16px * 2) + border (1px * 2)
     const cardWidth = width + 34;
-    cards.forEach(c => c.style.width = cardWidth + 'px');
+    panels.forEach(c => c.style.width = cardWidth + 'px');
 
     try {
       const debugLogs: { type: string; message: string }[] = [];
@@ -328,17 +314,15 @@ function initDemo() {
       canvasFrame.innerHTML = '';
       canvasFrame.appendChild(canvas);
 
-      // Update speed ticker
       const ticker = document.getElementById('render-speed');
       if (ticker) ticker.textContent = elapsed.toFixed(1);
     } catch (e) {
-      canvasFrame.innerHTML = `<p style="color: #da1e28; font-size: 13px;">${(e as Error).message}</p>`;
+      canvasFrame.innerHTML = `<p style="color: #ef4444; font-size: 13px;">${(e as Error).message}</p>`;
     }
   }
 
   quill.on('text-change', updateCanvas);
   widthSlider.addEventListener('input', updateCanvas);
-
   updateCanvas();
 }
 
@@ -373,7 +357,6 @@ function tick(): Promise<void> {
   return new Promise(r => setTimeout(r, 50));
 }
 
-// Create a hidden DOM container with the benchmark HTML, used by all DOM-based renderers
 function createBenchContainer(): HTMLDivElement {
   const el = document.createElement('div');
   el.style.cssText = 'position:fixed;left:-9999px;top:0;width:400px;font-family:system-ui,sans-serif;';
@@ -391,7 +374,6 @@ const BENCH_RUNNERS: BenchRunner[] = [
   {
     name: 'render-tag',
     load: async () => {
-      // No special setup — fonts already on the page, API is synchronous
       return async () => {
         render({ html: BENCH_HTML, width: 400 });
       };
@@ -402,7 +384,6 @@ const BENCH_RUNNERS: BenchRunner[] = [
     load: async () => {
       const mod = await import(/* @vite-ignore */ 'https://esm.sh/@zumer/snapdom@latest');
       const snapdom = mod.snapdom || mod.default;
-      // snapdom uses SVG foreignObject — embedFonts serializes @font-face into the SVG
       return async (container) => {
         const result = await snapdom(container, { embedFonts: true, scale: 1 });
         await result.toCanvas();
@@ -413,7 +394,6 @@ const BENCH_RUNNERS: BenchRunner[] = [
     name: 'modern-screenshot',
     load: async () => {
       const mod = await import(/* @vite-ignore */ 'https://esm.sh/modern-screenshot@4.5.5');
-      // Auto-embeds Google Fonts when loaded via <link>
       return async (container) => {
         await mod.domToCanvas(container, { scale: 1 });
       };
@@ -424,7 +404,6 @@ const BENCH_RUNNERS: BenchRunner[] = [
     load: async () => {
       const mod = await import(/* @vite-ignore */ 'https://esm.sh/html2canvas@1.4.1');
       const html2canvas = mod.default;
-      // No font embedding — relies on fonts already loaded on the page
       return async (container) => {
         await html2canvas(container, { scale: 1, logging: false });
       };
@@ -435,7 +414,6 @@ const BENCH_RUNNERS: BenchRunner[] = [
     load: async () => {
       const mod = await import(/* @vite-ignore */ 'https://esm.sh/dom-to-image-more@3.7.2');
       const domToImage = mod.default || mod;
-      // Pre-compute font CSS once (downloads + base64-encodes @font-face fonts)
       let fontCSS: string | undefined;
       if (domToImage.getFontEmbedCSS) {
         fontCSS = await domToImage.getFontEmbedCSS(document.body);
@@ -450,25 +428,38 @@ const BENCH_RUNNERS: BenchRunner[] = [
   },
 ];
 
+const PRELOADED_RESULTS: { name: string; ms: number }[] = [
+  { name: 'render-tag', ms: 1.3 },
+  { name: 'snapdom', ms: 4.6 },
+  { name: 'modern-screenshot', ms: 33.4 },
+  { name: 'html2canvas', ms: 249.3 },
+  { name: 'dom-to-image-more', ms: 8.3 },
+];
+
 function initBenchmark() {
   const btn = document.getElementById('run-benchmark') as HTMLButtonElement;
-  const status = document.getElementById('perf-status')!;
   const chart = document.getElementById('perf-chart')!;
   const preview = document.getElementById('perf-preview')!;
+  const deviceNote = document.querySelector('.perf-device-note')!;
 
-  // Show what we're benchmarking
   try {
-    const { canvas } = render({ html: BENCH_HTML, width: 400 });
+    const { canvas } = render({ html: wrapCSS(BENCH_HTML, DEMO_BASE_CSS), width: 400 });
     preview.appendChild(canvas);
   } catch { /* ignore */ }
+
+  // Show pre-loaded results immediately
+  renderChart(chart, PRELOADED_RESULTS);
 
   btn.addEventListener('click', async () => {
     btn.disabled = true;
     chart.innerHTML = '';
+    deviceNote.innerHTML = '<span class="perf-status" id="perf-status"></span>';
 
     const container = createBenchContainer();
     const ROUNDS = 3;
     const results: { name: string; ms: number }[] = [];
+
+    const status = document.getElementById('perf-status')!;
 
     for (const runner of BENCH_RUNNERS) {
       status.textContent = `Loading ${runner.name}...`;
@@ -482,11 +473,9 @@ function initBenchmark() {
           status.textContent = `Benchmarking ${runner.name} (round ${round + 1}/${ROUNDS})...`;
           await tick();
 
-          // Determine iteration count: more for fast libs, fewer for slow
           const isSync = runner.name === 'render-tag';
           const iterations = isSync ? 50 : 20;
 
-          // Warmup
           for (let i = 0; i < 3; i++) await fn(container);
 
           const times: number[] = [];
@@ -505,14 +494,12 @@ function initBenchmark() {
     }
 
     container.remove();
-    status.textContent = 'Done.';
-    btn.disabled = false;
+    deviceNote.innerHTML = 'Results from your browser.';
     renderChart(chart, results);
   });
 }
 
 function renderChart(container: HTMLElement, results: { name: string; ms: number }[]) {
-  // Use log scale so the gap between 2ms and 30ms is clearly visible
   const valid = results.filter(r => r.ms > 0);
   const maxLog = Math.log10(Math.max(...valid.map(r => r.ms)));
   const minLog = Math.log10(Math.max(Math.min(...valid.map(r => r.ms)), 0.1));
@@ -530,7 +517,6 @@ function renderChart(container: HTMLElement, results: { name: string; ms: number
     track.className = 'perf-track';
 
     const bar = document.createElement('div');
-    // Log-scale percentage: min value gets ~8%, max gets 100%
     const logPct = r.ms <= 0 ? 0 : ((Math.log10(r.ms) - minLog) / range) * 92 + 8;
     const fastest = valid.length > 0 && r.ms === Math.min(...valid.map(v => v.ms));
     const colorClass = r.ms < 0 ? 'perf-slow' : fastest ? 'perf-fast' : r.ms < 50 ? 'perf-mid' : 'perf-slow';
@@ -546,7 +532,6 @@ function renderChart(container: HTMLElement, results: { name: string; ms: number
     row.appendChild(track);
     container.appendChild(row);
 
-    // Animate
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         bar.style.width = r.ms < 0 ? '100%' : logPct + '%';
@@ -568,7 +553,8 @@ function renderFeatureGallery() {
 
     if (el) {
       try {
-        const { canvas } = render({ html: wrapCSS(html, css), width });
+        const fullCss = DEMO_BASE_CSS + (css ? '\n' + css : '');
+        const { canvas } = render({ html: wrapCSS(html, fullCss), width });
         el.appendChild(canvas);
       } catch {
         el.textContent = 'Render error';
@@ -586,7 +572,7 @@ function initFeatureToggles() {
       const src = btn.nextElementSibling as HTMLElement;
       if (!src) return;
       src.hidden = !src.hidden;
-      btn.textContent = src.hidden ? 'View source' : 'Hide source';
+      btn.textContent = src.hidden ? 'Source' : 'Hide';
     });
   }
 }

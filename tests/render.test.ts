@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { commands } from 'vitest/browser';
 import { compareRenders, compareWrapping } from './helpers/compare.ts';
 import { loadBasicCases, polotnoCase, polotnoListsCase, FONT_VARIANTS, loadMultiFontCss } from './helpers/test-cases.ts';
 import type { BenchmarkCase } from './helpers/test-cases.ts';
@@ -10,39 +11,107 @@ const isFirefox = typeof navigator !== 'undefined' && navigator.userAgent.includ
 
 // Allow this much regression above the locked baseline before failing.
 // Firefox gets more tolerance since text rendering differs between engines.
-const REGRESSION_TOLERANCE = isFirefox ? 35.0 : 2.0;
+const SCORE_TOLERANCE = isFirefox ? 35.0 : 2.0;
 const PIXEL_RATIO = 2;
+
+interface BaselineEntry {
+  score: number;
+  wrap: boolean;
+}
+const baselineMap = baselines as Record<string, BaselineEntry>;
+
+// Known wrapping limitations that are skipped from wrap checks
+const SKIP_WRAPPING = new Set([
+  'Very narrow container',
+  ...(isFirefox ? ['Long unbroken word overflow-wrap'] : []),
+]);
 
 type ComparisonResult = Awaited<ReturnType<typeof compareRenders>>;
 
-function formatResult(tc: BenchmarkCase, result: ComparisonResult, baseline?: number): string {
-  const pct = result.contentMismatchPercentage;
-  const contentPct = (result.contentPixels / result.totalPixels * 100).toFixed(0);
-  const delta = baseline !== undefined ? (pct - baseline) : 0;
-  const deltaStr = baseline !== undefined
-    ? (delta < -0.5 ? ` (${delta.toFixed(1)} improved)` : delta > REGRESSION_TOLERANCE ? ` (+${delta.toFixed(1)} REGRESSION!)` : '')
+function formatResult(name: string, score: number, wrap: boolean, baseline?: BaselineEntry): string {
+  const scoreDelta = baseline ? (score - baseline.score) : 0;
+  const scoreStr = baseline
+    ? (scoreDelta < -0.5 ? ` (${scoreDelta.toFixed(1)} improved)` : scoreDelta > SCORE_TOLERANCE ? ` (+${scoreDelta.toFixed(1)} REGRESSION!)` : '')
     : '';
-  return `[${tc.name}] ${pct.toFixed(2)}%${deltaStr} ` +
-    `(${result.mismatchedPixels}/${result.contentPixels} content px, ${contentPct}% filled) | ` +
-    `canvas: ${result.canvasLibTime.toFixed(0)}ms`;
+  const wrapStr = baseline
+    ? (baseline.wrap && !wrap ? ' (WRAP REGRESSION!)' : !baseline.wrap && wrap ? ' (wrap improved)' : '')
+    : '';
+  return `[${name}] score: ${score.toFixed(2)}%${scoreStr} | wrap: ${wrap}${wrapStr}`;
 }
 
-async function testCaseWithBaseline(tc: BenchmarkCase) {
-  const result = await compareRenders(tc.html, tc.css, tc.width, tc.height, 0.1, PIXEL_RATIO);
-  const baseline = (baselines as Record<string, number>)[tc.name];
-  console.log(formatResult(tc, result, baseline));
+/** Run a single case: pixel comparison + wrapping check. Returns score and wrap result. */
+async function runCase(
+  tc: BenchmarkCase,
+  css: string,
+): Promise<{ score: number; wrap: boolean; result: ComparisonResult }> {
+  const result = await compareRenders(tc.html, css, tc.width, tc.height, 0.1, PIXEL_RATIO);
+  const wrap = SKIP_WRAPPING.has(tc.name)
+    ? { wrappingMatch: true } // skipped = treat as passing
+    : compareWrapping(tc.html, css, tc.width, tc.height);
+  return { score: result.contentMismatchPercentage, wrap: wrap.wrappingMatch, result };
+}
 
-  if (baseline !== undefined) {
-    const maxAllowed = baseline + REGRESSION_TOLERANCE;
-    expect(
-      result.contentMismatchPercentage,
-      `"${tc.name}" regressed: ${result.contentMismatchPercentage.toFixed(2)}% > baseline ${baseline}% + ${REGRESSION_TOLERANCE}% tolerance`,
-    ).toBeLessThanOrEqual(maxAllowed);
+/** Baseline key for a case, optionally with a font suffix. */
+function baselineKey(caseName: string, fontName?: string): string {
+  return fontName ? `${caseName}@${fontName}` : caseName;
+}
+
+/**
+ * Compare a result against its baseline. Returns 'regression', 'improvement', or 'same'.
+ * Pushes detail strings into the provided arrays.
+ */
+function classifyResult(
+  key: string,
+  score: number,
+  wrap: boolean,
+  baseline: BaselineEntry | undefined,
+  regressions: string[],
+  improvements: string[],
+): void {
+  if (!baseline) return;
+
+  if (score - baseline.score > SCORE_TOLERANCE) {
+    regressions.push(`${key}: score ${score.toFixed(2)}% (was ${baseline.score}%, +${(score - baseline.score).toFixed(1)})`);
+  } else if (score - baseline.score < -1) {
+    improvements.push(`${key}: score ${score.toFixed(2)}% (was ${baseline.score}%, ${(score - baseline.score).toFixed(1)})`);
   }
+  if (baseline.wrap && !wrap) {
+    regressions.push(`${key}: wrapping regressed (was passing)`);
+  } else if (!baseline.wrap && wrap) {
+    improvements.push(`${key}: wrapping improved (now passing)`);
+  }
+}
+
+/**
+ * If there are improvements and no regressions, auto-update baselines.json.
+ * Merges new results into existing baselines (preserves entries not in collected).
+ */
+async function autoUpdateBaselines(
+  collected: Record<string, BaselineEntry>,
+  improvements: string[],
+  regressions: string[],
+): Promise<void> {
+  if (improvements.length === 0 || regressions.length > 0) return;
+
+  const updated = { ...baselineMap };
+  for (const [key, entry] of Object.entries(collected)) {
+    updated[key] = {
+      score: Math.round(entry.score * 100) / 100,
+      wrap: entry.wrap,
+    };
+  }
+
+  const json = JSON.stringify(updated, null, 2) + '\n';
+  await commands.writeFile('./tests/baselines.json', json);
+  console.log(`\n✓ Auto-updated baselines.json (${improvements.length} improvements locked in)`);
 }
 
 describe('HTML Canvas Renderer', () => {
   let allCases: BenchmarkCase[];
+  // Collected results across all describes — used for auto-update at the end
+  const collected: Record<string, BaselineEntry> = {};
+  const allRegressions: string[] = [];
+  const allImprovements: string[] = [];
 
   it('loads all test cases', async () => {
     allCases = await loadBasicCases();
@@ -50,174 +119,100 @@ describe('HTML Canvas Renderer', () => {
     console.log(`Loaded ${allCases.length} test cases`);
   });
 
-  describe('Basic & extended cases', () => {
-    it('all cases', async () => {
+  describe('Default font cases', () => {
+    it('all cases (score + wrapping)', async () => {
       if (!allCases) allCases = await loadBasicCases();
-      let passed = 0;
-      let regressed = 0;
-      let improved = 0;
+      const cases = [...allCases, polotnoCase, polotnoListsCase];
       const regressions: string[] = [];
       const improvements: string[] = [];
 
-      for (const tc of allCases) {
-        const result = await compareRenders(tc.html, tc.css, tc.width, tc.height, 0.1, PIXEL_RATIO);
-        const baseline = (baselines as Record<string, number>)[tc.name];
-        console.log(formatResult(tc, result, baseline));
-
-        if (baseline !== undefined) {
-          const pct = result.contentMismatchPercentage;
-          const delta = pct - baseline;
-          if (delta > REGRESSION_TOLERANCE) {
-            regressed++;
-            regressions.push(`${tc.name}: ${pct.toFixed(2)}% (was ${baseline}%, +${delta.toFixed(1)})`);
-          } else if (delta < -1) {
-            improved++;
-            improvements.push(`${tc.name}: ${pct.toFixed(2)}% (was ${baseline}%, ${delta.toFixed(1)})`);
-          }
-          passed++;
-        }
+      for (const tc of cases) {
+        const key = baselineKey(tc.name);
+        const baseline = baselineMap[key];
+        const { score, wrap } = await runCase(tc, tc.css);
+        collected[key] = { score, wrap };
+        console.log(formatResult(key, score, wrap, baseline));
+        classifyResult(key, score, wrap, baseline, regressions, improvements);
       }
 
-      console.log(`\n=== ${passed} cases | ${improved} improved | ${regressed} regressed ===`);
-      if (improvements.length > 0) {
-        console.log('Improved:\n  ' + improvements.join('\n  '));
-      }
-      if (regressions.length > 0) {
-        console.log('Regressions:\n  ' + regressions.join('\n  '));
-      }
+      allRegressions.push(...regressions);
+      allImprovements.push(...improvements);
 
-      expect(regressed, `${regressed} cases regressed:\n  ${regressions.join('\n  ')}`).toBe(0);
-    });
-  });
+      console.log(`\n=== ${cases.length} cases | ${improvements.length} improved | ${regressions.length} regressed ===`);
+      if (improvements.length > 0) console.log('Improved:\n  ' + improvements.join('\n  '));
+      if (regressions.length > 0) console.log('Regressions:\n  ' + regressions.join('\n  '));
 
-  describe('Polotno cases', () => {
-    it('Polotno HTML', async () => {
-      await testCaseWithBaseline(polotnoCase);
-    });
-
-    it('Polotno Lists', async () => {
-      await testCaseWithBaseline(polotnoListsCase);
-    });
-  });
-
-  describe('Layout wrapping consistency', () => {
-    it('no wrapping differences vs DOM', async () => {
-      if (!allCases) allCases = await loadBasicCases();
-      const failures: string[] = [];
-
-      // Known wrapping limitations:
-      // - Very narrow container: CSS breaks after hyphens (e.g. "zero-width" → "zero-" / "width")
-      // - Long unbroken word overflow-wrap: Firefox breaks at "/" differently than Chromium
-      const isFirefox = navigator.userAgent.includes('Firefox');
-      const SKIP_WRAPPING = new Set([
-        'Very narrow container',
-        ...(isFirefox ? ['Long unbroken word overflow-wrap'] : []),
-      ]);
-
-      for (const tc of allCases) {
-        if (SKIP_WRAPPING.has(tc.name)) continue;
-        const result = await compareWrapping(tc.html, tc.css, tc.width, tc.height);
-        if (!result.wrappingMatch) {
-          const diffSummary = result.differentLines.slice(0, 3).map(d =>
-            `  line ${d.lineIndex}: canvas="${d.canvas.substring(0, 40)}" dom="${d.dom.substring(0, 40)}"`
-          ).join('\n');
-          failures.push(`${tc.name} (${result.canvasLineCount} vs ${result.domLineCount} lines):\n${diffSummary}`);
-        }
-      }
-
-      const matched = allCases.length - failures.length;
-      console.log(`\nWrapping: ${matched}/${allCases.length} match`);
-      if (failures.length > 0) {
-        console.log(`WRAPPING DIFFERENCES (${failures.length}):\n` + failures.join('\n\n'));
-      }
-
-      expect(failures.length, `${failures.length} wrapping failures:\n${failures.join('\n\n')}`).toBe(0);
+      expect(regressions.length, `${regressions.length} regressions:\n  ${regressions.join('\n  ')}`).toBe(0);
     });
   });
 
   describe('Punctuation wrapping', () => {
     it('trailing comma stays with preceding word', async () => {
-      // Use a long enough line that "word," is NOT the first word — otherwise
-      // the comma can't wrap independently. The text before "word" must fill
-      // most of the line, so "word" fits but "word," might overflow.
       const html = '<p>Just some words before the <strong>target</strong>, then rest of text continues here</p>';
       const css = 'body { font-family: sans-serif; font-size: 16px; }';
-
-      // Strategy: render at a wide width first, find where "target" ends on
-      // line 1, then set the container width to just barely fit "target" but
-      // not "target,". This forces canvas to wrap the comma independently.
       const { render } = await import('../src/index.ts');
       const fullHtml = `<style>${css}</style>${html}`;
 
-      // Binary search for width where canvas wraps comma but DOM doesn't
       let testWidth = 0;
       for (let w = 300; w >= 100; w--) {
         const r = render({ html: fullHtml, width: w, height: 200 });
         const line0 = r.lines[0]?.text || '';
-        // Found it: "target" fits on line 0 but comma is NOT on line 0
         if (line0.includes('target') && !line0.includes(',')) {
           testWidth = w;
           break;
         }
       }
 
-      if (testWidth === 0) {
-        // Fix already prevents comma from wrapping at any width — pass
-        return;
-      }
+      if (testWidth === 0) return; // fix already prevents comma wrapping
 
       const result = render({ html: fullHtml, width: testWidth, height: 200 });
-      const wrap = await compareWrapping(html, css, testWidth, 200, result.lines);
+      const wrap = compareWrapping(html, css, testWidth, 200, result.lines);
       expect(wrap.wrappingMatch, 'Trailing comma should not wrap to next line').toBe(true);
     });
   });
 
   describe('Multi-font matrix', () => {
-    it('all cases × all fonts', async () => {
+    it('all cases × all fonts (score + wrapping)', async () => {
       if (!allCases) allCases = await loadBasicCases();
       const multiFontCss = await loadMultiFontCss();
       const fonts = FONT_VARIANTS;
-
-      let wrappingFailures = 0;
-      const wrappingDetails: string[] = [];
+      const regressions: string[] = [];
+      const improvements: string[] = [];
 
       for (const font of fonts) {
-        let totalMismatch = 0;
+        let totalScore = 0;
         let count = 0;
-        let fontWrappingFails = 0;
 
         for (const tc of allCases) {
           const css = multiFontCss + '\n' + tc.css + `\nbody { font-family: ${font.family} !important; }`;
-
-          // Check wrapping
-          const wrap = await compareWrapping(tc.html, css, tc.width, tc.height);
-          if (!wrap.wrappingMatch) {
-            fontWrappingFails++;
-            wrappingFailures++;
-            const diff = wrap.differentLines[0];
-            wrappingDetails.push(
-              `[${font.name}] ${tc.name}: line ${diff.lineIndex} canvas="${diff.canvas.substring(0, 30)}" dom="${diff.dom.substring(0, 30)}"`
-            );
-          }
-
-          // Pixel comparison
-          const result = await compareRenders(tc.html, css, tc.width, tc.height, 0.1, PIXEL_RATIO);
-          totalMismatch += result.contentMismatchPercentage;
+          const key = baselineKey(tc.name, font.name);
+          const baseline = baselineMap[key];
+          const { score, wrap } = await runCase(tc, css);
+          collected[key] = { score, wrap };
+          console.log(formatResult(key, score, wrap, baseline));
+          totalScore += score;
           count++;
+          classifyResult(key, score, wrap, baseline, regressions, improvements);
         }
 
-        const avg = totalMismatch / count;
-        console.log(`[${font.name}] avg mismatch: ${avg.toFixed(1)}% | wrapping fails: ${fontWrappingFails}/${count}`);
+        console.log(`[${font.name}] avg: ${(totalScore / count).toFixed(1)}%`);
       }
 
-      if (wrappingDetails.length > 0) {
-        console.log(`\nFONT WRAPPING DIFFERENCES (${wrappingFailures}):`);
-        for (const d of wrappingDetails.slice(0, 20)) console.log('  ' + d);
-        if (wrappingDetails.length > 20) console.log(`  ... and ${wrappingDetails.length - 20} more`);
-      }
+      allRegressions.push(...regressions);
+      allImprovements.push(...improvements);
 
-      // Report but don't fail — multi-font wrapping is tracked for improvement
-      console.log(`Total font wrapping issues: ${wrappingFailures}`);
+      console.log(`\n=== Multi-font | ${improvements.length} improved | ${regressions.length} regressed ===`);
+      if (improvements.length > 0) console.log('Improved:\n  ' + improvements.join('\n  '));
+      if (regressions.length > 0) console.log('Regressions:\n  ' + regressions.join('\n  '));
+
+      expect(regressions.length, `${regressions.length} regressions:\n  ${regressions.join('\n  ')}`).toBe(0);
+    });
+  });
+
+  // Runs last — auto-updates baselines.json if only improvements were found
+  describe('Baseline auto-update', () => {
+    it('locks in improvements', async () => {
+      await autoUpdateBaselines(collected, allImprovements, allRegressions);
     });
   });
 });

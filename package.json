@@ -20,6 +20,7 @@
   "scripts": {
     "dev": "vite --config docs/vite.config.ts",
     "test": "vitest run tests/render.test.ts",
+    "test:update-baselines": "vitest run tests/generate-baselines.test.ts",
     "test:stress": "vitest run tests/stress.test.ts",
     "test:firefox": "vitest run tests/render.test.ts -c vitest.firefox.config.ts",
     "build": "tsc",
