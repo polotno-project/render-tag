@@ -5,7 +5,7 @@ lib/
 
 # Test artifacts
 tests/__screenshots__/
-
+.claude
 # OS files
 .DS_Store
 Thumbs.db

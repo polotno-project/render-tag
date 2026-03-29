@@ -139,5 +139,8 @@ The test suite uses Chromium baselines with 35% tolerance for Firefox.
 - `npm test` — vitest in Chromium
 - `npm run test:firefox` — vitest in Firefox (own baselines)
 - `npm run test:webkit` — vitest in WebKit/Safari (own baselines)
+- `npm run test:cross-browser:record` — record Chrome canvas layout as reference
+- `npm run test:cross-browser:firefox` — compare Firefox canvas layout vs Chrome reference
+- `npm run test:cross-browser:webkit` — compare WebKit canvas layout vs Chrome reference
 - `npm run test:stress` — layout width sweep stress test
 - `npm run build` — TypeScript compilation
