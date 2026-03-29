@@ -10,11 +10,11 @@ HTML string + CSS → parseHTML (DOMParser) → resolveStyles (hidden DOM + getC
 ```
 
 - **DOM used for** `getComputedStyle` (CSS cascade/inheritance), `getComputedStyle(el, '::before')` (list markers), and optional DOM probes for cross-browser line height accuracy
-- **`useDomMeasurements` option** (default: `true`) — enables DOM probes for line heights and mixed-font width verification. When `false`, uses pure canvas API only.
-- **`renderHTML()` is synchronous** — no async, no font loading. Caller must load fonts first.
+- **`accuracy` option** (default: `'balanced'`) — enables DOM probes for line heights and mixed-font width verification. `'performance'` uses pure canvas API only.
+- **`render()` is synchronous** — no async, no font loading. Caller must load fonts first.
 
 ### Key files
-- `src/index.ts` — public API: `renderHTML(html, options)`
+- `src/index.ts` — public API: `render(config)`
 - `src/style-resolver.ts` — hidden DOM insertion + getComputedStyle walk
 - `src/layout.ts` — block flow, inline wrapping, flex, table, lists, RTL
 - `src/render.ts` — canvas 2D drawing: text, backgrounds, borders, decorations
@@ -113,7 +113,7 @@ Firefox renders `<ul><li>` elements ~1.5px taller than Chrome due to the
 `::marker` pseudo-element (disc/circle/square markers). This accumulates
 in long lists (1.5px × N items). `<ol><li>` items are NOT affected.
 
-**Library fix:** When `useDomMeasurements: true`, the layout engine uses a
+**Library fix:** When `accuracy: 'balanced'` (the default), the layout engine uses a
 hidden `<ul><li>` DOM probe to measure actual line heights for bullet-type
 list items, matching Firefox's rendering.
 

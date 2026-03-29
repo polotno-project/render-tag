@@ -1,6 +1,6 @@
 import pixelmatch from 'pixelmatch';
 import { htmlToImage } from 'html-to-svg';
-import { renderHTML } from '../../src/index.ts';
+import { render } from '../../src/index.ts';
 
 // ─── Canvas-based font loading detection ────────────────────────────────
 
@@ -112,13 +112,14 @@ export function renderToCanvas(
   height: number,
   pixelRatio = 1,
 ): { canvas: HTMLCanvasElement; lines: { y: number; text: string }[] } {
-  const result = renderHTML(html, {
+  const fullHtml = css ? `<style>${css}</style>${html}` : html;
+  const result = render({
+    html: fullHtml,
     width,
     height,
-    css,
     pixelRatio,
   });
-  return { canvas: result.canvas, lines: result.lines };
+  return { canvas: result.canvas as HTMLCanvasElement, lines: result.lines };
 }
 
 /**
@@ -292,8 +293,8 @@ export interface LayoutComparisonResult {
  * Compare text wrapping between our canvas layout and the DOM.
  * Normalizes whitespace — only flags when different words appear on different lines.
  *
- * @param canvasLines - Pre-computed canvas lines from renderHTML().lines.
- *   If not provided, runs renderHTML internally (may differ from displayed canvas
+ * @param canvasLines - Pre-computed canvas lines from render().lines.
+ *   If not provided, runs render internally (may differ from displayed canvas
  *   if font loading state changed).
  */
 export function compareWrapping(
@@ -303,7 +304,7 @@ export function compareWrapping(
   height: number,
   precomputedCanvasLines?: { y: number; text: string }[],
 ): LayoutComparisonResult {
-  const rawCanvasLines = precomputedCanvasLines || renderHTML(html, { width, height, css }).lines;
+  const rawCanvasLines = precomputedCanvasLines || render({ html: css ? `<style>${css}</style>${html}` : html, width, height }).lines;
   const rawDomLines = extractDomLines(html, css, width);
 
   // Normalize: strip whitespace and list markers, sort characters.

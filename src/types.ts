@@ -1,26 +1,49 @@
-export interface RenderOptions {
-  /** Target canvas element (created if not provided) */
-  canvas?: HTMLCanvasElement;
+export type AnyCanvas = HTMLCanvasElement | OffscreenCanvas;
+export type AnyContext = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+
+export interface RenderConfig {
+  /** HTML string to render (include <style> tags for CSS) */
+  html: string;
   /** Width of the rendering area in CSS pixels */
   width: number;
-  /** Height of the rendering area in CSS pixels (auto-sized if not set) */
+  /** Height of the rendering area in CSS pixels (auto-sized from content if omitted) */
   height?: number;
-  /** Additional CSS to apply */
-  css?: string;
-  /** Device pixel ratio (default: 1) */
+  /**
+   * Existing 2D rendering context to draw onto.
+   * When provided, render-tag draws directly onto this context without resizing the canvas.
+   * Mutually exclusive with `canvas`.
+   */
+  ctx?: AnyContext;
+  /**
+   * Target canvas element (created if not provided).
+   * Mutually exclusive with `ctx`.
+   */
+  canvas?: AnyCanvas;
+  /** Device pixel ratio (default: globalThis.devicePixelRatio ?? 1) */
   pixelRatio?: number;
   /**
-   * Use DOM measurements for improved cross-browser consistency (default: true).
-   * When enabled, uses hidden DOM elements to measure line heights and verify
-   * text wrapping at font boundaries. When disabled, uses pure canvas API
-   * measurements only — faster and DOM-free, but may have slight differences
-   * across browsers (e.g. Firefox list item heights).
+   * Measurement accuracy mode (default: 'balanced').
+   * - 'balanced' — uses DOM probes for cross-browser consistent line heights
+   *   and wrap verification. Best quality.
+   * - 'performance' — pure canvas API measurements only. Faster and DOM-free,
+   *   but may have slight differences across browsers (e.g. Firefox list item heights).
    */
-  useDomMeasurements?: boolean;
+  accuracy?: 'balanced' | 'performance';
   /**
    * Debug callback for layout diagnostics. Receives structured log entries
    * during text measurement, wrapping decisions, and positioning.
    */
+  debug?: (entry: DebugEntry) => void;
+}
+
+/** @deprecated Use RenderConfig instead */
+export interface RenderOptions {
+  canvas?: HTMLCanvasElement;
+  width: number;
+  height?: number;
+  css?: string;
+  pixelRatio?: number;
+  useDomMeasurements?: boolean;
   debug?: (entry: DebugEntry) => void;
 }
 
@@ -41,12 +64,13 @@ export interface LayoutLine {
 }
 
 export interface RenderResult {
-  canvas: HTMLCanvasElement;
-  /** Actual content height after layout */
+  /** The canvas that was rendered onto */
+  canvas: AnyCanvas;
+  /** Content height in CSS pixels after layout */
   height: number;
-  /** The layout tree root (for debugging/comparison) */
+  /** The layout tree root — stable API for inspection and testing */
   layoutRoot: LayoutBox;
-  /** Text lines extracted from the layout tree, grouped by Y coordinate */
+  /** Text lines grouped by Y coordinate — stable API */
   lines: LayoutLine[];
 }
 

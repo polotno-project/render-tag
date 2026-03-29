@@ -135,6 +135,43 @@ describe('HTML Canvas Renderer', () => {
     });
   });
 
+  describe('Punctuation wrapping', () => {
+    it('trailing comma stays with preceding word', async () => {
+      // Use a long enough line that "word," is NOT the first word — otherwise
+      // the comma can't wrap independently. The text before "word" must fill
+      // most of the line, so "word" fits but "word," might overflow.
+      const html = '<p>Just some words before the <strong>target</strong>, then rest of text continues here</p>';
+      const css = 'body { font-family: sans-serif; font-size: 16px; }';
+
+      // Strategy: render at a wide width first, find where "target" ends on
+      // line 1, then set the container width to just barely fit "target" but
+      // not "target,". This forces canvas to wrap the comma independently.
+      const { render } = await import('../src/index.ts');
+      const fullHtml = `<style>${css}</style>${html}`;
+
+      // Binary search for width where canvas wraps comma but DOM doesn't
+      let testWidth = 0;
+      for (let w = 300; w >= 100; w--) {
+        const r = render({ html: fullHtml, width: w, height: 200 });
+        const line0 = r.lines[0]?.text || '';
+        // Found it: "target" fits on line 0 but comma is NOT on line 0
+        if (line0.includes('target') && !line0.includes(',')) {
+          testWidth = w;
+          break;
+        }
+      }
+
+      if (testWidth === 0) {
+        // Fix already prevents comma from wrapping at any width — pass
+        return;
+      }
+
+      const result = render({ html: fullHtml, width: testWidth, height: 200 });
+      const wrap = await compareWrapping(html, css, testWidth, 200, result.lines);
+      expect(wrap.wrappingMatch, 'Trailing comma should not wrap to next line').toBe(true);
+    });
+  });
+
   describe('Multi-font matrix', () => {
     it('all cases × all fonts', async () => {
       if (!allCases) allCases = await loadBasicCases();

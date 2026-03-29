@@ -748,8 +748,15 @@ function flowWordsIntoLines(
       : [word];
 
     for (const piece of pieces) {
+      // Trailing punctuation (e.g. comma after </span>) should not wrap
+      // independently — browsers keep it with the preceding word.
+      const isTrailingPunct = !piece.isSpace && piece.text.length > 0 &&
+        /^[,.\;:!?\)\]\}'"»›]+$/.test(piece.text) &&
+        currentLine.words.length > 0 &&
+        !currentLine.words[currentLine.words.length - 1].isSpace;
+
       // Would this piece overflow?
-      if (!piece.isSpace && currentLine.words.length > 0 &&
+      if (!piece.isSpace && !isTrailingPunct && currentLine.words.length > 0 &&
         currentLine.totalWidth + piece.width > contentWidth) {
         const overflow = currentLine.totalWidth + piece.width - contentWidth;
 

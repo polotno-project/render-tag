@@ -19,37 +19,39 @@ npm install render-tag
 ## Usage
 
 ```typescript
-import { renderHTML } from 'render-tag';
+import { render } from 'render-tag';
 
-const { canvas, height } = renderHTML(
-  '<p>Hello <strong>world</strong></p>',
-  { width: 400 }
-);
+const { canvas, height } = render({
+  html: '<p>Hello <strong>world</strong></p>',
+  width: 400,
+});
 
 document.body.appendChild(canvas);
 ```
 
 ### With CSS
 
+Include `<style>` tags in your HTML string:
+
 ```typescript
-const { canvas } = renderHTML(
-  '<p class="title">Styled text</p>',
-  {
-    width: 600,
-    css: `
+const { canvas } = render({
+  html: `
+    <style>
       .title {
         font-family: Georgia, serif;
         font-size: 24px;
         color: #1a1a1a;
       }
-    `,
-  }
-);
+    </style>
+    <p class="title">Styled text</p>
+  `,
+  width: 600,
+});
 ```
 
 ### Font loading
 
-`renderHTML` is **synchronous** and does not load fonts. You must ensure fonts are loaded before calling it. If a font isn't loaded, the browser falls back to a default font and text metrics will be wrong.
+`render` is **synchronous** and does not load fonts. You must ensure fonts are loaded before calling it. If a font isn't loaded, the browser falls back to a default font and text metrics will be wrong.
 
 ```typescript
 // Load fonts before rendering
@@ -57,46 +59,62 @@ await document.fonts.load('400 16px "Roboto"');
 await document.fonts.load('700 16px "Roboto"');
 
 // Now render — fonts are guaranteed to be available
-const { canvas } = renderHTML(html, { width: 500 });
+const { canvas } = render({ html, width: 500 });
 
 // Re-render if fonts load later
 document.fonts.onloadingdone = () => {
-  renderHTML(html, { width: 500 });
+  render({ html, width: 500 });
 };
 ```
 
-You do **not** need to pass `@font-face` rules in the `css` option. As long as fonts are loaded in the document (via `<link>`, `@font-face` in a stylesheet, or the CSS Font Loading API), `renderHTML` can use them.
+You do **not** need to pass `@font-face` rules separately. As long as fonts are loaded in the document (via `<link>`, `@font-face` in a stylesheet, or the CSS Font Loading API), `render` can use them.
 
 ### High-DPI / Retina
 
+`pixelRatio` defaults to `devicePixelRatio`, so HiDPI displays are sharp out of the box. Override if needed:
+
 ```typescript
-const { canvas } = renderHTML(html, {
-  width: 600,
-  pixelRatio: window.devicePixelRatio,
-});
+const { canvas } = render({ html, width: 600, pixelRatio: 1 });
 ```
 
 ### Render onto existing canvas
 
 ```typescript
 const canvas = document.getElementById('my-canvas');
-renderHTML(html, { canvas, width: 800, height: 600 });
+render({ html, canvas, width: 800, height: 600 });
 ```
+
+### Render onto existing context
+
+Draw directly onto a context you control (no canvas resizing or scaling):
+
+```typescript
+const ctx = myCanvas.getContext('2d');
+render({ html, ctx, width: 400 });
+```
+
+This is useful for compositing multiple renders onto one canvas or rendering onto an `OffscreenCanvas`.
 
 ## API
 
-### `renderHTML(html, options): RenderResult`
+### `render(config): RenderResult`
 
 | Option | Type | Default | Description |
 |---|---|---|---|
+| `html` | `string` | *required* | HTML string to render (include `<style>` tags for CSS) |
 | `width` | `number` | *required* | Layout width in CSS pixels |
 | `height` | `number` | auto | Fixed height (auto-sized from content if omitted) |
-| `css` | `string` | `''` | CSS stylesheet (classes, selectors, etc.) |
-| `canvas` | `HTMLCanvasElement` | created | Target canvas element |
-| `pixelRatio` | `number` | `1` | Device pixel ratio for sharp rendering |
-| `useDomMeasurements` | `boolean` | `true` | Use DOM probes for cross-browser line height accuracy. Disable for pure canvas rendering. |
+| `ctx` | `CanvasRenderingContext2D` | — | Existing context to draw onto (no resizing/scaling) |
+| `canvas` | `HTMLCanvasElement \| OffscreenCanvas` | created | Target canvas element (mutually exclusive with `ctx`) |
+| `pixelRatio` | `number` | `devicePixelRatio` | Device pixel ratio for sharp rendering |
+| `accuracy` | `'balanced' \| 'performance'` | `'balanced'` | `'balanced'` uses DOM probes for cross-browser line height accuracy. `'performance'` uses pure canvas API only. |
 
-Returns `{ canvas: HTMLCanvasElement, height: number }`.
+Returns `{ canvas, height, layoutRoot, lines }`.
+
+- `canvas` — the canvas rendered onto
+- `height` — content height in CSS pixels
+- `layoutRoot` — full layout tree for inspection
+- `lines` — text lines grouped by Y coordinate
 
 The function is **synchronous**. Fonts must be loaded before calling.
 
@@ -134,7 +152,7 @@ li::marker { content: none; font-size: 0; line-height: 0; }
 .has-emoji { font-kerning: none; }
 ```
 
-With `useDomMeasurements: true` (the default), the library uses hidden DOM probes to match Firefox's actual line box heights. If you disable DOM measurements (`useDomMeasurements: false`), the CSS above becomes especially important for Firefox consistency.
+With `accuracy: 'balanced'` (the default), the library uses hidden DOM probes to match Firefox's actual line box heights. With `accuracy: 'performance'`, the CSS above becomes especially important for Firefox consistency.
 
 ## How it works
 
@@ -143,7 +161,7 @@ With `useDomMeasurements: true` (the default), the library uses hidden DOM probe
 3. **Layout** with canvas `measureText` (block flow, inline wrapping, margin collapsing)
 4. **Render** with canvas 2D API (`fillText`, `fillRect`, `strokeText`, etc.)
 
-Style resolution uses a hidden DOM element with `getComputedStyle` to get the full CSS cascade. Layout and rendering are done entirely with the canvas 2D API. Optional DOM probes (`useDomMeasurements`) improve cross-browser accuracy for line heights and mixed-font wrapping.
+Style resolution uses a hidden DOM element with `getComputedStyle` to get the full CSS cascade. Layout and rendering are done entirely with the canvas 2D API. Optional DOM probes (`accuracy: 'balanced'`) improve cross-browser accuracy for line heights and mixed-font wrapping.
 
 ## Development
 

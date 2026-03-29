@@ -1,4 +1,4 @@
-import { renderHTML } from 'render-tag';
+import { render } from 'render-tag';
 
 declare const Quill: any;
 
@@ -90,8 +90,12 @@ const FEATURES: Record<string, { html: string; css?: string; width: number }> = 
   },
 };
 
-// Base CSS for renderHTML — must match what the editor inherits from the page
+// Base CSS applied to all renders — must match what the editor inherits from the page
 const DEMO_BASE_CSS = `body { font-family: 'IBM Plex Sans', system-ui, -apple-system, sans-serif; font-size: 14px; line-height: 1.5; }`;
+
+function wrapCSS(html: string, css?: string): string {
+  return css ? `<style>${css}</style>${html}` : html;
+}
 
 // ── Init ──
 
@@ -177,9 +181,9 @@ function initHeroAnimation() {
     // Resolve clamp() to the actual computed font size from the real title
     const computedSize = getComputedStyle(title).fontSize;
     const stageHtml = HERO_STAGES[stage].html.replace(/clamp\([^)]+\)/g, computedSize);
-    const { canvas, height } = renderHTML(stageHtml, {
+    const { canvas, height } = render({
+      html: stageHtml,
       width,
-      pixelRatio: window.devicePixelRatio,
     });
 
     canvasEl.width = canvas.width;
@@ -308,10 +312,9 @@ function initDemo() {
     try {
       const debugLogs: { type: string; message: string }[] = [];
       const t0 = performance.now();
-      const { canvas } = renderHTML(html, {
+      const { canvas } = render({
+        html: wrapCSS(html, DEMO_BASE_CSS),
         width,
-        css: DEMO_BASE_CSS,
-        pixelRatio: window.devicePixelRatio,
         debug: (entry) => { debugLogs.push(entry); },
       });
       const elapsed = performance.now() - t0;
@@ -390,7 +393,7 @@ const BENCH_RUNNERS: BenchRunner[] = [
     load: async () => {
       // No special setup — fonts already on the page, API is synchronous
       return async () => {
-        renderHTML(BENCH_HTML, { width: 400 });
+        render({ html: BENCH_HTML, width: 400 });
       };
     },
   },
@@ -455,7 +458,7 @@ function initBenchmark() {
 
   // Show what we're benchmarking
   try {
-    const { canvas } = renderHTML(BENCH_HTML, { width: 400, pixelRatio: window.devicePixelRatio });
+    const { canvas } = render({ html: BENCH_HTML, width: 400 });
     preview.appendChild(canvas);
   } catch { /* ignore */ }
 
@@ -565,7 +568,7 @@ function renderFeatureGallery() {
 
     if (el) {
       try {
-        const { canvas } = renderHTML(html, { width, css, pixelRatio: window.devicePixelRatio });
+        const { canvas } = render({ html: wrapCSS(html, css), width });
         el.appendChild(canvas);
       } catch {
         el.textContent = 'Render error';

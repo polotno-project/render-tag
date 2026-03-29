@@ -2,7 +2,7 @@
  * Parse HTML string and extract inline <style> blocks.
  * Returns the content element and combined CSS text.
  */
-export function parseHTML(html: string, extraCSS?: string): { fragment: DocumentFragment; css: string } {
+export function parseHTML(html: string): { fragment: DocumentFragment; css: string } {
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, 'text/html');
 
@@ -12,10 +12,6 @@ export function parseHTML(html: string, extraCSS?: string): { fragment: Document
   for (const tag of styleTags) {
     css += tag.textContent + '\n';
     tag.remove();
-  }
-
-  if (extraCSS) {
-    css = extraCSS + '\n' + css;
   }
 
   // Move body children into a fragment

@@ -1,56 +1,81 @@
-import type { RenderOptions, RenderResult, LayoutLine, LayoutNode } from './types.js';
+import type { RenderConfig, RenderOptions, RenderResult, LayoutLine, LayoutNode, AnyCanvas, AnyContext } from './types.js';
 import { parseHTML } from './parse.js';
 import { resolveStyles } from './style-resolver.js';
 import { buildLayoutTree } from './layout.js';
 import { renderNode } from './render.js';
 
-export type { RenderOptions, RenderResult, LayoutLine };
+export type { RenderConfig, RenderOptions, RenderResult, LayoutLine };
 
 /**
- * Render an HTML string onto a canvas element using pure 2D canvas API.
- * Fonts must already be loaded on the page before calling this function.
- *
- * @param html - HTML string to render
- * @param options - Rendering options (width is required)
- * @returns The canvas element and computed content height
+ * Render an HTML string onto a canvas using pure 2D canvas API.
+ * Fonts must already be loaded before calling this function.
  */
-export function renderHTML(
-  html: string,
-  options: RenderOptions,
-): RenderResult {
-  const { width, height, css: extraCSS, pixelRatio = 1, useDomMeasurements = true, debug } = options;
+export function render(config: RenderConfig): RenderResult {
+  const {
+    html,
+    width,
+    height,
+    pixelRatio = globalThis.devicePixelRatio ?? 1,
+    accuracy = 'balanced',
+    debug,
+  } = config;
 
-  // 1. Parse HTML and extract CSS
-  const { fragment, css } = parseHTML(html, extraCSS);
+  if (!width || width <= 0 || Number.isNaN(width)) {
+    throw new TypeError(`render: width must be a positive number, got ${width}`);
+  }
+  if (config.ctx && config.canvas) {
+    throw new TypeError('render: ctx and canvas are mutually exclusive — provide one or neither');
+  }
+
+  const useDomMeasurements = accuracy === 'balanced';
+
+  // 1. Parse HTML and extract CSS from <style> tags
+  const { fragment, css } = parseHTML(html);
 
   // 2. Resolve styles using hidden DOM (getComputedStyle only, no measurements)
   const { tree, cleanup } = resolveStyles(fragment, css, width, height);
 
-  // 3. Create canvas
-  const canvas = options.canvas || document.createElement('canvas');
+  // 3. Create temporary canvas for text measurement
   const tmpCanvas = document.createElement('canvas');
-  const ctx = tmpCanvas.getContext('2d')!;
-  ctx.fontKerning = 'normal';
+  const measureCtx = tmpCanvas.getContext('2d')!;
+  measureCtx.fontKerning = 'normal';
 
   // 4. Build layout tree using pure canvas measurement
-  const { root, height: contentHeight } = buildLayoutTree(ctx, tree, width, useDomMeasurements, debug);
+  const { root, height: contentHeight } = buildLayoutTree(measureCtx, tree, width, useDomMeasurements, debug);
 
-  // 5. Size the output canvas
+  // 5. Resolve output canvas and context
   const finalHeight = height || contentHeight;
-  canvas.width = Math.ceil(width * pixelRatio);
-  canvas.height = Math.ceil(finalHeight * pixelRatio);
-  canvas.style.width = `${width}px`;
-  canvas.style.height = `${finalHeight}px`;
+  let canvas: AnyCanvas;
+  let renderCtx: AnyContext;
 
-  const renderCtx = canvas.getContext('2d')!;
-  renderCtx.scale(pixelRatio, pixelRatio);
+  if (config.ctx) {
+    // User owns the canvas — do NOT resize or scale
+    renderCtx = config.ctx;
+    canvas = config.ctx.canvas;
+  } else if (config.canvas) {
+    canvas = config.canvas;
+    canvas.width = Math.ceil(width * pixelRatio);
+    canvas.height = Math.ceil(finalHeight * pixelRatio);
+    if ('style' in canvas) {
+      (canvas as HTMLCanvasElement).style.width = `${width}px`;
+      (canvas as HTMLCanvasElement).style.height = `${finalHeight}px`;
+    }
+    renderCtx = canvas.getContext('2d')! as AnyContext;
+    renderCtx.scale(pixelRatio, pixelRatio);
+  } else {
+    canvas = document.createElement('canvas');
+    canvas.width = Math.ceil(width * pixelRatio);
+    canvas.height = Math.ceil(finalHeight * pixelRatio);
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${finalHeight}px`;
+    renderCtx = canvas.getContext('2d')!;
+    renderCtx.scale(pixelRatio, pixelRatio);
+  }
 
   // 6. Render to canvas
-  renderNode(renderCtx, root);
+  renderNode(renderCtx as CanvasRenderingContext2D, root);
 
   // 7. Extract lines from layout tree — group by Y with tolerance.
-  // Use fontSize as proxy for height when grouping. Sub/sup text has
-  // different Y but belongs on the same visual line as parent text.
   const wordPositions: { y: number; fontSize: number; text: string }[] = [];
   function walkLines(node: LayoutNode) {
     if (node.type === 'text' && node.text.trim()) {
@@ -81,4 +106,22 @@ export function renderHTML(
   cleanup();
 
   return { canvas, height: finalHeight, layoutRoot: root, lines };
+}
+
+/**
+ * @deprecated Use `render()` instead.
+ */
+export function renderHTML(
+  html: string,
+  options: RenderOptions,
+): RenderResult {
+  return render({
+    html: options.css ? `<style>${options.css}</style>${html}` : html,
+    width: options.width,
+    height: options.height,
+    canvas: options.canvas,
+    pixelRatio: options.pixelRatio ?? 1,
+    accuracy: options.useDomMeasurements === false ? 'performance' : 'balanced',
+    debug: options.debug,
+  });
 }
