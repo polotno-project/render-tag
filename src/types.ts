@@ -17,6 +17,19 @@ export interface RenderOptions {
    * across browsers (e.g. Firefox list item heights).
    */
   useDomMeasurements?: boolean;
+  /**
+   * Debug callback for layout diagnostics. Receives structured log entries
+   * during text measurement, wrapping decisions, and positioning.
+   */
+  debug?: (entry: DebugEntry) => void;
+}
+
+export interface DebugEntry {
+  type: 'measure-word' | 'line-wrap' | 'line-commit' | 'position-text';
+  /** Human-readable description */
+  message: string;
+  /** Relevant data */
+  data: Record<string, unknown>;
 }
 
 /** A text line extracted from the layout tree */

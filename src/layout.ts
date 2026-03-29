@@ -3,6 +3,7 @@ import type { StyledNode, LayoutNode, LayoutBox, LayoutText, ResolvedStyle } fro
 // Module-level flag controlling DOM measurement usage.
 // Set by buildLayoutTree() based on the useDomMeasurements option.
 let _useDomMeasurements = true;
+let _debug: ((entry: import('./types.ts').DebugEntry) => void) | undefined;
 
 // ─── DOM-based line width measurement ──────────────────────────────────
 
@@ -452,6 +453,14 @@ function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRu
       cumText += w;
       cumWidth = ctx.measureText(cumText).width;
       let width = cumWidth - prevCum;
+      const directWidth = ctx.measureText(w).width;
+      if (_debug) {
+        _debug({
+          type: 'measure-word',
+          message: `"${w}" delta=${width.toFixed(2)} direct=${directWidth.toFixed(2)} diff=${(width - directWidth).toFixed(2)} cumText="${cumText}"`,
+          data: { text: w, deltaWidth: width, directWidth, cumWidth, prevCum, font: run.style.fontFamily, fontSize: run.style.fontSize },
+        });
+      }
       allWords.push({
         text: w,
         width,
@@ -644,6 +653,14 @@ function flowWordsIntoLines(
     }
     // In pre-wrap mode, space-only lines still need height (they are content)
     if (currentLine.words.length > 0 || (hadWords && isPreWrap)) {
+      if (_debug) {
+        const text = currentLine.words.map(w => w.text).join('');
+        _debug({
+          type: 'line-commit',
+          message: `Line ${lines.length}: "${text}" width=${currentLine.totalWidth.toFixed(2)} / ${contentWidth}`,
+          data: { lineIndex: lines.length, text, totalWidth: currentLine.totalWidth, contentWidth },
+        });
+      }
       lines.push(currentLine);
     }
     currentLine = { words: [], totalWidth: 0, lineHeight: 0 };
@@ -702,6 +719,14 @@ function flowWordsIntoLines(
             shouldWrap = false;
           }
         }
+        if (_debug) {
+          const lineText = currentLine.words.map(w => w.text).join('');
+          _debug({
+            type: 'line-wrap',
+            message: `"${piece.text}" overflow=${overflow.toFixed(2)} wrap=${shouldWrap} lineWidth=${currentLine.totalWidth.toFixed(2)} pieceWidth=${piece.width.toFixed(2)} contentWidth=${contentWidth}  line="${lineText}"`,
+            data: { text: piece.text, overflow, shouldWrap, lineWidth: currentLine.totalWidth, pieceWidth: piece.width, contentWidth, lineText },
+          });
+        }
         if (shouldWrap) {
           pushLine();
           afterHardBreak = false;
@@ -721,6 +746,13 @@ function flowWordsIntoLines(
           const candidateWords = [...currentLine.words, piece];
           const domWidth = measureLineWidthViaDom(candidateWords);
           if (domWidth > contentWidth) {
+            if (_debug) {
+              _debug({
+                type: 'line-wrap',
+                message: `REVERSE WRAP: "${piece.text}" canvas says fits (remaining=${remaining.toFixed(2)}) but DOM says overflow (domWidth=${domWidth.toFixed(2)})`,
+                data: { text: piece.text, remaining, domWidth, contentWidth },
+              });
+            }
             pushLine();
             afterHardBreak = false;
           }
@@ -1424,8 +1456,10 @@ export function buildLayoutTree(
   styledTree: StyledNode,
   containerWidth: number,
   useDomMeasurements = true,
+  debug?: (entry: import('./types.ts').DebugEntry) => void,
 ): { root: LayoutBox; height: number } {
   _useDomMeasurements = useDomMeasurements;
+  _debug = debug;
 
   // Clear line height cache — fonts may have loaded since last call
   _lineHeightCache.clear();

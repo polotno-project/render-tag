@@ -178,11 +178,20 @@ function initDemo() {
     cards.forEach(c => c.style.width = cardWidth + 'px');
 
     try {
+      const debugLogs: { type: string; message: string }[] = [];
       const { canvas } = renderHTML(html, {
         width,
         css: DEMO_BASE_CSS,
         pixelRatio: window.devicePixelRatio,
+        debug: (entry) => { debugLogs.push(entry); },
       });
+      console.groupCollapsed(`[render-tag] width=${width}, ${debugLogs.length} entries`);
+      for (const log of debugLogs) {
+        if (log.type === 'line-commit' || log.type === 'line-wrap') {
+          console.log(log.type, log.message);
+        }
+      }
+      console.groupEnd();
       const label = canvasFrame.querySelector('.demo-label');
       canvasFrame.innerHTML = '';
       if (label) canvasFrame.appendChild(label);
