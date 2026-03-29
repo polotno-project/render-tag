@@ -2,6 +2,8 @@
 
 HTML rich text renderer onto canvas using pure 2D API.
 
+See `README.md` for public API docs, usage examples, and **design decisions** (Chrome-first, cross-browser consistency priorities).
+
 ## Architecture
 
 ```

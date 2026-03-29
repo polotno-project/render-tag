@@ -6,7 +6,7 @@ Render HTML rich text onto canvas with the 2D API. No SVG, no `foreignObject` �
 
 ## Why
 
-Browsers can render HTML into canvas via SVG `foreignObject`, but it's slow (~100ms) and inconsistent across browsers. `render-tag` parses your HTML, resolves styles via `getComputedStyle`, then lays out and draws everything with canvas 2D calls. It's **10-60x faster** than SVG-based approaches.
+When you need rich text as part of a canvas — design editors, image export, canvas-based apps — the standard SVG `foreignObject` approach is slow (~100ms per render). `render-tag` parses your HTML, resolves styles via `getComputedStyle`, then lays out and draws everything with pure canvas 2D calls. It's **10-60x faster** than SVG-based approaches.
 
 By design, render-tag focuses on **rich text only** — paragraphs, headings, lists, tables, inline formatting. It is not designed for interactive elements (buttons, inputs, iframes) or complex HTML layouts. This focus is what makes it fast.
 
@@ -193,6 +193,18 @@ li::marker { content: none; font-size: 0; line-height: 0; }
 ```
 
 With `accuracy: 'balanced'` (the default), the library uses hidden DOM probes to match Firefox's actual line box heights. With `accuracy: 'performance'`, the CSS above becomes especially important for Firefox consistency.
+
+## Design decisions
+
+### Chrome-first rendering
+
+Chrome is the primary target browser. When a rendering choice must favor one browser over another, Chrome wins. All development and CI testing defaults to Chromium.
+
+### Cross-browser consistency over per-browser accuracy
+
+The library prioritizes producing **the same canvas output in every browser** over matching each browser's native DOM rendering pixel-for-pixel. If Chrome and Firefox render a `<p>` slightly differently in DOM, our canvas output should match Chrome's version in both browsers — not adapt to each browser's quirks.
+
+In other words: identical canvas output everywhere > perfect DOM fidelity per browser. Users expect the same visual result regardless of which browser their audience uses.
 
 ## How it works
 
