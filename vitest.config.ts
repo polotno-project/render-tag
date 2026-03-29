@@ -6,7 +6,7 @@ export default defineConfig({
   resolve: {
     alias: {
       rasterizehtml: 'rasterizehtml/dist/rasterizeHTML.allinone.js',
-      'html-to-svg': path.resolve(__dirname, 'html-to-svg/src/index.ts'),
+      'html-to-svg': path.resolve(__dirname, 'vendor/html-to-svg/index.ts'),
     },
   },
   test: {

@@ -7,7 +7,7 @@ export default defineConfig({
   resolve: {
     alias: {
       'render-tag': path.resolve(__dirname, '../src/index.ts'),
-      'html-to-svg': path.resolve(__dirname, '../html-to-svg/src/index.ts'),
+      'html-to-svg': path.resolve(__dirname, '../vendor/html-to-svg/index.ts'),
     },
   },
   build: {
