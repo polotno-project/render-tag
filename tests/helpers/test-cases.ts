@@ -145,52 +145,6 @@ export async function loadBasicCases(): Promise<BenchmarkCase[]> {
     },
 
     {
-      name: 'Nested lists',
-      width: 600,
-      height: 500,
-      css: withOpenSans(`
-        body { ${font} }
-        ul, ol { padding-left: 24px; margin: 8px 0; }
-        li { line-height: 1.8; font-size: 15px; }
-        li strong { color: #1d4ed8; }
-      `),
-      html: `
-        <ul>
-          <li><strong>Frontend</strong>
-            <ul>
-              <li>React
-                <ul>
-                  <li>Hooks</li>
-                  <li>Context API</li>
-                  <li>Server Components</li>
-                </ul>
-              </li>
-              <li>Vue
-                <ul>
-                  <li>Composition API</li>
-                  <li>Pinia</li>
-                </ul>
-              </li>
-            </ul>
-          </li>
-          <li><strong>Backend</strong>
-            <ol>
-              <li>Node.js</li>
-              <li>Python</li>
-              <li>Go</li>
-            </ol>
-          </li>
-          <li><strong>DevOps</strong>
-            <ul>
-              <li>Docker</li>
-              <li>Kubernetes</li>
-            </ul>
-          </li>
-        </ul>
-      `,
-    },
-
-    {
       name: 'Rich blog post',
       width: 700,
       height: 800,
@@ -396,28 +350,6 @@ console.log(msg);</pre>
     },
 
     // =========================================================================
-    // 2. Empty paragraphs / blank lines between content
-    // =========================================================================
-    {
-      name: 'Empty paragraphs and blank lines',
-      width: 400,
-      height: 400,
-      css: withOpenSans(
-        `body { ${font} font-size: 16px; } p { margin: 0; min-height: 1em; }`,
-      ),
-      html: `<p>First paragraph of content.</p>
-<p><br></p>
-<p><br></p>
-<p>Third paragraph after two blank lines.</p>
-<p>&nbsp;</p>
-<p>Another paragraph after a non-breaking space line.</p>
-<p><br></p>
-<p><br></p>
-<p><br></p>
-<p>Final paragraph after three blank lines.</p>`,
-    },
-
-    // =========================================================================
     // 3. Very long unbroken word (URL) with overflow-wrap: break-word
     // =========================================================================
     {
@@ -445,18 +377,6 @@ console.log(msg);</pre>
       ),
       html: `<p>Hello World</p>
 <p>Testing narrow layout</p>`,
-    },
-
-    // =========================================================================
-    // 5. Mixed font sizes in same paragraph
-    // =========================================================================
-    {
-      name: 'Mixed font sizes inline',
-      width: 500,
-      height: 250,
-      css: withOpenSans(`body { ${font} }`),
-      html: `<p><span style="font-size: 10px;">tiny text</span> normal text <span style="font-size: 28px;">BIG text</span> and <span style="font-size: 12px;">small</span> then <span style="font-size: 36px;">HUGE</span> back to <span style="font-size: 14px;">regular size</span> in one paragraph.</p>
-<p>Second line with <span style="font-size: 8px;">microscopic</span> and <span style="font-size: 48px;">giant</span> side by side.</p>`,
     },
 
     // =========================================================================
@@ -541,19 +461,6 @@ console.log(msg);</pre>
       css: withOpenSans(`body { ${font} }`),
       html: `<p><span style="font-size: 12px;">12px</span> next to <span style="font-size: 24px;">24px</span> next to <span style="font-size: 14px;">14px</span> next to <span style="font-size: 32px;">32px</span> next to <span style="font-size: 10px;">10px</span> all on one line.</p>
 <p style="line-height: 1.2;"><span style="font-size: 8px;">tiny</span><span style="font-size: 40px;">LARGE</span><span style="font-size: 8px;">tiny</span><span style="font-size: 40px;">LARGE</span></p>`,
-    },
-
-    // =========================================================================
-    // 12. Strikethrough + underline simultaneously
-    // =========================================================================
-    {
-      name: 'Strikethrough and underline combined',
-      width: 500,
-      height: 200,
-      css: withOpenSans(`body { ${font} font-size: 16px; line-height: 1.6; }`),
-      html: `<p><span style="text-decoration: underline line-through;">This text has both underline and strikethrough.</span></p>
-<p>Normal text then <u><s>underline+strike together</s></u> then normal again.</p>
-<p><span style="text-decoration: line-through; color: #dc2626;">Deleted text in red</span> replaced by <span style="text-decoration: underline; color: #16a34a;">new text in green</span>.</p>`,
     },
 
     // =========================================================================
@@ -895,48 +802,6 @@ console.log(msg);</pre>
     },
 
     // =========================================================================
-    // 33. text-align: center
-    // =========================================================================
-    {
-      name: 'Center aligned text',
-      width: 500,
-      height: 250,
-      css: withOpenSans(
-        `body { ${font} font-size: 16px; line-height: 1.6; text-align: center; }`,
-      ),
-      html: `<h2 style="text-align: center; font-size: 24px;">Centered Heading</h2>
-<p style="text-align: center;">This paragraph is centered. Every line of wrapping text should be centered within the container width.</p>
-<p style="text-align: center;">Short centered line.</p>
-<p style="text-align: center;">A much longer centered paragraph that will definitely wrap to multiple lines to verify that each wrapped line is independently centered within the available width of the container.</p>`,
-    },
-
-    // =========================================================================
-    // 34. text-align: right
-    // =========================================================================
-    {
-      name: 'Right aligned text',
-      width: 500,
-      height: 250,
-      css: withOpenSans(`body { ${font} font-size: 16px; line-height: 1.6; }`),
-      html: `<h2 style="text-align: right; font-size: 24px;">Right-Aligned Heading</h2>
-<p style="text-align: right;">This paragraph is right-aligned. Each line should flush against the right edge of the container.</p>
-<p style="text-align: right;">Short right line.</p>
-<p style="text-align: right;">A longer right-aligned paragraph that wraps to multiple lines, testing whether each wrapped line correctly aligns to the right margin.</p>`,
-    },
-
-    // =========================================================================
-    // 35. text-align: justify
-    // =========================================================================
-    {
-      name: 'Justified text',
-      width: 500,
-      height: 300,
-      css: withOpenSans(`body { ${font} font-size: 16px; line-height: 1.6; }`),
-      html: `<p style="text-align: justify;">This paragraph uses full justification. The spaces between words should be adjusted so that both the left and right edges of the text align perfectly with the container margins. This creates a clean, newspaper-like appearance that is common in printed materials and formal documents.</p>
-<p style="text-align: justify;">Another justified paragraph with varying word lengths: a the internationally recognized telecommunications infrastructure standardization committee recommended implementing comprehensive interoperability testing protocols.</p>`,
-    },
-
-    // =========================================================================
     // 36. Mixed alignment paragraphs
     // =========================================================================
     {
@@ -1110,16 +975,26 @@ console.log(msg);</pre>
     },
 
     // =========================================================================
-    // 46. Paragraph with only spaces/whitespace
+    // 46. Empty and whitespace-only paragraphs
     // =========================================================================
     {
-      name: 'Whitespace-only paragraphs',
+      name: 'Empty and whitespace-only paragraphs',
       width: 400,
-      height: 300,
+      height: 500,
       css: withOpenSans(
         `body { ${font} font-size: 16px; } p { margin: 0; min-height: 1em; }`,
       ),
-      html: `<p>Visible paragraph before.</p>
+      html: `<p>First paragraph of content.</p>
+<p><br></p>
+<p><br></p>
+<p>Third paragraph after two blank lines.</p>
+<p>&nbsp;</p>
+<p>Another paragraph after a non-breaking space line.</p>
+<p><br></p>
+<p><br></p>
+<p><br></p>
+<p>Final paragraph after three blank lines.</p>
+<p>Visible paragraph before.</p>
 <p>   </p>
 <p>&nbsp;&nbsp;&nbsp;</p>
 <p> </p>
@@ -1298,39 +1173,20 @@ console.log(msg);</pre>
 </ol>`,
     },
 
-    // 57. RTL + center alignment — Arabic centered text
+    // 57. Non-Latin text alignment — Arabic center/right/justify + CJK center/right/justify
     {
-      name: 'Arabic centered text',
+      name: 'Non-Latin text alignment',
       width: 450,
-      height: 250,
-      css: `body { font-family: sans-serif; font-size: 16px; line-height: 1.6; text-align: center; }`,
-      html: `<div dir="rtl">
-<h2 style="text-align: center; font-size: 22px;">\u0639\u0646\u0648\u0627\u0646 \u0645\u0631\u0643\u0632\u064A</h2>
-<p style="text-align: center;">\u0647\u0630\u0627 \u0646\u0635 \u0639\u0631\u0628\u064A \u0645\u0631\u0643\u0632\u064A \u064A\u062C\u0628 \u0623\u0646 \u064A\u0643\u0648\u0646 \u0641\u064A \u0627\u0644\u0645\u0646\u062A\u0635\u0641\u060C \u0648\u064A\u062E\u062A\u0628\u0631 \u0627\u0644\u062A\u0641\u0627\u0639\u0644 \u0628\u064A\u0646 \u0627\u0644\u0627\u062A\u062C\u0627\u0647 \u0648\u0627\u0644\u0645\u062D\u0627\u0630\u0627\u0629\u06D4</p>
-<p style="text-align: center;">\u0633\u0637\u0631 \u0642\u0635\u064A\u0631 \u0645\u0631\u0643\u0632\u064A\u06D4</p>
-</div>`,
-    },
-
-    // 58. RTL + justify — Arabic justified text
-    {
-      name: 'Arabic justified text',
-      width: 400,
-      height: 250,
+      height: 600,
       css: `body { font-family: sans-serif; font-size: 16px; line-height: 1.6; }`,
       html: `<div dir="rtl">
-<p style="text-align: justify;">\u0647\u0630\u0627 \u0646\u0635 \u0639\u0631\u0628\u064A \u0645\u0636\u0628\u0648\u0637 \u0627\u0644\u0645\u062D\u0627\u0630\u0627\u0629 \u064A\u062C\u0628 \u0623\u0646 \u062A\u0643\u0648\u0646 \u0627\u0644\u0645\u0633\u0627\u0641\u0627\u062A \u0628\u064A\u0646 \u0627\u0644\u0643\u0644\u0645\u0627\u062A \u0645\u0648\u0632\u0639\u0629 \u0628\u0627\u0644\u062A\u0633\u0627\u0648\u064A \u0644\u062A\u0645\u0644\u0623 \u0627\u0644\u0633\u0637\u0631 \u0628\u0627\u0644\u0643\u0627\u0645\u0644 \u0645\u0646 \u0627\u0644\u064A\u0645\u064A\u0646 \u0625\u0644\u0649 \u0627\u0644\u064A\u0633\u0627\u0631\u06D4</p>
-<p style="text-align: justify;">\u0641\u0642\u0631\u0629 \u062B\u0627\u0646\u064A\u0629 \u0645\u0639 \u0643\u0644\u0645\u0627\u062A \u0645\u062E\u062A\u0644\u0641\u0629 \u0627\u0644\u0623\u0637\u0648\u0627\u0644 \u0644\u0627\u062E\u062A\u0628\u0627\u0631 \u062A\u0648\u0632\u064A\u0639 \u0627\u0644\u0645\u0633\u0627\u0641\u0627\u062A \u0641\u064A \u0633\u064A\u0627\u0642 RTL\u06D4</p>
-</div>`,
-    },
-
-    // 59. CJK + justify — Japanese/Chinese justified text
-    {
-      name: 'CJK justified text',
-      width: 350,
-      height: 300,
-      css: `body { font-family: sans-serif; font-size: 16px; line-height: 1.6; }`,
-      html: `<p style="text-align: justify;">\u3053\u308C\u306F\u65E5\u672C\u8A9E\u306E\u4E21\u7AEF\u63C3\u3048\u30C6\u30B9\u30C8\u3067\u3059\u3002\u6587\u5B57\u9593\u306E\u30B9\u30DA\u30FC\u30B9\u304C\u5747\u7B49\u306B\u5206\u914D\u3055\u308C\u308B\u304B\u78BA\u8A8D\u3057\u307E\u3059\u3002\u30C6\u30AD\u30B9\u30C8\u30EC\u30F3\u30C0\u30EA\u30F3\u30B0\u306E\u54C1\u8CEA\u3092\u691C\u8A3C\u3057\u307E\u3059\u3002</p>
-<p style="text-align: justify;">\u8FD9\u662F\u4E2D\u6587\u4E24\u7AEF\u5BF9\u9F50\u6D4B\u8BD5\u3002\u6BCF\u4E2A\u5B57\u7B26\u4E4B\u95F4\u7684\u7A7A\u95F4\u5E94\u8BE5\u5747\u5300\u5206\u5E03\uFF0C\u4EE5\u786E\u4FDD\u6587\u672C\u586B\u6EE1\u6574\u4E2A\u5BB9\u5668\u5BBD\u5EA6\u3002</p>`,
+<p style="text-align: center;">\u0639\u0646\u0648\u0627\u0646 \u0645\u0631\u0643\u0632\u064A \u2014 \u0647\u0630\u0627 \u0646\u0635 \u0639\u0631\u0628\u064A \u0645\u0631\u0643\u0632\u064A \u064A\u062E\u062A\u0628\u0631 \u0627\u0644\u062A\u0641\u0627\u0639\u0644 \u0628\u064A\u0646 \u0627\u0644\u0627\u062A\u062C\u0627\u0647 \u0648\u0627\u0644\u0645\u062D\u0627\u0630\u0627\u0629\u06D4</p>
+<p style="text-align: right;">\u0646\u0635 \u0639\u0631\u0628\u064A \u0628\u0645\u062D\u0627\u0630\u0627\u0629 \u0627\u0644\u064A\u0645\u064A\u0646 \u2014 \u0641\u064A \u0633\u064A\u0627\u0642 RTL \u064A\u0639\u0646\u064A \u0627\u0644\u0645\u062D\u0627\u0630\u0627\u0629 \u0625\u0644\u0649 \u0627\u0644\u064A\u0633\u0627\u0631 \u0628\u0635\u0631\u064A\u0627\u064B\u06D4</p>
+<p style="text-align: justify;">\u0647\u0630\u0627 \u0646\u0635 \u0639\u0631\u0628\u064A \u0645\u0636\u0628\u0648\u0637 \u0627\u0644\u0645\u062D\u0627\u0630\u0627\u0629 \u064A\u062C\u0628 \u0623\u0646 \u062A\u0643\u0648\u0646 \u0627\u0644\u0645\u0633\u0627\u0641\u0627\u062A \u0628\u064A\u0646 \u0627\u0644\u0643\u0644\u0645\u0627\u062A \u0645\u0648\u0632\u0639\u0629 \u0628\u0627\u0644\u062A\u0633\u0627\u0648\u064A \u0644\u062A\u0645\u0644\u0623 \u0627\u0644\u0633\u0637\u0631\u06D4</p>
+</div>
+<p style="text-align: center;">\u65E5\u672C\u8A9E\u306E\u4E2D\u592E\u63C3\u3048\u30C6\u30B9\u30C8\u3067\u3059\u3002\u6587\u5B57\u304C\u5747\u7B49\u306B\u914D\u7F6E\u3055\u308C\u308B\u304B\u78BA\u8A8D\u3057\u307E\u3059\u3002</p>
+<p style="text-align: right;">\u8FD9\u662F\u4E2D\u6587\u53F3\u5BF9\u9F50\u6D4B\u8BD5\u3002\u6587\u672C\u5E94\u8BE5\u9760\u53F3\u5BF9\u9F50\u3002</p>
+<p style="text-align: justify;">\u3053\u308C\u306F\u65E5\u672C\u8A9E\u306E\u4E21\u7AEF\u63C3\u3048\u30C6\u30B9\u30C8\u3067\u3059\u3002\u6587\u5B57\u9593\u306E\u30B9\u30DA\u30FC\u30B9\u304C\u5747\u7B49\u306B\u5206\u914D\u3055\u308C\u308B\u304B\u78BA\u8A8D\u3057\u307E\u3059\u3002\u30C6\u30AD\u30B9\u30C8\u30EC\u30F3\u30C0\u30EA\u30F3\u30B0\u306E\u54C1\u8CEA\u3092\u691C\u8A3C\u3057\u307E\u3059\u3002</p>`,
     },
 
     // 60. Mixed scripts with formatting — bold Arabic + italic Chinese + underlined English
@@ -1475,6 +1331,220 @@ code { font-family: monospace; background: #f3f4f6; padding: 1px 4px; border-rad
 <p>The Arabic support thread said: \u201C<span dir="rtl">\u0647\u0630\u0627 \u062C\u064A\u062F\u060C \u0648\u0644\u0643\u0646 \u0644\u0627 \u062A\u0643\u0633\u0631 \u0627\u0644\u0639\u0628\u0627\u0631\u0629 \u00AB\u0641\u064A\u0642\u0648\u0644: \u0648\u0639\u0644\u064A\u0643 \u0627\u0644\u0633\u0644\u0627\u0645\u00BB \u062F\u0627\u062E\u0644 \u0627\u0644\u0628\u0637\u0627\u0642\u0629</span>.\u201D A second comment mixed Hebrew and English: \u201C<span dir="rtl">\u05D1\u05D3\u05D9\u05E7\u05D4 \u05D0\u05D7\u05EA \u05E0\u05D5\u05E1\u05E4\u05EA</span>: keep (RTL) punctuation stable, even when numbers like 2026/03/10 show up.\u201D</p>
 <p>Hindi note: \u201C<span>\u0915\u0943\u092A\u092F\u093E \u092C\u0924\u093E\u0913! \u092F\u0939 \u0968\u096A\u00D7\u096D \u0938\u092A\u094B\u0930\u094D\u091F \u0939\u0948\u0964</span>\u201D Thai note: \u201C<span>\u0E17\u0E39\u0E25\u0E27\u0E48\u0E32 \u0E1E\u0E23\u0E30\u0E2D\u0E07\u0E04\u0E4C\u0E1E\u0E23\u0E49\u0E2D\u0E21\u0E2B\u0E23\u0E37\u0E2D\u0E22\u0E31\u0E07</span>\u201D and the Japanese QA follow-up was \u300C<em>\u201Cquote clusters\u201D \u3082\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044</em>\u300D.</p>
 <p>Status emoji stayed consistent: \uD83D\uDC69\u200D\uD83D\uDCBB, \uD83D\uDC68\uD83C\uDFFD\u200D\uD83D\uDD2C, and family \uD83D\uDC68\u200D\uD83D\uDC69\u200D\uD83D\uDC67\u200D\uD83D\uDC66 should not distort line counts. We also have hard\u00A0spaces like 50\u00A0kg, word joiners in foo\u2060bar, and a zero-width break in alpha\u200Bbeta for very narrow mobile cards.</p>`,
+    },
+
+    // =========================================================================
+    // Script × feature: Lists with alignment
+    // =========================================================================
+
+    {
+      name: 'Lists with alignment variations',
+      width: 400,
+      height: 500,
+      css: `body { font-family: sans-serif; font-size: 15px; line-height: 1.6; }`,
+      html: `<ul style="text-align: left;">
+  <li>Left-aligned list item that is long enough to wrap to the next line in the container</li>
+  <li>Second left item</li>
+</ul>
+<ul style="text-align: center;">
+  <li>Center-aligned list item that wraps to test centering with bullets</li>
+  <li>Second center item</li>
+</ul>
+<ul style="text-align: right;">
+  <li>Right-aligned list item that wraps to verify right-alignment with bullets</li>
+  <li>Second right item</li>
+</ul>`,
+    },
+
+    // =========================================================================
+    // Script × feature: RTL formatting (bold/italic/underline in Arabic)
+    // =========================================================================
+
+    {
+      name: 'Arabic RTL formatting',
+      width: 450,
+      height: 300,
+      css: `body { font-family: sans-serif; font-size: 16px; line-height: 1.6; }`,
+      html: `<div dir="rtl">
+<p><strong>\u0646\u0635 \u063A\u0627\u0645\u0642</strong> \u0648 <em>\u0646\u0635 \u0645\u0627\u0626\u0644</em> \u0648 <u>\u0646\u0635 \u062A\u062D\u062A\u0647 \u062E\u0637</u> \u0648 <s>\u0646\u0635 \u0645\u0634\u0637\u0648\u0628</s></p>
+<p><span style="color: #dc2626;">\u0623\u062D\u0645\u0631</span> \u0648 <span style="color: #2563eb;">\u0623\u0632\u0631\u0642</span> \u0648 <span style="color: #16a34a;">\u0623\u062E\u0636\u0631</span> \u0648 <span style="background: #fef08a; padding: 1px 4px;">\u0645\u0638\u0644\u0644</span></p>
+<p><strong><em>\u063A\u0627\u0645\u0642 \u0648\u0645\u0627\u0626\u0644 \u0645\u0639\u0627\u064B</em></strong> \u062B\u0645 <code style="font-family: monospace; background: #f3f4f6; padding: 2px 6px;">code</code> \u062B\u0645 <span style="font-size: 22px;">\u0643\u0628\u064A\u0631</span> \u0648 <span style="font-size: 11px;">\u0635\u063A\u064A\u0631</span></p>
+</div>`,
+    },
+
+    // =========================================================================
+    // Script × feature: CJK formatting (bold/italic/colors in Japanese/Chinese)
+    // =========================================================================
+
+    {
+      name: 'CJK text with formatting',
+      width: 400,
+      height: 300,
+      css: `body { font-family: sans-serif; font-size: 16px; line-height: 1.6; }`,
+      html: `<p><strong>\u592A\u5B57\u306E\u65E5\u672C\u8A9E</strong>\u3068<em>\u659C\u4F53\u306E\u65E5\u672C\u8A9E</em>\u3068<u>\u4E0B\u7DDA\u4ED8\u304D</u>\u3068<s>\u53D6\u308A\u6D88\u3057\u7DDA</s></p>
+<p><span style="color: #dc2626;">\u7EA2\u8272\u4E2D\u6587</span>\u3001<span style="color: #2563eb;">\u9752\u8272\u4E2D\u6587</span>\u3001<span style="background: #fef08a; padding: 1px 4px;">\u9EC4\u8272\u80CC\u666F</span></p>
+<p><span style="font-size: 24px;">\uD070\uD55C\uAD6D\uC5B4</span>\uC640 <span style="font-size: 10px;">\uC791\uC740\uD55C\uAD6D\uC5B4</span>\uAC00 \uD568\uAED8</p>`,
+    },
+
+    // =========================================================================
+    // Script × feature: Hindi lists and alignment
+    // =========================================================================
+
+    {
+      name: 'Hindi lists and formatting',
+      width: 400,
+      height: 400,
+      css: `body { font-family: sans-serif; font-size: 16px; line-height: 1.6; }`,
+      html: `<ul>
+  <li><strong>\u092A\u094D\u0930\u0925\u092E</strong>: \u0928\u0908 \u0938\u0941\u0935\u093F\u0927\u093E \u0915\u093E \u092A\u0930\u0940\u0915\u094D\u0937\u0923 \u0915\u0930\u0947\u0902</li>
+  <li><em>\u0926\u094D\u0935\u093F\u0924\u0940\u092F</em>: \u0930\u093F\u092A\u094B\u0930\u094D\u091F \u0924\u0948\u092F\u093E\u0930 \u0915\u0930\u0947\u0902 \u0914\u0930 \u0938\u092E\u0940\u0915\u094D\u0937\u093E \u0915\u0947 \u0932\u093F\u090F \u092D\u0947\u091C\u0947\u0902</li>
+  <li><span style="color: #dc2626;">\u0924\u0943\u0924\u0940\u092F</span>: \u092C\u0917 \u0920\u0940\u0915 \u0915\u0930\u0947\u0902</li>
+</ul>
+<p style="text-align: center;">\u092F\u0939 <strong>\u0915\u0947\u0902\u0926\u094D\u0930\u093F\u0924</strong> \u0939\u093F\u0902\u0926\u0940 \u092A\u093E\u0920 \u0939\u0948\u0964</p>
+<p style="text-align: right;">\u092F\u0939 \u0926\u093E\u0908\u0902 \u0913\u0930 \u0938\u0947 \u0939\u093F\u0902\u0926\u0940 \u092A\u093E\u0920 \u0939\u0948\u0964</p>
+<p style="text-align: justify;">\u092F\u0939 \u0926\u094B\u0928\u094B\u0902 \u0913\u0930 \u0938\u0947 \u0938\u092E\u093E\u0928 \u0939\u093F\u0902\u0926\u0940 \u092A\u093E\u0920 \u0939\u0948 \u091C\u093F\u0938\u092E\u0947\u0902 \u0936\u092C\u094D\u0926\u094B\u0902 \u0915\u0947 \u092C\u0940\u091A \u0915\u0940 \u0926\u0942\u0930\u0940 \u0938\u092E\u093E\u0928 \u0930\u0942\u092A \u0938\u0947 \u0935\u093F\u0924\u0930\u093F\u0924 \u0939\u094B\u0924\u0940 \u0939\u0948\u0964</p>`,
+    },
+
+    // =========================================================================
+    // Script × feature: Thai lists and alignment
+    // =========================================================================
+
+    {
+      name: 'Thai lists and formatting',
+      width: 400,
+      height: 400,
+      css: `body { font-family: sans-serif; font-size: 16px; line-height: 1.6; }`,
+      html: `<ul>
+  <li><strong>\u0E2A\u0E33\u0E04\u0E31\u0E0D</strong>: \u0E17\u0E14\u0E2A\u0E2D\u0E1A\u0E01\u0E32\u0E23\u0E41\u0E2A\u0E14\u0E07\u0E1C\u0E25\u0E02\u0E49\u0E2D\u0E04\u0E27\u0E32\u0E21\u0E44\u0E17\u0E22</li>
+  <li><em>\u0E23\u0E2D\u0E07</em>: \u0E15\u0E23\u0E27\u0E08\u0E2A\u0E2D\u0E1A\u0E01\u0E32\u0E23\u0E08\u0E31\u0E14\u0E27\u0E32\u0E07\u0E2B\u0E19\u0E49\u0E32</li>
+  <li><span style="color: #16a34a;">\u0E40\u0E2A\u0E23\u0E47\u0E08</span>: \u0E2A\u0E48\u0E07\u0E21\u0E2D\u0E1A\u0E07\u0E32\u0E19</li>
+</ul>
+<p style="text-align: center;">\u0E02\u0E49\u0E2D\u0E04\u0E27\u0E32\u0E21\u0E44\u0E17\u0E22\u0E17\u0E35\u0E48\u0E08\u0E31\u0E14\u0E01\u0E36\u0E48\u0E07\u0E01\u0E25\u0E32\u0E07</p>
+<p style="text-align: right;">\u0E02\u0E49\u0E2D\u0E04\u0E27\u0E32\u0E21\u0E44\u0E17\u0E22\u0E08\u0E31\u0E14\u0E0A\u0E34\u0E14\u0E02\u0E27\u0E32</p>
+<p style="text-align: justify;">\u0E02\u0E49\u0E2D\u0E04\u0E27\u0E32\u0E21\u0E44\u0E17\u0E22\u0E17\u0E35\u0E48\u0E08\u0E31\u0E14\u0E0A\u0E34\u0E14\u0E17\u0E31\u0E49\u0E07\u0E2A\u0E2D\u0E07\u0E14\u0E49\u0E32\u0E19 \u0E04\u0E27\u0E32\u0E21\u0E2B\u0E48\u0E32\u0E07\u0E23\u0E30\u0E2B\u0E27\u0E48\u0E32\u0E07\u0E04\u0E33\u0E04\u0E27\u0E23\u0E01\u0E23\u0E30\u0E08\u0E32\u0E22\u0E40\u0E17\u0E48\u0E32\u0E01\u0E31\u0E19</p>`,
+    },
+
+    // =========================================================================
+    // Script × feature: Myanmar lists and alignment
+    // =========================================================================
+
+    {
+      name: 'Myanmar lists and formatting',
+      width: 400,
+      height: 350,
+      css: `body { font-family: 'Myanmar MN', 'Noto Sans Myanmar', sans-serif; font-size: 16px; line-height: 1.8; }`,
+      html: `<ul>
+  <li><strong>\u1015\u1011\u1019</strong>: \u1005\u1019\u103A\u1038\u101E\u1015\u103A\u1019\u103E\u102F \u1005\u1005\u103A\u1006\u1031\u1038\u1015\u102B</li>
+  <li><em>\u1012\u102F\u1010\u102D\u101A</em>: \u1021\u1005\u102E\u101B\u1004\u103A\u1001\u1036\u1005\u102C \u101B\u1031\u1038\u101E\u102C\u1038\u1015\u102B</li>
+  <li><span style="color: #dc2626;">\u1010\u1010\u102D\u101A</span>: \u1015\u103C\u1014\u103A\u101C\u100A\u103A\u1005\u102E\u1005\u1005\u103A\u1015\u102B</li>
+</ul>
+<p style="text-align: center;">\u1021\u101C\u101A\u103A\u1000\u103B \u1019\u103C\u1014\u103A\u1019\u102C\u1005\u102C\u104B</p>
+<p style="text-align: right;">\u100A\u102C\u1018\u1000\u103A \u1019\u103C\u1014\u103A\u1019\u102C\u1005\u102C\u104B</p>
+<p style="text-align: justify;">\u1019\u103C\u1014\u103A\u1019\u102C\u1005\u102C \u1005\u102C\u101E\u102C\u1038 \u100A\u102E\u100A\u102E \u1019\u103B\u103E\u102C\u1019\u103B\u103E\u102C \u101E\u100A\u103A \u1005\u102E\u1005\u1005\u103A\u1006\u1031\u1038\u101B\u1014\u103A \u101C\u102D\u102F\u1021\u1015\u103A\u101E\u100A\u103A\u104B</p>`,
+    },
+
+    // =========================================================================
+    // Script × feature: Khmer lists and alignment
+    // =========================================================================
+
+    {
+      name: 'Khmer lists and formatting',
+      width: 400,
+      height: 350,
+      css: `body { font-family: 'Khmer Sangam MN', 'Noto Sans Khmer', sans-serif; font-size: 16px; line-height: 1.8; }`,
+      html: `<ul>
+  <li><strong>\u1791\u17B8\u17E1</strong>: \u1796\u17B7\u1793\u17B7\u178F\u17D2\u1799\u1780\u17B6\u179A\u179F\u17D2\u179A\u17B6\u179C\u1787\u17D2\u179A\u17B6\u179C</li>
+  <li><em>\u1791\u17B8\u17E2</em>: \u1796\u17B7\u1793\u17B7\u178F\u17D2\u1799\u178F\u17D2\u179A\u17BC\u179C\u1796\u17B7\u1793\u17B7\u178F\u17D2\u1799</li>
+  <li><span style="color: #2563eb;">\u1791\u17B8\u17E3</span>: \u179F\u17C6\u178E\u17B6\u1784\u1793\u17B7\u1784\u1780\u17B6\u179A\u1796\u17B7\u1793\u17B7\u178F\u17D2\u1799</li>
+</ul>
+<p style="text-align: center;">\u17A2\u1780\u17D2\u179F\u179A\u1781\u17D2\u1798\u17C2\u179A\u1780\u17D2\u1793\u17BB\u1784\u1780\u178E\u17D2\u178F\u17B6\u179B\u17D4</p>
+<p style="text-align: right;">\u17A2\u1780\u17D2\u179F\u179A\u1781\u17D2\u1798\u17C2\u179A\u179F\u17D2\u178F\u17B6\u17C6\u17D4</p>
+<p style="text-align: justify;">\u17A2\u1780\u17D2\u179F\u179A\u1797\u17B6\u179F\u17B6\u1781\u17D2\u1798\u17C2\u179A \u179F\u1798\u17D2\u179A\u17B6\u1794\u17CB \u1796\u17B7\u1793\u17B7\u178F\u17D2\u1799\u1780\u17B6\u179A \u179F\u17D2\u179A\u17B6\u179C\u1787\u17D2\u179A\u17B6\u179C \u17A2\u1780\u17D2\u179F\u179A \u1793\u17C5\u179B\u17BE \u1781\u17D2\u179F\u17C2\u17D4</p>`,
+    },
+
+    // =========================================================================
+    // Script × feature: CJK lists with alignment
+    // =========================================================================
+
+    {
+      name: 'CJK lists with alignment',
+      width: 350,
+      height: 400,
+      css: `body { font-family: sans-serif; font-size: 16px; line-height: 1.6; }`,
+      html: `<ul style="text-align: center;">
+  <li>\u4E2D\u6587\u5C45\u4E2D\u5217\u8868\u9879\uFF0C\u6D4B\u8BD5\u5C45\u4E2D\u5BF9\u9F50\u4E0E\u9879\u76EE\u7B26\u53F7\u7684\u4EA4\u4E92</li>
+  <li>\u7B2C\u4E8C\u4E2A\u5C45\u4E2D\u9879\u76EE</li>
+</ul>
+<ol style="text-align: right;">
+  <li>\u53F3\u5BF9\u9F50\u7684\u65E5\u672C\u8A9E\u30EA\u30B9\u30C8\u9805\u76EE\u3067\u3059\u3002\u6298\u308A\u8FD4\u3057\u3092\u30C6\u30B9\u30C8\u3057\u307E\u3059</li>
+  <li>\u7B2C\u4E8C\u9805\u76EE</li>
+</ol>`,
+    },
+
+    // =========================================================================
+    // Script × feature: RTL lists with alignment
+    // =========================================================================
+
+    {
+      name: 'RTL lists with alignment',
+      width: 400,
+      height: 400,
+      css: `body { font-family: sans-serif; font-size: 16px; line-height: 1.6; }`,
+      html: `<div dir="rtl">
+<ul style="text-align: center;">
+  <li>\u0642\u0627\u0626\u0645\u0629 \u0639\u0631\u0628\u064A\u0629 \u0645\u0631\u0643\u0632\u064A\u0629 \u0645\u0639 \u0646\u0635 \u0637\u0648\u064A\u0644 \u064A\u0643\u0641\u064A \u0644\u0644\u0627\u0644\u062A\u0641\u0627\u0641 \u0625\u0644\u0649 \u0627\u0644\u0633\u0637\u0631 \u0627\u0644\u062A\u0627\u0644\u064A</li>
+  <li>\u0639\u0646\u0635\u0631 \u0645\u0631\u0643\u0632\u064A \u0642\u0635\u064A\u0631</li>
+</ul>
+<ol style="text-align: justify;">
+  <li>\u0639\u0646\u0635\u0631 \u0645\u0636\u0628\u0648\u0637 \u0627\u0644\u0645\u062D\u0627\u0630\u0627\u0629 \u0641\u064A \u0642\u0627\u0626\u0645\u0629 \u0645\u0631\u0642\u0645\u0629 \u0645\u0639 \u0646\u0635 \u0637\u0648\u064A\u0644 \u064A\u062E\u062A\u0628\u0631 \u062A\u0648\u0632\u064A\u0639 \u0627\u0644\u0645\u0633\u0627\u0641\u0627\u062A</li>
+  <li>\u0639\u0646\u0635\u0631 \u0645\u0636\u0628\u0648\u0637 \u062B\u0627\u0646\u064A</li>
+</ol>
+</div>`,
+    },
+
+    // =========================================================================
+    // CSS text properties: letter-spacing, word-spacing, text-transform
+    // =========================================================================
+
+    {
+      name: 'Letter spacing and word spacing',
+      width: 500,
+      height: 350,
+      css: `body { font-family: sans-serif; font-size: 16px; line-height: 1.6; }`,
+      html: `<p style="letter-spacing: 2px;">Letter spacing 2px applied to this paragraph of text that should wrap.</p>
+<p style="letter-spacing: 5px;">Wide letter spacing 5px makes text much wider and changes wrap points.</p>
+<p style="letter-spacing: -0.5px;">Tight letter spacing -0.5px brings characters closer together.</p>
+<p style="word-spacing: 10px;">Word spacing 10px adds extra space between each word in this sentence.</p>
+<p style="word-spacing: 20px;">Very wide word spacing 20px dramatically changes where lines break.</p>
+<p style="letter-spacing: 3px; word-spacing: 8px;">Both letter-spacing 3px and word-spacing 8px combined together.</p>`,
+    },
+
+    {
+      name: 'Text transform',
+      width: 400,
+      height: 250,
+      css: `body { font-family: sans-serif; font-size: 16px; line-height: 1.6; }`,
+      html: `<p style="text-transform: uppercase;">this text should be all uppercase when rendered.</p>
+<p style="text-transform: lowercase;">THIS TEXT SHOULD BE ALL LOWERCASE WHEN RENDERED.</p>
+<p style="text-transform: capitalize;">these words should each start with a capital letter.</p>
+<p>Normal text then <span style="text-transform: uppercase;">uppercase span</span> then normal.</p>`,
+    },
+
+    // =========================================================================
+    // Pre-wrap edge cases from pretext
+    // =========================================================================
+
+    {
+      name: 'Pre-wrap tabs and hard breaks',
+      width: 400,
+      height: 350,
+      css: `body { font-family: monospace; font-size: 14px; line-height: 1.5; white-space: pre-wrap; }`,
+      html: `<p>a\tb\tc\td</p>
+<p>first\n\nsecond\n\n\nthird</p>
+<p>trailing spaces   \nbefore hard break</p>
+<p>\ttab at start</p>
+<p>a\t\tb\t\t\tc</p>
+<p>after break\n\treset tab stop</p>`,
     },
   ];
 }

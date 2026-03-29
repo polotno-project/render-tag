@@ -9,7 +9,8 @@
     ".": {
       "import": "./lib/index.js",
       "types": "./lib/index.d.ts"
-    }
+    },
+    "./umd": "./lib/render-tag.umd.js"
   },
   "homepage": "https://polotno.com/render-tag/",
   "author": "Anton Lavrenov",
@@ -23,7 +24,7 @@
     "test:update-baselines": "vitest run tests/generate-baselines.test.ts",
     "test:stress": "vitest run tests/stress.test.ts",
     "test:firefox": "vitest run tests/render.test.ts -c vitest.firefox.config.ts",
-    "build": "tsc",
+    "build": "tsc && vite build --config vite.umd.config.ts",
     "docs:build": "vite build --config docs/vite.config.ts"
   },
   "devDependencies": {
