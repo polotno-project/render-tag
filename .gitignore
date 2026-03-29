@@ -22,6 +22,3 @@ Thumbs.db
 
 # Reference files
 Text.ts
-
-# Reference renderer (nested git repo — only src/ is vendored in vendor/html-to-svg/)
-html-to-svg/
