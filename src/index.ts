@@ -1,8 +1,8 @@
-import type { RenderOptions, RenderResult, LayoutLine, LayoutNode } from './types.ts';
-import { parseHTML } from './parse.ts';
-import { resolveStyles } from './style-resolver.ts';
-import { buildLayoutTree } from './layout.ts';
-import { renderNode } from './render.ts';
+import type { RenderOptions, RenderResult, LayoutLine, LayoutNode } from './types.js';
+import { parseHTML } from './parse.js';
+import { resolveStyles } from './style-resolver.js';
+import { buildLayoutTree } from './layout.js';
+import { renderNode } from './render.js';
 
 export type { RenderOptions, RenderResult, LayoutLine };
 

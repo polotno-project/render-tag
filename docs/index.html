@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="style.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&family=Caveat:wght@700&display=swap" rel="stylesheet">
   <!-- No Quill CSS loaded — zero style pollution on editor content -->
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Roboto:ital,wght@0,400;0,700;1,400&family=Merriweather:ital,wght@0,400;0,700;1,400&family=Lobster&display=swap" rel="stylesheet">
 </head>
@@ -50,29 +50,45 @@
       </div>
 
       <div class="demo-stack">
-        <div class="demo-card">
-          <div class="demo-bar" id="demo-toolbar">
-            <button data-fmt="bold" title="Bold"><b>B</b></button>
-            <button data-fmt="italic" title="Italic"><i>I</i></button>
-            <button data-fmt="underline" title="Underline"><u>U</u></button>
-            <button data-fmt="strike" title="Strikethrough"><s>S</s></button>
-            <span class="bar-sep"></span>
-            <button data-fmt="header" data-val="1" title="Heading 1">H1</button>
-            <button data-fmt="header" data-val="2" title="Heading 2">H2</button>
-            <span class="bar-sep"></span>
-            <button data-fmt="list" data-val="bullet" title="Bullet list">&#8226;</button>
-            <button data-fmt="list" data-val="ordered" title="Ordered list">1.</button>
-            <span class="bar-sep"></span>
-            <input type="color" data-fmt="color" value="#da1e28" title="Text color">
+        <div class="demo-annotated">
+          <div class="demo-annotation">
+            <span class="annotation-text">edit here</span>
+            <svg class="annotation-arrow" viewBox="0 0 130 50" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M8 3 C 15 8, 30 18, 55 28 C 75 35, 100 40, 120 42" stroke="#da1e28" stroke-width="2.5" stroke-linecap="round" fill="none" />
+              <path d="M112 36 L 122 43 L 113 49" stroke="#da1e28" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+            </svg>
           </div>
-          <div class="demo-pane" id="editor-frame">
-            <span class="demo-label">DOM</span>
-            <div id="editor"></div>
+          <div class="demo-card">
+            <div class="demo-bar" id="demo-toolbar">
+              <button data-fmt="bold" title="Bold"><b>B</b></button>
+              <button data-fmt="italic" title="Italic"><i>I</i></button>
+              <button data-fmt="underline" title="Underline"><u>U</u></button>
+              <button data-fmt="strike" title="Strikethrough"><s>S</s></button>
+              <span class="bar-sep"></span>
+              <button data-fmt="header" data-val="1" title="Heading 1">H1</button>
+              <button data-fmt="header" data-val="2" title="Heading 2">H2</button>
+              <span class="bar-sep"></span>
+              <button data-fmt="list" data-val="bullet" title="Bullet list">&#8226;</button>
+              <button data-fmt="list" data-val="ordered" title="Ordered list">1.</button>
+              <span class="bar-sep"></span>
+              <input type="color" data-fmt="color" value="#da1e28" title="Text color">
+            </div>
+            <div class="demo-pane" id="editor-frame">
+              <div id="editor"></div>
+            </div>
           </div>
         </div>
-        <div class="demo-card">
-          <div class="demo-pane" id="canvas-frame">
-            <span class="demo-label">Canvas <span class="demo-tag">render-tag</span></span>
+        <div class="demo-annotated">
+          <div class="demo-annotation">
+            <span class="annotation-text">canvas output</span>
+            <svg class="annotation-arrow" viewBox="0 0 130 50" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M8 3 C 15 8, 30 18, 55 28 C 75 35, 100 40, 120 42" stroke="#da1e28" stroke-width="2.5" stroke-linecap="round" fill="none" />
+              <path d="M112 36 L 122 43 L 113 49" stroke="#da1e28" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+            </svg>
+          </div>
+          <div class="demo-card">
+            <div class="demo-pane" id="canvas-frame">
+            </div>
           </div>
         </div>
       </div>

@@ -2,6 +2,8 @@
 
 Render HTML rich text onto a canvas element using pure 2D canvas API. No SVG, no `foreignObject` — just `fillText`, `measureText`, and drawing primitives.
 
+**Website & demos:** [https://polotno.com/render-tag/](https://polotno.com/render-tag/)
+
 ## Why
 
 Browsers can render HTML into canvas via SVG `foreignObject`, but it's slow (~100ms) and inconsistent across browsers. `render-tag` parses your HTML, resolves styles via `getComputedStyle`, then lays out and draws everything with canvas 2D calls. It's **10-60x faster** than SVG-based approaches.

@@ -187,6 +187,8 @@ code { font-family: var(--mono); font-size: 0.875em; }
 }
 .demo-card {
   border: 1px solid var(--ui-03);
+  overflow: hidden;
+  max-width: 100%;
 }
 
 /* Custom toolbar */
@@ -232,29 +234,59 @@ code { font-family: var(--mono); font-size: 0.875em; }
 .demo-pane {
   position: relative;
   padding: 16px;
+  overflow: hidden;
 }
 
-.demo-label {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 10px;
-  font-weight: 500;
-  color: var(--text-03);
-  text-transform: uppercase;
-  letter-spacing: 0.32px;
-  pointer-events: none;
-  z-index: 1;
+/* Annotation: label + arrow positioned to the left of each card */
+.demo-annotated {
+  position: relative;
 }
-.demo-tag {
-  font-family: var(--mono);
-  font-size: 10px;
-  font-weight: 400;
-  text-transform: none;
-  letter-spacing: 0;
+.demo-annotation {
+  position: absolute;
+  pointer-events: none;
+}
+.annotation-text {
+  position: absolute;
+  font-family: 'Caveat', 'Segoe Print', 'Comic Sans MS', cursive;
+  font-size: 28px;
+  font-weight: 700;
+  color: #da1e28;
+  white-space: nowrap;
+  line-height: 1;
+  transform: rotate(-6deg);
+}
+.annotation-arrow {
+  position: absolute;
+}
+/* First annotation: "edit here" — top-left of editor card */
+.demo-annotated:first-child .demo-annotation {
+  top: 20px;
+  left: -170px;
+}
+.demo-annotated:first-child .annotation-text {
+  top: 0;
+  left: 0;
+}
+.demo-annotated:first-child .annotation-arrow {
+  top: 28px;
+  left: 40px;
+  width: 130px;
+  height: 50px;
+}
+/* Second annotation: "canvas output" — top-left of canvas card */
+.demo-annotated:nth-child(2) .demo-annotation {
+  top: 20px;
+  left: -200px;
+}
+.demo-annotated:nth-child(2) .annotation-text {
+  top: 0;
+  left: 0;
+}
+.demo-annotated:nth-child(2) .annotation-arrow {
+  top: 28px;
+  left: 60px;
+  width: 140px;
+  height: 50px;
 }
 
 #canvas-frame canvas { display: block; }
@@ -264,7 +296,8 @@ code { font-family: var(--mono); font-size: 0.875em; }
 #editor-frame .ql-editor {
   padding: 0;
   outline: none;
-  overflow: visible;
+  overflow-wrap: break-word;
+  word-wrap: break-word;
 }
 #editor-frame .ql-clipboard { display: none; }
 #editor-frame .ql-tooltip { display: none; }
@@ -475,6 +508,7 @@ code { font-family: var(--mono); font-size: 0.875em; }
   .hero-title { font-size: 1.75rem; }
   .perf-name { width: 80px; font-size: 12px; }
   .feature-grid { grid-template-columns: 1fr 1fr; }
+  .demo-annotation { display: none; }
 }
 
 @media (max-width: 420px) {

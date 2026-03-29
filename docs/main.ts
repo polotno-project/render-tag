@@ -192,16 +192,10 @@ function initDemo() {
         }
       }
       console.groupEnd();
-      const label = canvasFrame.querySelector('.demo-label');
       canvasFrame.innerHTML = '';
-      if (label) canvasFrame.appendChild(label);
       canvasFrame.appendChild(canvas);
     } catch (e) {
-      const label = canvasFrame.querySelector('.demo-label');
-      canvasFrame.innerHTML = '';
-      if (label) canvasFrame.appendChild(label);
-      canvasFrame.insertAdjacentHTML('beforeend',
-        `<p style="color: #da1e28; font-size: 13px;">${(e as Error).message}</p>`);
+      canvasFrame.innerHTML = `<p style="color: #da1e28; font-size: 13px;">${(e as Error).message}</p>`;
     }
   }
 

@@ -1,4 +1,4 @@
-import type { StyledNode, LayoutNode, LayoutBox, LayoutText, ResolvedStyle } from './types.ts';
+import type { StyledNode, LayoutNode, LayoutBox, LayoutText, ResolvedStyle } from './types.js';
 
 // Module-level flag controlling DOM measurement usage.
 // Set by buildLayoutTree() based on the useDomMeasurements option.
@@ -250,6 +250,10 @@ interface TextRun {
   style: ResolvedStyle;
   /** If this run came from an inline element with visible box styles */
   boxStyle?: ResolvedStyle;
+  /** Marks the start of an inline box */
+  boxOpen?: ResolvedStyle;
+  /** Marks the end of an inline box */
+  boxClose?: ResolvedStyle;
 }
 
 interface Word {

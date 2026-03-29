@@ -1,4 +1,4 @@
-import type { ResolvedStyle, StyledNode } from './types.ts';
+import type { ResolvedStyle, StyledNode } from './types.js';
 
 let containerId = 0;
 

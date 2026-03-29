@@ -3,7 +3,20 @@
   "version": "0.1.0",
   "type": "module",
   "description": "Render HTML rich text onto canvas using pure 2D API",
-  "main": "src/index.ts",
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./lib/index.js",
+      "types": "./lib/index.d.ts"
+    }
+  },
+  "homepage": "https://polotno.com/render-tag/",
+  "author": "Anton Lavrenov",
+  "files": [
+    "lib",
+    "README.md"
+  ],
   "scripts": {
     "dev": "vite",
     "test": "vitest run tests/render.test.ts",

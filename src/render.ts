@@ -1,5 +1,5 @@
-import type { LayoutNode, LayoutBox, LayoutText, ResolvedStyle } from './types.ts';
-import { buildCanvasFont } from './layout.ts';
+import type { LayoutNode, LayoutBox, LayoutText, ResolvedStyle } from './types.js';
+import { buildCanvasFont } from './layout.js';
 
 /**
  * Parse a CSS text-shadow string into individual shadow values.
