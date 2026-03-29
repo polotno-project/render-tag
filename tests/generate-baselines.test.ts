@@ -1,7 +1,9 @@
 /**
- * Run this test to regenerate baselines.json with current scores and wrapping results.
+ * Run this test to regenerate baselines for the current browser.
  *
- *   npm run test:update-baselines
+ *   npm run test:update-baselines            # Chrome
+ *   npm run test:update-baselines:firefox    # Firefox
+ *   npm run test:update-baselines:webkit     # WebKit/Safari
  */
 import { describe, it, expect } from 'vitest';
 import { commands } from 'vitest/browser';
@@ -11,14 +13,23 @@ import type { BenchmarkCase } from './helpers/test-cases.ts';
 
 const PIXEL_RATIO = 2;
 
-const SKIP_WRAPPING = new Set(['Very narrow container']);
+const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+const isFirefox = ua.includes('Firefox');
+const isWebKit = ua.includes('AppleWebKit') && !ua.includes('Chrome');
+const browserName = isFirefox ? 'firefox' : isWebKit ? 'webkit' : 'chrome';
+const baselineFile = `./tests/baselines.${browserName}.json`;
+
+const SKIP_WRAPPING = new Set([
+  'Very narrow container',
+  ...(isFirefox ? ['Long unbroken word overflow-wrap'] : []),
+]);
 
 function baselineKey(caseName: string, fontName?: string): string {
   return fontName ? `${caseName}@${fontName}` : caseName;
 }
 
 describe('Generate baselines', () => {
-  it('collects all scores and wrapping results', async () => {
+  it(`collects all scores and wrapping results for ${browserName}`, async () => {
     const allCases = await loadBasicCases();
     const results: Record<string, { score: number; wrap: boolean }> = {};
 
@@ -52,14 +63,9 @@ describe('Generate baselines', () => {
     }
 
     const json = JSON.stringify(results, null, 2) + '\n';
-    console.log('__BASELINES_JSON_START__');
-    console.log(json);
-    console.log('__BASELINES_JSON_END__');
+    await commands.writeFile(baselineFile, json);
 
-    // Also try to write via vitest commands (server-side file write)
-    await commands.writeFile('./tests/baselines.json', json);
-
-    console.log(`Wrote ${Object.keys(results).length} baselines to tests/baselines.json`);
+    console.log(`\nWrote ${Object.keys(results).length} baselines to ${baselineFile} (${browserName})`);
     expect(Object.keys(results).length).toBeGreaterThan(0);
   }, 300000);
 });

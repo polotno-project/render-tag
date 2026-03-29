@@ -3,22 +3,33 @@ import { commands } from 'vitest/browser';
 import { compareRenders, compareWrapping } from './helpers/compare.ts';
 import { loadBasicCases, polotnoCase, polotnoListsCase, FONT_VARIANTS, loadMultiFontCss } from './helpers/test-cases.ts';
 import type { BenchmarkCase } from './helpers/test-cases.ts';
-import baselines from './baselines.json';
+import chromeBaselines from './baselines.chrome.json';
+import firefoxBaselines from './baselines.firefox.json';
+import webkitBaselines from './baselines.webkit.json';
 
-// Baselines are locked for Chromium. Firefox uses them as reference but
-// allows more tolerance since text rendering differs between engines.
-const isFirefox = typeof navigator !== 'undefined' && navigator.userAgent.includes('Firefox');
+// Detect browser engine
+const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+const isFirefox = ua.includes('Firefox');
+const isWebKit = ua.includes('AppleWebKit') && !ua.includes('Chrome');
+const browserName = isFirefox ? 'firefox' : isWebKit ? 'webkit' : 'chrome';
 
-// Allow this much regression above the locked baseline before failing.
-// Firefox gets more tolerance since text rendering differs between engines.
-const SCORE_TOLERANCE = isFirefox ? 35.0 : 2.0;
+// Each browser has its own baseline file — no cross-browser tolerance needed.
+// 2% tolerance accounts for minor run-to-run variance within the same engine.
+const SCORE_TOLERANCE = 2.0;
 const PIXEL_RATIO = 2;
 
 interface BaselineEntry {
   score: number;
   wrap: boolean;
 }
-const baselineMap = baselines as Record<string, BaselineEntry>;
+
+const baselineFiles: Record<string, Record<string, BaselineEntry>> = {
+  chrome: chromeBaselines as Record<string, BaselineEntry>,
+  firefox: firefoxBaselines as Record<string, BaselineEntry>,
+  webkit: webkitBaselines as Record<string, BaselineEntry>,
+};
+const baselineMap = baselineFiles[browserName];
+const baselineFile = `./tests/baselines.${browserName}.json`;
 
 // Known wrapping limitations that are skipped from wrap checks
 const SKIP_WRAPPING = new Set([
@@ -57,7 +68,7 @@ function baselineKey(caseName: string, fontName?: string): string {
 }
 
 /**
- * Compare a result against its baseline. Returns 'regression', 'improvement', or 'same'.
+ * Compare a result against its baseline.
  * Pushes detail strings into the provided arrays.
  */
 function classifyResult(
@@ -83,7 +94,7 @@ function classifyResult(
 }
 
 /**
- * If there are improvements and no regressions, auto-update baselines.json.
+ * If there are improvements and no regressions, auto-update the browser's baselines file.
  * Merges new results into existing baselines (preserves entries not in collected).
  */
 async function autoUpdateBaselines(
@@ -102,8 +113,8 @@ async function autoUpdateBaselines(
   }
 
   const json = JSON.stringify(updated, null, 2) + '\n';
-  await commands.writeFile('./tests/baselines.json', json);
-  console.log(`\n✓ Auto-updated baselines.json (${improvements.length} improvements locked in)`);
+  await commands.writeFile(baselineFile, json);
+  console.log(`\n✓ Auto-updated ${baselineFile} (${improvements.length} improvements locked in)`);
 }
 
 describe('HTML Canvas Renderer', () => {
@@ -113,10 +124,12 @@ describe('HTML Canvas Renderer', () => {
   const allRegressions: string[] = [];
   const allImprovements: string[] = [];
 
+  const hasBaselines = Object.keys(baselineMap).length > 0;
+
   it('loads all test cases', async () => {
     allCases = await loadBasicCases();
     expect(allCases.length).toBeGreaterThan(0);
-    console.log(`Loaded ${allCases.length} test cases`);
+    console.log(`Loaded ${allCases.length} test cases | browser: ${browserName} | baselines: ${Object.keys(baselineMap).length}`);
   });
 
   describe('Default font cases', () => {
@@ -209,7 +222,7 @@ describe('HTML Canvas Renderer', () => {
     });
   });
 
-  // Runs last — auto-updates baselines.json if only improvements were found
+  // Runs last — auto-updates the browser's baselines file if only improvements were found
   describe('Baseline auto-update', () => {
     it('locks in improvements', async () => {
       await autoUpdateBaselines(collected, allImprovements, allRegressions);

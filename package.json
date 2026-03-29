@@ -22,8 +22,11 @@
     "dev": "vite --config docs/vite.config.ts",
     "test": "vitest run tests/render.test.ts",
     "test:update-baselines": "vitest run tests/generate-baselines.test.ts",
+    "test:update-baselines:firefox": "vitest run tests/generate-baselines.test.ts -c vitest.firefox.config.ts",
+    "test:update-baselines:webkit": "vitest run tests/generate-baselines.test.ts -c vitest.webkit.config.ts",
     "test:stress": "vitest run tests/stress.test.ts",
     "test:firefox": "vitest run tests/render.test.ts -c vitest.firefox.config.ts",
+    "test:webkit": "vitest run tests/render.test.ts -c vitest.webkit.config.ts",
     "build": "tsc && vite build --config vite.umd.config.ts",
     "docs:build": "vite build --config docs/vite.config.ts"
   },
