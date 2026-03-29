@@ -263,6 +263,8 @@ interface Word {
   isSpace: boolean;
   /** Tab character — width computed dynamically based on position */
   isTab?: boolean;
+  /** Word came from soft-hyphen split — show '-' if this word ends a line */
+  isSoftHyphenBreak?: boolean;
   boxStyle?: ResolvedStyle;
   /** Marks the start of an inline box (adds left padding/border) */
   boxOpen?: ResolvedStyle;
@@ -367,9 +369,31 @@ function getSegmenter(): Intl.Segmenter | null {
 function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRun, allWords: Word[]): void {
   // Split on zero-width spaces and soft hyphens (break opportunities)
   if (text.includes('\u200B') || text.includes('\u00AD')) {
-    const parts = text.split(/[\u200B\u00AD]/);
+    // Split but keep delimiters to distinguish soft hyphens from zero-width spaces
+    const parts = text.split(/(\u200B|\u00AD)/);
+    let nextIsSoftHyphen = false;
     for (const part of parts) {
-      if (part) tokenizeString(ctx, part, run, allWords);
+      if (part === '\u00AD') {
+        // Mark the PREVIOUS word as a soft-hyphen break point
+        nextIsSoftHyphen = true;
+        continue;
+      }
+      if (part === '\u200B' || part === '') {
+        nextIsSoftHyphen = false;
+        continue;
+      }
+      const prevLen = allWords.length;
+      tokenizeString(ctx, part, run, allWords);
+      // If the previous delimiter was a soft hyphen, mark the word
+      // just before this part as having a soft-hyphen break opportunity
+      if (nextIsSoftHyphen && prevLen > 0) {
+        allWords[prevLen - 1].isSoftHyphenBreak = true;
+      }
+      nextIsSoftHyphen = false;
+    }
+    // If the text ends with a soft hyphen, mark the last word
+    if (nextIsSoftHyphen && allWords.length > 0) {
+      allWords[allWords.length - 1].isSoftHyphenBreak = true;
     }
     return;
   }
@@ -585,7 +609,7 @@ function breakWordIfNeeded(
   // Check if word has CJK characters — always break at character level
   const hasCJK = [...word.text].some(isCJK);
 
-  // Check if word needs break-word splitting
+  // Check if word needs break-word splitting — when it won't fit on a fresh line
   const needsBreak = word.width > contentWidth &&
     (word.style.overflowWrap === 'break-word' || word.style.wordBreak === 'break-all');
 
@@ -648,12 +672,28 @@ function flowWordsIntoLines(
 
   const isPreWrap = whiteSpace === 'pre-wrap' || whiteSpace === 'pre' || whiteSpace === 'pre-line';
 
-  function pushLine() {
+  function pushLine(isSoftWrap = false) {
     const hadWords = currentLine.words.length > 0;
     // Trim trailing spaces
     while (currentLine.words.length > 0 && currentLine.words[currentLine.words.length - 1].isSpace) {
       currentLine.totalWidth -= currentLine.words[currentLine.words.length - 1].width;
       currentLine.words.pop();
+    }
+    // Soft hyphen: if this is a soft wrap and the last word has a soft-hyphen
+    // break, append a visible '-' since the word is being broken here.
+    if (isSoftWrap && currentLine.words.length > 0) {
+      const lastWord = currentLine.words[currentLine.words.length - 1];
+      if (lastWord.isSoftHyphenBreak) {
+        applyFont(ctx, lastWord.style);
+        const hyphenWidth = ctx.measureText('-').width;
+        currentLine.words.push({
+          text: '-',
+          width: hyphenWidth,
+          style: lastWord.style,
+          isSpace: false,
+        });
+        currentLine.totalWidth += hyphenWidth;
+      }
     }
     // In pre-wrap mode, space-only lines still need height (they are content)
     if (currentLine.words.length > 0 || (hadWords && isPreWrap)) {
@@ -739,7 +779,7 @@ function flowWordsIntoLines(
               data: { text: piece.text, overflow, lineWidth: currentLine.totalWidth, pieceWidth: piece.width, contentWidth, lineText },
             });
           }
-          pushLine();
+          pushLine(true);
           afterHardBreak = false;
         }
       }
@@ -764,7 +804,7 @@ function flowWordsIntoLines(
                 data: { text: piece.text, remaining, domWidth, contentWidth },
               });
             }
-            pushLine();
+            pushLine(true);
             afterHardBreak = false;
           }
         }

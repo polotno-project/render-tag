@@ -289,7 +289,7 @@ code { font-family: var(--mono); font-size: 0.875em; }
   height: 50px;
 }
 
-#canvas-frame canvas { display: block; }
+#canvas-frame canvas { display: block; max-width: 100%; height: auto; }
 
 /* Quill headless — no theme loaded, only structural overrides */
 #editor-frame .ql-container { border: none; }
@@ -503,35 +503,48 @@ code { font-family: var(--mono); font-size: 0.875em; }
 .footer a:hover { text-decoration: underline; }
 
 /* ═══ Responsive ═══ */
+/* ═══ API table scroll ═══ */
+.api-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 @media (max-width: 672px) {
-  .hero { padding: 64px 0 48px; }
+  .container { padding: 0 16px; }
+  .hero { padding: 48px 0 40px; }
   .hero-title { font-size: 1.75rem; }
   .perf-name { width: 80px; font-size: 12px; }
   .feature-grid { grid-template-columns: 1fr 1fr; }
   .demo-annotation { display: none; }
+  .demo-width-control input[type="range"] { width: 120px; }
+  .install-box pre { padding: 16px; }
+  .api-sig code { font-size: 12px; word-break: break-all; }
+  .btn-primary { padding: 0 32px; height: 44px; }
 }
 
 @media (max-width: 420px) {
   .feature-grid { grid-template-columns: 1fr; }
   .hero-actions { flex-direction: column; align-items: flex-start; }
+  .perf-row { gap: 8px; }
+  .perf-name { width: 64px; font-size: 11px; }
 }
 
-/* ═══ Dark mode ═══ */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --text-01: #f4f4f4;
-    --text-02: #c6c6c6;
-    --text-03: #8d8d8d;
-    --ui-bg: #161616;
-    --ui-02: #1c1c1c;
-    --ui-03: #393939;
-    --ui-04: #525252;
-    --field-01: #262626;
-    --code-bg: #1c1c1c;
-    --code-fg: #f4f4f4;
-  }
-  .demo-bar { background: var(--field-01) !important; }
-  .demo-bar button { color: var(--text-02); }
-  .demo-bar button:hover { background: var(--ui-04); }
-  .perf-track { background: var(--field-01); }
+/* ═══ Benchmark preview ═══ */
+.perf-preview {
+  margin-bottom: 24px;
 }
+.perf-preview-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-02);
+  margin-bottom: 8px;
+}
+.perf-preview-canvas {
+  background: var(--ui-bg);
+  border: 1px solid var(--ui-03);
+  padding: 16px;
+  display: inline-block;
+  max-width: 100%;
+  overflow-x: auto;
+}
+.perf-preview-canvas canvas { display: block; }

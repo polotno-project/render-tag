@@ -317,12 +317,20 @@ function initBenchmark() {
   const btn = document.getElementById('run-benchmark') as HTMLButtonElement;
   const status = document.getElementById('perf-status')!;
   const chart = document.getElementById('perf-chart')!;
+  const preview = document.getElementById('perf-preview')!;
+
+  // Show what we're benchmarking
+  try {
+    const { canvas } = renderHTML(BENCH_HTML, { width: 400, pixelRatio: window.devicePixelRatio });
+    preview.appendChild(canvas);
+  } catch { /* ignore */ }
 
   btn.addEventListener('click', async () => {
     btn.disabled = true;
     chart.innerHTML = '';
 
     const container = createBenchContainer();
+    const ROUNDS = 3;
     const results: { name: string; ms: number }[] = [];
 
     for (const runner of BENCH_RUNNERS) {
@@ -331,23 +339,28 @@ function initBenchmark() {
 
       try {
         const fn = await runner.load();
-        status.textContent = `Benchmarking ${runner.name}...`;
-        await tick();
+        const roundMedians: number[] = [];
 
-        // Determine iteration count: more for fast libs, fewer for slow
-        const isSync = runner.name === 'render-tag';
-        const iterations = isSync ? 50 : 20;
+        for (let round = 0; round < ROUNDS; round++) {
+          status.textContent = `Benchmarking ${runner.name} (round ${round + 1}/${ROUNDS})...`;
+          await tick();
 
-        // Warmup
-        for (let i = 0; i < 3; i++) await fn(container);
+          // Determine iteration count: more for fast libs, fewer for slow
+          const isSync = runner.name === 'render-tag';
+          const iterations = isSync ? 50 : 20;
 
-        const times: number[] = [];
-        for (let i = 0; i < iterations; i++) {
-          const t0 = performance.now();
-          await fn(container);
-          times.push(performance.now() - t0);
+          // Warmup
+          for (let i = 0; i < 3; i++) await fn(container);
+
+          const times: number[] = [];
+          for (let i = 0; i < iterations; i++) {
+            const t0 = performance.now();
+            await fn(container);
+            times.push(performance.now() - t0);
+          }
+          roundMedians.push(median(times));
         }
-        results.push({ name: runner.name, ms: median(times) });
+        results.push({ name: runner.name, ms: median(roundMedians) });
       } catch (e) {
         console.warn(`${runner.name} failed:`, e);
         results.push({ name: runner.name, ms: -1 });

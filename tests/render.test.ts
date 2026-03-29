@@ -106,9 +106,8 @@ describe('HTML Canvas Renderer', () => {
       const failures: string[] = [];
 
       // Known wrapping limitations:
-      // - Soft hyphens: requires Unicode soft-hyphen handling
       // - Very narrow container: CSS breaks after hyphens (e.g. "zero-width" → "zero-" / "width")
-      const SKIP_WRAPPING = new Set(['Soft hyphens and zero-width spaces', 'Very narrow container']);
+      const SKIP_WRAPPING = new Set(['Very narrow container']);
 
       for (const tc of allCases) {
         if (SKIP_WRAPPING.has(tc.name)) continue;

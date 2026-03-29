@@ -1,12 +1,14 @@
 # render-tag
 
-Render HTML rich text onto a canvas element using pure 2D canvas API. No SVG, no `foreignObject` — just `fillText`, `measureText`, and drawing primitives.
+Render HTML rich text onto canvas with the 2D API. No SVG, no `foreignObject` — just `fillText`, `measureText`, and drawing primitives.
 
 **Website & demos:** [https://polotno.com/render-tag/](https://polotno.com/render-tag/)
 
 ## Why
 
 Browsers can render HTML into canvas via SVG `foreignObject`, but it's slow (~100ms) and inconsistent across browsers. `render-tag` parses your HTML, resolves styles via `getComputedStyle`, then lays out and draws everything with canvas 2D calls. It's **10-60x faster** than SVG-based approaches.
+
+By design, render-tag focuses on **rich text only** — paragraphs, headings, lists, tables, inline formatting. It is not designed for interactive elements (buttons, inputs, iframes) or complex HTML layouts. This focus is what makes it fast.
 
 ## Install
 
@@ -45,23 +47,25 @@ const { canvas } = renderHTML(
 );
 ```
 
-### With web fonts
+### Font loading
+
+`renderHTML` is **synchronous** and does not load fonts. You must ensure fonts are loaded before calling it. If a font isn't loaded, the browser falls back to a default font and text metrics will be wrong.
 
 ```typescript
-const { canvas } = renderHTML(
-  '<p>Custom font text</p>',
-  {
-    width: 500,
-    css: `
-      @font-face {
-        font-family: 'MyFont';
-        src: url('https://example.com/font.woff2') format('woff2');
-      }
-      p { font-family: 'MyFont', sans-serif; font-size: 18px; }
-    `,
-  }
-);
+// Load fonts before rendering
+await document.fonts.load('400 16px "Roboto"');
+await document.fonts.load('700 16px "Roboto"');
+
+// Now render — fonts are guaranteed to be available
+const { canvas } = renderHTML(html, { width: 500 });
+
+// Re-render if fonts load later
+document.fonts.onloadingdone = () => {
+  renderHTML(html, { width: 500 });
+};
 ```
+
+You do **not** need to pass `@font-face` rules in the `css` option. As long as fonts are loaded in the document (via `<link>`, `@font-face` in a stylesheet, or the CSS Font Loading API), `renderHTML` can use them.
 
 ### High-DPI / Retina
 
@@ -87,10 +91,10 @@ renderHTML(html, { canvas, width: 800, height: 600 });
 |---|---|---|---|
 | `width` | `number` | *required* | Layout width in CSS pixels |
 | `height` | `number` | auto | Fixed height (auto-sized from content if omitted) |
-| `css` | `string` | `''` | CSS stylesheet (supports `@font-face`, classes, selectors) |
+| `css` | `string` | `''` | CSS stylesheet (classes, selectors, etc.) |
 | `canvas` | `HTMLCanvasElement` | created | Target canvas element |
 | `pixelRatio` | `number` | `1` | Device pixel ratio for sharp rendering |
-| `useDomMeasurements` | `boolean` | `true` | Use DOM probes for cross-browser line height accuracy. Disable for DOM-free rendering (pure canvas). |
+| `useDomMeasurements` | `boolean` | `true` | Use DOM probes for cross-browser line height accuracy. Disable for pure canvas rendering. |
 
 Returns `{ canvas: HTMLCanvasElement, height: number }`.
 
@@ -105,7 +109,6 @@ The function is **synchronous**. Fonts must be loaded before calling.
 - Line height, letter spacing, text alignment (left/center/right/justify)
 - Ordered and unordered lists with nesting
 - Inline styles and CSS classes
-- `@font-face` web fonts (loaded automatically)
 - Flexbox layout (row/column)
 - Table layout (basic)
 - Text shadows, text stroke, gradient text
@@ -113,6 +116,7 @@ The function is **synchronous**. Fonts must be loaded before calling.
 - RTL text, CJK characters, emoji
 - `pre-wrap` whitespace handling
 - `overflow-wrap: break-word`
+- Soft hyphens (`&shy;`)
 
 ## Cross-browser consistency
 
@@ -136,10 +140,10 @@ With `useDomMeasurements: true` (the default), the library uses hidden DOM probe
 
 1. **Parse** HTML with `DOMParser`
 2. **Resolve styles** via hidden DOM + `getComputedStyle` (CSS cascade for free)
-3. **Layout** with pure canvas `measureText` (block flow, inline wrapping, margin collapsing)
+3. **Layout** with canvas `measureText` (block flow, inline wrapping, margin collapsing)
 4. **Render** with canvas 2D API (`fillText`, `fillRect`, `strokeText`, etc.)
 
-Layout is computed from CSS values and canvas text metrics. Optional DOM probes (`useDomMeasurements`) improve cross-browser accuracy for line heights and mixed-font wrapping.
+Style resolution uses a hidden DOM element with `getComputedStyle` to get the full CSS cascade. Layout and rendering are done entirely with the canvas 2D API. Optional DOM probes (`useDomMeasurements`) improve cross-browser accuracy for line heights and mixed-font wrapping.
 
 ## Development
 

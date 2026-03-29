@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>render-tag — Render HTML rich text onto canvas</title>
-  <meta name="description" content="Render HTML rich text onto canvas using pure 2D API. No SVG, no foreignObject. 10-60x faster than alternatives. Synchronous, zero dependencies.">
+  <meta name="description" content="Render HTML rich text onto canvas with the 2D API. No SVG, no foreignObject. 10-60x faster than alternatives. Synchronous, zero dependencies.">
   <link rel="stylesheet" href="style.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -19,8 +19,8 @@
     <div class="container">
       <p class="hero-eyebrow">Canvas 2D text rendering</p>
       <h1 class="hero-title">HTML rich text,<br>drawn on canvas.</h1>
-      <p class="hero-desc">render-tag takes HTML + CSS and draws it onto a canvas element using pure 2D API calls. No SVG. No <code>foreignObject</code>. Synchronous. Zero dependencies.</p>
-      <p class="hero-note">By design, render-tag focuses on <strong>rich text only</strong> — paragraphs, headings, lists, tables, inline formatting. It does not try to render arbitrary HTML like form controls, iframes, or complex layouts. This focus is what makes it fast.</p>
+      <p class="hero-desc">render-tag takes HTML + CSS and draws it onto a canvas element with the 2D API. No SVG. No <code>foreignObject</code>. Synchronous. Zero dependencies.</p>
+      <p class="hero-note">By design, render-tag focuses on <strong>rich text only</strong> — paragraphs, headings, lists, tables, inline formatting. It is not designed for interactive elements like buttons, inputs, iframes, or complex layouts. This focus is what makes it fast.</p>
       <div class="hero-actions">
         <a href="#demo" class="btn-primary">Try it live</a>
         <div class="hero-install">
@@ -100,7 +100,11 @@
     <div class="container">
       <div class="section-header">
         <h2>Performance</h2>
-        <p>Live benchmark in your browser. Rich text with Playfair Display + Roboto Google Fonts, 400px wide.</p>
+        <p>Live benchmark in your browser. Median of 3 runs. Each run takes the median of multiple iterations.</p>
+      </div>
+      <div class="perf-preview">
+        <p class="perf-preview-label">Benchmark input (400px wide):</p>
+        <div class="perf-preview-canvas" id="perf-preview"></div>
       </div>
       <div class="perf-bench">
         <button class="btn-primary" id="run-benchmark">Run benchmark</button>
@@ -178,20 +182,22 @@
         <h2>API</h2>
       </div>
       <div class="api-sig"><code>renderHTML(html, options) &rarr; { canvas, height }</code></div>
-      <table class="api-table">
-        <thead>
-          <tr><th>Option</th><th>Type</th><th>Default</th><th>Description</th></tr>
-        </thead>
-        <tbody>
-          <tr><td><code>width</code></td><td>number</td><td>&mdash;</td><td>Layout width in CSS pixels. Required.</td></tr>
-          <tr><td><code>height</code></td><td>number</td><td>auto</td><td>Fixed height. Auto-sized from content if omitted.</td></tr>
-          <tr><td><code>css</code></td><td>string</td><td><code>''</code></td><td>Additional CSS. Supports <code>@font-face</code>, classes, selectors.</td></tr>
-          <tr><td><code>canvas</code></td><td>HTMLCanvasElement</td><td>created</td><td>Render onto an existing canvas.</td></tr>
-          <tr><td><code>pixelRatio</code></td><td>number</td><td><code>1</code></td><td>Device pixel ratio for HiDPI.</td></tr>
-          <tr><td><code>useDomMeasurements</code></td><td>boolean</td><td><code>true</code></td><td>DOM probes for cross-browser line height accuracy.</td></tr>
-        </tbody>
-      </table>
-      <p class="api-note">Synchronous. Fonts must be loaded before calling.</p>
+      <div class="api-table-wrap">
+        <table class="api-table">
+          <thead>
+            <tr><th>Option</th><th>Type</th><th>Default</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>width</code></td><td>number</td><td>&mdash;</td><td>Layout width in CSS pixels. Required.</td></tr>
+            <tr><td><code>height</code></td><td>number</td><td>auto</td><td>Fixed height. Auto-sized from content if omitted.</td></tr>
+            <tr><td><code>css</code></td><td>string</td><td><code>''</code></td><td>Additional CSS. Supports classes and selectors. No need to include <code>@font-face</code> — just load fonts in the document first.</td></tr>
+            <tr><td><code>canvas</code></td><td>HTMLCanvasElement</td><td>created</td><td>Render onto an existing canvas.</td></tr>
+            <tr><td><code>pixelRatio</code></td><td>number</td><td><code>1</code></td><td>Device pixel ratio for HiDPI.</td></tr>
+            <tr><td><code>useDomMeasurements</code></td><td>boolean</td><td><code>true</code></td><td>DOM probes for cross-browser line height accuracy.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="api-note">Synchronous. Fonts must be loaded before calling — use <code>document.fonts.load()</code> or <code>document.fonts.ready</code>. Re-render when fonts load if needed.</p>
     </div>
   </section>
 
@@ -218,7 +224,7 @@ document.body.appendChild(canvas);</code></pre>
       <span class="footer-sep">/</span>
       <span>MIT</span>
       <span class="footer-sep">/</span>
-      <a href="https://github.com/nicepkg/render-tag" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/polotno-project/render-tag" target="_blank" rel="noopener">GitHub</a>
     </div>
   </footer>
 

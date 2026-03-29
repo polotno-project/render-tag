@@ -183,9 +183,47 @@ export function extractDomLines(
       range.setStart(textNode, offset);
       range.setEnd(textNode, offset + w.length);
       const rects = range.getClientRects();
-      if (rects.length <= 1) {
+      // Strip invisible characters (soft hyphens, zero-width spaces) from display text
+      const stripInvisible = (s: string) => s.replace(/[\u00AD\u200B]/g, '');
+
+      const hasShy = w.includes('\u00AD') || w.includes('\u200B');
+
+      // For words with soft hyphens / zero-width spaces, getClientRects() may
+      // return only 1 rect even when the word visually wraps. In that case,
+      // scan character-by-character to detect line breaks by Y position.
+      const hasSoftBreaks = w.includes('\u00AD') || w.includes('\u200B');
+
+      if (hasShy) {
+        // Char-by-char scan: group by Y position to find line breaks.
+        // getClientRects() on shy words can return multiple rects on the
+        // same Y line, so rect-based splitting doesn't work reliably.
+        const charGroups: { y: number; x: number; height: number; chars: string }[] = [];
+        for (let ci = 0; ci < w.length; ci++) {
+          const ch = w[ci];
+          if (ch === '\u00AD' || ch === '\u200B') continue;
+          range.setStart(textNode, offset + ci);
+          range.setEnd(textNode, offset + ci + 1);
+          const charRect = range.getClientRects()[0];
+          if (!charRect) continue;
+          const charY = charRect.top - cTop;
+          const last = charGroups[charGroups.length - 1];
+          if (last && Math.abs(charY - last.y) < last.height * 0.5) {
+            last.chars += ch;
+          } else {
+            charGroups.push({ y: charY, x: charRect.left, height: charRect.height, chars: ch });
+          }
+        }
+        for (const g of charGroups) {
+          if (g.chars) {
+            wordPositions.push({ x: g.x, y: g.y, height: g.height, text: g.chars });
+          }
+        }
+      } else if (rects.length <= 1) {
         const rect = rects[0] || range.getBoundingClientRect();
-        wordPositions.push({ x: rect.left, y: rect.top - cTop, height: rect.height, text: w });
+        const clean = stripInvisible(w);
+        if (clean) {
+          wordPositions.push({ x: rect.left, y: rect.top - cTop, height: rect.height, text: clean });
+        }
       } else {
         let charIdx = 0;
         for (let ri = 0; ri < rects.length; ri++) {
@@ -203,8 +241,9 @@ export function extractDomLines(
             fragment += w[charIdx];
             charIdx++;
           }
-          if (fragment) {
-            wordPositions.push({ x: rects[ri].left, y: rectY, height: rects[ri].height, text: fragment });
+          const clean = stripInvisible(fragment);
+          if (clean) {
+            wordPositions.push({ x: rects[ri].left, y: rectY, height: rects[ri].height, text: clean });
           }
         }
       }
@@ -279,6 +318,8 @@ export function compareWrapping(
     // Remove ordered list markers like "1." "2." "10." — but only when
     // they appear as standalone markers (followed by text, not mid-number)
     n = n.replace(/(?:^|\b)(\d+)\./g, '');
+    // Remove trailing hyphens — canvas adds visible '-' at soft-hyphen breaks
+    n = n.replace(/-$/, '');
     return n.split('').sort().join('');
   };
 
@@ -319,7 +360,9 @@ export function compareWrapping(
     domCum += dLen;
     const drift = Math.abs(canvasCum - domCum);
     const lineLen = Math.max(cLen, dLen, 1);
-    if (drift > lineLen * 0.1) {
+    // Allow at least 2 chars drift — soft-hyphen and sub-pixel measurement
+    // differences can shift 1-2 characters between lines at break points.
+    if (drift > Math.max(lineLen * 0.1, 2)) {
       differentLines.push({
         lineIndex: i,
         canvas: canvasLines[i].text,
