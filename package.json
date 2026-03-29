@@ -1,6 +1,6 @@
 {
   "name": "render-tag",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "description": "Render HTML rich text onto canvas using pure 2D API",
   "main": "./lib/index.js",
