@@ -57,6 +57,7 @@
   "Whitespace-only paragraphs": 0.00,
   "Nested divs with margins": 0.00,
   "Mixed Google Fonts inline": 22.90,
+  "Dense mixed inline styles": 15.68,
   "Polotno HTML": 10.29,
   "Polotno Lists": 2.87
 }

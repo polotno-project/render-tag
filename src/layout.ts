@@ -707,27 +707,34 @@ function flowWordsIntoLines(
       // Would this piece overflow?
       if (!piece.isSpace && currentLine.words.length > 0 &&
         currentLine.totalWidth + piece.width > contentWidth) {
-        // When overflow is marginal (within 5px) and the line has mixed fonts,
-        // verify with DOM measurement. Canvas measureText accumulates sub-pixel
-        // rounding errors across font boundaries.
-        let shouldWrap = true;
         const overflow = currentLine.totalWidth + piece.width - contentWidth;
-        if (_useDomMeasurements && overflow < 5 && hasMixedFonts(currentLine.words)) {
-          const candidateWords = [...currentLine.words, piece];
-          const domWidth = measureLineWidthViaDom(candidateWords);
-          if (domWidth <= contentWidth) {
-            shouldWrap = false;
+
+        // For borderline cases (overflow < 1px), word-by-word delta
+        // accumulation may introduce rounding errors. Re-measure the
+        // full candidate line as a single string for accuracy.
+        // Only works for single-font lines — mixed fonts can't be
+        // measured as one string.
+        let reallyOverflows = true;
+        if (overflow < 1 && !hasMixedFonts([...currentLine.words, piece])) {
+          applyFont(ctx, piece.style);
+          const fullText = currentLine.words.map(w => w.text).join('') + piece.text;
+          const fullWidth = ctx.measureText(fullText).width;
+          // Allow tiny sub-pixel overflow — canvas measureText and DOM
+          // text layout can differ by fractions of a pixel.
+          if (fullWidth <= contentWidth + 0.1) {
+            reallyOverflows = false;
           }
         }
-        if (_debug) {
-          const lineText = currentLine.words.map(w => w.text).join('');
-          _debug({
-            type: 'line-wrap',
-            message: `"${piece.text}" overflow=${overflow.toFixed(2)} wrap=${shouldWrap} lineWidth=${currentLine.totalWidth.toFixed(2)} pieceWidth=${piece.width.toFixed(2)} contentWidth=${contentWidth}  line="${lineText}"`,
-            data: { text: piece.text, overflow, shouldWrap, lineWidth: currentLine.totalWidth, pieceWidth: piece.width, contentWidth, lineText },
-          });
-        }
-        if (shouldWrap) {
+
+        if (reallyOverflows) {
+          if (_debug) {
+            const lineText = currentLine.words.map(w => w.text).join('');
+            _debug({
+              type: 'line-wrap',
+              message: `"${piece.text}" overflow=${overflow.toFixed(2)} wrap=true lineWidth=${currentLine.totalWidth.toFixed(2)} pieceWidth=${piece.width.toFixed(2)} contentWidth=${contentWidth}  line="${lineText}"`,
+              data: { text: piece.text, overflow, lineWidth: currentLine.totalWidth, pieceWidth: piece.width, contentWidth, lineText },
+            });
+          }
           pushLine();
           afterHardBreak = false;
         }
@@ -843,8 +850,13 @@ function layoutInlineContent(
       let scanX = curX;
       let boxStartX = scanX;
       let currentBoxStyle: ResolvedStyle | undefined;
+      let boxHasText = false; // track if region has visible text (not just padding/spaces)
 
       const emitBox = (style: ResolvedStyle, startX: number, endX: number) => {
+        // Don't emit background box if this line segment has no visible text
+        // (e.g. only a boxOpen padding marker + trailing space before wrap)
+        if (!boxHasText) return;
+
         ctx.font = buildCanvasFont(style);
         const metrics = ctx.measureText('Mgy');
         const ascent = metrics.fontBoundingBoxAscent ?? metrics.actualBoundingBoxAscent;
@@ -878,13 +890,16 @@ function layoutInlineContent(
           if (currentBoxStyle) {
             emitBox(currentBoxStyle, boxStartX, scanX);
             currentBoxStyle = undefined;
+            boxHasText = false;
           }
           const s = word.style;
           const textWidth = word.width - s.marginLeft - s.borderLeftWidth - s.paddingLeft
             - s.paddingRight - s.borderRightWidth - s.marginRight;
           const boxX = scanX + s.marginLeft;
           const boxW = s.borderLeftWidth + s.paddingLeft + textWidth + s.paddingRight + s.borderRightWidth;
+          boxHasText = true;
           emitBox(s, boxX, boxX + boxW);
+          boxHasText = false;
           scanX += word.width;
           continue;
         }
@@ -895,6 +910,11 @@ function layoutInlineContent(
           }
           currentBoxStyle = word.boxStyle;
           boxStartX = scanX;
+          boxHasText = false;
+        }
+        // Track if we've seen actual text content (not spaces or empty padding markers)
+        if (word.text && !word.isSpace) {
+          boxHasText = true;
         }
         scanX += word.width + (word.isSpace ? justifyExtraPerSpace : 0);
       }

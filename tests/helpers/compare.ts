@@ -420,12 +420,10 @@ export async function compareRenders(
   const t0 = performance.now();
   const domCanvas = await renderToDOM(html, css, width, height, pixelRatio);
   const t1 = performance.now();
-  console.log(`[compare] reference done in ${(t1-t0).toFixed(0)}ms, rendering canvas...`);
   const libResult = renderToCanvas(html, css, width, height, pixelRatio);
   const libCanvas = libResult.canvas;
   const canvasLines = libResult.lines;
   const t2 = performance.now();
-  console.log(`[compare] canvas done in ${(t2-t1).toFixed(0)}ms, comparing...`);
 
   // Clean up font style after both renders are done
   if (fontStyle) fontStyle.remove();

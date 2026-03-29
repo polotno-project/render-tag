@@ -1173,6 +1173,18 @@ console.log(msg);</pre>
 <p><span style="font-family:'Lobster',cursive;font-size:20px">Lobster Big</span> next to <span style="font-family:'Roboto',sans-serif;font-size:12px">small Roboto</span> next to <span style="font-family:'Playfair Display',serif;font-size:18px">medium Playfair</span></p>
 <p style="font-family:'Roboto',sans-serif">Roboto paragraph with <span style="font-family:'Inconsolata',monospace;background:#f3f4f6;padding:1px 4px">code in Inconsolata</span> inline.</p>`,
     },
+
+    // 49. Dense mixed inline styles — wrapping regression test
+    // Triggers marginal overflow with mixed fonts/sizes/backgrounds at narrow width.
+    // Previously "green" was placed on a line that overflowed by 3.6px.
+    // =========================================================================
+    {
+      name: 'Dense mixed inline styles',
+      width: 411,
+      height: 400,
+      css: withMultiFont(`body { font-family: 'Roboto', sans-serif; font-size: 14px; line-height: 1.7; }`),
+      html: `<p><strong>Bold</strong> and <em>italic</em> and <strong><em>both</em></strong>. <span style="color: #da1e28;">Red text</span>, <span style="color: #0f62fe;">blue text</span>, <span style="background: #ffeaa7; padding: 1px 4px;">yellow highlight</span>, <span style="background: #d4efdf; padding: 1px 4px;">green highlight</span>. <u>Underlined</u>, <s>strikethrough</s>, wavy underline, dotted underline. Sizes: 10px tiny, 18px, <span style="font-size: 24px; font-weight: 700; color: #1a1a2e;">24px bold</span>. Fonts: Merriweather italic, <span style="font-family: 'Lobster', cursive; font-size: 18px; color: #6a0dad;">Lobster</span>, light 300, black 900.</p>`,
+    },
   ];
 }
 

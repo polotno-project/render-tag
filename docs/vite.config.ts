@@ -3,6 +3,7 @@ import path from 'path';
 
 export default defineConfig({
   root: path.resolve(__dirname),
+  base: '/render-tag/',
   resolve: {
     alias: {
       'render-tag': path.resolve(__dirname, '../src/index.ts'),

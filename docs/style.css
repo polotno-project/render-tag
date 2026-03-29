@@ -36,7 +36,7 @@ body {
   line-height: 1.5;
   color: var(--text-01);
   background: var(--ui-bg);
-  -webkit-font-smoothing: antialiased;
+
 }
 
 code { font-family: var(--mono); font-size: 0.875em; }
