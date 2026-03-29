@@ -36,6 +36,51 @@ export interface RenderConfig {
   debug?: (entry: DebugEntry) => void;
 }
 
+export interface LayoutConfig {
+  /** HTML string to render (include <style> tags for CSS) */
+  html: string;
+  /** Width of the rendering area in CSS pixels */
+  width: number;
+  /** Height override in CSS pixels (auto-sized from content if omitted) */
+  height?: number;
+  /**
+   * Measurement accuracy mode (default: 'balanced').
+   * - 'balanced' — uses DOM probes for cross-browser consistent line heights.
+   * - 'performance' — pure canvas API measurements only.
+   */
+  accuracy?: 'balanced' | 'performance';
+  /** Debug callback for layout diagnostics */
+  debug?: (entry: DebugEntry) => void;
+}
+
+export interface LayoutResult {
+  /** The layout tree root */
+  layoutRoot: LayoutBox;
+  /** Content height in CSS pixels */
+  height: number;
+  /** Text lines grouped by Y coordinate */
+  lines: LayoutLine[];
+}
+
+export interface DrawConfig {
+  /** Layout result from layout() */
+  layout: LayoutResult;
+  /** Width used during layout (must match) */
+  width: number;
+  /**
+   * Existing 2D rendering context to draw onto.
+   * No resizing or scaling applied. Mutually exclusive with `canvas`.
+   */
+  ctx?: AnyContext;
+  /**
+   * Target canvas element (created if not provided).
+   * Mutually exclusive with `ctx`.
+   */
+  canvas?: AnyCanvas;
+  /** Device pixel ratio (default: globalThis.devicePixelRatio ?? 1) */
+  pixelRatio?: number;
+}
+
 /** @deprecated Use RenderConfig instead */
 export interface RenderOptions {
   canvas?: HTMLCanvasElement;

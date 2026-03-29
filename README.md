@@ -99,6 +99,8 @@ This is useful for compositing multiple renders onto one canvas or rendering ont
 
 ### `render(config): RenderResult`
 
+All-in-one: compute layout and draw in a single call.
+
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `html` | `string` | *required* | HTML string to render (include `<style>` tags for CSS) |
@@ -111,12 +113,50 @@ This is useful for compositing multiple renders onto one canvas or rendering ont
 
 Returns `{ canvas, height, layoutRoot, lines }`.
 
-- `canvas` — the canvas rendered onto
-- `height` — content height in CSS pixels
-- `layoutRoot` — full layout tree for inspection
-- `lines` — text lines grouped by Y coordinate
-
 The function is **synchronous**. Fonts must be loaded before calling.
+
+### `layout(config): LayoutResult`
+
+Compute layout without rendering. Use when you need to measure content or render the same layout onto multiple targets.
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `html` | `string` | *required* | HTML string (include `<style>` tags for CSS) |
+| `width` | `number` | *required* | Layout width in CSS pixels |
+| `height` | `number` | auto | Fixed height (auto-sized from content if omitted) |
+| `accuracy` | `'balanced' \| 'performance'` | `'balanced'` | Measurement accuracy mode |
+
+Returns `{ layoutRoot, height, lines }`.
+
+### `drawLayout(config): { canvas }`
+
+Draw a pre-computed layout onto a canvas or context.
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `layout` | `LayoutResult` | *required* | Result from `layout()` |
+| `width` | `number` | *required* | Width used during layout (must match) |
+| `ctx` | `CanvasRenderingContext2D` | — | Existing context to draw onto (no resizing/scaling) |
+| `canvas` | `HTMLCanvasElement \| OffscreenCanvas` | created | Target canvas (mutually exclusive with `ctx`) |
+| `pixelRatio` | `number` | `devicePixelRatio` | Device pixel ratio |
+
+### Example: layout once, draw many
+
+```typescript
+import { layout, drawLayout } from 'render-tag';
+
+const result = layout({ html, width: 400 });
+console.log('content height:', result.height);
+
+// Draw onto a thumbnail canvas
+drawLayout({ layout: result, width: 400, canvas: thumbnailCanvas });
+
+// Draw onto the main canvas
+drawLayout({ layout: result, width: 400, canvas: mainCanvas });
+
+// Draw onto an existing context
+drawLayout({ layout: result, width: 400, ctx: offscreenCtx });
+```
 
 ## What it renders
 

@@ -213,6 +213,11 @@
         </table>
       </div>
       <p class="api-note">Synchronous. Fonts must be loaded before calling — use <code>document.fonts.load()</code> or <code>document.fonts.ready</code>. Re-render when fonts load if needed.</p>
+
+      <h3 style="margin-top:24px;">Advanced: layout once, draw many</h3>
+      <p class="api-note" style="margin-bottom:8px;">Split layout and rendering to draw the same content onto multiple targets:</p>
+      <div class="api-sig"><code>layout(config) &rarr; { layoutRoot, height, lines }</code></div>
+      <div class="api-sig" style="margin-top:4px;"><code>drawLayout(config) &rarr; { canvas }</code></div>
     </div>
   </section>
 

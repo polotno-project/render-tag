@@ -14,7 +14,7 @@ HTML string + CSS → parseHTML (DOMParser) → resolveStyles (hidden DOM + getC
 - **`render()` is synchronous** — no async, no font loading. Caller must load fonts first.
 
 ### Key files
-- `src/index.ts` — public API: `render(config)`
+- `src/index.ts` — public API: `render()`, `layout()`, `drawLayout()`
 - `src/style-resolver.ts` — hidden DOM insertion + getComputedStyle walk
 - `src/layout.ts` — block flow, inline wrapping, flex, table, lists, RTL
 - `src/render.ts` — canvas 2D drawing: text, backgrounds, borders, decorations
