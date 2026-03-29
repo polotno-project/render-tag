@@ -125,11 +125,11 @@ export function renderToCanvas(
  * Extract text lines from DOM using Range API.
  * Groups words by their Y position to detect line breaks.
  */
-export async function extractDomLines(
+export function extractDomLines(
   html: string,
   css: string,
   width: number,
-): Promise<{ y: number; text: string }[]> {
+): { y: number; text: string }[] {
   // Create a container matching the exact structure used for the DOM toggle
   // view — same CSS scoping, same overflow, same wrapper structure.
   const containerId = `__wrap_check_${Date.now()}__`;
@@ -149,8 +149,9 @@ export async function extractDomLines(
   container.appendChild(content);
   document.body.appendChild(container);
 
-  // Wait for fonts to load so text wraps with the correct metrics
-  await document.fonts.ready;
+  // Caller must ensure fonts are loaded before calling.
+  // In the demo, all fonts are preloaded upfront.
+  // In tests, compareRenders handles font loading before rendering.
 
   const cTop = content.getBoundingClientRect().top;
 
@@ -256,15 +257,15 @@ export interface LayoutComparisonResult {
  *   If not provided, runs renderHTML internally (may differ from displayed canvas
  *   if font loading state changed).
  */
-export async function compareWrapping(
+export function compareWrapping(
   html: string,
   css: string,
   width: number,
   height: number,
   precomputedCanvasLines?: { y: number; text: string }[],
-): Promise<LayoutComparisonResult> {
+): LayoutComparisonResult {
   const rawCanvasLines = precomputedCanvasLines || renderHTML(html, { width, height, css }).lines;
-  const rawDomLines = await extractDomLines(html, css, width);
+  const rawDomLines = extractDomLines(html, css, width);
 
   // Normalize: strip whitespace and list markers, sort characters.
   // We only care that the same characters appear on the same line,

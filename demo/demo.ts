@@ -1,5 +1,5 @@
 import { compareRenders, compareWrapping, extractDomLines } from '../tests/helpers/compare.ts';
-import { loadBasicCases, loadGoogleFontCase, polotnoCase, polotnoListsCase, FONT_VARIANTS, loadMultiFontCss } from '../tests/helpers/test-cases.ts';
+import { loadBasicCases, polotnoCase, polotnoListsCase, FONT_VARIANTS, loadMultiFontCss } from '../tests/helpers/test-cases.ts';
 import type { BenchmarkCase } from '../tests/helpers/test-cases.ts';
 
 const PIXEL_RATIO = window.devicePixelRatio || 2;
@@ -234,8 +234,32 @@ async function main() {
 
   _multiFontCss = await loadMultiFontCss();
   const basicCases = await loadBasicCases();
-  const googleFontCase = await loadGoogleFontCase();
-  const allCases = [...basicCases, googleFontCase, polotnoCase, polotnoListsCase];
+  const allCases = [...basicCases, polotnoCase, polotnoListsCase];
+
+  // Preload all fonts upfront — inject only @font-face rules and wait for
+  // fonts.ready so individual compareWrapping calls don't each wait for fonts.
+  // IMPORTANT: only inject @font-face, NOT full CSS — global body/html rules
+  // would leak into the hidden DOM containers used by renderHTML's style resolver.
+  status.textContent = 'Loading fonts...';
+  const allCss = [_multiFontCss];
+  for (const tc of allCases) {
+    if (tc.css) allCss.push(tc.css);
+  }
+  const fontFaceOnly = allCss.join('\n').match(/@font-face\s*\{[^}]*\}/g) || [];
+  const preloadStyle = document.createElement('style');
+  preloadStyle.textContent = fontFaceOnly.join('\n');
+  document.head.appendChild(preloadStyle);
+  // Trigger font loading by rendering a hidden element with each font
+  const fontProbe = document.createElement('div');
+  fontProbe.style.cssText = 'position:absolute;left:-9999px;visibility:hidden;';
+  fontProbe.innerHTML = FONT_VARIANTS.map(f =>
+    `<span style="font-family:${f.family}">Mg</span>`
+  ).join('');
+  document.body.appendChild(fontProbe);
+  await document.fonts.ready;
+  fontProbe.remove();
+  // Keep preloadStyle in DOM — @font-face rules must remain available
+  // for extractDomLines to render text with correct fonts.
 
   // Debug filter: set to a test name to run only that test, or '' for all
   const DEBUG_TEST = '';

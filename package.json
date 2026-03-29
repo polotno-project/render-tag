@@ -9,7 +9,9 @@
     "test": "vitest run tests/render.test.ts",
     "test:stress": "vitest run tests/stress.test.ts",
     "test:firefox": "vitest run tests/render.test.ts -c vitest.firefox.config.ts",
-    "build": "tsc"
+    "build": "tsc",
+    "docs": "vite --config docs/vite.config.ts",
+    "docs:build": "vite build --config docs/vite.config.ts"
   },
   "devDependencies": {
     "@vitest/browser": "^4",
