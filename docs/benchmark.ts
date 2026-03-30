@@ -117,10 +117,31 @@ async function showDetail(tc: BenchmarkCase, fontFamily: string, container: HTML
     title.appendChild(wrapBadge);
   }
 
+  // Isolate button — updates URL to run only this case on reload
+  const isolateBtn = document.createElement('button');
+  const isIsolated = new URLSearchParams(window.location.search).has('case');
+  isolateBtn.textContent = isIsolated ? 'Show all' : 'Isolate';
+  isolateBtn.style.cssText = 'margin-left:8px;font-size:12px;padding:2px 8px;cursor:pointer;';
+  isolateBtn.onclick = () => {
+    if (isIsolated) {
+      window.location.search = '';
+    } else {
+      const params = new URLSearchParams();
+      params.set('case', tc.name);
+      params.set('font', fontFamily);
+      window.location.search = params.toString();
+    }
+  };
+  title.appendChild(isolateBtn);
+
   const closeBtn = document.createElement('button');
   closeBtn.textContent = 'Close';
-  closeBtn.style.cssText = 'margin-left:12px;font-size:12px;padding:2px 8px;cursor:pointer;';
-  closeBtn.onclick = () => section.remove();
+  closeBtn.style.cssText = 'font-size:12px;padding:2px 8px;cursor:pointer;';
+  closeBtn.onclick = () => {
+    section.remove();
+    // Clear URL params when closing in isolated mode
+    if (isIsolated) window.location.search = '';
+  };
   title.appendChild(closeBtn);
   section.appendChild(title);
 
