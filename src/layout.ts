@@ -1502,11 +1502,13 @@ function addListMarker(
 
   let markerX: number;
   if (isRTL) {
-    // RTL: marker on the right side, after content + padding
-    const contentEndX = box.x + box.width - style.borderRightWidth - style.paddingRight;
-    markerX = contentEndX + gap;
+    // RTL: marker in the parent's right padding area (outside the li box).
+    // Right-aligned within the padding, mirroring LTR behavior.
+    const boxRightEdge = box.x + box.width;
+    markerX = boxRightEdge + gap;
   } else {
-    // LTR: marker on the left side, before content
+    // LTR: marker in the parent's left padding area (outside the li box).
+    // Right-aligned within the padding, with a gap before content.
     const contentStartX = box.x + style.borderLeftWidth + style.paddingLeft;
     markerX = contentStartX - markerWidth - gap;
   }
