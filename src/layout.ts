@@ -1519,7 +1519,10 @@ function addListMarker(
     x: markerX,
     y: baselineY,
     width: markerWidth,
-    style: { ...style, textDecorationLine: 'none', fontWeight: 400, fontStyle: 'normal' },
+    // Force LTR so marker renders left-to-right from markerX regardless of
+    // parent direction. Without this, RTL markers draw leftward from markerX
+    // (textAlign='right'), putting them inside the content area.
+    style: { ...style, textDecorationLine: 'none', fontWeight: 400, fontStyle: 'normal', direction: 'ltr' },
   });
 }
 
