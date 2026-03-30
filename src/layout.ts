@@ -890,8 +890,12 @@ function flowWordsIntoLines(
       if (_useDomMeasurements && !piece.isSpace && currentLine.words.length > 0 &&
           currentLine.totalWidth + pieceWidth <= contentWidth) {
         const remaining = contentWidth - (currentLine.totalWidth + pieceWidth);
-        if (remaining < 3) {
-          const candidateText = currentLine.words.map(w => w.text).join('') + piece.text;
+        // Scale threshold with line length — longer lines accumulate more
+        // measureText drift. ~0.1px per character is typical canvas error.
+        const candidateText = currentLine.words.map(w => w.text).join('') + piece.text;
+        // Only check lines with 40+ chars — short lines have negligible drift
+        const threshold = candidateText.length >= 40 ? candidateText.length * 0.1 : 0;
+        if (remaining < threshold) {
           const font = buildCanvasFont(piece.style);
           const domWidth = measureLineWidthViaDom(candidateText, font);
           if (domWidth > contentWidth) {
