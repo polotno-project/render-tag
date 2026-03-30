@@ -5,37 +5,6 @@ import type { StyledNode, LayoutNode, LayoutBox, LayoutText, ResolvedStyle } fro
 let _useDomMeasurements = true;
 let _debug: ((entry: import('./types.ts').DebugEntry) => void) | undefined;
 
-// ─── DOM-based line width measurement ──────────────────────────────────
-
-/**
- * Reusable hidden DOM element for verifying line widths near the wrap boundary.
- * Canvas measureText accumulates small errors over long lines; the DOM's layout
- * engine is the ground truth for whether text actually fits.
- */
-let _wrapProbe: HTMLDivElement | null = null;
-
-/**
- * Check if adding a word causes text to wrap in the DOM's layout engine.
- * Uses a width-constrained div — the ground truth for whether text fits.
- * More accurate than measuring text width because it uses the actual CSS
- * line box model (which can differ from getBoundingClientRect on a span).
- */
-function domSaysOverflow(text: string, font: string, maxWidth: number): boolean {
-  if (!_wrapProbe || !_wrapProbe.parentNode) {
-    _wrapProbe = document.createElement('div');
-    _wrapProbe.style.cssText =
-      'position:absolute;top:-9999px;left:-9999px;visibility:hidden;padding:0;margin:0;border:0;';
-    document.body.appendChild(_wrapProbe);
-  }
-  _wrapProbe.style.font = font;
-  _wrapProbe.style.width = `${maxWidth}px`;
-  // Single line height — if the div is taller, text wrapped
-  _wrapProbe.style.lineHeight = '1';
-  _wrapProbe.textContent = text;
-  const singleLineHeight = parseFloat(getComputedStyle(_wrapProbe).fontSize);
-  const actualHeight = _wrapProbe.getBoundingClientRect().height;
-  return actualHeight > singleLineHeight * 1.5;
-}
 
 /**
  * Check if a line has mixed fonts (different fontFamily/fontSize/fontWeight/fontStyle).
@@ -879,33 +848,6 @@ function flowWordsIntoLines(
             }
           }
           continue;
-        }
-      }
-
-      // Reverse check: canvas says it fits, but verify with DOM for lines
-      // near the wrap boundary. Canvas measureText accumulates small errors
-      // over long lines; the DOM's layout engine is the ground truth.
-      if (_useDomMeasurements && !piece.isSpace && currentLine.words.length > 0 &&
-          currentLine.totalWidth + pieceWidth <= contentWidth) {
-        const remaining = contentWidth - (currentLine.totalWidth + pieceWidth);
-        // Scale threshold with line length — longer lines accumulate more
-        // measureText drift. ~0.1px per character is typical canvas error.
-        const candidateText = currentLine.words.map(w => w.text).join('') + piece.text;
-        // Only check lines with 40+ chars — short lines have negligible drift
-        const threshold = candidateText.length >= 40 ? candidateText.length * 0.1 : 0;
-        if (remaining < threshold) {
-          const font = buildCanvasFont(piece.style);
-          if (domSaysOverflow(candidateText, font, contentWidth)) {
-            if (_debug) {
-              _debug({
-                type: 'line-wrap',
-                message: `REVERSE WRAP: "${piece.text}" canvas=${(currentLine.totalWidth + pieceWidth).toFixed(2)} dom=${domWidth.toFixed(2)} contentWidth=${contentWidth}`,
-                data: { text: piece.text, canvasWidth: currentLine.totalWidth + pieceWidth, domWidth, contentWidth },
-              });
-            }
-            pushLine(true);
-            afterHardBreak = false;
-          }
         }
       }
 
