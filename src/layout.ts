@@ -325,15 +325,17 @@ function getSegmenter(): Intl.Segmenter | null {
 /**
  * Tokenize a single string into words based on whitespace mode.
  */
-function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRun, allWords: Word[]): void {
-  // Split on zero-width spaces and soft hyphens (break opportunities)
+function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRun, allWords: Word[], cumState?: { cumText: string; cumWidth: number }): void {
+  // Split on zero-width spaces and soft hyphens (break opportunities).
+  // Pass cumulative state through so pieces are measured as one text run
+  // (preserving kerning accuracy across break points).
   if (text.includes('\u200B') || text.includes('\u00AD')) {
-    // Split but keep delimiters to distinguish soft hyphens from zero-width spaces
     const parts = text.split(/(\u200B|\u00AD)/);
+    // Share cumulative state across all sub-parts for accurate measurement
+    const sharedState = cumState ?? { cumText: '', cumWidth: 0 };
     let nextIsSoftHyphen = false;
     for (const part of parts) {
       if (part === '\u00AD') {
-        // Mark the PREVIOUS word as a soft-hyphen break point
         nextIsSoftHyphen = true;
         continue;
       }
@@ -342,15 +344,12 @@ function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRu
         continue;
       }
       const prevLen = allWords.length;
-      tokenizeString(ctx, part, run, allWords);
-      // If the previous delimiter was a soft hyphen, mark the word
-      // just before this part as having a soft-hyphen break opportunity
+      tokenizeString(ctx, part, run, allWords, sharedState);
       if (nextIsSoftHyphen && prevLen > 0) {
         allWords[prevLen - 1].isSoftHyphenBreak = true;
       }
       nextIsSoftHyphen = false;
     }
-    // If the text ends with a soft hyphen, mark the last word
     if (nextIsSoftHyphen && allWords.length > 0) {
       allWords[allWords.length - 1].isSoftHyphenBreak = true;
     }
@@ -393,9 +392,11 @@ function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRu
     const words = text.split(/([ \t\n\r\f\v]+)/);
 
     // Use cumulative measurement to avoid rounding error accumulation
-    // within a single text run.
-    let cumText = '';
-    let cumWidth = 0;
+    // within a single text run. When cumState is provided (from \u200B/\u00AD
+    // split), continue from the previous cumulative position to preserve
+    // kerning accuracy across break points.
+    let cumText = cumState?.cumText ?? '';
+    let cumWidth = cumState?.cumWidth ?? 0;
 
     for (const w of words) {
       if (w === '') continue;
@@ -455,6 +456,12 @@ function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRu
         isSpace: false,
         boxStyle: run.boxStyle,
       });
+    }
+
+    // Propagate cumulative state back to caller (for \u200B/\u00AD splits)
+    if (cumState) {
+      cumState.cumText = cumText;
+      cumState.cumWidth = cumWidth;
     }
   }
 }

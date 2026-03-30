@@ -796,7 +796,7 @@
     "wrap": true
   },
   "Soft hyphens and zero-width spaces@Roboto": {
-    "score": 2.13,
+    "score": 2.06,
     "wrap": true
   },
   "Non-breaking spaces vs regular spaces@Roboto": {
@@ -932,7 +932,7 @@
     "wrap": true
   },
   "Word joiner and zero-width space@Roboto": {
-    "score": 1.81,
+    "score": 1.79,
     "wrap": true
   },
   "Dense emoji sequences@Roboto": {
@@ -1128,7 +1128,7 @@
     "wrap": true
   },
   "Soft hyphens and zero-width spaces@Playfair Display": {
-    "score": 8.44,
+    "score": 7.89,
     "wrap": true
   },
   "Non-breaking spaces vs regular spaces@Playfair Display": {
@@ -1264,7 +1264,7 @@
     "wrap": true
   },
   "Word joiner and zero-width space@Playfair Display": {
-    "score": 10.3,
+    "score": 10.47,
     "wrap": true
   },
   "Dense emoji sequences@Playfair Display": {
@@ -1460,7 +1460,7 @@
     "wrap": true
   },
   "Soft hyphens and zero-width spaces@Merriweather": {
-    "score": 17.82,
+    "score": 17.79,
     "wrap": true
   },
   "Non-breaking spaces vs regular spaces@Merriweather": {
@@ -1596,7 +1596,7 @@
     "wrap": true
   },
   "Word joiner and zero-width space@Merriweather": {
-    "score": 0.22,
+    "score": 0.05,
     "wrap": true
   },
   "Dense emoji sequences@Merriweather": {
@@ -1616,7 +1616,7 @@
     "wrap": true
   },
   "Mixed app text comprehensive@Merriweather": {
-    "score": 44.2,
+    "score": 44.19,
     "wrap": false
   },
   "Lists with alignment variations@Merriweather": {
@@ -1792,8 +1792,8 @@
     "wrap": true
   },
   "Soft hyphens and zero-width spaces@Lobster": {
-    "score": 26.35,
-    "wrap": false
+    "score": 16.74,
+    "wrap": true
   },
   "Non-breaking spaces vs regular spaces@Lobster": {
     "score": 3.47,
@@ -1928,7 +1928,7 @@
     "wrap": true
   },
   "Word joiner and zero-width space@Lobster": {
-    "score": 8.74,
+    "score": 2.9,
     "wrap": true
   },
   "Dense emoji sequences@Lobster": {
@@ -1948,7 +1948,7 @@
     "wrap": true
   },
   "Mixed app text comprehensive@Lobster": {
-    "score": 8.23,
+    "score": 7.67,
     "wrap": true
   },
   "Lists with alignment variations@Lobster": {
