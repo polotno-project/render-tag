@@ -1094,10 +1094,14 @@ function layoutInlineContent(
         group.width = measuredWidth;
       }
 
-      // Emit inline boxes first (behind text)
+      // Emit inline boxes first (behind text).
+      // Include padding/border from boxStyle in box dimensions.
       for (const group of groups) {
         if (group.boxStyle && hasVisibleBoxStyles(group.boxStyle)) {
-          emitInlineBox(group.boxStyle, group.x, group.width);
+          const bs = group.boxStyle;
+          const padLeft = bs.paddingLeft + bs.borderLeftWidth;
+          const padRight = bs.paddingRight + bs.borderRightWidth;
+          emitInlineBox(bs, group.x - padLeft, group.width + padLeft + padRight);
         }
       }
 
