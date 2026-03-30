@@ -740,27 +740,27 @@ function flowWordsIntoLines(
         // try fitting a hyphen prefix on the current line. Browsers prefer
         // keeping content on the current line by splitting at hyphens.
         if (reallyOverflows && piece.text.includes('-')) {
-          const hyphenParts = piece.text.split(/(?<=-)/);
-          if (hyphenParts.length > 1) {
+          const parts = piece.text.split(/(?<=-)/);
+          if (parts.length > 1) {
             applyFont(ctx, piece.style);
             let fitted = '';
             let fittedWidth = 0;
             let partIdx = 0;
             const available = contentWidth - currentLine.totalWidth;
-            for (; partIdx < hyphenParts.length; partIdx++) {
-              const candidate = fitted + hyphenParts[partIdx];
+            for (; partIdx < parts.length; partIdx++) {
+              const candidate = fitted + parts[partIdx];
               const candidateWidth = ctx.measureText(candidate).width;
               if (candidateWidth > available && fitted) break;
               fitted = candidate;
               fittedWidth = candidateWidth;
             }
-            if (partIdx > 0 && partIdx < hyphenParts.length) {
+            if (partIdx > 0 && partIdx < parts.length) {
               currentLine.words.push({ ...piece, text: fitted, width: fittedWidth });
               currentLine.totalWidth += fittedWidth;
               currentLine.lineHeight = Math.max(currentLine.lineHeight, wordLineHeight);
               pushLine(true);
               afterHardBreak = false;
-              const remainder = hyphenParts.slice(partIdx).join('');
+              const remainder = parts.slice(partIdx).join('');
               const remainderWidth = ctx.measureText(remainder).width;
               currentLine.words.push({ ...piece, text: remainder, width: remainderWidth });
               currentLine.totalWidth += remainderWidth;
@@ -797,36 +797,44 @@ function flowWordsIntoLines(
         piece.width = pieceWidth;
       }
 
-      // Hyphen break: when a word is first on a fresh line and still too wide,
-      // try splitting at hyphens. Browsers allow wrapping after '-'.
+      // Hyphen break on a fresh line when word still too wide.
       if (currentLine.words.length === 0 && pieceWidth > contentWidth &&
           !piece.isSpace && piece.text.includes('-')) {
-        const hyphenParts = piece.text.split(/(?<=-)/);
-        if (hyphenParts.length > 1) {
+        const subParts = piece.text.split(/(?<=-)/);
+        if (subParts.length > 1) {
           applyFont(ctx, piece.style);
-          let fitted = '';
-          let fittedWidth = 0;
-          let partIdx = 0;
-          for (; partIdx < hyphenParts.length; partIdx++) {
-            const candidate = fitted + hyphenParts[partIdx];
-            const candidateWidth = ctx.measureText(candidate).width;
-            if (candidateWidth > contentWidth && fitted) break;
-            fitted = candidate;
-            fittedWidth = candidateWidth;
+          // Inject sub-parts as individual pieces — they'll flow through
+          // the normal overflow/wrap logic on subsequent iterations.
+          const newPieces: Word[] = subParts.filter(p => p).map(p => ({
+            ...piece,
+            text: p,
+            width: ctx.measureText(p).width,
+          }));
+          // Replace current piece with the sub-parts by splicing into the pieces array
+          // Since we're iterating `pieces`, we push remaining sub-parts after the first
+          // onto the current line normally, letting the overflow check handle wrapping.
+          let first = true;
+          for (const sp of newPieces) {
+            if (first) {
+              first = false;
+              // First sub-part: add to current line (it fits since it's smaller)
+              currentLine.words.push(sp);
+              currentLine.totalWidth += sp.width;
+              currentLine.lineHeight = Math.max(currentLine.lineHeight, wordLineHeight);
+            } else if (currentLine.totalWidth + sp.width > contentWidth) {
+              // Overflow: wrap to next line
+              pushLine(true);
+              afterHardBreak = false;
+              currentLine.words.push(sp);
+              currentLine.totalWidth += sp.width;
+              currentLine.lineHeight = Math.max(currentLine.lineHeight, wordLineHeight);
+            } else {
+              currentLine.words.push(sp);
+              currentLine.totalWidth += sp.width;
+              currentLine.lineHeight = Math.max(currentLine.lineHeight, wordLineHeight);
+            }
           }
-          if (partIdx > 0 && partIdx < hyphenParts.length) {
-            currentLine.words.push({ ...piece, text: fitted, width: fittedWidth });
-            currentLine.totalWidth += fittedWidth;
-            currentLine.lineHeight = Math.max(currentLine.lineHeight, wordLineHeight);
-            pushLine(true);
-            afterHardBreak = false;
-            const remainder = hyphenParts.slice(partIdx).join('');
-            const remainderWidth = ctx.measureText(remainder).width;
-            currentLine.words.push({ ...piece, text: remainder, width: remainderWidth });
-            currentLine.totalWidth += remainderWidth;
-            currentLine.lineHeight = Math.max(currentLine.lineHeight, wordLineHeight);
-            continue;
-          }
+          continue;
         }
       }
 
