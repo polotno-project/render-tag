@@ -224,11 +224,11 @@
     "wrap": true
   },
   "Arabic RTL lists": {
-    "score": 17.03,
+    "score": 17.96,
     "wrap": true
   },
   "Hebrew RTL lists": {
-    "score": 13.1,
+    "score": 14.24,
     "wrap": true
   },
   "Japanese CJK lists": {
@@ -316,7 +316,7 @@
     "wrap": true
   },
   "RTL lists with alignment": {
-    "score": 27.13,
+    "score": 27.69,
     "wrap": true
   },
   "Letter spacing and word spacing": {
@@ -564,11 +564,11 @@
     "wrap": true
   },
   "Arabic RTL lists@Open Sans": {
-    "score": 17.03,
+    "score": 17.96,
     "wrap": true
   },
   "Hebrew RTL lists@Open Sans": {
-    "score": 13.1,
+    "score": 14.24,
     "wrap": true
   },
   "Japanese CJK lists@Open Sans": {
@@ -656,7 +656,7 @@
     "wrap": true
   },
   "RTL lists with alignment@Open Sans": {
-    "score": 27.13,
+    "score": 27.69,
     "wrap": true
   },
   "Letter spacing and word spacing@Open Sans": {
@@ -896,11 +896,11 @@
     "wrap": true
   },
   "Arabic RTL lists@Roboto": {
-    "score": 5.04,
+    "score": 6.16,
     "wrap": true
   },
   "Hebrew RTL lists@Roboto": {
-    "score": 4.9,
+    "score": 6.14,
     "wrap": true
   },
   "Japanese CJK lists@Roboto": {
@@ -988,7 +988,7 @@
     "wrap": true
   },
   "RTL lists with alignment@Roboto": {
-    "score": 13.86,
+    "score": 14.62,
     "wrap": true
   },
   "Letter spacing and word spacing@Roboto": {
@@ -1228,11 +1228,11 @@
     "wrap": true
   },
   "Arabic RTL lists@Playfair Display": {
-    "score": 4.66,
+    "score": 5.68,
     "wrap": true
   },
   "Hebrew RTL lists@Playfair Display": {
-    "score": 4.3,
+    "score": 5.53,
     "wrap": true
   },
   "Japanese CJK lists@Playfair Display": {
@@ -1320,7 +1320,7 @@
     "wrap": true
   },
   "RTL lists with alignment@Playfair Display": {
-    "score": 13.69,
+    "score": 14.44,
     "wrap": true
   },
   "Letter spacing and word spacing@Playfair Display": {
@@ -1560,11 +1560,11 @@
     "wrap": true
   },
   "Arabic RTL lists@Merriweather": {
-    "score": 16.92,
+    "score": 17.68,
     "wrap": true
   },
   "Hebrew RTL lists@Merriweather": {
-    "score": 12.99,
+    "score": 14.2,
     "wrap": true
   },
   "Japanese CJK lists@Merriweather": {
@@ -1652,7 +1652,7 @@
     "wrap": true
   },
   "RTL lists with alignment@Merriweather": {
-    "score": 26.46,
+    "score": 27.06,
     "wrap": true
   },
   "Letter spacing and word spacing@Merriweather": {
@@ -1892,11 +1892,11 @@
     "wrap": true
   },
   "Arabic RTL lists@Lobster": {
-    "score": 17.19,
+    "score": 18.28,
     "wrap": true
   },
   "Hebrew RTL lists@Lobster": {
-    "score": 13.53,
+    "score": 14.98,
     "wrap": true
   },
   "Japanese CJK lists@Lobster": {
@@ -1984,7 +1984,7 @@
     "wrap": true
   },
   "RTL lists with alignment@Lobster": {
-    "score": 27.61,
+    "score": 28.17,
     "wrap": true
   },
   "Letter spacing and word spacing@Lobster": {

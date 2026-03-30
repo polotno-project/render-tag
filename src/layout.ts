@@ -1497,11 +1497,19 @@ function addListMarker(
     computeBaselineY(ctx, style, lineHeight);
 
   const markerWidth = ctx.measureText(node.listMarker).width;
-  // Content starts at box.x + borderLeft + paddingLeft
-  // Place marker right-aligned within the padding area, with a small gap before content
-  const contentStartX = box.x + style.borderLeftWidth + style.paddingLeft;
   const gap = style.fontSize * 0.15; // small gap between marker and content
-  const markerX = contentStartX - markerWidth - gap;
+  const isRTL = style.direction === 'rtl';
+
+  let markerX: number;
+  if (isRTL) {
+    // RTL: marker on the right side, after content + padding
+    const contentEndX = box.x + box.width - style.borderRightWidth - style.paddingRight;
+    markerX = contentEndX + gap;
+  } else {
+    // LTR: marker on the left side, before content
+    const contentStartX = box.x + style.borderLeftWidth + style.paddingLeft;
+    markerX = contentStartX - markerWidth - gap;
+  }
 
   box.children.unshift({
     type: 'text',

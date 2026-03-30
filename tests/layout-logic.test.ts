@@ -494,6 +494,54 @@ describe('Layout logic (mocked measureText)', () => {
     });
   });
 
+  // ─── List markers ──────────────────────────────────────────────────
+
+  describe('List markers', () => {
+    it('places marker to the left for LTR lists', () => {
+      const li: StyledNode = {
+        element: null,
+        tagName: 'li',
+        style: defaultStyle({ display: 'list-item', paddingLeft: 30 }),
+        children: [textNode('Item')],
+        textContent: null,
+        listMarker: '•',
+      };
+      const tree = block('div', [
+        block('ul', [li]),
+      ]);
+      const root = doLayout(tree, 200);
+      const texts = collectTexts(root);
+      const marker = texts.find(t => t.text === '•');
+      const item = texts.find(t => t.text === 'Item');
+      expect(marker).toBeDefined();
+      expect(item).toBeDefined();
+      // Marker should be to the left of content
+      expect(marker!.x).toBeLessThan(item!.x);
+    });
+
+    it('places marker to the right for RTL lists', () => {
+      const li: StyledNode = {
+        element: null,
+        tagName: 'li',
+        style: defaultStyle({ display: 'list-item', paddingRight: 30, direction: 'rtl' }),
+        children: [textNode('عنصر', { direction: 'rtl' })],
+        textContent: null,
+        listMarker: '•',
+      };
+      const tree = block('div', [
+        block('ul', [li], { direction: 'rtl' }),
+      ], { direction: 'rtl' });
+      const root = doLayout(tree, 200);
+      const texts = collectTexts(root);
+      const marker = texts.find(t => t.text === '•');
+      const item = texts.find(t => t.text === 'عنصر');
+      expect(marker).toBeDefined();
+      expect(item).toBeDefined();
+      // Marker should be to the right of content
+      expect(marker!.x).toBeGreaterThan(item!.x);
+    });
+  });
+
   // ─── CJK breaking ─────────────────────────────────────────────────
 
   describe('CJK character breaking', () => {
