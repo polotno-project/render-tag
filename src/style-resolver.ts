@@ -90,10 +90,8 @@ function extractStyle(cs: CSSStyleDeclaration, el: Element | null = null): Resol
     flexDirection: cs.flexDirection || 'row',
     gap: parsePixels(cs.gap),
     flexGrow: parseFloat(cs.flexGrow) || 0,
-    flexShrink: parseFloat(cs.flexShrink) || 1,
 
     listStyleType: cs.listStyleType || 'disc',
-    listStylePosition: cs.listStylePosition || 'outside',
   };
 }
 

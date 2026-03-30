@@ -1,5 +1,5 @@
 import type {
-  RenderConfig, RenderOptions, RenderResult,
+  RenderConfig, RenderResult,
   LayoutConfig, LayoutResult, DrawConfig,
   LayoutLine, LayoutNode, AnyCanvas, AnyContext,
 } from './types.js';
@@ -8,7 +8,7 @@ import { resolveStyles } from './style-resolver.js';
 import { buildLayoutTree } from './layout.js';
 import { renderNode } from './render.js';
 
-export type { RenderConfig, RenderOptions, RenderResult, LayoutConfig, LayoutResult, DrawConfig, LayoutLine };
+export type { RenderConfig, RenderResult, LayoutConfig, LayoutResult, DrawConfig, LayoutLine };
 
 // ─── Line extraction ─────────────────────────────────────────────────
 
@@ -102,8 +102,8 @@ export function drawLayout(config: DrawConfig): { canvas: AnyCanvas } {
   if (config.ctx) {
     renderCtx = config.ctx;
     canvas = config.ctx.canvas;
-  } else if (config.canvas) {
-    canvas = config.canvas;
+  } else {
+    canvas = config.canvas ?? document.createElement('canvas');
     canvas.width = Math.ceil(width * pixelRatio);
     canvas.height = Math.ceil(finalHeight * pixelRatio);
     if ('style' in canvas) {
@@ -111,14 +111,6 @@ export function drawLayout(config: DrawConfig): { canvas: AnyCanvas } {
       (canvas as HTMLCanvasElement).style.height = `${finalHeight}px`;
     }
     renderCtx = canvas.getContext('2d')! as AnyContext;
-    renderCtx.scale(pixelRatio, pixelRatio);
-  } else {
-    canvas = document.createElement('canvas');
-    canvas.width = Math.ceil(width * pixelRatio);
-    canvas.height = Math.ceil(finalHeight * pixelRatio);
-    canvas.style.width = `${width}px`;
-    canvas.style.height = `${finalHeight}px`;
-    renderCtx = canvas.getContext('2d')!;
     renderCtx.scale(pixelRatio, pixelRatio);
   }
 
@@ -163,22 +155,3 @@ export function render(config: RenderConfig): RenderResult {
   };
 }
 
-// ─── Deprecated ──────────────────────────────────────────────────────
-
-/**
- * @deprecated Use `render()` instead.
- */
-export function renderHTML(
-  html: string,
-  options: RenderOptions,
-): RenderResult {
-  return render({
-    html: options.css ? `<style>${options.css}</style>${html}` : html,
-    width: options.width,
-    height: options.height,
-    canvas: options.canvas,
-    pixelRatio: options.pixelRatio ?? 1,
-    accuracy: options.useDomMeasurements === false ? 'performance' : 'balanced',
-    debug: options.debug,
-  });
-}

@@ -1,5 +1,5 @@
 import type { LayoutNode, LayoutBox, LayoutText, ResolvedStyle } from './types.js';
-import { buildCanvasFont } from './layout.js';
+import { buildCanvasFont, isTransparent, getFontMetrics } from './layout.js';
 
 /**
  * Parse a CSS text-shadow string into individual shadow values.
@@ -39,13 +39,6 @@ function parseTextShadows(shadow: string): Array<{
 }
 
 /**
- * Check if a background color is transparent.
- */
-function isTransparent(color: string): boolean {
-  return !color || color === 'transparent' || color === 'rgba(0, 0, 0, 0)';
-}
-
-/**
  * Check if a border is visible.
  */
 function hasBorder(style: ResolvedStyle, side: 'Top' | 'Right' | 'Bottom' | 'Left'): boolean {
@@ -70,19 +63,7 @@ function drawDecorationLine(
   ctx.strokeStyle = color;
   ctx.lineWidth = lineWidth;
 
-  if (decoStyle === 'dotted') {
-    ctx.setLineDash([lineWidth, lineWidth * 2]);
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-    ctx.lineTo(x + width, y);
-    ctx.stroke();
-  } else if (decoStyle === 'dashed') {
-    ctx.setLineDash([lineWidth * 3, lineWidth * 2]);
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-    ctx.lineTo(x + width, y);
-    ctx.stroke();
-  } else if (decoStyle === 'double') {
+  if (decoStyle === 'double') {
     const gap = Math.max(lineWidth, 2);
     ctx.lineWidth = Math.max(0.5, lineWidth * 0.5);
     ctx.beginPath();
@@ -102,7 +83,9 @@ function drawDecorationLine(
     }
     ctx.stroke();
   } else {
-    // solid (default)
+    // solid, dotted, dashed
+    if (decoStyle === 'dotted') ctx.setLineDash([lineWidth, lineWidth * 2]);
+    else if (decoStyle === 'dashed') ctx.setLineDash([lineWidth * 3, lineWidth * 2]);
     ctx.beginPath();
     ctx.moveTo(x, y);
     ctx.lineTo(x + width, y);
@@ -248,9 +231,7 @@ function renderText(ctx: CanvasRenderingContext2D, node: LayoutText, gradientFil
       ctx.fillStyle = gradientFill;
     } else {
       // Fallback: per-word gradient (shouldn't normally reach here)
-      const metrics = ctx.measureText(node.text);
-      const ascent = metrics.fontBoundingBoxAscent ?? metrics.actualBoundingBoxAscent;
-      const descent = metrics.fontBoundingBoxDescent ?? metrics.actualBoundingBoxDescent;
+      const { ascent, descent } = getFontMetrics(ctx, style);
       const gradient = parseLinearGradient(
         ctx, style.backgroundImage,
         node.x, node.width,
@@ -287,10 +268,9 @@ function renderText(ctx: CanvasRenderingContext2D, node: LayoutText, gradientFil
   const decoWidth = Math.max(1, fontSize / 15);
 
   if (style.textDecorationLine !== 'none') {
+    const { ascent: decoAscent } = getFontMetrics(ctx, style);
     ctx.font = buildCanvasFont(style);
-    const decoMetrics = ctx.measureText('x');
-    const decoAscent = decoMetrics.fontBoundingBoxAscent ?? decoMetrics.actualBoundingBoxAscent;
-    const xHeight = decoMetrics.actualBoundingBoxAscent;
+    const xHeight = ctx.measureText('x').actualBoundingBoxAscent;
 
     if (style.textDecorationLine.includes('underline')) {
       // Underline sits just below the baseline
@@ -325,40 +305,19 @@ function renderBox(ctx: CanvasRenderingContext2D, box: LayoutBox): void {
   }
 
   // Borders
-  if (hasBorder(style, 'Top')) {
-    ctx.strokeStyle = style.borderTopColor;
-    ctx.lineWidth = style.borderTopWidth;
-    const y = box.y + style.borderTopWidth / 2;
+  const borders: [side: 'Top' | 'Right' | 'Bottom' | 'Left', x1: number, y1: number, x2: number, y2: number][] = [
+    ['Top', box.x, box.y + style.borderTopWidth / 2, box.x + box.width, box.y + style.borderTopWidth / 2],
+    ['Right', box.x + box.width - style.borderRightWidth / 2, box.y, box.x + box.width - style.borderRightWidth / 2, box.y + box.height],
+    ['Bottom', box.x, box.y + box.height - style.borderBottomWidth / 2, box.x + box.width, box.y + box.height - style.borderBottomWidth / 2],
+    ['Left', box.x + style.borderLeftWidth / 2, box.y, box.x + style.borderLeftWidth / 2, box.y + box.height],
+  ];
+  for (const [side, x1, y1, x2, y2] of borders) {
+    if (!hasBorder(style, side)) continue;
+    ctx.strokeStyle = style[`border${side}Color` as keyof ResolvedStyle] as string;
+    ctx.lineWidth = style[`border${side}Width` as keyof ResolvedStyle] as number;
     ctx.beginPath();
-    ctx.moveTo(box.x, y);
-    ctx.lineTo(box.x + box.width, y);
-    ctx.stroke();
-  }
-  if (hasBorder(style, 'Right')) {
-    ctx.strokeStyle = style.borderRightColor;
-    ctx.lineWidth = style.borderRightWidth;
-    const x = box.x + box.width - style.borderRightWidth / 2;
-    ctx.beginPath();
-    ctx.moveTo(x, box.y);
-    ctx.lineTo(x, box.y + box.height);
-    ctx.stroke();
-  }
-  if (hasBorder(style, 'Bottom')) {
-    ctx.strokeStyle = style.borderBottomColor;
-    ctx.lineWidth = style.borderBottomWidth;
-    const y = box.y + box.height - style.borderBottomWidth / 2;
-    ctx.beginPath();
-    ctx.moveTo(box.x, y);
-    ctx.lineTo(box.x + box.width, y);
-    ctx.stroke();
-  }
-  if (hasBorder(style, 'Left')) {
-    ctx.strokeStyle = style.borderLeftColor;
-    ctx.lineWidth = style.borderLeftWidth;
-    const x = box.x + style.borderLeftWidth / 2;
-    ctx.beginPath();
-    ctx.moveTo(x, box.y);
-    ctx.lineTo(x, box.y + box.height);
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
     ctx.stroke();
   }
 

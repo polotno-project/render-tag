@@ -81,17 +81,6 @@ export interface DrawConfig {
   pixelRatio?: number;
 }
 
-/** @deprecated Use RenderConfig instead */
-export interface RenderOptions {
-  canvas?: HTMLCanvasElement;
-  width: number;
-  height?: number;
-  css?: string;
-  pixelRatio?: number;
-  useDomMeasurements?: boolean;
-  debug?: (entry: DebugEntry) => void;
-}
-
 export interface DebugEntry {
   type: 'measure-word' | 'line-wrap' | 'line-commit' | 'position-text';
   /** Human-readable description */
@@ -179,11 +168,9 @@ export interface ResolvedStyle {
   flexDirection: string;
   gap: number;
   flexGrow: number;
-  flexShrink: number;
 
   // List
   listStyleType: string;
-  listStylePosition: string;
 }
 
 /** A node in our styled tree (no positions — layout computes those) */

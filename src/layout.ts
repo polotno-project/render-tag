@@ -5,75 +5,6 @@ import type { StyledNode, LayoutNode, LayoutBox, LayoutText, ResolvedStyle } fro
 let _useDomMeasurements = true;
 let _debug: ((entry: import('./types.ts').DebugEntry) => void) | undefined;
 
-// ─── DOM-based line width measurement ──────────────────────────────────
-
-/**
- * Reusable hidden DOM element for measuring mixed-font line widths.
- * Only used when canvas measureText precision is insufficient
- * (mixed fonts near the wrap boundary).
- */
-let _measureContainer: HTMLDivElement | null = null;
-let _measureSpanPool: HTMLSpanElement[] = [];
-
-function getMeasureContainer(): HTMLDivElement {
-  if (_measureContainer && _measureContainer.parentNode) return _measureContainer;
-  _measureContainer = document.createElement('div');
-  _measureContainer.style.cssText =
-    'position:absolute;top:-9999px;left:-9999px;visibility:hidden;white-space:nowrap;height:auto;width:auto;';
-  document.body.appendChild(_measureContainer);
-  return _measureContainer;
-}
-
-function getMeasureSpan(index: number): HTMLSpanElement {
-  if (!_measureSpanPool[index]) {
-    _measureSpanPool[index] = document.createElement('span');
-  }
-  return _measureSpanPool[index];
-}
-
-/**
- * Measure the exact width of a sequence of styled words using the DOM.
- * This is the ground truth — the browser's own text layout engine handles
- * kerning, shaping, and sub-pixel positioning across font boundaries.
- *
- * Only called when canvas measureText suggests a line is near the wrap
- * boundary and fonts are mixed (different weight/style/family on the line).
- */
-let _domMeasureCount = 0;
-function measureLineWidthViaDom(words: Word[]): number {
-  _domMeasureCount++;
-  const container = getMeasureContainer();
-  const textWords = words.filter(w => w.text && w.text !== '\n');
-  if (textWords.length === 0) return 0;
-
-  // Build spans — group consecutive words with the same font
-  let spanIdx = 0;
-  let lastFont = '';
-
-  for (const word of textWords) {
-    const font = buildCanvasFont(word.style);
-    if (font !== lastFont || spanIdx === 0) {
-      const span = getMeasureSpan(spanIdx);
-      span.style.font = font;
-      span.textContent = word.text;
-      if (!span.parentNode) container.appendChild(span);
-      lastFont = font;
-      spanIdx++;
-    } else {
-      // Same font as previous span — append text
-      _measureSpanPool[spanIdx - 1].textContent += word.text;
-    }
-  }
-
-  // Hide unused spans
-  for (let i = spanIdx; i < _measureSpanPool.length; i++) {
-    if (_measureSpanPool[i].parentNode) {
-      _measureSpanPool[i].textContent = '';
-    }
-  }
-
-  return container.getBoundingClientRect().width;
-}
 
 /**
  * Check if a line has mixed fonts (different fontFamily/fontSize/fontWeight/fontStyle).
@@ -100,15 +31,21 @@ function applyFont(ctx: CanvasRenderingContext2D, style: ResolvedStyle): void {
 }
 
 /**
- * Build a canvas font string from resolved style.
+ * Build a canvas font string from resolved style. Results are cached.
  */
+const _fontStringCache = new Map<string, string>();
 export function buildCanvasFont(style: ResolvedStyle): string {
+  const key = `${style.fontStyle}|${style.fontWeight}|${style.fontSize}|${style.fontFamily}`;
+  const cached = _fontStringCache.get(key);
+  if (cached) return cached;
   const parts: string[] = [];
   if (style.fontStyle !== 'normal') parts.push(style.fontStyle);
   if (style.fontWeight !== 400) parts.push(String(style.fontWeight));
   parts.push(`${style.fontSize}px`);
   parts.push(style.fontFamily);
-  return parts.join(' ');
+  const result = parts.join(' ');
+  _fontStringCache.set(key, result);
+  return result;
 }
 
 /**
@@ -191,10 +128,7 @@ function getLineHeight(ctx: CanvasRenderingContext2D, style: ResolvedStyle, useB
   }
 
   // Canvas-only fallback for "normal" line-height: use font metrics
-  ctx.font = buildCanvasFont(style);
-  const metrics = ctx.measureText('M');
-  const ascent = metrics.fontBoundingBoxAscent ?? metrics.actualBoundingBoxAscent;
-  const descent = metrics.fontBoundingBoxDescent ?? metrics.actualBoundingBoxDescent;
+  const { ascent, descent } = getFontMetrics(ctx, style);
   return (ascent + descent) * 1.2;
 }
 
@@ -203,10 +137,7 @@ function getLineHeight(ctx: CanvasRenderingContext2D, style: ResolvedStyle, useB
  * Uses the Konva approach: center (ascent - descent) within lineHeight.
  */
 function computeBaselineY(ctx: CanvasRenderingContext2D, style: ResolvedStyle, lineHeight: number): number {
-  ctx.font = buildCanvasFont(style);
-  const metrics = ctx.measureText('M');
-  const ascent = metrics.fontBoundingBoxAscent ?? metrics.actualBoundingBoxAscent;
-  const descent = metrics.fontBoundingBoxDescent ?? metrics.actualBoundingBoxDescent;
+  const { ascent, descent } = getFontMetrics(ctx, style);
   return (ascent - descent) / 2 + lineHeight / 2;
 }
 
@@ -230,8 +161,36 @@ function hasOnlyInlineChildren(node: StyledNode): boolean {
   return node.children.length > 0 && node.children.every(isInline);
 }
 
-function isTransparent(color: string): boolean {
+export function isTransparent(color: string): boolean {
   return !color || color === 'transparent' || color === 'rgba(0, 0, 0, 0)';
+}
+
+/**
+ * Get font ascent and descent metrics. Results are cached per font string.
+ */
+const _fontMetricsCache = new Map<string, { ascent: number; descent: number }>();
+export function getFontMetrics(ctx: CanvasRenderingContext2D, style: ResolvedStyle): { ascent: number; descent: number } {
+  const font = buildCanvasFont(style);
+  const cached = _fontMetricsCache.get(font);
+  if (cached) return cached;
+  ctx.font = font;
+  const m = ctx.measureText('M');
+  const ascent = m.fontBoundingBoxAscent ?? m.actualBoundingBoxAscent;
+  const descent = m.fontBoundingBoxDescent ?? m.actualBoundingBoxDescent;
+  const result = { ascent, descent };
+  _fontMetricsCache.set(font, result);
+  return result;
+}
+
+/**
+ * Check if two styles have the same text rendering properties.
+ */
+function sameTextStyle(a: ResolvedStyle, b: ResolvedStyle): boolean {
+  return a.fontFamily === b.fontFamily &&
+    a.fontSize === b.fontSize &&
+    a.fontWeight === b.fontWeight &&
+    a.fontStyle === b.fontStyle &&
+    a.color === b.color;
 }
 
 function hasVisibleBoxStyles(style: ResolvedStyle): boolean {
@@ -794,29 +753,6 @@ function flowWordsIntoLines(
       // Skip leading spaces after soft wraps, but preserve after hard breaks (\n)
       if (piece.isSpace && currentLine.words.length === 0 && !afterHardBreak) continue;
 
-      // Reverse check: canvas says it fits, but with mixed fonts near boundary,
-      // DOM might say it doesn't fit. Verify before committing.
-      // Only check when line is >80% full to avoid excessive DOM measurements.
-      if (_useDomMeasurements && !piece.isSpace && currentLine.words.length > 0 &&
-          currentLine.totalWidth > contentWidth * 0.8) {
-        const remaining = contentWidth - (currentLine.totalWidth + piece.width);
-        if (remaining >= 0 && remaining < 5 && hasMixedFonts(currentLine.words)) {
-          const candidateWords = [...currentLine.words, piece];
-          const domWidth = measureLineWidthViaDom(candidateWords);
-          if (domWidth > contentWidth) {
-            if (_debug) {
-              _debug({
-                type: 'line-wrap',
-                message: `REVERSE WRAP: "${piece.text}" canvas says fits (remaining=${remaining.toFixed(2)}) but DOM says overflow (domWidth=${domWidth.toFixed(2)})`,
-                data: { text: piece.text, remaining, domWidth, contentWidth },
-              });
-            }
-            pushLine(true);
-            afterHardBreak = false;
-          }
-        }
-      }
-
       // Tab: snap to next tab stop based on current position
       let pieceWidth = piece.width;
       if (piece.isTab) {
@@ -908,10 +844,7 @@ function layoutInlineContent(
         // (e.g. only a boxOpen padding marker + trailing space before wrap)
         if (!boxHasText) return;
 
-        ctx.font = buildCanvasFont(style);
-        const metrics = ctx.measureText('Mgy');
-        const ascent = metrics.fontBoundingBoxAscent ?? metrics.actualBoundingBoxAscent;
-        const descent = metrics.fontBoundingBoxDescent ?? metrics.actualBoundingBoxDescent;
+        const { ascent, descent } = getFontMetrics(ctx, style);
         const emHeight = ascent + descent;
         const boxHeight = emHeight + style.paddingTop + style.paddingBottom
           + style.borderTopWidth + style.borderBottomWidth;
@@ -983,10 +916,7 @@ function layoutInlineContent(
       if (word.text === '') continue;
       const va = word.style.verticalAlign;
       if (va === 'super' || va === 'sub') continue; // skip sub/sup for baseline calc
-      ctx.font = buildCanvasFont(word.style);
-      const m = ctx.measureText('M');
-      const a = m.fontBoundingBoxAscent ?? m.actualBoundingBoxAscent;
-      const d = m.fontBoundingBoxDescent ?? m.actualBoundingBoxDescent;
+      const { ascent: a, descent: d } = getFontMetrics(ctx, word.style);
       if (a > maxAscent) maxAscent = a;
       if (d > maxDescent) maxDescent = d;
     }
@@ -994,10 +924,9 @@ function layoutInlineContent(
     if (maxAscent === 0) {
       for (const word of line.words) {
         if (word.text === '') continue;
-        ctx.font = buildCanvasFont(word.style);
-        const m = ctx.measureText('M');
-        maxAscent = m.fontBoundingBoxAscent ?? m.actualBoundingBoxAscent;
-        maxDescent = m.fontBoundingBoxDescent ?? m.actualBoundingBoxDescent;
+        const { ascent, descent } = getFontMetrics(ctx, word.style);
+        maxAscent = ascent;
+        maxDescent = descent;
         break;
       }
     }
@@ -1005,15 +934,17 @@ function layoutInlineContent(
     const textBlockHeight = maxAscent + maxDescent;
     let lineBaselineY = curY + (lineHeight - textBlockHeight) / 2 + maxAscent;
 
+    // Compute parent font size for sub/sup positioning (used in expansion + text emit)
+    const lineNormalWords = line.words.filter(w =>
+      w.text !== '' && w.style.verticalAlign !== 'super' && w.style.verticalAlign !== 'sub');
+    const parentFontSize = lineNormalWords.length > 0
+      ? Math.max(...lineNormalWords.map(w => w.style.fontSize)) : 0;
+
     // Expand line height if sub/sup extends beyond the line box.
     // Browsers grow the line box to fit all content, but keep
     // the normal text baseline position unchanged.
     let effectiveLineHeight = lineHeight;
     {
-      const lineNormalWords = line.words.filter(w =>
-        w.text !== '' && w.style.verticalAlign !== 'super' && w.style.verticalAlign !== 'sub');
-      const parentFontSize = lineNormalWords.length > 0
-        ? Math.max(...lineNormalWords.map(w => w.style.fontSize)) : 0;
 
       let minTop = curY;
       let maxBottom = curY + lineHeight;
@@ -1024,10 +955,7 @@ function layoutInlineContent(
         if (va !== 'super' && va !== 'sub') continue;
         if (parentFontSize === 0) break;
 
-        ctx.font = buildCanvasFont(word.style);
-        const m = ctx.measureText('M');
-        const wAscent = m.fontBoundingBoxAscent ?? m.actualBoundingBoxAscent;
-        const wDescent = m.fontBoundingBoxDescent ?? m.actualBoundingBoxDescent;
+        const { ascent: wAscent, descent: wDescent } = getFontMetrics(ctx, word.style);
 
         let shiftedBaseline = lineBaselineY;
         if (va === 'super') {
@@ -1050,11 +978,7 @@ function layoutInlineContent(
     // so the canvas can handle BiDi glyph shaping and connected letters.
     const textWords = line.words.filter(w => w.text !== '');
     const allSameStyle = textWords.length > 0 && textWords.every(w =>
-      w.style.fontFamily === textWords[0].style.fontFamily &&
-      w.style.fontSize === textWords[0].style.fontSize &&
-      w.style.fontWeight === textWords[0].style.fontWeight &&
-      w.style.fontStyle === textWords[0].style.fontStyle &&
-      w.style.color === textWords[0].style.color
+      sameTextStyle(w.style, textWords[0].style)
     );
 
     if (isRTL) {
@@ -1073,12 +997,7 @@ function layoutInlineContent(
           rtlX -= word.width;
           continue;
         }
-        if (currentGroup &&
-            currentGroup.style.fontFamily === word.style.fontFamily &&
-            currentGroup.style.fontSize === word.style.fontSize &&
-            currentGroup.style.fontWeight === word.style.fontWeight &&
-            currentGroup.style.fontStyle === word.style.fontStyle &&
-            currentGroup.style.color === word.style.color) {
+        if (currentGroup && sameTextStyle(currentGroup.style, word.style)) {
           currentGroup.text += word.text;
           currentGroup.width += word.width;
         } else {
@@ -1131,18 +1050,11 @@ function layoutInlineContent(
         let baselineY = lineBaselineY;
         const va = word.style.verticalAlign;
         if (va === 'super' || va === 'sub') {
-          // Find parent font size (the normal-sized text on this line)
-          const normalWords = textWords.filter(w =>
-            w.style.verticalAlign !== 'super' && w.style.verticalAlign !== 'sub');
-          const parentFontSize = normalWords.length > 0
-            ? Math.max(...normalWords.map(w => w.style.fontSize))
-            : word.style.fontSize;
+          const pfs = parentFontSize || word.style.fontSize;
           if (va === 'super') {
-            // Chrome raises super baseline by ~0.4em of parent font size
-            baselineY -= parentFontSize * 0.4;
+            baselineY -= pfs * 0.4;
           } else {
-            // Chrome lowers sub baseline by ~0.26em of parent font size
-            baselineY += parentFontSize * 0.26;
+            baselineY += pfs * 0.26;
           }
         }
         const effectiveWidth = word.width + (word.isSpace ? justifyExtraPerSpace : 0);
@@ -1519,9 +1431,6 @@ function addListMarker(
  * Build the layout tree from the styled tree using pure canvas measurement.
  * No DOM measurements used — all positions computed from CSS values + canvas.measureText.
  */
-export function getDomMeasureCount() { return _domMeasureCount; }
-export function resetDomMeasureCount() { _domMeasureCount = 0; }
-
 export function buildLayoutTree(
   ctx: CanvasRenderingContext2D,
   styledTree: StyledNode,
@@ -1532,8 +1441,10 @@ export function buildLayoutTree(
   _useDomMeasurements = useDomMeasurements;
   _debug = debug;
 
-  // Clear line height cache — fonts may have loaded since last call
+  // Clear caches — fonts may have loaded since last call
   _lineHeightCache.clear();
+  _fontMetricsCache.clear();
+  _fontStringCache.clear();
 
   // The styledTree root is our container div — layout its children as a block flow
   const { box, height } = layoutBlock(ctx, styledTree, 0, 0, containerWidth);
