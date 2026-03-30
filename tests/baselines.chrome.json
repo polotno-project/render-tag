@@ -20,7 +20,7 @@
     "wrap": true
   },
   "Multi-column layout": {
-    "score": 6.94,
+    "score": 9.04,
     "wrap": true
   },
   "Text decorations & shadows": {
@@ -360,7 +360,7 @@
     "wrap": true
   },
   "Multi-column layout@Open Sans": {
-    "score": 6.94,
+    "score": 9.04,
     "wrap": true
   },
   "Text decorations & shadows@Open Sans": {
@@ -1872,8 +1872,8 @@
     "wrap": true
   },
   "Dense mixed inline styles@Lobster": {
-    "score": 15.03,
-    "wrap": false
+    "score": 8.22,
+    "wrap": true
   },
   "Hindi Devanagari text@Lobster": {
     "score": 13.37,

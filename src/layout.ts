@@ -5,6 +5,39 @@ import type { StyledNode, LayoutNode, LayoutBox, LayoutText, ResolvedStyle } fro
 let _useDomMeasurements = true;
 let _debug: ((entry: import('./types.ts').DebugEntry) => void) | undefined;
 
+// ─── DOM-based line width measurement ──────────────────────────────────
+
+/**
+ * Reusable hidden DOM element for verifying line widths near the wrap boundary.
+ * Canvas measureText accumulates small errors over long lines; the DOM's layout
+ * engine is the ground truth for whether text actually fits.
+ */
+let _measureContainer: HTMLDivElement | null = null;
+let _measureSpan: HTMLSpanElement | null = null;
+
+function getDomMeasureElements(): { container: HTMLDivElement; span: HTMLSpanElement } {
+  if (_measureContainer && _measureContainer.parentNode) {
+    return { container: _measureContainer, span: _measureSpan! };
+  }
+  _measureContainer = document.createElement('div');
+  _measureContainer.style.cssText =
+    'position:absolute;top:-9999px;left:-9999px;visibility:hidden;white-space:nowrap;height:auto;width:auto;';
+  _measureSpan = document.createElement('span');
+  _measureContainer.appendChild(_measureSpan);
+  document.body.appendChild(_measureContainer);
+  return { container: _measureContainer, span: _measureSpan };
+}
+
+/**
+ * Measure line width via DOM for a single-font line.
+ * More accurate than canvas measureText for long lines due to kerning/shaping.
+ */
+function measureLineWidthViaDom(text: string, font: string): number {
+  const { span } = getDomMeasureElements();
+  span.style.font = font;
+  span.textContent = text;
+  return span.getBoundingClientRect().width;
+}
 
 /**
  * Check if a line has mixed fonts (different fontFamily/fontSize/fontWeight/fontStyle).
@@ -848,6 +881,30 @@ function flowWordsIntoLines(
             }
           }
           continue;
+        }
+      }
+
+      // Reverse check: canvas says it fits, but verify with DOM for lines
+      // near the wrap boundary. Canvas measureText accumulates small errors
+      // over long lines; the DOM's layout engine is the ground truth.
+      if (_useDomMeasurements && !piece.isSpace && currentLine.words.length > 0 &&
+          currentLine.totalWidth + pieceWidth <= contentWidth) {
+        const remaining = contentWidth - (currentLine.totalWidth + pieceWidth);
+        if (remaining < 3) {
+          const candidateText = currentLine.words.map(w => w.text).join('') + piece.text;
+          const font = buildCanvasFont(piece.style);
+          const domWidth = measureLineWidthViaDom(candidateText, font);
+          if (domWidth > contentWidth) {
+            if (_debug) {
+              _debug({
+                type: 'line-wrap',
+                message: `REVERSE WRAP: "${piece.text}" canvas=${(currentLine.totalWidth + pieceWidth).toFixed(2)} dom=${domWidth.toFixed(2)} contentWidth=${contentWidth}`,
+                data: { text: piece.text, canvasWidth: currentLine.totalWidth + pieceWidth, domWidth, contentWidth },
+              });
+            }
+            pushLine(true);
+            afterHardBreak = false;
+          }
         }
       }
 
