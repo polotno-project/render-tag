@@ -26,9 +26,10 @@ HTML string + CSS → parseHTML (DOMParser) → resolveStyles (hidden DOM + getC
 
 ### Running tests
 ```bash
-npm test                              # all tests (vitest + Chromium)
-npx vitest run tests/render.test.ts   # render quality tests
-npx vitest run tests/stress.test.ts   # layout width sweep
+npm test                                      # baseline pixel/wrap tests (vitest + Chromium)
+npx vitest run tests/layout-logic.test.ts     # layout unit tests (mocked measureText, fast)
+npx vitest run tests/render.test.ts           # render quality tests
+npx vitest run tests/stress.test.ts           # layout width sweep
 ```
 
 ### Baseline regression system
@@ -51,6 +52,38 @@ npx vitest run tests/stress.test.ts   # layout width sweep
 - Mismatch is measured against **content pixels only** (non-white/non-transparent), not total canvas area
 - This prevents empty space from diluting the measurement
 - A 600x400 canvas with one line of text might be 5% filled — mismatch is relative to that 5%
+
+### Unit tests for layout logic (`tests/layout-logic.test.ts`)
+Baseline tests compare pixels and wrapping against a real browser, which is
+comprehensive but noisy (font metrics differ across environments) and slow.
+
+**Unit tests** cover deterministic layout algorithms directly — no browser, no
+fonts, no pixels. They mock `ctx.measureText` to return predictable widths
+(e.g., 10px per character), then assert the output of layout functions.
+
+**Good candidates for unit tests** (algorithm is deterministic given known widths):
+- Hyphen breaking — "top-to-bottom" splits at `-` when it overflows
+- Margin collapsing — sibling, first-child, last-child, collapse-through
+- Line breaking — given words with known widths, which words land on which line
+- Whitespace handling — `pre-wrap`, `nowrap`, tab stops, newlines
+- CJK character-level breaking
+- Text transform — uppercase, lowercase, capitalize
+- Inline-block atomic wrapping — whole element wraps as one unit
+- Flex/table column width distribution
+
+**When to add a unit test:**
+- You discovered new browser behavior and added logic for it (e.g., hyphen breaks)
+- You fixed a layout bug — add a test that would have caught it
+- The logic is complex enough that baseline tests might not cover edge cases
+
+**When NOT to add a unit test:**
+- Pure rendering (colors, gradients, shadows) — no layout logic to test
+- Font metric accuracy — inherently browser-dependent
+- Cross-browser differences — those belong in baseline tests
+
+The mock approach: create a fake `CanvasRenderingContext2D` with `measureText`
+returning `width = text.length * CHAR_WIDTH`, then call `buildLayoutTree` or
+sub-functions directly and assert positions/line breaks.
 
 ## Debugging render issues
 
