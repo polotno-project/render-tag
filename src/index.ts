@@ -5,6 +5,7 @@ import type {
 } from './types.js';
 import { parseHTML } from './parse.js';
 import { resolveStyles } from './style-resolver.js';
+import { resolveStylesFromCSS } from './css-resolver.js';
 import { buildLayoutTree } from './layout.js';
 import { renderNode } from './render.js';
 
@@ -63,7 +64,14 @@ export function layout(config: LayoutConfig): LayoutResult {
   const useDomMeasurements = accuracy === 'balanced';
 
   const { fragment, css } = parseHTML(html);
-  const { tree, cleanup } = resolveStyles(fragment, css, width, height);
+
+  let tree;
+  let cleanup: (() => void) | undefined;
+
+  // Use fast CSS resolver (no DOM insertion of content)
+  const resolved = resolveStylesFromCSS(fragment, css, width);
+  tree = resolved.tree;
+  cleanup = resolved.cleanup;
 
   const tmpCanvas = document.createElement('canvas');
   const measureCtx = tmpCanvas.getContext('2d')!;
@@ -73,7 +81,7 @@ export function layout(config: LayoutConfig): LayoutResult {
   const finalHeight = height || contentHeight;
   const lines = extractLines(root);
 
-  cleanup();
+  if (cleanup) cleanup();
 
   return { layoutRoot: root, height: finalHeight, lines };
 }

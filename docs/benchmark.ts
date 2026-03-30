@@ -150,7 +150,15 @@ async function showDetail(tc: BenchmarkCase, fontFamily: string, container: HTML
     const domLines = extractDomLines(variant.html, variant.css, variant.width);
     const canvasLines = result.canvasLines;
 
-    let debugText = '=== Canvas lines ===\n';
+    // Show the actual compareWrapping result from this detail view recompute
+    let debugText = `=== Wrap check (detail view recompute) ===\n`;
+    debugText += `  match: ${wrap.wrappingMatch} | canvas: ${wrap.canvasLineCount} dom: ${wrap.domLineCount}\n`;
+    if (wrap.differentLines.length > 0) {
+      wrap.differentLines.forEach(d => {
+        debugText += `  line ${d.lineIndex}: canvas="${d.canvas.substring(0,50)}" dom="${d.dom.substring(0,50)}"\n`;
+      });
+    }
+    debugText += '\n=== Canvas lines ===\n';
     canvasLines.forEach((l, i) => { debugText += `  ${i}: y=${l.y} "${l.text}"\n`; });
     debugText += '\n=== DOM lines ===\n';
     domLines.forEach((l, i) => { debugText += `  ${i}: y=${l.y} "${l.text}"\n`; });

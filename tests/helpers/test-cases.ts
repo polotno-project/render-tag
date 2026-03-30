@@ -56,12 +56,16 @@ async function getMultiFontCss(): Promise<string> {
   return _multiFontCss;
 }
 
+/** Recommended CSS reset for canvas-DOM consistency (see README). */
+const RESET_CSS = `code, pre, kbd, samp { font-size: inherit; }
+li::marker { content: none; font-size: 0; line-height: 0; }`;
+
 function withOpenSans(css: string): string {
-  return _openSansCss + '\n' + css;
+  return _openSansCss + '\n' + RESET_CSS + '\n' + css;
 }
 
 function withMultiFont(css: string): string {
-  return _multiFontCss + '\n' + css;
+  return _multiFontCss + '\n' + RESET_CSS + '\n' + css;
 }
 
 export async function loadGoogleFontCase(): Promise<BenchmarkCase> {

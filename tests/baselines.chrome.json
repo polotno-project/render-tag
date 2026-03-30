@@ -1,10 +1,10 @@
 {
   "Simple paragraph": {
     "score": 0,
-    "wrap": true
+    "wrap": false
   },
   "Formatted text (bold, italic, colors)": {
-    "score": 9.49,
+    "score": 15.93,
     "wrap": true
   },
   "Multi-heading article": {
@@ -20,7 +20,7 @@
     "wrap": true
   },
   "Multi-column layout": {
-    "score": 6.94,
+    "score": 6.1,
     "wrap": true
   },
   "Text decorations & shadows": {
@@ -136,19 +136,19 @@
     "wrap": true
   },
   "Long wrapping list items": {
-    "score": 12.32,
+    "score": 12.04,
     "wrap": true
   },
   "Deeply nested mixed lists": {
-    "score": 16.47,
+    "score": 14.96,
     "wrap": true
   },
   "List items with rich formatting": {
-    "score": 11.83,
+    "score": 11.46,
     "wrap": true
   },
   "Empty list items mixed with content": {
-    "score": 5.66,
+    "score": 2.1,
     "wrap": true
   },
   "Mixed alignment paragraphs": {
@@ -200,7 +200,7 @@
     "wrap": true
   },
   "Mixed Google Fonts inline": {
-    "score": 22.9,
+    "score": 30.71,
     "wrap": true
   },
   "Dense mixed inline styles": {
@@ -333,7 +333,7 @@
   },
   "Polotno HTML": {
     "score": 9.28,
-    "wrap": true
+    "wrap": false
   },
   "Polotno Lists": {
     "score": 2.87,
@@ -344,7 +344,7 @@
     "wrap": true
   },
   "Formatted text (bold, italic, colors)@Open Sans": {
-    "score": 9.49,
+    "score": 15.93,
     "wrap": true
   },
   "Multi-heading article@Open Sans": {
@@ -360,7 +360,7 @@
     "wrap": true
   },
   "Multi-column layout@Open Sans": {
-    "score": 6.94,
+    "score": 6.1,
     "wrap": true
   },
   "Text decorations & shadows@Open Sans": {
@@ -476,19 +476,19 @@
     "wrap": true
   },
   "Long wrapping list items@Open Sans": {
-    "score": 12.32,
+    "score": 12.04,
     "wrap": true
   },
   "Deeply nested mixed lists@Open Sans": {
-    "score": 16.47,
+    "score": 14.96,
     "wrap": true
   },
   "List items with rich formatting@Open Sans": {
-    "score": 11.83,
+    "score": 11.46,
     "wrap": true
   },
   "Empty list items mixed with content@Open Sans": {
-    "score": 5.66,
+    "score": 2.1,
     "wrap": true
   },
   "Mixed alignment paragraphs@Open Sans": {
@@ -676,7 +676,7 @@
     "wrap": true
   },
   "Formatted text (bold, italic, colors)@Roboto": {
-    "score": 9.77,
+    "score": 16.4,
     "wrap": true
   },
   "Multi-heading article@Roboto": {
@@ -692,7 +692,7 @@
     "wrap": true
   },
   "Multi-column layout@Roboto": {
-    "score": 1.66,
+    "score": 1.04,
     "wrap": true
   },
   "Text decorations & shadows@Roboto": {
@@ -808,19 +808,19 @@
     "wrap": true
   },
   "Long wrapping list items@Roboto": {
-    "score": 1.56,
+    "score": 1.32,
     "wrap": true
   },
   "Deeply nested mixed lists@Roboto": {
-    "score": 4.64,
+    "score": 3.37,
     "wrap": true
   },
   "List items with rich formatting@Roboto": {
-    "score": 11.89,
+    "score": 11.46,
     "wrap": true
   },
   "Empty list items mixed with content@Roboto": {
-    "score": 5.27,
+    "score": 1.77,
     "wrap": true
   },
   "Mixed alignment paragraphs@Roboto": {
@@ -928,7 +928,7 @@
     "wrap": false
   },
   "Numbers and currency in RTL@Roboto": {
-    "score": 9.11,
+    "score": 1.93,
     "wrap": true
   },
   "Word joiner and zero-width space@Roboto": {
@@ -1008,7 +1008,7 @@
     "wrap": true
   },
   "Formatted text (bold, italic, colors)@Playfair Display": {
-    "score": 10.34,
+    "score": 16.52,
     "wrap": true
   },
   "Multi-heading article@Playfair Display": {
@@ -1024,7 +1024,7 @@
     "wrap": true
   },
   "Multi-column layout@Playfair Display": {
-    "score": 7.55,
+    "score": 6.7,
     "wrap": true
   },
   "Text decorations & shadows@Playfair Display": {
@@ -1140,19 +1140,19 @@
     "wrap": true
   },
   "Long wrapping list items@Playfair Display": {
-    "score": 15,
+    "score": 14.74,
     "wrap": true
   },
   "Deeply nested mixed lists@Playfair Display": {
-    "score": 18.09,
+    "score": 16.93,
     "wrap": true
   },
   "List items with rich formatting@Playfair Display": {
-    "score": 14.02,
+    "score": 13.61,
     "wrap": true
   },
   "Empty list items mixed with content@Playfair Display": {
-    "score": 7.07,
+    "score": 3.74,
     "wrap": true
   },
   "Mixed alignment paragraphs@Playfair Display": {
@@ -1340,7 +1340,7 @@
     "wrap": true
   },
   "Formatted text (bold, italic, colors)@Merriweather": {
-    "score": 10.35,
+    "score": 16.24,
     "wrap": true
   },
   "Multi-heading article@Merriweather": {
@@ -1356,7 +1356,7 @@
     "wrap": true
   },
   "Multi-column layout@Merriweather": {
-    "score": 2.43,
+    "score": 1.6,
     "wrap": true
   },
   "Text decorations & shadows@Merriweather": {
@@ -1472,19 +1472,19 @@
     "wrap": true
   },
   "Long wrapping list items@Merriweather": {
-    "score": 4.55,
+    "score": 4.26,
     "wrap": true
   },
   "Deeply nested mixed lists@Merriweather": {
-    "score": 7.56,
+    "score": 6.03,
     "wrap": true
   },
   "List items with rich formatting@Merriweather": {
-    "score": 11.35,
+    "score": 11,
     "wrap": true
   },
   "Empty list items mixed with content@Merriweather": {
-    "score": 10.5,
+    "score": 8.17,
     "wrap": true
   },
   "Mixed alignment paragraphs@Merriweather": {
@@ -1592,7 +1592,7 @@
     "wrap": false
   },
   "Numbers and currency in RTL@Merriweather": {
-    "score": 16.44,
+    "score": 12.77,
     "wrap": true
   },
   "Word joiner and zero-width space@Merriweather": {
@@ -1672,7 +1672,7 @@
     "wrap": true
   },
   "Formatted text (bold, italic, colors)@Lobster": {
-    "score": 11.6,
+    "score": 17.76,
     "wrap": true
   },
   "Multi-heading article@Lobster": {
@@ -1688,7 +1688,7 @@
     "wrap": true
   },
   "Multi-column layout@Lobster": {
-    "score": 1.96,
+    "score": 1.11,
     "wrap": true
   },
   "Text decorations & shadows@Lobster": {
@@ -1804,19 +1804,19 @@
     "wrap": true
   },
   "Long wrapping list items@Lobster": {
-    "score": 2.01,
+    "score": 1.68,
     "wrap": true
   },
   "Deeply nested mixed lists@Lobster": {
-    "score": 5.02,
+    "score": 4.68,
     "wrap": true
   },
   "List items with rich formatting@Lobster": {
-    "score": 9.04,
+    "score": 9.03,
     "wrap": true
   },
   "Empty list items mixed with content@Lobster": {
-    "score": 7.35,
+    "score": 4.71,
     "wrap": true
   },
   "Mixed alignment paragraphs@Lobster": {

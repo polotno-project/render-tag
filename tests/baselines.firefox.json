@@ -4,7 +4,7 @@
     "wrap": true
   },
   "Formatted text (bold, italic, colors)": {
-    "score": 9.94,
+    "score": 14.8,
     "wrap": true
   },
   "Multi-heading article": {
@@ -20,7 +20,7 @@
     "wrap": true
   },
   "Multi-column layout": {
-    "score": 1.55,
+    "score": 0.44,
     "wrap": true
   },
   "Text decorations & shadows": {
@@ -84,7 +84,7 @@
     "wrap": true
   },
   "Mixed LTR and RTL (English + Arabic)": {
-    "score": 26.21,
+    "score": 25.95,
     "wrap": true
   },
   "RTL with embedded numbers": {
@@ -136,19 +136,19 @@
     "wrap": true
   },
   "Long wrapping list items": {
-    "score": 21.96,
+    "score": 27.98,
     "wrap": true
   },
   "Deeply nested mixed lists": {
-    "score": 5.24,
+    "score": 22.81,
     "wrap": true
   },
   "List items with rich formatting": {
-    "score": 4.43,
+    "score": 14.18,
     "wrap": true
   },
   "Empty list items mixed with content": {
-    "score": 10.62,
+    "score": 26.21,
     "wrap": true
   },
   "Mixed alignment paragraphs": {
@@ -200,7 +200,7 @@
     "wrap": true
   },
   "Mixed Google Fonts inline": {
-    "score": 24.22,
+    "score": 32.1,
     "wrap": true
   },
   "Dense mixed inline styles": {
@@ -248,7 +248,7 @@
     "wrap": true
   },
   "Multi-script single paragraph": {
-    "score": 3.6,
+    "score": 0,
     "wrap": true
   },
   "URL text wrapping": {
@@ -280,7 +280,7 @@
     "wrap": true
   },
   "Mixed app text comprehensive": {
-    "score": 46.82,
+    "score": 47.33,
     "wrap": false
   },
   "Lists with alignment variations": {
@@ -320,8 +320,8 @@
     "wrap": true
   },
   "Letter spacing and word spacing": {
-    "score": 29.2,
-    "wrap": false
+    "score": 7.22,
+    "wrap": true
   },
   "Text transform": {
     "score": 0,
@@ -344,7 +344,7 @@
     "wrap": true
   },
   "Formatted text (bold, italic, colors)@Open Sans": {
-    "score": 9.94,
+    "score": 14.8,
     "wrap": true
   },
   "Multi-heading article@Open Sans": {
@@ -360,7 +360,7 @@
     "wrap": true
   },
   "Multi-column layout@Open Sans": {
-    "score": 1.55,
+    "score": 0.44,
     "wrap": true
   },
   "Text decorations & shadows@Open Sans": {
@@ -424,7 +424,7 @@
     "wrap": true
   },
   "Mixed LTR and RTL (English + Arabic)@Open Sans": {
-    "score": 2.31,
+    "score": 0,
     "wrap": true
   },
   "RTL with embedded numbers@Open Sans": {
@@ -476,19 +476,19 @@
     "wrap": true
   },
   "Long wrapping list items@Open Sans": {
-    "score": 21.96,
+    "score": 27.98,
     "wrap": true
   },
   "Deeply nested mixed lists@Open Sans": {
-    "score": 5.24,
+    "score": 22.81,
     "wrap": true
   },
   "List items with rich formatting@Open Sans": {
-    "score": 4.43,
+    "score": 14.18,
     "wrap": true
   },
   "Empty list items mixed with content@Open Sans": {
-    "score": 10.62,
+    "score": 26.21,
     "wrap": true
   },
   "Mixed alignment paragraphs@Open Sans": {
@@ -588,7 +588,7 @@
     "wrap": true
   },
   "Multi-script single paragraph@Open Sans": {
-    "score": 3.6,
+    "score": 0,
     "wrap": true
   },
   "URL text wrapping@Open Sans": {
@@ -620,7 +620,7 @@
     "wrap": true
   },
   "Mixed app text comprehensive@Open Sans": {
-    "score": 46.82,
+    "score": 47.33,
     "wrap": false
   },
   "Lists with alignment variations@Open Sans": {
@@ -660,8 +660,8 @@
     "wrap": true
   },
   "Letter spacing and word spacing@Open Sans": {
-    "score": 29.2,
-    "wrap": false
+    "score": 7.22,
+    "wrap": true
   },
   "Text transform@Open Sans": {
     "score": 0,
@@ -676,7 +676,7 @@
     "wrap": true
   },
   "Formatted text (bold, italic, colors)@Roboto": {
-    "score": 12.18,
+    "score": 16.91,
     "wrap": true
   },
   "Multi-heading article@Roboto": {
@@ -692,7 +692,7 @@
     "wrap": true
   },
   "Multi-column layout@Roboto": {
-    "score": 2.63,
+    "score": 11.13,
     "wrap": true
   },
   "Text decorations & shadows@Roboto": {
@@ -756,7 +756,7 @@
     "wrap": true
   },
   "Mixed LTR and RTL (English + Arabic)@Roboto": {
-    "score": 2.26,
+    "score": 0,
     "wrap": true
   },
   "RTL with embedded numbers@Roboto": {
@@ -808,19 +808,19 @@
     "wrap": true
   },
   "Long wrapping list items@Roboto": {
-    "score": 29.63,
+    "score": 37.76,
     "wrap": true
   },
   "Deeply nested mixed lists@Roboto": {
-    "score": 4.46,
+    "score": 31.05,
     "wrap": true
   },
   "List items with rich formatting@Roboto": {
-    "score": 5.05,
+    "score": 20.66,
     "wrap": true
   },
   "Empty list items mixed with content@Roboto": {
-    "score": 6.04,
+    "score": 25.97,
     "wrap": true
   },
   "Mixed alignment paragraphs@Roboto": {
@@ -920,7 +920,7 @@
     "wrap": true
   },
   "Multi-script single paragraph@Roboto": {
-    "score": 5.28,
+    "score": 1.72,
     "wrap": true
   },
   "URL text wrapping@Roboto": {
@@ -952,7 +952,7 @@
     "wrap": true
   },
   "Mixed app text comprehensive@Roboto": {
-    "score": 45.57,
+    "score": 46.17,
     "wrap": false
   },
   "Lists with alignment variations@Roboto": {
@@ -992,8 +992,8 @@
     "wrap": true
   },
   "Letter spacing and word spacing@Roboto": {
-    "score": 29.58,
-    "wrap": false
+    "score": 7.68,
+    "wrap": true
   },
   "Text transform@Roboto": {
     "score": 1.04,
@@ -1008,7 +1008,7 @@
     "wrap": true
   },
   "Formatted text (bold, italic, colors)@Playfair Display": {
-    "score": 10.99,
+    "score": 15.58,
     "wrap": true
   },
   "Multi-heading article@Playfair Display": {
@@ -1024,7 +1024,7 @@
     "wrap": true
   },
   "Multi-column layout@Playfair Display": {
-    "score": 2.1,
+    "score": 0.99,
     "wrap": true
   },
   "Text decorations & shadows@Playfair Display": {
@@ -1088,7 +1088,7 @@
     "wrap": true
   },
   "Mixed LTR and RTL (English + Arabic)@Playfair Display": {
-    "score": 2.63,
+    "score": 0,
     "wrap": true
   },
   "RTL with embedded numbers@Playfair Display": {
@@ -1140,19 +1140,19 @@
     "wrap": true
   },
   "Long wrapping list items@Playfair Display": {
-    "score": 21.26,
+    "score": 25.72,
     "wrap": true
   },
   "Deeply nested mixed lists@Playfair Display": {
-    "score": 5.65,
+    "score": 20.42,
     "wrap": true
   },
   "List items with rich formatting@Playfair Display": {
-    "score": 8.36,
+    "score": 25.27,
     "wrap": true
   },
   "Empty list items mixed with content@Playfair Display": {
-    "score": 15.84,
+    "score": 29.85,
     "wrap": true
   },
   "Mixed alignment paragraphs@Playfair Display": {
@@ -1252,7 +1252,7 @@
     "wrap": true
   },
   "Multi-script single paragraph@Playfair Display": {
-    "score": 3.88,
+    "score": 0,
     "wrap": true
   },
   "URL text wrapping@Playfair Display": {
@@ -1284,7 +1284,7 @@
     "wrap": true
   },
   "Mixed app text comprehensive@Playfair Display": {
-    "score": 44.46,
+    "score": 44.9,
     "wrap": false
   },
   "Lists with alignment variations@Playfair Display": {
@@ -1324,8 +1324,8 @@
     "wrap": true
   },
   "Letter spacing and word spacing@Playfair Display": {
-    "score": 26.51,
-    "wrap": false
+    "score": 8.02,
+    "wrap": true
   },
   "Text transform@Playfair Display": {
     "score": 2.32,
@@ -1340,7 +1340,7 @@
     "wrap": true
   },
   "Formatted text (bold, italic, colors)@Merriweather": {
-    "score": 12.91,
+    "score": 17.21,
     "wrap": true
   },
   "Multi-heading article@Merriweather": {
@@ -1356,7 +1356,7 @@
     "wrap": true
   },
   "Multi-column layout@Merriweather": {
-    "score": 1.26,
+    "score": 0.29,
     "wrap": true
   },
   "Text decorations & shadows@Merriweather": {
@@ -1420,7 +1420,7 @@
     "wrap": true
   },
   "Mixed LTR and RTL (English + Arabic)@Merriweather": {
-    "score": 1.97,
+    "score": 0,
     "wrap": true
   },
   "RTL with embedded numbers@Merriweather": {
@@ -1472,19 +1472,19 @@
     "wrap": true
   },
   "Long wrapping list items@Merriweather": {
-    "score": 22.79,
+    "score": 29.54,
     "wrap": true
   },
   "Deeply nested mixed lists@Merriweather": {
-    "score": 5.13,
+    "score": 23.56,
     "wrap": true
   },
   "List items with rich formatting@Merriweather": {
-    "score": 7.25,
+    "score": 21.98,
     "wrap": true
   },
   "Empty list items mixed with content@Merriweather": {
-    "score": 4.87,
+    "score": 28.1,
     "wrap": true
   },
   "Mixed alignment paragraphs@Merriweather": {
@@ -1584,7 +1584,7 @@
     "wrap": true
   },
   "Multi-script single paragraph@Merriweather": {
-    "score": 13.79,
+    "score": 11.08,
     "wrap": true
   },
   "URL text wrapping@Merriweather": {
@@ -1616,7 +1616,7 @@
     "wrap": true
   },
   "Mixed app text comprehensive@Merriweather": {
-    "score": 46,
+    "score": 46.42,
     "wrap": false
   },
   "Lists with alignment variations@Merriweather": {
@@ -1656,8 +1656,8 @@
     "wrap": true
   },
   "Letter spacing and word spacing@Merriweather": {
-    "score": 27.66,
-    "wrap": false
+    "score": 7.51,
+    "wrap": true
   },
   "Text transform@Merriweather": {
     "score": 0,
@@ -1672,7 +1672,7 @@
     "wrap": true
   },
   "Formatted text (bold, italic, colors)@Lobster": {
-    "score": 19.15,
+    "score": 23.25,
     "wrap": true
   },
   "Multi-heading article@Lobster": {
@@ -1688,7 +1688,7 @@
     "wrap": true
   },
   "Multi-column layout@Lobster": {
-    "score": 9.23,
+    "score": 8.41,
     "wrap": true
   },
   "Text decorations & shadows@Lobster": {
@@ -1752,7 +1752,7 @@
     "wrap": true
   },
   "Mixed LTR and RTL (English + Arabic)@Lobster": {
-    "score": 1.55,
+    "score": 0,
     "wrap": true
   },
   "RTL with embedded numbers@Lobster": {
@@ -1804,19 +1804,19 @@
     "wrap": true
   },
   "Long wrapping list items@Lobster": {
-    "score": 16.51,
+    "score": 28.37,
     "wrap": true
   },
   "Deeply nested mixed lists@Lobster": {
-    "score": 3.19,
+    "score": 22.69,
     "wrap": true
   },
   "List items with rich formatting@Lobster": {
-    "score": 18.24,
+    "score": 18.28,
     "wrap": true
   },
   "Empty list items mixed with content@Lobster": {
-    "score": 5.1,
+    "score": 1.29,
     "wrap": true
   },
   "Mixed alignment paragraphs@Lobster": {
@@ -1916,7 +1916,7 @@
     "wrap": true
   },
   "Multi-script single paragraph@Lobster": {
-    "score": 20.63,
+    "score": 18.84,
     "wrap": true
   },
   "URL text wrapping@Lobster": {
@@ -1948,7 +1948,7 @@
     "wrap": false
   },
   "Mixed app text comprehensive@Lobster": {
-    "score": 12.1,
+    "score": 11.16,
     "wrap": true
   },
   "Lists with alignment variations@Lobster": {
@@ -1988,8 +1988,8 @@
     "wrap": true
   },
   "Letter spacing and word spacing@Lobster": {
-    "score": 36.68,
-    "wrap": false
+    "score": 5.82,
+    "wrap": true
   },
   "Text transform@Lobster": {
     "score": 0,

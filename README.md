@@ -176,11 +176,16 @@ drawLayout({ layout: result, width: 400, ctx: offscreenCtx });
 - `overflow-wrap: break-word`
 - Soft hyphens (`&shy;`)
 
-## Cross-browser consistency
+## Recommended CSS reset
 
-The library targets Chrome as the primary browser. For consistent rendering across Chrome and Firefox, add these CSS rules to your input:
+For best consistency between DOM and canvas rendering, add these CSS rules to your input HTML:
 
 ```css
+/* Normalize monospace font size.
+   Chrome reduces <code>/<pre> font-size via a UA quirk that canvas can't replicate.
+   This makes DOM and canvas render code at the same size. */
+code, pre, kbd, samp { font-size: inherit; }
+
 /* Suppress Firefox's ::marker extra line height (~1.5px per list item).
    render-tag draws list markers itself, so this loses nothing visually. */
 li::marker { content: none; font-size: 0; line-height: 0; }
