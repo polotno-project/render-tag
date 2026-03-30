@@ -621,7 +621,6 @@ describe('Layout logic (mocked measureText)', () => {
 
   describe('RTL text decorations', () => {
     it('underline spans correct width for RTL text', () => {
-      // RTL text with underline — decoration should cover the text, not extend off-screen
       const tree = block('div', [
         block('p', [
           textNode('abcd', { direction: 'rtl', textDecorationLine: 'underline' }),
@@ -632,12 +631,55 @@ describe('Layout logic (mocked measureText)', () => {
       const texts = collectTexts(root);
       const textNode_ = texts.find(t => t.text === 'abcd');
       expect(textNode_).toBeDefined();
-      // For RTL, text x is the right edge. The text occupies [x-width, x].
-      // Decoration should be in the same region, not at [x, x+width].
       expect(textNode_!.style.direction).toBe('rtl');
       expect(textNode_!.style.textDecorationLine).toBe('underline');
-      // The text position should be valid (x > 0 for RTL right-aligned text)
       expect(textNode_!.x).toBeGreaterThan(0);
+    });
+
+    it('does not merge underlined and non-underlined words in RTL groups', () => {
+      // "normal <u>underlined</u> normal" in RTL
+      // The underlined word must be a separate text node so its decoration renders.
+      // If sameTextStyle ignores textDecorationLine, they'd merge and lose the underline.
+      const tree = block('div', [
+        block('p', [
+          textNode('aaa ', { direction: 'rtl' }),
+          textNode('bbb', { direction: 'rtl', textDecorationLine: 'underline' }),
+          textNode(' ccc', { direction: 'rtl' }),
+        ], { direction: 'rtl' }),
+      ], { direction: 'rtl' });
+
+      const root = doLayout(tree, 400);
+      const texts = collectTexts(root);
+
+      // "bbb" must be its own text node (not merged with "aaa" or "ccc")
+      const underlinedTexts = texts.filter(t => t.style.textDecorationLine === 'underline');
+      expect(underlinedTexts.length).toBeGreaterThan(0);
+      // The underlined text should contain "bbb" but NOT "aaa" or "ccc"
+      const underlinedContent = underlinedTexts.map(t => t.text).join('');
+      expect(underlinedContent).toContain('bbb');
+      expect(underlinedContent).not.toContain('aaa');
+      expect(underlinedContent).not.toContain('ccc');
+    });
+
+    it('does not merge different background colors in RTL groups', () => {
+      // "normal <bg>highlighted</bg> normal" in RTL
+      const tree = block('div', [
+        block('p', [
+          textNode('aaa ', { direction: 'rtl' }),
+          textNode('bbb', { direction: 'rtl', backgroundColor: 'yellow' }),
+          textNode(' ccc', { direction: 'rtl' }),
+        ], { direction: 'rtl' }),
+      ], { direction: 'rtl' });
+
+      const root = doLayout(tree, 400);
+      const texts = collectTexts(root);
+
+      // "bbb" must be its own text node (not merged with others)
+      const bgTexts = texts.filter(t => t.style.backgroundColor === 'yellow');
+      expect(bgTexts.length).toBeGreaterThan(0);
+      const bgContent = bgTexts.map(t => t.text).join('');
+      expect(bgContent).toContain('bbb');
+      expect(bgContent).not.toContain('aaa');
     });
   });
 
