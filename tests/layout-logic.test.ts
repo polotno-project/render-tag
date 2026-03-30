@@ -277,6 +277,21 @@ describe('Layout logic (mocked measureText)', () => {
     });
   });
 
+  // ─── overflow-wrap break-word ────────────────────────────────────────
+
+  describe('overflow-wrap break-word', () => {
+    it('breaks long word at content width boundary', () => {
+      // "abcdefghij" = 10 chars = 100px, container = 35px
+      // overflowWrap on text node (inherited from parent in real pipeline)
+      const tree = block('div', [
+        block('p', [textNode('abcdefghij', { overflowWrap: 'break-word' })]),
+      ]);
+      const root = doLayout(tree, 35);
+      const lines = getLines(root);
+      expect(lines).toEqual(['abc', 'def', 'ghi', 'j']);
+    });
+  });
+
   // ─── Margin collapsing ─────────────────────────────────────────────
 
   describe('Margin collapsing', () => {

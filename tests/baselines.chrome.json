@@ -96,7 +96,7 @@
     "wrap": true
   },
   "Japanese text mixed scripts": {
-    "score": 8.41,
+    "score": 6.93,
     "wrap": true
   },
   "Simplified Chinese text": {
@@ -108,7 +108,7 @@
     "wrap": true
   },
   "Mixed CJK and Latin text": {
-    "score": 19.03,
+    "score": 6.96,
     "wrap": true
   },
   "Thai text no word boundaries": {
@@ -436,7 +436,7 @@
     "wrap": true
   },
   "Japanese text mixed scripts@Open Sans": {
-    "score": 16.05,
+    "score": 15.18,
     "wrap": true
   },
   "Simplified Chinese text@Open Sans": {
@@ -448,7 +448,7 @@
     "wrap": true
   },
   "Mixed CJK and Latin text@Open Sans": {
-    "score": 9.58,
+    "score": 0.8,
     "wrap": true
   },
   "Thai text no word boundaries@Open Sans": {
@@ -712,7 +712,7 @@
     "wrap": true
   },
   "Long unbroken word overflow-wrap@Roboto": {
-    "score": 9.53,
+    "score": 2.88,
     "wrap": true
   },
   "Narrow container single char per line@Roboto": {
@@ -768,7 +768,7 @@
     "wrap": true
   },
   "Japanese text mixed scripts@Roboto": {
-    "score": 26.32,
+    "score": 25.89,
     "wrap": true
   },
   "Simplified Chinese text@Roboto": {
@@ -780,7 +780,7 @@
     "wrap": true
   },
   "Mixed CJK and Latin text@Roboto": {
-    "score": 14.18,
+    "score": 8.57,
     "wrap": true
   },
   "Thai text no word boundaries@Roboto": {
@@ -1044,7 +1044,7 @@
     "wrap": true
   },
   "Long unbroken word overflow-wrap@Playfair Display": {
-    "score": 8.97,
+    "score": 0.34,
     "wrap": true
   },
   "Narrow container single char per line@Playfair Display": {
@@ -1100,7 +1100,7 @@
     "wrap": true
   },
   "Japanese text mixed scripts@Playfair Display": {
-    "score": 26.39,
+    "score": 25.99,
     "wrap": true
   },
   "Simplified Chinese text@Playfair Display": {
@@ -1112,7 +1112,7 @@
     "wrap": true
   },
   "Mixed CJK and Latin text@Playfair Display": {
-    "score": 19.01,
+    "score": 11.09,
     "wrap": true
   },
   "Thai text no word boundaries@Playfair Display": {
@@ -1376,7 +1376,7 @@
     "wrap": true
   },
   "Long unbroken word overflow-wrap@Merriweather": {
-    "score": 22.47,
+    "score": 7.55,
     "wrap": true
   },
   "Narrow container single char per line@Merriweather": {
@@ -1432,7 +1432,7 @@
     "wrap": true
   },
   "Japanese text mixed scripts@Merriweather": {
-    "score": 16.97,
+    "score": 15.46,
     "wrap": true
   },
   "Simplified Chinese text@Merriweather": {
@@ -1444,8 +1444,8 @@
     "wrap": true
   },
   "Mixed CJK and Latin text@Merriweather": {
-    "score": 41.95,
-    "wrap": false
+    "score": 0.67,
+    "wrap": true
   },
   "Thai text no word boundaries@Merriweather": {
     "score": 4.38,
@@ -1568,7 +1568,7 @@
     "wrap": true
   },
   "Japanese CJK lists@Merriweather": {
-    "score": 32.64,
+    "score": 31.14,
     "wrap": true
   },
   "Non-Latin text alignment@Merriweather": {
@@ -1616,7 +1616,7 @@
     "wrap": true
   },
   "Mixed app text comprehensive@Merriweather": {
-    "score": 44.22,
+    "score": 44.2,
     "wrap": false
   },
   "Lists with alignment variations@Merriweather": {
@@ -1708,8 +1708,8 @@
     "wrap": true
   },
   "Long unbroken word overflow-wrap@Lobster": {
-    "score": 15.78,
-    "wrap": false
+    "score": 3.82,
+    "wrap": true
   },
   "Narrow container single char per line@Lobster": {
     "score": 0.91,
@@ -1764,8 +1764,8 @@
     "wrap": true
   },
   "Japanese text mixed scripts@Lobster": {
-    "score": 22.55,
-    "wrap": false
+    "score": 15.07,
+    "wrap": true
   },
   "Simplified Chinese text@Lobster": {
     "score": 7,
@@ -1776,7 +1776,7 @@
     "wrap": true
   },
   "Mixed CJK and Latin text@Lobster": {
-    "score": 20.96,
+    "score": 1.52,
     "wrap": false
   },
   "Thai text no word boundaries@Lobster": {
@@ -1900,7 +1900,7 @@
     "wrap": true
   },
   "Japanese CJK lists@Lobster": {
-    "score": 31.61,
+    "score": 30.74,
     "wrap": true
   },
   "Non-Latin text alignment@Lobster": {
@@ -1948,7 +1948,7 @@
     "wrap": true
   },
   "Mixed app text comprehensive@Lobster": {
-    "score": 8.22,
+    "score": 8.23,
     "wrap": true
   },
   "Lists with alignment variations@Lobster": {

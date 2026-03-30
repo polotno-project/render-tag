@@ -574,7 +574,9 @@ function breakWordIfNeeded(
 
   if (!hasCJK && !needsBreak) return [word];
 
-  // Split into characters
+  // Split into characters using cumulative measurement for accuracy.
+  // Measuring each char individually ignores kerning — the sum of individual
+  // widths diverges from the true string width over many characters.
   ctx.font = buildCanvasFont(word.style);
   const chars = [...word.text];
   const pieces: Word[] = [];
@@ -583,8 +585,6 @@ function breakWordIfNeeded(
   let currentWidth = 0;
 
   for (const char of chars) {
-    const charWidth = ctx.measureText(char).width;
-
     // CJK chars always get their own word for wrapping
     if (isCJK(char)) {
       if (current) {
@@ -592,19 +592,25 @@ function breakWordIfNeeded(
         current = '';
         currentWidth = 0;
       }
+      const charWidth = ctx.measureText(char).width;
       pieces.push({ ...word, text: char, width: charWidth });
       continue;
     }
 
+    // Use cumulative measurement: measure the growing string, not individual chars
+    const candidateText = current + char;
+    const candidateWidth = ctx.measureText(candidateText).width;
+
     // For break-word: break when adding this char would exceed container
-    if (needsBreak && currentWidth + charWidth > contentWidth && current) {
+    if (needsBreak && candidateWidth > contentWidth && current) {
       pieces.push({ ...word, text: current, width: currentWidth });
-      current = '';
-      currentWidth = 0;
+      current = char;
+      currentWidth = ctx.measureText(char).width;
+      continue;
     }
 
-    current += char;
-    currentWidth += charWidth;
+    current = candidateText;
+    currentWidth = candidateWidth;
   }
 
   if (current) {
