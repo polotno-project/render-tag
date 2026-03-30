@@ -922,112 +922,62 @@ function layoutInlineContent(
     // Two-pass: first collect inline background boxes, then text.
     // This ensures backgrounds are rendered before (behind) text.
 
-    // Pass 1: find inline background box regions.
-    // For RTL, scan right-to-left to match Pass 2's text positioning.
-    {
-      const emitBox = (style: ResolvedStyle, startX: number, endX: number, hasText: boolean) => {
-        if (!hasText) return;
-
-        const { ascent, descent } = getFontMetrics(ctx, style);
-        const emHeight = ascent + descent;
-        const boxHeight = emHeight + style.paddingTop + style.paddingBottom
-          + style.borderTopWidth + style.borderBottomWidth;
-        let boxY: number;
-        if (style.display === 'inline-block') {
-          boxY = curY + style.marginTop;
-        } else {
-          boxY = curY + (lineHeight - boxHeight) / 2;
-        }
-
-        const bx = Math.min(startX, endX);
-        const bw = Math.abs(endX - startX);
-        results.push({
-          type: 'box',
-          style,
-          x: bx,
-          y: boxY,
-          width: bw,
-          height: boxHeight,
-          tagName: 'span',
-          children: [],
-        });
-      };
-
-      if (isRTL) {
-        // RTL: scan right-to-left, matching the text group positions from Pass 2.
-        // Compute group positions the same way Pass 2 does (right-to-left).
-        let scanX = curX + line.totalWidth; // start from right edge
-        let boxStartX = scanX;
-        let currentBoxStyle: ResolvedStyle | undefined;
-        let boxHasText = false;
-
-        for (const word of line.words) {
-          if (word.text === '') {
-            if (currentBoxStyle) {
-              emitBox(currentBoxStyle, boxStartX, scanX, boxHasText);
-              currentBoxStyle = undefined;
-              boxHasText = false;
-            }
-            scanX -= word.width;
-            boxStartX = scanX;
-            continue;
-          }
-
-          if (word.boxStyle !== currentBoxStyle) {
-            if (currentBoxStyle) {
-              emitBox(currentBoxStyle, boxStartX, scanX, boxHasText);
-            }
-            currentBoxStyle = word.boxStyle;
-            boxStartX = scanX;
-            boxHasText = false;
-          }
-          if (word.text && !word.isSpace) boxHasText = true;
-          applyFont(ctx, word.style);
-          const measuredWidth = ctx.measureText(word.text).width;
-          scanX -= measuredWidth;
-        }
-        if (currentBoxStyle) {
-          emitBox(currentBoxStyle, boxStartX, scanX, boxHasText);
-        }
+    // Helper to emit an inline background box.
+    const emitInlineBox = (style: ResolvedStyle, bx: number, bw: number) => {
+      const { ascent, descent } = getFontMetrics(ctx, style);
+      const emHeight = ascent + descent;
+      const boxHeight = emHeight + style.paddingTop + style.paddingBottom
+        + style.borderTopWidth + style.borderBottomWidth;
+      let boxY: number;
+      if (style.display === 'inline-block') {
+        boxY = curY + style.marginTop;
       } else {
-        // LTR: scan left-to-right
-        let scanX = curX;
-        let boxStartX = scanX;
-        let currentBoxStyle: ResolvedStyle | undefined;
-        let boxHasText = false;
+        boxY = curY + (lineHeight - boxHeight) / 2;
+      }
+      results.push({
+        type: 'box', style, x: bx, y: boxY, width: bw, height: boxHeight,
+        tagName: 'span', children: [],
+      });
+    };
 
-        for (const word of line.words) {
-          if (word.boxOpen && word.boxClose && word.text) {
-            if (currentBoxStyle) {
-              emitBox(currentBoxStyle, boxStartX, scanX, boxHasText);
-              currentBoxStyle = undefined;
-              boxHasText = false;
-            }
-            const s = word.style;
-            const textWidth = word.width - s.marginLeft - s.borderLeftWidth - s.paddingLeft
-              - s.paddingRight - s.borderRightWidth - s.marginRight;
-            const boxX = scanX + s.marginLeft;
-            const boxW = s.borderLeftWidth + s.paddingLeft + textWidth + s.paddingRight + s.borderRightWidth;
-            emitBox(s, boxX, boxX + boxW, true);
-            boxHasText = false;
-            scanX += word.width;
-            continue;
-          }
+    // Pass 1: find inline background box regions (LTR only — RTL handled below)
+    if (!isRTL) {
+      let scanX = curX;
+      let boxStartX = scanX;
+      let currentBoxStyle: ResolvedStyle | undefined;
+      let boxHasText = false;
 
-          if (word.boxStyle !== currentBoxStyle) {
-            if (currentBoxStyle) {
-              emitBox(currentBoxStyle, boxStartX, scanX, boxHasText);
-            }
-            currentBoxStyle = word.boxStyle;
-            boxStartX = scanX;
+      for (const word of line.words) {
+        if (word.boxOpen && word.boxClose && word.text) {
+          if (currentBoxStyle) {
+            if (boxHasText) emitInlineBox(currentBoxStyle, boxStartX, scanX - boxStartX);
+            currentBoxStyle = undefined;
             boxHasText = false;
           }
-          if (word.text && !word.isSpace) boxHasText = true;
-          scanX += word.width + (word.isSpace ? justifyExtraPerSpace : 0);
+          const s = word.style;
+          const textWidth = word.width - s.marginLeft - s.borderLeftWidth - s.paddingLeft
+            - s.paddingRight - s.borderRightWidth - s.marginRight;
+          const boxX = scanX + s.marginLeft;
+          const boxW = s.borderLeftWidth + s.paddingLeft + textWidth + s.paddingRight + s.borderRightWidth;
+          emitInlineBox(s, boxX, boxW);
+          boxHasText = false;
+          scanX += word.width;
+          continue;
         }
-        if (currentBoxStyle) {
-          emitBox(currentBoxStyle, boxStartX, scanX, boxHasText);
+
+        if (word.boxStyle !== currentBoxStyle) {
+          if (currentBoxStyle && boxHasText) {
+            emitInlineBox(currentBoxStyle, boxStartX, scanX - boxStartX);
+          }
+          currentBoxStyle = word.boxStyle;
+          boxStartX = scanX;
+          boxHasText = false;
         }
+        if (word.text && !word.isSpace) boxHasText = true;
+        scanX += word.width + (word.isSpace ? justifyExtraPerSpace : 0);
+      }
+      if (currentBoxStyle && boxHasText) {
+        emitInlineBox(currentBoxStyle, boxStartX, scanX - boxStartX);
       }
     }
 
@@ -1106,17 +1056,21 @@ function layoutInlineContent(
     );
 
     if (isRTL) {
-      // RTL: render words right-to-left
-      // Join consecutive words with same style into groups for proper glyph shaping
-      let rtlX = curX + line.totalWidth; // start from right edge
+      // RTL: build groups, compute positions, emit boxes then text.
+      // Groups are built from consecutive same-style words. Positions are
+      // computed once using group-level measureText (accurate for connected
+      // scripts like Arabic) and shared between box and text emission.
+      let rtlX = curX + line.totalWidth;
 
-      interface StyledGroup { text: string; style: ResolvedStyle; width: number; }
+      interface StyledGroup {
+        text: string; style: ResolvedStyle; width: number;
+        boxStyle?: ResolvedStyle; x: number;
+      }
       const groups: StyledGroup[] = [];
       let currentGroup: StyledGroup | null = null;
 
       for (const word of line.words) {
         if (word.text === '') {
-          // Padding marker — flush current group and add spacing
           if (currentGroup) { groups.push(currentGroup); currentGroup = null; }
           rtlX -= word.width;
           continue;
@@ -1126,23 +1080,35 @@ function layoutInlineContent(
           currentGroup.width += word.width;
         } else {
           if (currentGroup) groups.push(currentGroup);
-          currentGroup = { text: word.text, style: word.style, width: word.width };
+          currentGroup = { text: word.text, style: word.style, width: word.width, boxStyle: word.boxStyle, x: 0 };
         }
       }
       if (currentGroup) groups.push(currentGroup);
 
-      // Emit groups right-to-left
+      // Compute positions right-to-left using group-level measurement
       for (const group of groups) {
-        ctx.font = buildCanvasFont(group.style);
+        applyFont(ctx, group.style);
         const measuredWidth = ctx.measureText(group.text).width;
         rtlX -= measuredWidth;
+        group.x = rtlX;
+        group.width = measuredWidth;
+      }
 
+      // Emit inline boxes first (behind text)
+      for (const group of groups) {
+        if (group.boxStyle && hasVisibleBoxStyles(group.boxStyle)) {
+          emitInlineBox(group.boxStyle, group.x, group.width);
+        }
+      }
+
+      // Emit text groups
+      for (const group of groups) {
         results.push({
           type: 'text',
           text: group.text,
-          x: rtlX + measuredWidth, // x = right edge for RTL textAlign
+          x: group.x + group.width, // x = right edge for RTL textAlign
           y: lineBaselineY,
-          width: measuredWidth,
+          width: group.width,
           style: { ...group.style, direction: 'rtl' },
         });
       }
