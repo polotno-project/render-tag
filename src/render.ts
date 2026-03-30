@@ -198,6 +198,9 @@ function renderText(ctx: CanvasRenderingContext2D, node: LayoutText, gradientFil
   if (style.letterSpacing > 0) {
     ctx.letterSpacing = `${style.letterSpacing}px`;
   }
+  if (style.wordSpacing) {
+    (ctx as any).wordSpacing = `${style.wordSpacing}px`;
+  }
   if (style.direction === 'rtl') {
     ctx.direction = 'rtl';
     ctx.textAlign = 'right';

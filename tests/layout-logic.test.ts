@@ -34,6 +34,7 @@ function defaultStyle(overrides: Partial<ResolvedStyle> = {}): ResolvedStyle {
     webkitBackgroundClip: '',
     backgroundImage: 'none',
     letterSpacing: 0,
+    wordSpacing: 0,
     fontKerning: 'auto',
     lineHeight: 20,
     verticalAlign: 'baseline',
@@ -680,6 +681,26 @@ describe('Layout logic (mocked measureText)', () => {
       const bgContent = bgTexts.map(t => t.text).join('');
       expect(bgContent).toContain('bbb');
       expect(bgContent).not.toContain('aaa');
+    });
+  });
+
+  // ─── Word spacing ──────────────────────────────────────────────────
+
+  describe('Word spacing', () => {
+    it('wider word spacing causes earlier wrapping', () => {
+      // "aa bb cc dd" = 110px with default spacing (CHAR_WIDTH=10, space=10)
+      // With wordSpacing: 20 (extra 20px per space), each space = 30px
+      // "aa" = 20, " bb" = 50 (30+20), " cc" = 50 → total = 120
+      // Container = 100px → "aa bb" = 70px fits, "cc" wraps
+      // Without wordSpacing: "aa bb cc" = 80px fits in 100px
+      const tree = block('div', [
+        block('p', [textNode('aa bb cc dd', { wordSpacing: 20 })]),
+      ]);
+      const root = doLayout(tree, 100);
+      const lines = getLines(root);
+      // With extra 20px per space, wraps earlier than without
+      expect(lines.length).toBeGreaterThan(1);
+      expect(lines[0]).toBe('aa bb');
     });
   });
 

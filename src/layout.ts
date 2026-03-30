@@ -408,9 +408,10 @@ function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRu
         const prevCum = cumWidth;
         cumText += ' ';
         cumWidth = ctx.measureText(cumText).width;
+        const spaceWidth = cumWidth - prevCum + (run.style.wordSpacing || 0);
         allWords.push({
           text: ' ',
-          width: cumWidth - prevCum,
+          width: spaceWidth,
           style: run.style,
           isSpace: true,
           boxStyle: run.boxStyle,

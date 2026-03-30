@@ -50,6 +50,7 @@ function extractStyle(cs: CSSStyleDeclaration, el: Element | null = null): Resol
     webkitBackgroundClip: (cs as any).webkitBackgroundClip || cs.backgroundClip || '',
     backgroundImage: cs.backgroundImage || 'none',
     letterSpacing: cs.letterSpacing === 'normal' ? 0 : parsePixels(cs.letterSpacing),
+    wordSpacing: cs.wordSpacing === 'normal' ? 0 : parsePixels(cs.wordSpacing),
     fontKerning: cs.fontKerning || 'auto',
     lineHeight: resolveLineHeight(cs, fontSize),
     verticalAlign: cs.verticalAlign || 'baseline',

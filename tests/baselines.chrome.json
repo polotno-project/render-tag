@@ -320,8 +320,8 @@
     "wrap": true
   },
   "Letter spacing and word spacing": {
-    "score": 32.62,
-    "wrap": false
+    "score": 16.81,
+    "wrap": true
   },
   "Text transform": {
     "score": 19.98,
@@ -660,8 +660,8 @@
     "wrap": true
   },
   "Letter spacing and word spacing@Open Sans": {
-    "score": 32.62,
-    "wrap": false
+    "score": 16.81,
+    "wrap": true
   },
   "Text transform@Open Sans": {
     "score": 19.98,
@@ -992,8 +992,8 @@
     "wrap": true
   },
   "Letter spacing and word spacing@Roboto": {
-    "score": 29.82,
-    "wrap": false
+    "score": 8.43,
+    "wrap": true
   },
   "Text transform@Roboto": {
     "score": 1.56,
@@ -1324,8 +1324,8 @@
     "wrap": true
   },
   "Letter spacing and word spacing@Playfair Display": {
-    "score": 28.72,
-    "wrap": false
+    "score": 13.91,
+    "wrap": true
   },
   "Text transform@Playfair Display": {
     "score": 9.55,
@@ -1656,8 +1656,8 @@
     "wrap": true
   },
   "Letter spacing and word spacing@Merriweather": {
-    "score": 33.27,
-    "wrap": false
+    "score": 19.61,
+    "wrap": true
   },
   "Text transform@Merriweather": {
     "score": 15.67,
@@ -1988,8 +1988,8 @@
     "wrap": true
   },
   "Letter spacing and word spacing@Lobster": {
-    "score": 39.09,
-    "wrap": false
+    "score": 15.34,
+    "wrap": true
   },
   "Text transform@Lobster": {
     "score": 9.26,

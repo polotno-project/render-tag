@@ -128,6 +128,7 @@ export interface ResolvedStyle {
   webkitBackgroundClip: string;
   backgroundImage: string;
   letterSpacing: number;
+  wordSpacing: number;
   fontKerning: string;
   lineHeight: number;
   verticalAlign: string;
