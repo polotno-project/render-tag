@@ -147,19 +147,37 @@ async function showDetail(tc: BenchmarkCase, fontFamily: string, container: HTML
     debugCtx.font = `400 18px ${fontFamily}`;
     debugCtx.fontKerning = 'normal';
     debugText += `\n=== Word widths (font: ${debugCtx.font}) ===\n`;
+    const spaceWidth = debugCtx.measureText(' ').width;
 
     // Measure all text from the DOM lines that wrap
     for (let li = 0; li < domLines.length; li++) {
       const lineText = domLines[li].text;
       const words = lineText.split(' ').filter(w => w);
       let lineWidth = 0;
-      const spaceWidth = debugCtx.measureText(' ').width;
       for (const word of words) {
         const w = debugCtx.measureText(word).width;
         if (lineWidth > 0) lineWidth += spaceWidth;
         lineWidth += w;
       }
       debugText += `  line ${li}: "${lineText.substring(0, 70)}${lineText.length > 70 ? '...' : ''}" totalW=${lineWidth.toFixed(2)}/${variant.width}\n`;
+    }
+
+    // Detailed word-by-word for the diverging line (if any)
+    if (wrap.differentLines.length > 0) {
+      const diffIdx = wrap.differentLines[0].lineIndex;
+      const domLine = domLines[diffIdx]?.text || '';
+      const prevDomLine = diffIdx > 0 ? domLines[diffIdx - 1]?.text || '' : '';
+      const combinedText = (prevDomLine ? prevDomLine + ' ' : '') + domLine;
+      debugText += `\n=== Word-by-word for diverging region ===\n`;
+      debugText += `  contentWidth: ${variant.width}\n`;
+      const lineWords = combinedText.split(' ').filter(w => w);
+      let cumW = 0;
+      for (const word of lineWords) {
+        const w = debugCtx.measureText(word).width;
+        const sw = cumW > 0 ? spaceWidth : 0;
+        cumW += sw + w;
+        debugText += `  "${word}" w=${w.toFixed(2)} space=${sw.toFixed(2)} cumLine=${cumW.toFixed(2)}${cumW > variant.width ? ' OVERFLOW' : ''}\n`;
+      }
     }
 
     const debugInfo = document.createElement('div');

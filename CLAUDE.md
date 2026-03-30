@@ -76,6 +76,13 @@ fonts, no pixels. They mock `ctx.measureText` to return predictable widths
 - You fixed a layout bug — add a test that would have caught it
 - The logic is complex enough that baseline tests might not cover edge cases
 
+**TDD workflow — always write the failing test first:**
+1. Write the unit test that describes the expected behavior
+2. Run it — confirm it **fails** (red)
+3. Implement the fix/feature
+4. Run it — confirm it **passes** (green)
+5. Then run baseline tests (`npm test`) to check for regressions
+
 **When NOT to add a unit test:**
 - Pure rendering (colors, gradients, shadows) — no layout logic to test
 - Font metric accuracy — inherently browser-dependent

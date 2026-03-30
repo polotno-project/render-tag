@@ -254,7 +254,7 @@ describe('Layout logic (mocked measureText)', () => {
     it('does not break at hyphens when whole word fits on next line', () => {
       // "aa top-to-bottom" with container = 140px
       // "aa" = 20, " top-to-bottom" = 140px → total 160px > 140px → wrap whole word
-      // "top-to-bottom" = 130px fits on fresh line (< 140px) → no hyphen split
+      // "top-to-bottom" = 130px fits on fresh line (< 140px) → no hyphen split needed
       const tree = block('div', [
         block('p', [textNode('aa top-to-bottom')]),
       ]);
