@@ -4,7 +4,7 @@
     "wrap": true
   },
   "Formatted text (bold, italic, colors)": {
-    "score": 13.9,
+    "score": 9.49,
     "wrap": true
   },
   "Multi-heading article": {
@@ -144,7 +144,7 @@
     "wrap": true
   },
   "List items with rich formatting": {
-    "score": 12.69,
+    "score": 11.83,
     "wrap": true
   },
   "Empty list items mixed with content": {
@@ -200,7 +200,7 @@
     "wrap": true
   },
   "Mixed Google Fonts inline": {
-    "score": 22.55,
+    "score": 22.9,
     "wrap": true
   },
   "Dense mixed inline styles": {
@@ -288,7 +288,7 @@
     "wrap": true
   },
   "Arabic RTL formatting": {
-    "score": 16.2,
+    "score": 11.23,
     "wrap": true
   },
   "CJK text with formatting": {
@@ -344,7 +344,7 @@
     "wrap": true
   },
   "Formatted text (bold, italic, colors)@Open Sans": {
-    "score": 13.9,
+    "score": 9.49,
     "wrap": true
   },
   "Multi-heading article@Open Sans": {
@@ -484,7 +484,7 @@
     "wrap": true
   },
   "List items with rich formatting@Open Sans": {
-    "score": 12.69,
+    "score": 11.83,
     "wrap": true
   },
   "Empty list items mixed with content@Open Sans": {
@@ -540,7 +540,7 @@
     "wrap": true
   },
   "Mixed Google Fonts inline@Open Sans": {
-    "score": 22.09,
+    "score": 22.42,
     "wrap": true
   },
   "Dense mixed inline styles@Open Sans": {
@@ -628,7 +628,7 @@
     "wrap": true
   },
   "Arabic RTL formatting@Open Sans": {
-    "score": 16.2,
+    "score": 11.23,
     "wrap": true
   },
   "CJK text with formatting@Open Sans": {
@@ -676,7 +676,7 @@
     "wrap": true
   },
   "Formatted text (bold, italic, colors)@Roboto": {
-    "score": 12.28,
+    "score": 9.77,
     "wrap": true
   },
   "Multi-heading article@Roboto": {
@@ -816,7 +816,7 @@
     "wrap": true
   },
   "List items with rich formatting@Roboto": {
-    "score": 11.48,
+    "score": 11.89,
     "wrap": true
   },
   "Empty list items mixed with content@Roboto": {
@@ -872,7 +872,7 @@
     "wrap": true
   },
   "Mixed Google Fonts inline@Roboto": {
-    "score": 12.56,
+    "score": 12.76,
     "wrap": true
   },
   "Dense mixed inline styles@Roboto": {
@@ -916,7 +916,7 @@
     "wrap": true
   },
   "RTL with inline code@Roboto": {
-    "score": 16.45,
+    "score": 13.95,
     "wrap": true
   },
   "Multi-script single paragraph@Roboto": {
@@ -960,7 +960,7 @@
     "wrap": true
   },
   "Arabic RTL formatting@Roboto": {
-    "score": 9.86,
+    "score": 4.22,
     "wrap": true
   },
   "CJK text with formatting@Roboto": {
@@ -1008,7 +1008,7 @@
     "wrap": true
   },
   "Formatted text (bold, italic, colors)@Playfair Display": {
-    "score": 14.06,
+    "score": 10.34,
     "wrap": true
   },
   "Multi-heading article@Playfair Display": {
@@ -1148,7 +1148,7 @@
     "wrap": true
   },
   "List items with rich formatting@Playfair Display": {
-    "score": 14.85,
+    "score": 14.02,
     "wrap": true
   },
   "Empty list items mixed with content@Playfair Display": {
@@ -1204,7 +1204,7 @@
     "wrap": true
   },
   "Mixed Google Fonts inline@Playfair Display": {
-    "score": 13.87,
+    "score": 14.09,
     "wrap": true
   },
   "Dense mixed inline styles@Playfair Display": {
@@ -1248,7 +1248,7 @@
     "wrap": true
   },
   "RTL with inline code@Playfair Display": {
-    "score": 29.01,
+    "score": 22.5,
     "wrap": true
   },
   "Multi-script single paragraph@Playfair Display": {
@@ -1292,7 +1292,7 @@
     "wrap": true
   },
   "Arabic RTL formatting@Playfair Display": {
-    "score": 17.42,
+    "score": 9.56,
     "wrap": true
   },
   "CJK text with formatting@Playfair Display": {
@@ -1340,7 +1340,7 @@
     "wrap": true
   },
   "Formatted text (bold, italic, colors)@Merriweather": {
-    "score": 13.1,
+    "score": 10.35,
     "wrap": true
   },
   "Multi-heading article@Merriweather": {
@@ -1480,7 +1480,7 @@
     "wrap": true
   },
   "List items with rich formatting@Merriweather": {
-    "score": 12.18,
+    "score": 11.35,
     "wrap": true
   },
   "Empty list items mixed with content@Merriweather": {
@@ -1536,7 +1536,7 @@
     "wrap": true
   },
   "Mixed Google Fonts inline@Merriweather": {
-    "score": 12.96,
+    "score": 13.17,
     "wrap": true
   },
   "Dense mixed inline styles@Merriweather": {
@@ -1580,7 +1580,7 @@
     "wrap": true
   },
   "RTL with inline code@Merriweather": {
-    "score": 15.04,
+    "score": 10.17,
     "wrap": true
   },
   "Multi-script single paragraph@Merriweather": {
@@ -1624,7 +1624,7 @@
     "wrap": true
   },
   "Arabic RTL formatting@Merriweather": {
-    "score": 22.04,
+    "score": 16.38,
     "wrap": true
   },
   "CJK text with formatting@Merriweather": {
@@ -1672,7 +1672,7 @@
     "wrap": true
   },
   "Formatted text (bold, italic, colors)@Lobster": {
-    "score": 14.54,
+    "score": 11.6,
     "wrap": true
   },
   "Multi-heading article@Lobster": {
@@ -1812,7 +1812,7 @@
     "wrap": true
   },
   "List items with rich formatting@Lobster": {
-    "score": 9.97,
+    "score": 9.04,
     "wrap": true
   },
   "Empty list items mixed with content@Lobster": {
@@ -1868,7 +1868,7 @@
     "wrap": true
   },
   "Mixed Google Fonts inline@Lobster": {
-    "score": 12.43,
+    "score": 12.63,
     "wrap": true
   },
   "Dense mixed inline styles@Lobster": {
@@ -1912,7 +1912,7 @@
     "wrap": true
   },
   "RTL with inline code@Lobster": {
-    "score": 15.09,
+    "score": 10.23,
     "wrap": true
   },
   "Multi-script single paragraph@Lobster": {
@@ -1956,7 +1956,7 @@
     "wrap": true
   },
   "Arabic RTL formatting@Lobster": {
-    "score": 22.34,
+    "score": 16.75,
     "wrap": true
   },
   "CJK text with formatting@Lobster": {

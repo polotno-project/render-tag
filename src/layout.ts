@@ -991,17 +991,17 @@ function layoutInlineContent(
     // Emit inline background box using line-level baseline for vertical alignment.
     // Uses the line's ascent/descent (not the box's own font) so box aligns with text.
     const emitInlineBox = (style: ResolvedStyle, bx: number, bw: number) => {
+      // Use the box's OWN font for height (not the line's largest font),
+      // but align vertically to the line's baseline.
+      const { ascent: boxAscent, descent: boxDescent } = getFontMetrics(ctx, style);
       const padTop = style.paddingTop + style.borderTopWidth;
       const padBottom = style.paddingBottom + style.borderBottomWidth;
-      const emHeight = maxAscent + maxDescent;
-      const boxHeight = emHeight + padTop + padBottom;
+      const boxHeight = boxAscent + boxDescent + padTop + padBottom;
       let boxY: number;
       if (style.display === 'inline-block') {
         boxY = curY + style.marginTop;
       } else {
-        // Position box so text baseline inside box matches lineBaselineY.
-        // Box top = baseline - ascent - paddingTop
-        boxY = lineBaselineY - maxAscent - padTop;
+        boxY = lineBaselineY - boxAscent - padTop;
       }
       results.push({
         type: 'box', style, x: bx, y: boxY, width: bw, height: boxHeight,
