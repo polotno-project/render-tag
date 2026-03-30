@@ -463,7 +463,14 @@ function expandShorthand(property: string, value: string): CSSDeclaration[] {
     if (v === 'inherit' || v === 'none') {
       return [{ property: 'text-decoration-line', value: 'none' }];
     }
-    const parts = v.split(/\s+/);
+    // Extract color functions (rgb(...), hsl(...)) before splitting on whitespace,
+    // because they contain spaces internally (e.g. "rgb(231, 76, 60)").
+    let colorValue = '';
+    const withoutColorFn = v.replace(/\b(rgba?\([^)]*\)|hsla?\([^)]*\))/i, (match) => {
+      colorValue = match;
+      return '';
+    });
+    const parts = withoutColorFn.split(/\s+/).filter(Boolean);
     const lineValues = ['underline', 'overline', 'line-through'];
     const styleValues = ['solid', 'double', 'dotted', 'dashed', 'wavy'];
     const result: CSSDeclaration[] = [];
@@ -471,9 +478,10 @@ function expandShorthand(property: string, value: string): CSSDeclaration[] {
     for (const p of parts) {
       if (lineValues.includes(p)) lines.push(p);
       else if (styleValues.includes(p)) result.push({ property: 'text-decoration-style', value: p });
-      else if (p.startsWith('#') || p.startsWith('rgb') || p.startsWith('hsl'))
+      else if (p.startsWith('#'))
         result.push({ property: 'text-decoration-color', value: p });
     }
+    if (colorValue) result.push({ property: 'text-decoration-color', value: colorValue });
     if (lines.length > 0) result.unshift({ property: 'text-decoration-line', value: lines.join(' ') });
     return result;
   }
@@ -871,7 +879,7 @@ export function resolveStylesFromCSS(
   fragment: DocumentFragment,
   css: string,
   containerWidth: number,
-): { tree: StyledNode; container: Element; cleanup: () => void } {
+): { tree: StyledNode; cleanup: () => void } {
   const { rules, fontFaceRules } = parseCSS(css);
 
   // Inject @font-face rules into the document so fonts can load
@@ -885,7 +893,7 @@ export function resolveStylesFromCSS(
   // Build indexed rule lookup
   const ruleIndex = buildRuleIndex(rules);
 
-  // Wrap fragment in a container div (matching DOM resolver behavior)
+  // Wrap fragment in a container div so resolveElement has a single root Element
   const container = document.createElement('div');
   container.appendChild(fragment);
 
@@ -1202,25 +1210,12 @@ export function resolveStylesFromCSS(
     return resolveElement(el, parentStyle, parentCtx);
   }
 
-  // Build root style from container's inline styles
   const rootStyle = defaultStyle();
-
-  // Apply any inline style on the container
-  if (container instanceof HTMLElement && container.style.cssText) {
-    const inlineDecls = parseInlineStyle(container.style.cssText);
-    for (const decl of inlineDecls) {
-      const expanded = expandShorthand(decl.property, decl.value);
-      for (const exp of expanded) {
-        applyDeclaration(rootStyle, exp.property, exp.value, 16, containerWidth, 'ltr');
-      }
-    }
-  }
-
   const tree = resolveElement(container, rootStyle, null);
 
   const cleanup = () => {
     if (fontStyleEl) fontStyleEl.remove();
   };
 
-  return { tree, container, cleanup };
+  return { tree, cleanup };
 }

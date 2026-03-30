@@ -4,7 +4,7 @@ declare const Quill: any;
 
 // ── Feature demos ──
 
-const FEATURES: Record<string, { html: string; css?: string; width: number }> = {
+const FEATURES: Record<string, { html: string; css?: string }> = {
   'rich-text': {
     html: `<p style="font-size: 16px; line-height: 1.6;">
   <strong>Bold text</strong>, <em>italic text</em>,
@@ -12,18 +12,11 @@ const FEATURES: Record<string, { html: string; css?: string; width: number }> = 
   <span style="background: #ffeaa7; padding: 1px 4px;">highlighted</span>, and
   <span style="font-size: 22px; font-weight: 700; color: #2d3436;">large bold</span> inline.
 </p>`,
-    width: 320,
+
   },
   'text-decorations': {
-    html: `<p style="font-size: 15px; line-height: 2;">
-  <span style="text-decoration: underline;">Underline</span>
-  <span style="text-decoration: line-through;">Strikethrough</span>
-  <span style="text-decoration: overline;">Overline</span><br>
-  <span style="text-decoration: underline wavy #e74c3c;">Wavy red</span>
-  <span style="text-decoration: underline dotted #3498db;">Dotted blue</span>
-  <span style="text-decoration: underline dashed #27ae60;">Dashed green</span>
-</p>`,
-    width: 320,
+    html: `<p style="font-size: 15px; line-height: 2;"><span style="text-decoration: underline;">Underline</span> <span style="text-decoration: line-through;">Strikethrough</span> <span style="text-decoration: overline;">Overline</span><br><span style="text-decoration: underline wavy #e74c3c;">Wavy red</span> <span style="text-decoration: underline dotted #3498db;">Dotted blue</span> <span style="text-decoration: underline dashed #27ae60;">Dashed green</span></p>`,
+
   },
   lists: {
     html: `<ul style="font-size: 14px; padding-left: 20px;">
@@ -36,7 +29,7 @@ const FEATURES: Record<string, { html: string; css?: string; width: number }> = 
   </li>
   <li><strong>Bold</strong> list item</li>
 </ul>`,
-    width: 280,
+
   },
   'mixed-fonts': {
     html: `<div style="line-height: 1.7;">
@@ -45,7 +38,7 @@ const FEATURES: Record<string, { html: string; css?: string; width: number }> = 
   <p style="font-family: 'Merriweather', serif; font-size: 14px; font-style: italic; margin: 0 0 4px 0;">Merriweather italic serif</p>
   <p style="font-family: 'Lobster', cursive; font-size: 20px; color: #6a0dad; margin: 0;">Lobster cursive</p>
 </div>`,
-    width: 300,
+
   },
   rtl: {
     html: `<div style="font-size: 15px; line-height: 1.8;">
@@ -53,21 +46,51 @@ const FEATURES: Record<string, { html: string; css?: string; width: number }> = 
   <p dir="rtl" style="margin: 0 0 4px 0;">שלום עולם - Hello</p>
   <p style="margin: 0;">Mixed: Hello مرحبا World عالم</p>
 </div>`,
-    width: 300,
+
   },
-  flexbox: {
-    html: `<div style="display: flex; gap: 8px; font-size: 13px;">
-  <div style="flex: 1; background: #e0e0e0; padding: 10px; text-align: center;">
-    <strong>Column 1</strong><br>Flex layout
-  </div>
-  <div style="flex: 1; background: #c6c6c6; padding: 10px; text-align: center;">
-    <strong>Column 2</strong><br>Auto-sized
-  </div>
-  <div style="flex: 1; background: #525252; color: white; padding: 10px; text-align: center;">
-    <strong>Column 3</strong><br>Equal width
-  </div>
+  'text-alignment': {
+    html: `<div style="font-size: 14px; line-height: 1.7;">
+  <p style="text-align: left; margin: 0 0 4px 0;">Left-aligned text is the default for most content and feels natural to read.</p>
+  <p style="text-align: center; margin: 0 0 4px 0; font-style: italic; color: #555;">Centered text works great for headings, quotes, and captions.</p>
+  <p style="text-align: right; margin: 0 0 4px 0; color: #8e44ad;">Right-aligned text is used for dates, signatures, and metadata.</p>
+  <p style="text-align: justify; margin: 0;">Justified text stretches words to fill the full width of each line, creating clean edges on both sides like a printed book or newspaper column.</p>
 </div>`,
-    width: 360,
+
+  },
+  'gradient-text': {
+    html: `<div style="line-height: 1.4;">
+  <p style="font-size: 28px; font-weight: 700; font-family: 'IBM Plex Sans', sans-serif; -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-image: linear-gradient(90deg, #ff0844, #ffb199); margin: 0 0 6px 0;">Gradient headline</p>
+  <p style="font-size: 22px; font-weight: 600; font-family: 'Playfair Display', serif; -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-image: linear-gradient(90deg, #0061ff, #60efff); margin: 0 0 6px 0;">Blue to cyan sweep</p>
+  <p style="font-size: 20px; font-weight: 700; -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-image: linear-gradient(90deg, #f5af19, #f12711); margin: 0;">Orange to crimson</p>
+</div>`,
+
+  },
+  'text-shadows': {
+    html: `<div style="line-height: 1.5;">
+  <p style="font-size: 26px; font-weight: 700; color: #2c3e50; text-shadow: 2px 2px 0 #bdc3c7; margin: 0 0 6px 0;">Hard drop shadow</p>
+  <p style="font-size: 24px; font-weight: 700; color: #e74c3c; text-shadow: 0 0 10px rgba(231,76,60,0.5); margin: 0 0 6px 0;">Neon red glow</p>
+  <p style="font-size: 22px; font-weight: 600; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.6), 0 0 20px rgba(52,152,219,0.4); background: #1a1a2e; padding: 6px 10px; margin: 0;">Light on dark</p>
+</div>`,
+
+  },
+  spacing: {
+    html: `<div style="line-height: 1.8;">
+  <p style="font-size: 13px; letter-spacing: 4px; text-transform: uppercase; font-weight: 600; color: #555; margin: 0 0 4px 0;">Wide tracked caps</p>
+  <p style="font-size: 18px; letter-spacing: -0.5px; font-weight: 700; margin: 0 0 4px 0;">Tight headline kerning</p>
+  <p style="font-size: 14px; word-spacing: 8px; margin: 0 0 4px 0;">Extra wide word spacing applied</p>
+  <p style="font-size: 14px; text-transform: capitalize; margin: 0 0 4px 0;">capitalize transforms each word</p>
+  <p style="font-size: 15px; text-transform: uppercase; letter-spacing: 2px; color: #e74c3c; font-weight: 600; margin: 0;">spaced uppercase label</p>
+</div>`,
+
+  },
+  headings: {
+    html: `<div style="line-height: 1.3;">
+  <h1 style="font-family: 'Playfair Display', serif; font-size: 28px; margin: 0 0 4px 0; color: #1a1a2e;">Main Heading</h1>
+  <h2 style="font-size: 20px; font-weight: 600; margin: 0 0 4px 0; color: #2d3436;">Section Title</h2>
+  <h3 style="font-size: 16px; font-weight: 600; color: #636e72; margin: 0 0 4px 0;">Subsection</h3>
+  <p style="font-size: 14px; line-height: 1.6; color: #555; margin: 0;">Body text beneath the headings, showing the visual hierarchy from large serif heading down through sans-serif subheads to regular paragraph text.</p>
+</div>`,
+
   },
 };
 
@@ -555,26 +578,51 @@ function renderChart(container: HTMLElement, results: { name: string; ms: number
 
 // ── Feature Gallery ──
 
+function renderFeatureCard(card: HTMLElement) {
+  const key = card.dataset.feature;
+  if (!key || !FEATURES[key]) return;
+
+  const { html, css } = FEATURES[key];
+  const el = card.querySelector<HTMLElement>('.feature-canvas');
+  if (!el) return;
+
+  try {
+    const width = el.clientWidth || 280;
+    const fullCss = DEMO_BASE_CSS + (css ? '\n' + css : '');
+    const { canvas } = render({ html: wrapCSS(html, fullCss), width });
+    el.innerHTML = '';
+    el.appendChild(canvas);
+  } catch {
+    el.textContent = 'Render error';
+  }
+}
+
 function renderFeatureGallery() {
   for (const card of document.querySelectorAll<HTMLElement>('.feature-card')) {
-    const key = card.dataset.feature;
-    if (!key || !FEATURES[key]) continue;
-
-    const { html, css, width } = FEATURES[key];
-    const el = card.querySelector<HTMLElement>('.feature-canvas');
+    renderFeatureCard(card);
     const source = card.querySelector<HTMLElement>('.feature-source');
+    const key = card.dataset.feature;
+    if (source && key && FEATURES[key]) source.textContent = FEATURES[key].html.trim();
+  }
 
-    if (el) {
-      try {
-        const fullCss = DEMO_BASE_CSS + (css ? '\n' + css : '');
-        const { canvas } = render({ html: wrapCSS(html, fullCss), width });
-        el.appendChild(canvas);
-      } catch {
-        el.textContent = 'Render error';
+  // Re-render on resize if card widths change
+  let prevWidths = new Map<HTMLElement, number>();
+  for (const card of document.querySelectorAll<HTMLElement>('.feature-card')) {
+    const el = card.querySelector<HTMLElement>('.feature-canvas');
+    if (el) prevWidths.set(card, el.clientWidth);
+  }
+
+  window.addEventListener('resize', () => {
+    for (const card of document.querySelectorAll<HTMLElement>('.feature-card')) {
+      const el = card.querySelector<HTMLElement>('.feature-canvas');
+      if (!el) continue;
+      const w = el.clientWidth;
+      if (w !== prevWidths.get(card)) {
+        prevWidths.set(card, w);
+        renderFeatureCard(card);
       }
     }
-    if (source) source.textContent = html.trim();
-  }
+  });
 }
 
 // ── Feature toggles ──

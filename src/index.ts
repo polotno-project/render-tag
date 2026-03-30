@@ -4,7 +4,6 @@ import type {
   LayoutLine, LayoutNode, AnyCanvas, AnyContext,
 } from './types.js';
 import { parseHTML } from './parse.js';
-import { resolveStyles } from './style-resolver.js';
 import { resolveStylesFromCSS } from './css-resolver.js';
 import { buildLayoutTree } from './layout.js';
 import { renderNode } from './render.js';
@@ -64,14 +63,7 @@ export function layout(config: LayoutConfig): LayoutResult {
   const useDomMeasurements = accuracy === 'balanced';
 
   const { fragment, css } = parseHTML(html);
-
-  let tree;
-  let cleanup: (() => void) | undefined;
-
-  // Use fast CSS resolver (no DOM insertion of content)
-  const resolved = resolveStylesFromCSS(fragment, css, width);
-  tree = resolved.tree;
-  cleanup = resolved.cleanup;
+  const { tree, cleanup } = resolveStylesFromCSS(fragment, css, width);
 
   const tmpCanvas = document.createElement('canvas');
   const measureCtx = tmpCanvas.getContext('2d')!;
@@ -81,7 +73,7 @@ export function layout(config: LayoutConfig): LayoutResult {
   const finalHeight = height || contentHeight;
   const lines = extractLines(root);
 
-  if (cleanup) cleanup();
+  cleanup();
 
   return { layoutRoot: root, height: finalHeight, lines };
 }
