@@ -1,5 +1,4 @@
 import { describe, it, expect } from 'vitest';
-import { commands } from 'vitest/browser';
 import { compareRenders, compareWrapping } from './helpers/compare.ts';
 import { loadBasicCases, polotnoCase, polotnoListsCase, FONT_VARIANTS, loadMultiFontCss } from './helpers/test-cases.ts';
 import type { BenchmarkCase } from './helpers/test-cases.ts';
@@ -14,8 +13,7 @@ const isWebKit = ua.includes('AppleWebKit') && !ua.includes('Chrome');
 const browserName = isFirefox ? 'firefox' : isWebKit ? 'webkit' : 'chrome';
 
 // Each browser has its own baseline file — no cross-browser tolerance needed.
-// 2% tolerance accounts for minor run-to-run variance within the same engine.
-const SCORE_TOLERANCE = 2.0;
+const SCORE_TOLERANCE = 0.01;
 const PIXEL_RATIO = 2;
 
 interface BaselineEntry {
@@ -29,7 +27,6 @@ const baselineFiles: Record<string, Record<string, BaselineEntry>> = {
   webkit: webkitBaselines as Record<string, BaselineEntry>,
 };
 const baselineMap = baselineFiles[browserName];
-const baselineFile = `./tests/baselines.${browserName}.json`;
 
 // Known wrapping limitations that are skipped from wrap checks
 const SKIP_WRAPPING = new Set([
@@ -83,7 +80,7 @@ function classifyResult(
 
   if (score - baseline.score > SCORE_TOLERANCE) {
     regressions.push(`${key}: score ${score.toFixed(2)}% (was ${baseline.score}%, +${(score - baseline.score).toFixed(1)})`);
-  } else if (score - baseline.score < -1) {
+  } else if (score - baseline.score < -SCORE_TOLERANCE) {
     improvements.push(`${key}: score ${score.toFixed(2)}% (was ${baseline.score}%, ${(score - baseline.score).toFixed(1)})`);
   }
   if (baseline.wrap && !wrap) {
@@ -93,38 +90,9 @@ function classifyResult(
   }
 }
 
-/**
- * If there are improvements and no regressions, auto-update the browser's baselines file.
- * Merges new results into existing baselines (preserves entries not in collected).
- */
-async function autoUpdateBaselines(
-  collected: Record<string, BaselineEntry>,
-  improvements: string[],
-  regressions: string[],
-): Promise<void> {
-  if (improvements.length === 0 || regressions.length > 0) return;
-
-  const updated = { ...baselineMap };
-  for (const [key, entry] of Object.entries(collected)) {
-    updated[key] = {
-      score: Math.round(entry.score * 100) / 100,
-      wrap: entry.wrap,
-    };
-  }
-
-  const json = JSON.stringify(updated, null, 2) + '\n';
-  await commands.writeFile(baselineFile, json);
-  console.log(`\n✓ Auto-updated ${baselineFile} (${improvements.length} improvements locked in)`);
-}
-
 describe('HTML Canvas Renderer', () => {
   let allCases: BenchmarkCase[];
-  // Collected results across all describes — used for auto-update at the end
-  const collected: Record<string, BaselineEntry> = {};
-  const allRegressions: string[] = [];
-  const allImprovements: string[] = [];
 
-  const hasBaselines = Object.keys(baselineMap).length > 0;
 
   it('loads all test cases', async () => {
     allCases = await loadBasicCases();
@@ -143,13 +111,11 @@ describe('HTML Canvas Renderer', () => {
         const key = baselineKey(tc.name);
         const baseline = baselineMap[key];
         const { score, wrap } = await runCase(tc, tc.css);
-        collected[key] = { score, wrap };
+
         console.log(formatResult(key, score, wrap, baseline));
         classifyResult(key, score, wrap, baseline, regressions, improvements);
       }
 
-      allRegressions.push(...regressions);
-      allImprovements.push(...improvements);
 
       console.log(`\n=== ${cases.length} cases | ${improvements.length} improved | ${regressions.length} regressed ===`);
       if (improvements.length > 0) console.log('Improved:\n  ' + improvements.join('\n  '));
@@ -201,7 +167,7 @@ describe('HTML Canvas Renderer', () => {
           const key = baselineKey(tc.name, font.name);
           const baseline = baselineMap[key];
           const { score, wrap } = await runCase(tc, css);
-          collected[key] = { score, wrap };
+  
           console.log(formatResult(key, score, wrap, baseline));
           totalScore += score;
           count++;
@@ -211,8 +177,6 @@ describe('HTML Canvas Renderer', () => {
         console.log(`[${font.name}] avg: ${(totalScore / count).toFixed(1)}%`);
       }
 
-      allRegressions.push(...regressions);
-      allImprovements.push(...improvements);
 
       console.log(`\n=== Multi-font | ${improvements.length} improved | ${regressions.length} regressed ===`);
       if (improvements.length > 0) console.log('Improved:\n  ' + improvements.join('\n  '));
@@ -222,10 +186,4 @@ describe('HTML Canvas Renderer', () => {
     });
   });
 
-  // Runs last — auto-updates the browser's baselines file if only improvements were found
-  describe('Baseline auto-update', () => {
-    it('locks in improvements', async () => {
-      await autoUpdateBaselines(collected, allImprovements, allRegressions);
-    });
-  });
 });

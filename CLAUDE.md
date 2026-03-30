@@ -40,9 +40,9 @@ npx vitest run tests/stress.test.ts   # layout width sweep
 - Each browser has its own baselines — no cross-browser tolerance hack
 
 ### Updating baselines
-- **Improvements auto-lock**: when tests detect only improvements (better scores or wrapping fixes) with no regressions, they automatically write updated values to the browser's baseline file. Commit the updated file alongside the code change.
-- **Regressions require human action**: if any score or wrapping regresses, the test fails and baselines are NOT updated. Investigate the cause first.
-- **Full regeneration per browser**:
+- **Tests never update baselines** — baselines are only updated via explicit commands as a deliberate milestone
+- **Regressions fail the test** — any score increase >0.01% or wrapping regression causes failure
+- **Update commands** (run after verifying improvements):
   - `npm run test:update-baselines` — Chrome baselines
   - `npm run test:update-baselines:firefox` — Firefox baselines
   - `npm run test:update-baselines:webkit` — WebKit/Safari baselines
