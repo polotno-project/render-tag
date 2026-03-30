@@ -763,6 +763,39 @@ function flowWordsIntoLines(
         piece.width = pieceWidth;
       }
 
+      // Hyphen break: when a word is first on a fresh line and still too wide,
+      // try splitting at hyphens. Browsers allow wrapping after '-'.
+      if (currentLine.words.length === 0 && pieceWidth > contentWidth &&
+          !piece.isSpace && piece.text.includes('-')) {
+        const hyphenParts = piece.text.split(/(?<=-)/);
+        if (hyphenParts.length > 1) {
+          applyFont(ctx, piece.style);
+          let fitted = '';
+          let fittedWidth = 0;
+          let partIdx = 0;
+          for (; partIdx < hyphenParts.length; partIdx++) {
+            const candidate = fitted + hyphenParts[partIdx];
+            const candidateWidth = ctx.measureText(candidate).width;
+            if (candidateWidth > contentWidth && fitted) break;
+            fitted = candidate;
+            fittedWidth = candidateWidth;
+          }
+          if (partIdx > 0 && partIdx < hyphenParts.length) {
+            currentLine.words.push({ ...piece, text: fitted, width: fittedWidth });
+            currentLine.totalWidth += fittedWidth;
+            currentLine.lineHeight = Math.max(currentLine.lineHeight, wordLineHeight);
+            pushLine(true);
+            afterHardBreak = false;
+            const remainder = hyphenParts.slice(partIdx).join('');
+            const remainderWidth = ctx.measureText(remainder).width;
+            currentLine.words.push({ ...piece, text: remainder, width: remainderWidth });
+            currentLine.totalWidth += remainderWidth;
+            currentLine.lineHeight = Math.max(currentLine.lineHeight, wordLineHeight);
+            continue;
+          }
+        }
+      }
+
       currentLine.words.push(piece);
       currentLine.totalWidth += pieceWidth;
       currentLine.lineHeight = Math.max(currentLine.lineHeight, wordLineHeight);

@@ -124,14 +124,48 @@ async function showDetail(tc: BenchmarkCase, fontFamily: string, container: HTML
   title.appendChild(closeBtn);
   section.appendChild(title);
 
-  if (!wrap.wrappingMatch) {
-    const wrapInfo = document.createElement('div');
-    wrapInfo.style.cssText = 'background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:8px 12px;margin-bottom:12px;font-size:12px;font-family:monospace;white-space:pre-wrap;';
-    const diffLines = wrap.differentLines.slice(0, 5).map(d =>
-      `Line ${d.lineIndex}:\n  canvas: "${d.canvas.substring(0, 60)}"\n  dom:    "${d.dom.substring(0, 60)}"`
-    ).join('\n');
-    wrapInfo.textContent = diffLines;
-    section.appendChild(wrapInfo);
+  // Always show debug info: canvas lines vs DOM lines + word widths
+  {
+    const domLines = extractDomLines(variant.html, variant.css, variant.width);
+    const canvasLines = result.canvasLines;
+
+    let debugText = '=== Canvas lines ===\n';
+    canvasLines.forEach((l, i) => { debugText += `  ${i}: y=${l.y} "${l.text}"\n`; });
+    debugText += '\n=== DOM lines ===\n';
+    domLines.forEach((l, i) => { debugText += `  ${i}: y=${l.y} "${l.text}"\n`; });
+
+    if (!wrap.wrappingMatch) {
+      debugText += '\n=== Wrapping differences ===\n';
+      wrap.differentLines.slice(0, 10).forEach(d => {
+        debugText += `  Line ${d.lineIndex}:\n    canvas: "${d.canvas}"\n    dom:    "${d.dom}"\n`;
+      });
+    }
+
+    // Word-by-word width measurement for each text in DOM lines
+    const debugCanvas = document.createElement('canvas');
+    const debugCtx = debugCanvas.getContext('2d')!;
+    debugCtx.font = `400 18px ${fontFamily}`;
+    debugCtx.fontKerning = 'normal';
+    debugText += `\n=== Word widths (font: ${debugCtx.font}) ===\n`;
+
+    // Measure all text from the DOM lines that wrap
+    for (let li = 0; li < domLines.length; li++) {
+      const lineText = domLines[li].text;
+      const words = lineText.split(' ').filter(w => w);
+      let lineWidth = 0;
+      const spaceWidth = debugCtx.measureText(' ').width;
+      for (const word of words) {
+        const w = debugCtx.measureText(word).width;
+        if (lineWidth > 0) lineWidth += spaceWidth;
+        lineWidth += w;
+      }
+      debugText += `  line ${li}: "${lineText.substring(0, 70)}${lineText.length > 70 ? '...' : ''}" totalW=${lineWidth.toFixed(2)}/${variant.width}\n`;
+    }
+
+    const debugInfo = document.createElement('div');
+    debugInfo.style.cssText = 'background:#f0f9ff;border:1px solid #bae6fd;border-radius:6px;padding:8px 12px;margin-bottom:12px;font-size:11px;font-family:monospace;white-space:pre-wrap;max-height:400px;overflow:auto;';
+    debugInfo.textContent = debugText;
+    section.appendChild(debugInfo);
   }
 
   const row = document.createElement('div');

@@ -54,23 +54,35 @@ npx vitest run tests/stress.test.ts   # layout width sweep
 
 ## Debugging render issues
 
-### Step 1: Isolate the problem
-Create a minimal test case in a temporary test file:
-```typescript
-const r = await compareRenders(html, css, width, height, 0.1, 1);
-console.log('mismatch:', r.contentMismatchPercentage.toFixed(1) + '%');
-```
+### Debug workflow overview
+Issues are reported from the **real browser benchmark** (`npm run dev` / docs page).
+The goal is to reproduce, isolate, fix, and verify — in that order.
 
-### Step 2: Compare positions via DOM
-The most effective debug technique — measure actual DOM element positions and compare with our canvas layout:
+### Step 1: Reproduce in an isolated test
+Create `tests/debug-wrap.test.ts` (or similar) that runs **exactly** the same
+case as the benchmark: same HTML, CSS, fonts, width, height. The test must:
+- Load fonts identically to the main test (use `loadMultiFontCss()`, `loadBasicCases()`)
+- Use the same `compareWrapping` / `compareRenders` helpers
+- Print canvas lines vs DOM lines side-by-side for comparison
+- Confirm you see the same failure (wrong wrap, high score, etc.)
+
+If the vitest browser (Playwright Chromium) can't reproduce the issue (slightly
+different font metrics from real Chrome), add `console.log` diagnostics to the
+**benchmark page** (`docs/`) instead, and ask the user to run it in their real
+browser and provide the logs back.
+
+### Step 2: Laser-focus on the divergence
+Once reproduced, narrow down:
+- Compare canvas lines vs DOM lines — which line diverges first?
+- Measure word-by-word widths: `ctx.measureText(word).width` vs DOM Range rects
+- For wrapping bugs: find the exact word where canvas wraps but DOM doesn't (or vice versa)
+- For score bugs: compare Y positions of each element between canvas layout tree and DOM `getBoundingClientRect()`
+
 ```typescript
-// Canvas positions
+// Canvas positions — walk the layout tree
 const { root } = buildLayoutTree(ctx, tree, width);
-// walk root, log each text/box y position
 
 // DOM positions (ground truth)
-container.innerHTML = html;
-document.body.appendChild(container);
 const elements = container.querySelectorAll('p, div, span');
 for (const el of elements) {
   const rect = el.getBoundingClientRect();
@@ -78,7 +90,8 @@ for (const el of elements) {
 }
 ```
 
-Compare side by side — look for where the delta changes. A consistent offset is fine (baseline vs top-of-text). A changing delta reveals the exact element where layout diverges.
+A consistent Y offset is fine (baseline vs top-of-text). A **changing delta**
+reveals the exact element where layout diverges.
 
 ### Step 3: Common root causes
 - **Y position drift** → margin collapsing bug (check `collapseMargins`, first/last child collapse)
@@ -88,8 +101,11 @@ Compare side by side — look for where the delta changes. A consistent offset i
 - **Inline-block not on same line** → consecutive inline children not grouped together
 - **Empty elements have wrong height** → check `min-height` support, empty element line-height
 
-### Step 4: Always clean up
-Delete debug test files after fixing. Never commit them.
+### Step 4: After fixing
+1. Run `npm test` — all baselines must pass
+2. If scores/wrapping improved, update baselines: `npm run test:update-baselines`
+3. Delete the debug test file (baselines are the real tests)
+4. A sample debug file can be kept as a template if useful
 
 ## Code conventions
 
