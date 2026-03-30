@@ -27,6 +27,30 @@
     <div class="hero-content">
       <h1 class="hero-title">HTML rich text,<br>drawn on canvas.</h1>
       <p class="hero-desc">render-tag takes HTML + CSS and draws it onto a canvas element with the 2D API. No SVG. No <code>foreignObject</code>. Synchronous. Zero dependencies.</p>
+
+      <!-- ── Showcase: code → canvas ── -->
+      <div class="showcase" id="showcase">
+        <div class="showcase-panel showcase-code">
+          <div class="showcase-chrome">
+            <span class="showcase-dot"></span><span class="showcase-dot"></span><span class="showcase-dot"></span>
+            <span class="showcase-label">HTML input</span>
+          </div>
+          <pre class="showcase-pre"><code id="showcase-source"></code></pre>
+        </div>
+        <div class="showcase-arrow">
+          <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
+            <path d="M8 20h24M24 12l8 8-8 8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <div class="showcase-panel showcase-canvas">
+          <div class="showcase-chrome">
+            <span class="showcase-dot"></span><span class="showcase-dot"></span><span class="showcase-dot"></span>
+            <span class="showcase-label">Canvas output</span>
+          </div>
+          <div class="showcase-render" id="showcase-render"></div>
+        </div>
+      </div>
+
       <p class="hero-note">For design editors, image export, and canvas-based apps that need rich text &mdash; paragraphs, headings, lists, tables, inline formatting &mdash; rendered fast and consistent across browsers.</p>
       <div class="hero-actions">
         <a href="#demo" class="btn">Try it live</a>

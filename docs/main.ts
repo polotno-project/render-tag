@@ -151,106 +151,240 @@ function initScrollReveal() {
   document.querySelectorAll('.section').forEach(s => observer.observe(s));
 }
 
-// ── Hero Animation ──
+// ── Hero Animation: Typewriter + Live Canvas ──
 
-const HERO_STAGES: { html: string; duration: number }[] = [
+interface ShowcaseExample {
+  /** Human-readable code shown in the left panel (syntax highlighted) */
+  code: string;
+  /** Actual HTML passed to render() — can differ from display code */
+  html: string;
+  /** Hold time after typing completes (ms) */
+  hold: number;
+}
+
+const SHOWCASE_EXAMPLES: ShowcaseExample[] = [
   {
-    duration: 2500,
-    html: `<p style="font-size: clamp(2.5rem, 7vw, 5rem); font-weight: 600; line-height: 1.1; letter-spacing: -0.03em; font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #111827;">HTML rich text,<br>drawn on canvas.</p>`,
+    code: `import { render } from 'render-tag';
+
+render({
+  width: 340,
+  html: \`<p style="font-size:28px;
+    font-weight:700;
+    font-family:Playfair Display">
+    The Art of <em>Typography</em>
+  </p>
+  <p style="color:#555">
+    <b>Bold</b>, <em>italic</em>,
+    <span style="color:#e74c3c">color</span>
+  </p>\`,
+});`,
+    html: `<p style="font-size: 28px; font-weight: 700; font-family: 'Playfair Display', serif;">The Art of <em>Typography</em></p><p style="font-size: 14px; color: #555; line-height: 1.7;"><strong>Bold</strong>, <em>italic</em>, and <span style="color: #e74c3c;">color</span> — all on canvas.</p>`,
+    hold: 3000,
   },
   {
-    duration: 2500,
-    html: `<p style="font-size: clamp(2.5rem, 7vw, 5rem); font-weight: 700; line-height: 1.1; letter-spacing: -0.03em; font-family: 'Playfair Display', serif; color: #111827;">HTML rich text,<br>drawn on canvas.</p>`,
+    code: `import { render } from 'render-tag';
+
+render({
+  width: 340,
+  html: \`<p style="font-size:32px;
+    font-weight:700;
+    background-clip:text;
+    text-fill-color:transparent;
+    background-image:linear-gradient(
+      90deg,#ff0844,#ffb199)">
+    Gradient headline
+  </p>
+  <p style="color:#888">
+    Canvas draws gradients natively.
+  </p>\`,
+});`,
+    html: `<p style="font-size: 32px; font-weight: 700; -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-image: linear-gradient(90deg, #ff0844, #ffb199);">Gradient headline</p><p style="font-size: 14px; color: #888;">Canvas draws gradients natively.</p>`,
+    hold: 3000,
   },
   {
-    duration: 2500,
-    html: `<p style="font-size: clamp(2.5rem, 7vw, 5rem); font-weight: 600; line-height: 1.1; letter-spacing: -0.03em; font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #111827;">HTML <span style="color: #da1e28;">rich</span> <span style="color: #0f62fe;">text</span>,<br><span style="color: #198038;">drawn</span> on <span style="color: #6a0dad;">canvas</span>.</p>`,
+    code: `import { render } from 'render-tag';
+
+render({
+  width: 340,
+  html: \`<ul style="font-size:15px;
+    padding-left:20px">
+    <li>Bullet lists</li>
+    <li><span style="text-decoration:
+      underline wavy #e74c3c">
+      Wavy</span> underlines</li>
+    <li><b>Bold</b> +
+      <em style="color:#0f62fe">
+      colored</em> mix</li>
+  </ul>\`,
+});`,
+    html: `<ul style="font-size: 15px; padding-left: 20px; line-height: 1.8;"><li>Bullet lists</li><li><span style="text-decoration: underline wavy #e74c3c;">Wavy</span> underlines</li><li><strong>Bold</strong> + <em style="color: #0f62fe;">colored</em> mix</li></ul>`,
+    hold: 3000,
   },
   {
-    duration: 2500,
-    html: `<p style="font-size: clamp(2.5rem, 7vw, 5rem); font-weight: 600; line-height: 1.1; letter-spacing: -0.03em; font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #111827;">HTML <span style="text-decoration: underline wavy #e74c3c;">rich</span> <span style="text-decoration: underline dotted #0f62fe;">text</span>,<br><span style="background: #ffeaa7; padding: 0 6px;">drawn</span> on <span style="text-decoration: line-through #da1e28;">canvas</span>.</p>`,
-  },
-  {
-    duration: 2500,
-    html: `<p style="font-size: clamp(2.5rem, 7vw, 5rem); line-height: 1.1; letter-spacing: -0.03em; font-family: 'Lobster', cursive; color: #6a0dad;">HTML rich text,<br>drawn on canvas.</p>`,
-  },
-  {
-    duration: 2500,
-    html: `<p style="font-size: clamp(2.5rem, 7vw, 5rem); font-weight: 700; line-height: 1.1; letter-spacing: -0.03em; font-family: 'Merriweather', serif; font-style: italic; color: #333;">HTML rich text,<br>drawn on canvas.</p>`,
+    code: `import { render } from 'render-tag';
+
+render({
+  width: 340,
+  html: \`<h2 style="font-family:Lobster;
+    font-size:26px; color:#6a0dad">
+    Script Fonts
+  </h2>
+  <p style="font-family:Merriweather;
+    font-style:italic; color:#555">
+    Multiple typefaces, one call.
+    Zero dependencies.
+  </p>\`,
+});`,
+    html: `<h2 style="font-family: 'Lobster'; font-size: 26px; color: #6a0dad;">Script Fonts</h2><p style="font-family: 'Merriweather', serif; font-style: italic; font-size: 14px; color: #555; line-height: 1.7;">Multiple typefaces, one canvas call. Zero dependencies, fully synchronous.</p>`,
+    hold: 3000,
   },
 ];
 
+/** Single-pass syntax highlighting for JS + embedded HTML */
+function highlightCode(escaped: string): string {
+  // Single-pass regex: match tokens in priority order, replace in one go
+  // This avoids chained .replace() where later passes corrupt earlier spans
+  const TOKEN = /(&lt;\/?)[a-zA-Z][a-zA-Z0-9]*|'[^']*'|\b(?:import|from|const|let|var)\b|\b\d+\b|(?:[a-zA-Z-]+)="[^"]*"/g;
+
+  return escaped.replace(TOKEN, (match) => {
+    // HTML tag: &lt;p, &lt;/div, etc.
+    if (match.startsWith('&lt;')) {
+      const prefix = match.startsWith('&lt;/') ? '&lt;/' : '&lt;';
+      const tag = match.slice(prefix.length);
+      return `${prefix}<span class="sh-tag">${tag}</span>`;
+    }
+    // Single-quoted string: 'render-tag'
+    if (match.startsWith("'")) {
+      return `'<span class="sh-str">${match.slice(1, -1)}</span>'`;
+    }
+    // JS keyword
+    if (/^(?:import|from|const|let|var)$/.test(match)) {
+      return `<span class="sh-kw">${match}</span>`;
+    }
+    // attr="value" pair
+    if (match.includes('="')) {
+      const eq = match.indexOf('="');
+      const attr = match.slice(0, eq);
+      const val = match.slice(eq + 2, -1);
+      return `<span class="sh-attr">${attr}</span>="<span class="sh-val">${val}</span>"`;
+    }
+    // Number
+    if (/^\d+$/.test(match)) {
+      return `<span class="sh-num">${match}</span>`;
+    }
+    return match;
+  });
+}
+
 function initHeroAnimation() {
-  const title = document.querySelector('.hero-title') as HTMLElement;
-  if (!title) return;
+  const sourceEl = document.getElementById('showcase-source');
+  const renderEl = document.getElementById('showcase-render');
+  if (!sourceEl || !renderEl) return;
 
-  const wrapper = document.createElement('div');
-  wrapper.className = 'hero-canvas-wrap';
-  title.parentNode!.insertBefore(wrapper, title);
-  wrapper.appendChild(title);
-
-  const canvasEl = document.createElement('canvas');
-  canvasEl.className = 'hero-canvas';
-  wrapper.appendChild(canvasEl);
-
-  let stage = 0;
-  let opacity = 1;
-  let fadeDir: 'in' | 'out' | 'hold' = 'hold';
+  let currentExample = 0;
+  let charIndex = 0;
+  let phase: 'typing' | 'holding' | 'fading-out' | 'fading-in' = 'typing';
   let holdTimer = 0;
-  const FADE_MS = 400;
+  let fadeOpacity = 1;
+  let lastTime = performance.now();
+  let lastRenderLen = -1;
 
-  function renderStage() {
-    const width = title.offsetWidth;
-    const computedSize = getComputedStyle(title).fontSize;
-    const stageHtml = HERO_STAGES[stage].html.replace(/clamp\([^)]+\)/g, computedSize);
-    const { canvas, height } = render({ html: stageHtml, width });
+  const CHARS_PER_FRAME = 3; // typing speed: chars per rAF tick
+  const FADE_MS = 300;
+  const RENDER_INTERVAL = 6; // re-render canvas every N chars
 
-    canvasEl.width = canvas.width;
-    canvasEl.height = canvas.height;
-    canvasEl.style.width = width + 'px';
-    canvasEl.style.height = height + 'px';
-
-    const ctx = canvasEl.getContext('2d')!;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.globalAlpha = opacity;
-    ctx.drawImage(canvas, 0, 0);
+  function escapeHTML(s: string): string {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
-  renderStage();
-  title.style.visibility = 'hidden';
+  function renderCanvas(opacity = 1) {
+    const example = SHOWCASE_EXAMPLES[currentExample];
+    const width = renderEl.clientWidth - 32; // minus padding
+    if (width <= 0) return;
 
-  let lastTime = performance.now();
+    try {
+      const { canvas } = render({
+        html: `<style>body { font-family: 'IBM Plex Sans', system-ui, sans-serif; }</style>${example.html}`,
+        width,
+      });
+      renderEl!.innerHTML = '';
+      if (opacity < 1) (canvas as HTMLCanvasElement).style.opacity = String(opacity);
+      renderEl!.appendChild(canvas as HTMLCanvasElement);
+    } catch {
+      // ignore render errors during typing
+    }
+  }
+
+  function updateSource() {
+    const example = SHOWCASE_EXAMPLES[currentExample];
+    const visible = example.code.slice(0, charIndex);
+    const escaped = escapeHTML(visible);
+    const highlighted = highlightCode(escaped);
+    sourceEl!.innerHTML = highlighted + '<span class="showcase-cursor">\u200B</span>';
+  }
 
   function animate(now: number) {
     const dt = now - lastTime;
     lastTime = now;
 
-    if (fadeDir === 'hold') {
+    if (phase === 'typing') {
+      const example = SHOWCASE_EXAMPLES[currentExample];
+      charIndex = Math.min(charIndex + CHARS_PER_FRAME, example.code.length);
+      updateSource();
+
+      // Render canvas periodically during typing + at the end
+      if (charIndex >= example.code.length || charIndex - lastRenderLen >= RENDER_INTERVAL) {
+        renderCanvas();
+        lastRenderLen = charIndex;
+      }
+
+      if (charIndex >= example.code.length) {
+        phase = 'holding';
+        holdTimer = 0;
+        renderCanvas(); // final render
+      }
+    } else if (phase === 'holding') {
       holdTimer += dt;
-      if (holdTimer >= HERO_STAGES[stage].duration) {
-        fadeDir = 'out';
-        holdTimer = 0;
+      if (holdTimer >= SHOWCASE_EXAMPLES[currentExample].hold) {
+        phase = 'fading-out';
+        fadeOpacity = 1;
       }
-    } else if (fadeDir === 'out') {
-      opacity = Math.max(0, opacity - dt / FADE_MS);
-      if (opacity <= 0) {
-        stage = (stage + 1) % HERO_STAGES.length;
-        fadeDir = 'in';
+    } else if (phase === 'fading-out') {
+      fadeOpacity = Math.max(0, fadeOpacity - dt / FADE_MS);
+      sourceEl!.style.opacity = String(fadeOpacity);
+      renderCanvas(fadeOpacity);
+
+      if (fadeOpacity <= 0) {
+        currentExample = (currentExample + 1) % SHOWCASE_EXAMPLES.length;
+        charIndex = 0;
+        lastRenderLen = -1;
+        sourceEl!.innerHTML = '<span class="showcase-cursor">\u200B</span>';
+        renderEl!.innerHTML = '';
+        phase = 'fading-in';
+        fadeOpacity = 0;
       }
-    } else if (fadeDir === 'in') {
-      opacity = Math.min(1, opacity + dt / FADE_MS);
-      if (opacity >= 1) {
-        fadeDir = 'hold';
-        holdTimer = 0;
+    } else if (phase === 'fading-in') {
+      fadeOpacity = Math.min(1, fadeOpacity + dt / FADE_MS);
+      sourceEl!.style.opacity = String(fadeOpacity);
+
+      if (fadeOpacity >= 1) {
+        phase = 'typing';
       }
     }
 
-    renderStage();
     requestAnimationFrame(animate);
   }
 
+  // Kick off
+  updateSource();
   requestAnimationFrame(animate);
-  window.addEventListener('resize', renderStage);
+
+  // Re-render on resize
+  window.addEventListener('resize', () => {
+    if (phase === 'holding' || phase === 'typing') {
+      renderCanvas();
+    }
+  });
 }
 
 // ── Interactive Demo ──
