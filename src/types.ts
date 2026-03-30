@@ -22,11 +22,12 @@ export interface RenderConfig {
   /** Device pixel ratio (default: globalThis.devicePixelRatio ?? 1) */
   pixelRatio?: number;
   /**
-   * Measurement accuracy mode (default: 'balanced').
-   * - 'balanced' — uses DOM probes for cross-browser consistent line heights
-   *   and wrap verification. Best quality.
-   * - 'performance' — pure canvas API measurements only. Faster and DOM-free,
-   *   but may have slight differences across browsers (e.g. Firefox list item heights).
+   * Measurement accuracy mode (default: 'performance').
+   * - 'performance' — pure canvas API measurements only. Faster, no DOM touches,
+   *   and more consistent canvas output across browsers.
+   * - 'balanced' — uses hidden DOM probes for line heights. Matches each browser's
+   *   native DOM rendering more closely, but produces slightly different canvas
+   *   output in Firefox vs Chrome.
    */
   accuracy?: 'balanced' | 'performance';
   /**
@@ -44,9 +45,9 @@ export interface LayoutConfig {
   /** Height override in CSS pixels (auto-sized from content if omitted) */
   height?: number;
   /**
-   * Measurement accuracy mode (default: 'balanced').
-   * - 'balanced' — uses DOM probes for cross-browser consistent line heights.
+   * Measurement accuracy mode (default: 'performance').
    * - 'performance' — pure canvas API measurements only.
+   * - 'balanced' — uses hidden DOM probes for line heights.
    */
   accuracy?: 'balanced' | 'performance';
   /** Debug callback for layout diagnostics */

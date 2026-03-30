@@ -53,7 +53,7 @@ export function layout(config: LayoutConfig): LayoutResult {
     html,
     width,
     height,
-    accuracy = 'balanced',
+    accuracy = 'performance',
     debug,
   } = config;
 

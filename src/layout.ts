@@ -142,9 +142,11 @@ function getLineHeight(ctx: CanvasRenderingContext2D, style: ResolvedStyle, useB
     return measureDomLineHeight(font, 'normal', useBulletProbe);
   }
 
-  // Canvas-only fallback for "normal" line-height: use font metrics
+  // Canvas-only fallback for "normal" line-height: use font bounding box
+  // fontBoundingBoxAscent + fontBoundingBoxDescent already represents the
+  // full line box height, no multiplier needed.
   const { ascent, descent } = getFontMetrics(ctx, style);
-  return (ascent + descent) * 1.2;
+  return ascent + descent;
 }
 
 /**

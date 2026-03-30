@@ -24,7 +24,7 @@
     "wrap": true
   },
   "Text decorations & shadows": {
-    "score": 9.25,
+    "score": 8.99,
     "wrap": true
   },
   "Code blocks & quotes": {
@@ -56,7 +56,7 @@
     "wrap": true
   },
   "Deeply nested inline styles": {
-    "score": 18.5,
+    "score": 18.56,
     "wrap": true
   },
   "Adjacent styled spans no space": {
@@ -64,7 +64,7 @@
     "wrap": true
   },
   "Subscript and superscript": {
-    "score": 30.6,
+    "score": 30.62,
     "wrap": true
   },
   "Mixed font-sizes same line": {
@@ -80,11 +80,11 @@
     "wrap": true
   },
   "Pure RTL Arabic text": {
-    "score": 10.88,
+    "score": 10.87,
     "wrap": true
   },
   "Mixed LTR and RTL (English + Arabic)": {
-    "score": 5.36,
+    "score": 5.42,
     "wrap": true
   },
   "RTL with embedded numbers": {
@@ -140,7 +140,7 @@
     "wrap": true
   },
   "Deeply nested mixed lists": {
-    "score": 14.96,
+    "score": 13.77,
     "wrap": true
   },
   "List items with rich formatting": {
@@ -184,7 +184,7 @@
     "wrap": true
   },
   "Long document 20+ paragraphs": {
-    "score": 18.06,
+    "score": 15.04,
     "wrap": true
   },
   "Single word paragraphs": {
@@ -240,11 +240,11 @@
     "wrap": true
   },
   "Mixed scripts with formatting": {
-    "score": 15.49,
+    "score": 16.65,
     "wrap": true
   },
   "RTL with inline code": {
-    "score": 7.57,
+    "score": 8.27,
     "wrap": true
   },
   "Multi-script single paragraph": {
@@ -276,11 +276,11 @@
     "wrap": true
   },
   "Long CJK paragraph": {
-    "score": 26.64,
+    "score": 28.46,
     "wrap": true
   },
   "Mixed app text comprehensive": {
-    "score": 44.92,
+    "score": 45.28,
     "wrap": false
   },
   "Lists with alignment variations": {
@@ -364,7 +364,7 @@
     "wrap": true
   },
   "Text decorations & shadows@Open Sans": {
-    "score": 9.25,
+    "score": 8.99,
     "wrap": true
   },
   "Code blocks & quotes@Open Sans": {
@@ -396,7 +396,7 @@
     "wrap": true
   },
   "Deeply nested inline styles@Open Sans": {
-    "score": 18.5,
+    "score": 18.56,
     "wrap": true
   },
   "Adjacent styled spans no space@Open Sans": {
@@ -404,7 +404,7 @@
     "wrap": true
   },
   "Subscript and superscript@Open Sans": {
-    "score": 30.6,
+    "score": 30.62,
     "wrap": true
   },
   "Mixed font-sizes same line@Open Sans": {
@@ -480,7 +480,7 @@
     "wrap": true
   },
   "Deeply nested mixed lists@Open Sans": {
-    "score": 14.96,
+    "score": 13.77,
     "wrap": true
   },
   "List items with rich formatting@Open Sans": {
@@ -524,7 +524,7 @@
     "wrap": true
   },
   "Long document 20+ paragraphs@Open Sans": {
-    "score": 18.06,
+    "score": 15.04,
     "wrap": true
   },
   "Single word paragraphs@Open Sans": {
@@ -580,11 +580,11 @@
     "wrap": true
   },
   "Mixed scripts with formatting@Open Sans": {
-    "score": 15.49,
+    "score": 16.65,
     "wrap": true
   },
   "RTL with inline code@Open Sans": {
-    "score": 7.57,
+    "score": 8.27,
     "wrap": true
   },
   "Multi-script single paragraph@Open Sans": {
@@ -616,11 +616,11 @@
     "wrap": true
   },
   "Long CJK paragraph@Open Sans": {
-    "score": 26.64,
+    "score": 28.46,
     "wrap": true
   },
   "Mixed app text comprehensive@Open Sans": {
-    "score": 44.92,
+    "score": 45.28,
     "wrap": false
   },
   "Lists with alignment variations@Open Sans": {
@@ -696,7 +696,7 @@
     "wrap": true
   },
   "Text decorations & shadows@Roboto": {
-    "score": 6.95,
+    "score": 6.7,
     "wrap": true
   },
   "Code blocks & quotes@Roboto": {
@@ -728,7 +728,7 @@
     "wrap": true
   },
   "Deeply nested inline styles@Roboto": {
-    "score": 11.11,
+    "score": 11.23,
     "wrap": true
   },
   "Adjacent styled spans no space@Roboto": {
@@ -736,7 +736,7 @@
     "wrap": true
   },
   "Subscript and superscript@Roboto": {
-    "score": 24.99,
+    "score": 25.01,
     "wrap": true
   },
   "Mixed font-sizes same line@Roboto": {
@@ -812,7 +812,7 @@
     "wrap": true
   },
   "Deeply nested mixed lists@Roboto": {
-    "score": 3.37,
+    "score": 3.19,
     "wrap": true
   },
   "List items with rich formatting@Roboto": {
@@ -856,7 +856,7 @@
     "wrap": true
   },
   "Long document 20+ paragraphs@Roboto": {
-    "score": 5.15,
+    "score": 3.75,
     "wrap": true
   },
   "Single word paragraphs@Roboto": {
@@ -912,11 +912,11 @@
     "wrap": true
   },
   "Mixed scripts with formatting@Roboto": {
-    "score": 5.28,
+    "score": 6.55,
     "wrap": true
   },
   "RTL with inline code@Roboto": {
-    "score": 13.95,
+    "score": 14,
     "wrap": true
   },
   "Multi-script single paragraph@Roboto": {
@@ -948,11 +948,11 @@
     "wrap": true
   },
   "Long CJK paragraph@Roboto": {
-    "score": 17.58,
+    "score": 18.51,
     "wrap": true
   },
   "Mixed app text comprehensive@Roboto": {
-    "score": 45.54,
+    "score": 45.9,
     "wrap": false
   },
   "Lists with alignment variations@Roboto": {
@@ -1028,7 +1028,7 @@
     "wrap": true
   },
   "Text decorations & shadows@Playfair Display": {
-    "score": 12.65,
+    "score": 12.4,
     "wrap": true
   },
   "Code blocks & quotes@Playfair Display": {
@@ -1060,7 +1060,7 @@
     "wrap": true
   },
   "Deeply nested inline styles@Playfair Display": {
-    "score": 12.75,
+    "score": 12.86,
     "wrap": true
   },
   "Adjacent styled spans no space@Playfair Display": {
@@ -1068,7 +1068,7 @@
     "wrap": true
   },
   "Subscript and superscript@Playfair Display": {
-    "score": 22.07,
+    "score": 22.1,
     "wrap": true
   },
   "Mixed font-sizes same line@Playfair Display": {
@@ -1144,7 +1144,7 @@
     "wrap": true
   },
   "Deeply nested mixed lists@Playfair Display": {
-    "score": 16.93,
+    "score": 16.13,
     "wrap": true
   },
   "List items with rich formatting@Playfair Display": {
@@ -1188,7 +1188,7 @@
     "wrap": true
   },
   "Long document 20+ paragraphs@Playfair Display": {
-    "score": 31.87,
+    "score": 31.62,
     "wrap": false
   },
   "Single word paragraphs@Playfair Display": {
@@ -1244,11 +1244,11 @@
     "wrap": true
   },
   "Mixed scripts with formatting@Playfair Display": {
-    "score": 7.7,
+    "score": 8.93,
     "wrap": true
   },
   "RTL with inline code@Playfair Display": {
-    "score": 22.5,
+    "score": 22.58,
     "wrap": true
   },
   "Multi-script single paragraph@Playfair Display": {
@@ -1280,11 +1280,11 @@
     "wrap": true
   },
   "Long CJK paragraph@Playfair Display": {
-    "score": 17.57,
+    "score": 18.49,
     "wrap": true
   },
   "Mixed app text comprehensive@Playfair Display": {
-    "score": 43.06,
+    "score": 43.46,
     "wrap": false
   },
   "Lists with alignment variations@Playfair Display": {
@@ -1360,7 +1360,7 @@
     "wrap": true
   },
   "Text decorations & shadows@Merriweather": {
-    "score": 7.98,
+    "score": 7.74,
     "wrap": true
   },
   "Code blocks & quotes@Merriweather": {
@@ -1392,7 +1392,7 @@
     "wrap": true
   },
   "Deeply nested inline styles@Merriweather": {
-    "score": 21.14,
+    "score": 21.18,
     "wrap": true
   },
   "Adjacent styled spans no space@Merriweather": {
@@ -1400,7 +1400,7 @@
     "wrap": true
   },
   "Subscript and superscript@Merriweather": {
-    "score": 27.91,
+    "score": 27.88,
     "wrap": true
   },
   "Mixed font-sizes same line@Merriweather": {
@@ -1472,11 +1472,11 @@
     "wrap": true
   },
   "Long wrapping list items@Merriweather": {
-    "score": 4.26,
+    "score": 3.41,
     "wrap": true
   },
   "Deeply nested mixed lists@Merriweather": {
-    "score": 6.03,
+    "score": 5.38,
     "wrap": true
   },
   "List items with rich formatting@Merriweather": {
@@ -1520,7 +1520,7 @@
     "wrap": true
   },
   "Long document 20+ paragraphs@Merriweather": {
-    "score": 9.51,
+    "score": 6.85,
     "wrap": true
   },
   "Single word paragraphs@Merriweather": {
@@ -1540,7 +1540,7 @@
     "wrap": true
   },
   "Dense mixed inline styles@Merriweather": {
-    "score": 50.39,
+    "score": 50.38,
     "wrap": false
   },
   "Hindi Devanagari text@Merriweather": {
@@ -1576,11 +1576,11 @@
     "wrap": true
   },
   "Mixed scripts with formatting@Merriweather": {
-    "score": 16.83,
+    "score": 17.9,
     "wrap": true
   },
   "RTL with inline code@Merriweather": {
-    "score": 10.17,
+    "score": 10.21,
     "wrap": true
   },
   "Multi-script single paragraph@Merriweather": {
@@ -1612,11 +1612,11 @@
     "wrap": true
   },
   "Long CJK paragraph@Merriweather": {
-    "score": 26.69,
+    "score": 28.48,
     "wrap": true
   },
   "Mixed app text comprehensive@Merriweather": {
-    "score": 44.81,
+    "score": 45.16,
     "wrap": false
   },
   "Lists with alignment variations@Merriweather": {
@@ -1692,7 +1692,7 @@
     "wrap": true
   },
   "Text decorations & shadows@Lobster": {
-    "score": 13.27,
+    "score": 13.06,
     "wrap": true
   },
   "Code blocks & quotes@Lobster": {
@@ -1724,7 +1724,7 @@
     "wrap": true
   },
   "Deeply nested inline styles@Lobster": {
-    "score": 20.37,
+    "score": 20.46,
     "wrap": true
   },
   "Adjacent styled spans no space@Lobster": {
@@ -1732,7 +1732,7 @@
     "wrap": true
   },
   "Subscript and superscript@Lobster": {
-    "score": 24.91,
+    "score": 24.88,
     "wrap": true
   },
   "Mixed font-sizes same line@Lobster": {
@@ -1808,7 +1808,7 @@
     "wrap": true
   },
   "Deeply nested mixed lists@Lobster": {
-    "score": 4.68,
+    "score": 4.3,
     "wrap": true
   },
   "List items with rich formatting@Lobster": {
@@ -1852,7 +1852,7 @@
     "wrap": true
   },
   "Long document 20+ paragraphs@Lobster": {
-    "score": 4.76,
+    "score": 3.98,
     "wrap": true
   },
   "Single word paragraphs@Lobster": {
@@ -1908,11 +1908,11 @@
     "wrap": true
   },
   "Mixed scripts with formatting@Lobster": {
-    "score": 14.84,
+    "score": 15.88,
     "wrap": true
   },
   "RTL with inline code@Lobster": {
-    "score": 10.23,
+    "score": 10.27,
     "wrap": true
   },
   "Multi-script single paragraph@Lobster": {
@@ -1944,11 +1944,11 @@
     "wrap": true
   },
   "Long CJK paragraph@Lobster": {
-    "score": 26.7,
+    "score": 28.53,
     "wrap": true
   },
   "Mixed app text comprehensive@Lobster": {
-    "score": 9.54,
+    "score": 8.87,
     "wrap": true
   },
   "Lists with alignment variations@Lobster": {

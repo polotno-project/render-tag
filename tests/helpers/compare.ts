@@ -15,27 +15,44 @@ function getMeasureCanvas(): CanvasRenderingContext2D {
   return _measureCanvas.getContext('2d')!;
 }
 
-function measureFontWidth(fontFamily: string, fallback: string, weight: string, style: string): number {
+function measureFontWidth(
+  fontFamily: string,
+  fallback: string,
+  weight: string,
+  style: string,
+): number {
   const ctx = getMeasureCanvas();
   ctx.font = `${style} ${weight} 40px '${fontFamily}', ${fallback}`;
   return ctx.measureText(FONT_PROBE_TEXT).width;
 }
 
-function measureFallbackWidth(fallback: string, weight: string, style: string): number {
+function measureFallbackWidth(
+  fallback: string,
+  weight: string,
+  style: string,
+): number {
   const ctx = getMeasureCanvas();
   ctx.font = `${style} ${weight} 40px ${fallback}`;
   return ctx.measureText(FONT_PROBE_TEXT).width;
 }
 
-function isFontAvailable(fontFamily: string, weight = '400', style = 'normal'): boolean {
-  return FALLBACK_FONTS.some(fallback => {
+function isFontAvailable(
+  fontFamily: string,
+  weight = '400',
+  style = 'normal',
+): boolean {
+  return FALLBACK_FONTS.some((fallback) => {
     const withFont = measureFontWidth(fontFamily, fallback, weight, style);
     const withoutFont = measureFallbackWidth(fallback, weight, style);
     return Math.abs(withFont - withoutFont) > 0.01;
   });
 }
 
-async function waitForFont(fontFamily: string, weight = '400', style = 'normal'): Promise<void> {
+async function waitForFont(
+  fontFamily: string,
+  weight = '400',
+  style = 'normal',
+): Promise<void> {
   if (isFontAvailable(fontFamily, weight, style)) return;
 
   // Try document.fonts.load first (fast path)
@@ -47,7 +64,7 @@ async function waitForFont(fontFamily: string, weight = '400', style = 'normal')
   // Poll canvas metrics until font appears or timeout
   const maxAttempts = FONT_POLL_TIMEOUT / FONT_POLL_INTERVAL;
   for (let i = 0; i < maxAttempts; i++) {
-    await new Promise(r => setTimeout(r, FONT_POLL_INTERVAL));
+    await new Promise((r) => setTimeout(r, FONT_POLL_INTERVAL));
     if (isFontAvailable(fontFamily, weight, style)) return;
   }
 }
@@ -172,7 +189,12 @@ export function extractDomLines(
   // Collect word positions using getClientRects() on word-level ranges.
   // getClientRects() returns one rect per visual line when a word wraps
   // mid-word (overflow-wrap: break-word), handling long unbroken words.
-  const wordPositions: { x: number; y: number; height: number; text: string }[] = [];
+  const wordPositions: {
+    x: number;
+    y: number;
+    height: number;
+    text: string;
+  }[] = [];
   const range = document.createRange();
   for (const textNode of textNodes) {
     const text = textNode.textContent || '';
@@ -180,7 +202,10 @@ export function extractDomLines(
     const words = text.split(/(\s+)/);
     let offset = 0;
     for (const w of words) {
-      if (!w || !w.trim()) { offset += w.length; continue; }
+      if (!w || !w.trim()) {
+        offset += w.length;
+        continue;
+      }
       range.setStart(textNode, offset);
       range.setEnd(textNode, offset + w.length);
       const rects = range.getClientRects();
@@ -198,7 +223,12 @@ export function extractDomLines(
         // Char-by-char scan: group by Y position to find line breaks.
         // getClientRects() on shy words can return multiple rects on the
         // same Y line, so rect-based splitting doesn't work reliably.
-        const charGroups: { y: number; x: number; height: number; chars: string }[] = [];
+        const charGroups: {
+          y: number;
+          x: number;
+          height: number;
+          chars: string;
+        }[] = [];
         for (let ci = 0; ci < w.length; ci++) {
           const ch = w[ci];
           if (ch === '\u00AD' || ch === '\u200B') continue;
@@ -211,19 +241,34 @@ export function extractDomLines(
           if (last && Math.abs(charY - last.y) < last.height * 0.5) {
             last.chars += ch;
           } else {
-            charGroups.push({ y: charY, x: charRect.left, height: charRect.height, chars: ch });
+            charGroups.push({
+              y: charY,
+              x: charRect.left,
+              height: charRect.height,
+              chars: ch,
+            });
           }
         }
         for (const g of charGroups) {
           if (g.chars) {
-            wordPositions.push({ x: g.x, y: g.y, height: g.height, text: g.chars });
+            wordPositions.push({
+              x: g.x,
+              y: g.y,
+              height: g.height,
+              text: g.chars,
+            });
           }
         }
       } else if (rects.length <= 1) {
         const rect = rects[0] || range.getBoundingClientRect();
         const clean = stripInvisible(w);
         if (clean) {
-          wordPositions.push({ x: rect.left, y: rect.top - cTop, height: rect.height, text: clean });
+          wordPositions.push({
+            x: rect.left,
+            y: rect.top - cTop,
+            height: rect.height,
+            text: clean,
+          });
         }
       } else {
         let charIdx = 0;
@@ -234,9 +279,16 @@ export function extractDomLines(
             range.setStart(textNode, offset + charIdx);
             range.setEnd(textNode, offset + charIdx + 1);
             const charRect = range.getClientRects()[0];
-            if (!charRect) { charIdx++; continue; }
+            if (!charRect) {
+              charIdx++;
+              continue;
+            }
             const charY = charRect.top - cTop;
-            if (ri + 1 < rects.length && Math.abs(charY - rects[ri + 1].top + cTop) < Math.abs(charY - rectY)) {
+            if (
+              ri + 1 < rects.length &&
+              Math.abs(charY - rects[ri + 1].top + cTop) <
+                Math.abs(charY - rectY)
+            ) {
               break;
             }
             fragment += w[charIdx];
@@ -244,7 +296,12 @@ export function extractDomLines(
           }
           const clean = stripInvisible(fragment);
           if (clean) {
-            wordPositions.push({ x: rects[ri].left, y: rectY, height: rects[ri].height, text: clean });
+            wordPositions.push({
+              x: rects[ri].left,
+              y: rectY,
+              height: rects[ri].height,
+              text: clean,
+            });
           }
         }
       }
@@ -260,14 +317,20 @@ export function extractDomLines(
   // on word height. This avoids merging overlapping lines (tight line-height)
   // while still grouping mixed-size words on the same baseline.
   wordPositions.sort((a, b) => a.y - b.y);
-  const lineGroups: { yMid: number; maxHeight: number; words: typeof wordPositions }[] = [];
+  const lineGroups: {
+    yMid: number;
+    maxHeight: number;
+    words: typeof wordPositions;
+  }[] = [];
   for (const wp of wordPositions) {
     const wpMid = wp.y + wp.height / 2;
     const lastLine = lineGroups[lineGroups.length - 1];
     // Use the tallest word in the line for tolerance — small fonts next to
     // large fonts on the same baseline have very different midpoints, but
     // the large font's height covers the range.
-    const tolerance = lastLine ? Math.max(lastLine.maxHeight, wp.height) * 0.5 : 0;
+    const tolerance = lastLine
+      ? Math.max(lastLine.maxHeight, wp.height) * 0.5
+      : 0;
     if (lastLine && Math.abs(wpMid - lastLine.yMid) < tolerance) {
       lastLine.words.push(wp);
       lastLine.maxHeight = Math.max(lastLine.maxHeight, wp.height);
@@ -276,9 +339,12 @@ export function extractDomLines(
     }
   }
   // Sort words within each line by X position
-  return lineGroups.map(l => {
+  return lineGroups.map((l) => {
     l.words.sort((a, b) => a.x - b.x);
-    return { y: Math.round(l.yMid), text: l.words.map(w => w.text).join(' ') };
+    return {
+      y: Math.round(l.yMid),
+      text: l.words.map((w) => w.text).join(' '),
+    };
   });
 }
 
@@ -304,7 +370,10 @@ export function compareWrapping(
   height: number,
   precomputedCanvasLines?: { y: number; text: string }[],
 ): LayoutComparisonResult {
-  const rawCanvasLines = precomputedCanvasLines || render({ html: css ? `<style>${css}</style>${html}` : html, width, height }).lines;
+  const rawCanvasLines =
+    precomputedCanvasLines ||
+    render({ html: css ? `<style>${css}</style>${html}` : html, width, height })
+      .lines;
   const rawDomLines = extractDomLines(html, css, width);
 
   // Normalize: strip whitespace and list markers, sort characters.
@@ -325,8 +394,10 @@ export function compareWrapping(
   };
 
   // Filter out empty lines (e.g. list markers without content)
-  const canvasLines = rawCanvasLines.filter(l => normalize(l.text).length > 0);
-  const domLines = rawDomLines.filter(l => normalize(l.text).length > 0);
+  const canvasLines = rawCanvasLines.filter(
+    (l) => normalize(l.text).length > 0,
+  );
+  const domLines = rawDomLines.filter((l) => normalize(l.text).length > 0);
 
   // Different line count = definite wrapping failure
   if (canvasLines.length !== domLines.length) {
@@ -395,7 +466,7 @@ function padImageData(
   const padded = new ImageData(targetWidth, targetHeight);
   // Fill with white
   for (let i = 0; i < padded.data.length; i += 4) {
-    padded.data[i] = 255;     // R
+    padded.data[i] = 255; // R
     padded.data[i + 1] = 255; // G
     padded.data[i + 2] = 255; // B
     padded.data[i + 3] = 255; // A
@@ -429,8 +500,12 @@ export async function compareRenders(
 ): Promise<ComparisonResult> {
   // Pre-load any @font-face fonts before rendering.
   // Check both the css parameter and inline <style> tags in html.
-  const allCSS = (css || '') + '\n' + (html.match(/<style[^>]*>([\s\S]*?)<\/style>/gi) || [])
-    .map(s => s.replace(/<\/?style[^>]*>/gi, '')).join('\n');
+  const allCSS =
+    (css || '') +
+    '\n' +
+    (html.match(/<style[^>]*>([\s\S]*?)<\/style>/gi) || [])
+      .map((s) => s.replace(/<\/?style[^>]*>/gi, ''))
+      .join('\n');
 
   let fontStyle: HTMLStyleElement | null = null;
   if (allCSS.includes('@font-face')) {
@@ -483,25 +558,40 @@ export async function compareRenders(
   const h = Math.max(domCanvas.height, libCanvas.height);
 
   const domData = padImageData(
-    domCtx.getImageData(0, 0, domCanvas.width, domCanvas.height), w, h);
+    domCtx.getImageData(0, 0, domCanvas.width, domCanvas.height),
+    w,
+    h,
+  );
   const libData = padImageData(
-    libCtx.getImageData(0, 0, libCanvas.width, libCanvas.height), w, h);
+    libCtx.getImageData(0, 0, libCanvas.width, libCanvas.height),
+    w,
+    h,
+  );
 
   const t3 = performance.now();
   const diffData = new ImageData(w, h);
   const mismatchedPixels = pixelmatch(
-    domData.data, libData.data, diffData.data,
-    w, h,
+    domData.data,
+    libData.data,
+    diffData.data,
+    w,
+    h,
     { threshold },
   );
   // Count content pixels: non-white in either image
   let contentPixels = 0;
   for (let i = 0; i < w * h; i++) {
     const idx = i * 4;
-    const domIsWhite = domData.data[idx] === 255 && domData.data[idx + 1] === 255 &&
-      domData.data[idx + 2] === 255 && domData.data[idx + 3] === 255;
-    const libIsWhite = libData.data[idx] === 255 && libData.data[idx + 1] === 255 &&
-      libData.data[idx + 2] === 255 && libData.data[idx + 3] === 255;
+    const domIsWhite =
+      domData.data[idx] === 255 &&
+      domData.data[idx + 1] === 255 &&
+      domData.data[idx + 2] === 255 &&
+      domData.data[idx + 3] === 255;
+    const libIsWhite =
+      libData.data[idx] === 255 &&
+      libData.data[idx + 1] === 255 &&
+      libData.data[idx + 2] === 255 &&
+      libData.data[idx + 3] === 255;
     // Also treat fully transparent as empty
     const domIsEmpty = domIsWhite || domData.data[idx + 3] === 0;
     const libIsEmpty = libIsWhite || libData.data[idx + 3] === 0;

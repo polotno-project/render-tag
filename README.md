@@ -197,7 +197,7 @@ li::marker { content: none; font-size: 0; line-height: 0; }
 .has-emoji { font-kerning: none; }
 ```
 
-With `accuracy: 'balanced'` (the default), the library uses hidden DOM probes to match Firefox's actual line box heights. With `accuracy: 'performance'`, the CSS above becomes especially important for Firefox consistency.
+The default `accuracy: 'performance'` uses pure canvas API measurements with no DOM touches, producing consistent canvas output across browsers. Use `accuracy: 'balanced'` if you need each browser's canvas output to match its own native DOM rendering more closely (at the cost of cross-browser canvas consistency).
 
 ## Design decisions
 
@@ -214,11 +214,11 @@ In other words: identical canvas output everywhere > perfect DOM fidelity per br
 ## How it works
 
 1. **Parse** HTML with `DOMParser`
-2. **Resolve styles** via hidden DOM + `getComputedStyle` (CSS cascade for free)
+2. **Resolve styles** via built-in CSS resolver (selector matching, cascade, inheritance — no DOM insertion)
 3. **Layout** with canvas `measureText` (block flow, inline wrapping, margin collapsing)
 4. **Render** with canvas 2D API (`fillText`, `fillRect`, `strokeText`, etc.)
 
-Style resolution uses a hidden DOM element with `getComputedStyle` to get the full CSS cascade. Layout and rendering are done entirely with the canvas 2D API. Optional DOM probes (`accuracy: 'balanced'`) improve cross-browser accuracy for line heights and mixed-font wrapping.
+Style resolution uses a built-in CSS parser and resolver that handles selectors, specificity, cascade, and inheritance without inserting HTML into the document. Layout and rendering are done entirely with the canvas 2D API.
 
 ## Development
 
