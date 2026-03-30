@@ -321,6 +321,19 @@ function initDemo() {
     }
   }
 
+  function updateSliderMax() {
+    const section = canvasFrame.closest('.container') as HTMLElement;
+    const available = section ? section.clientWidth - 34 : 800; // 34 = panel border + padding
+    const max = Math.max(200, Math.min(800, available));
+    widthSlider.max = String(max);
+    if (parseInt(widthSlider.value) > max) {
+      widthSlider.value = String(max);
+    }
+  }
+
+  updateSliderMax();
+  window.addEventListener('resize', () => { updateSliderMax(); updateCanvas(); });
+
   quill.on('text-change', updateCanvas);
   widthSlider.addEventListener('input', updateCanvas);
   updateCanvas();

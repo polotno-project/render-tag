@@ -663,7 +663,7 @@
     "lines": [
       {
         "y": 36,
-        "text": "ThisisEnglishtextمعنصعربيfollowedbymoreEnglish."
+        "text": "This is English text مع نص عربي followed by more English."
       },
       {
         "y": 81,
@@ -671,7 +671,7 @@
       },
       {
         "y": 126,
-        "text": "Thewordمرحباmeanshelloandشكراmeansthankyou."
+        "text": "The word مرحبا means hello and شكرا means thank you."
       },
       {
         "y": 171,
@@ -1055,7 +1055,7 @@
       },
       {
         "y": 47,
-        "text": "○Secondlevelunordered"
+        "text": "•Secondlevelunordered"
       },
       {
         "y": 73,
@@ -1063,11 +1063,11 @@
       },
       {
         "y": 99,
-        "text": "■Fourthlevelunordered"
+        "text": "•Fourthlevelunordered"
       },
       {
         "y": 122,
-        "text": "■Anotherfourthlevel"
+        "text": "•Anotherfourthlevel"
       },
       {
         "y": 148,
@@ -1075,7 +1075,7 @@
       },
       {
         "y": 175,
-        "text": "○Anothersecondlevel"
+        "text": "•Anothersecondlevel"
       },
       {
         "y": 201,
@@ -1087,7 +1087,7 @@
       },
       {
         "y": 254,
-        "text": "■Mixednesting"
+        "text": "•Mixednesting"
       },
       {
         "y": 280,
@@ -1327,10 +1327,14 @@
       },
       {
         "y": 75,
-        "text": "zero-width"
+        "text": "zero-"
       },
       {
         "y": 91,
+        "text": "width"
+      },
+      {
+        "y": 107,
         "text": "container."
       }
     ]
@@ -1927,7 +1931,7 @@
     "lines": [
       {
         "y": 34,
-        "text": "Helloمرحباשלום你好こんにちは안녕하세요สวัสดี—agreetingin"
+        "text": "Hello مرحبا שלום 你好 こんにちは 안녕하세요 สวัสดี — a greeting in"
       },
       {
         "y": 59,
@@ -1935,7 +1939,7 @@
       },
       {
         "y": 101,
-        "text": "Price:$42.99(عربي४२.९९)and¥128and₪158.50inoneline."
+        "text": "Price: $42.99 (عربي ४२.९९) and ¥128 and ₪158.50 in one line."
       }
     ]
   },
@@ -1955,11 +1959,11 @@
       },
       {
         "y": 107,
-        "text": "AnotherURL:"
+        "text": "AnotherURL:https://very-long-"
       },
       {
         "y": 128,
-        "text": "https://very-long-subdomain.example.org/path/to/deeply/nested/resource/page.html"
+        "text": "subdomain.example.org/path/to/deeply/nested/resource/page.html"
       },
       {
         "y": 149,
@@ -1967,15 +1971,11 @@
       },
       {
         "y": 184,
-        "text": "Email:"
+        "text": "Email:user.name+tag@very-long-domain-"
       },
       {
         "y": 205,
-        "text": "user.name+tag@very-long-domain-name.example.com"
-      },
-      {
-        "y": 226,
-        "text": "isalsolong."
+        "text": "name.example.comisalsolong."
       }
     ]
   },
@@ -2211,15 +2211,15 @@
       },
       {
         "y": 237,
-        "text": "TheArabicsupportthreadsaid:“هذاجيد،ولكنلاتكسرالعبارة«فيقول:وعليك"
+        "text": "The Arabic support thread said: “هذا جيد، ولكن لا تكسر العبارة «فيقول: وعليك"
       },
       {
         "y": 260,
-        "text": "السلام»داخلالبطاقة.”AsecondcommentmixedHebrewandEnglish:“"
+        "text": "السلام» داخل البطاقة.” A second comment mixed Hebrew and English: “"
       },
       {
         "y": 282,
-        "text": "בדיקהאחתנוספת:keep(RTL)punctuationstable,evenwhennumbers"
+        "text": "בדיקה אחת נוספת: keep (RTL) punctuation stable, even when numbers"
       },
       {
         "y": 305,
@@ -2279,11 +2279,11 @@
       },
       {
         "y": 207,
-        "text": "•Right-alignedlistitemthatwrapstoverify"
+        "text": "•Right-alignedlistitemthatwrapstoverifyright-"
       },
       {
         "y": 231,
-        "text": "right-alignmentwithbullets"
+        "text": "alignmentwithbullets"
       },
       {
         "y": 255,
@@ -2523,22 +2523,26 @@
       },
       {
         "y": 210,
-        "text": "Wordspacing10pxaddsextraspacebetweeneachwordinthis"
+        "text": "Wordspacing10pxaddsextraspacebetweeneachword"
       },
       {
         "y": 235,
-        "text": "sentence."
+        "text": "inthissentence."
       },
       {
         "y": 277,
-        "text": "Verywidewordspacing20pxdramaticallychangeswherelinesbreak."
+        "text": "Verywidewordspacing20pxdramaticallychanges"
       },
       {
-        "y": 319,
-        "text": "Bothletter-spacing3pxandword-spacing8px"
+        "y": 303,
+        "text": "wherelinesbreak."
       },
       {
         "y": 344,
+        "text": "Bothletter-spacing3pxandword-spacing8px"
+      },
+      {
+        "y": 370,
         "text": "combinedtogether."
       }
     ]
@@ -3407,7 +3411,7 @@
     "lines": [
       {
         "y": 35,
-        "text": "ThisisEnglishtextمعنصعربيfollowedbymoreEnglish."
+        "text": "This is English text مع نص عربي followed by more English."
       },
       {
         "y": 80,
@@ -3415,7 +3419,7 @@
       },
       {
         "y": 125,
-        "text": "Thewordمرحباmeanshelloandشكراmeansthankyou."
+        "text": "The word مرحبا means hello and شكرا means thank you."
       },
       {
         "y": 170,
@@ -3799,7 +3803,7 @@
       },
       {
         "y": 47,
-        "text": "○Secondlevelunordered"
+        "text": "•Secondlevelunordered"
       },
       {
         "y": 73,
@@ -3807,11 +3811,11 @@
       },
       {
         "y": 99,
-        "text": "■Fourthlevelunordered"
+        "text": "•Fourthlevelunordered"
       },
       {
         "y": 122,
-        "text": "■Anotherfourthlevel"
+        "text": "•Anotherfourthlevel"
       },
       {
         "y": 148,
@@ -3819,7 +3823,7 @@
       },
       {
         "y": 175,
-        "text": "○Anothersecondlevel"
+        "text": "•Anothersecondlevel"
       },
       {
         "y": 201,
@@ -3831,7 +3835,7 @@
       },
       {
         "y": 254,
-        "text": "■Mixednesting"
+        "text": "•Mixednesting"
       },
       {
         "y": 280,
@@ -4071,10 +4075,14 @@
       },
       {
         "y": 75,
-        "text": "zero-width"
+        "text": "zero-"
       },
       {
         "y": 91,
+        "text": "width"
+      },
+      {
+        "y": 107,
         "text": "container."
       }
     ]
@@ -4671,7 +4679,7 @@
     "lines": [
       {
         "y": 34,
-        "text": "Helloمرحباשלום你好こんにちは안녕하세요สวัสดี—agreetingin"
+        "text": "Hello مرحبا שלום 你好 こんにちは 안녕하세요 สวัสดี — a greeting in"
       },
       {
         "y": 59,
@@ -4679,7 +4687,7 @@
       },
       {
         "y": 101,
-        "text": "Price:$42.99(عربي४२.९९)and¥128and₪158.50inoneline."
+        "text": "Price: $42.99 (عربي ४२.९९) and ¥128 and ₪158.50 in one line."
       }
     ]
   },
@@ -4699,11 +4707,11 @@
       },
       {
         "y": 107,
-        "text": "AnotherURL:"
+        "text": "AnotherURL:https://very-long-"
       },
       {
         "y": 128,
-        "text": "https://very-long-subdomain.example.org/path/to/deeply/nested/resource/page.html"
+        "text": "subdomain.example.org/path/to/deeply/nested/resource/page.html"
       },
       {
         "y": 149,
@@ -4711,15 +4719,11 @@
       },
       {
         "y": 184,
-        "text": "Email:"
+        "text": "Email:user.name+tag@very-long-domain-"
       },
       {
         "y": 205,
-        "text": "user.name+tag@very-long-domain-name.example.com"
-      },
-      {
-        "y": 226,
-        "text": "isalsolong."
+        "text": "name.example.comisalsolong."
       }
     ]
   },
@@ -4955,15 +4959,15 @@
       },
       {
         "y": 237,
-        "text": "TheArabicsupportthreadsaid:“هذاجيد،ولكنلاتكسرالعبارة«فيقول:وعليك"
+        "text": "The Arabic support thread said: “هذا جيد، ولكن لا تكسر العبارة «فيقول: وعليك"
       },
       {
         "y": 260,
-        "text": "السلام»داخلالبطاقة.”AsecondcommentmixedHebrewandEnglish:“"
+        "text": "السلام» داخل البطاقة.” A second comment mixed Hebrew and English: “"
       },
       {
         "y": 282,
-        "text": "בדיקהאחתנוספת:keep(RTL)punctuationstable,evenwhennumbers"
+        "text": "בדיקה אחת נוספת: keep (RTL) punctuation stable, even when numbers"
       },
       {
         "y": 305,
@@ -5023,11 +5027,11 @@
       },
       {
         "y": 207,
-        "text": "•Right-alignedlistitemthatwrapstoverify"
+        "text": "•Right-alignedlistitemthatwrapstoverifyright-"
       },
       {
         "y": 231,
-        "text": "right-alignmentwithbullets"
+        "text": "alignmentwithbullets"
       },
       {
         "y": 255,
@@ -5271,22 +5275,26 @@
       },
       {
         "y": 210,
-        "text": "Wordspacing10pxaddsextraspacebetweeneachwordinthis"
+        "text": "Wordspacing10pxaddsextraspacebetweeneachword"
       },
       {
         "y": 235,
-        "text": "sentence."
+        "text": "inthissentence."
       },
       {
         "y": 277,
-        "text": "Verywidewordspacing20pxdramaticallychangeswherelinesbreak."
+        "text": "Verywidewordspacing20pxdramaticallychanges"
       },
       {
-        "y": 319,
-        "text": "Bothletter-spacing3pxandword-spacing8px"
+        "y": 303,
+        "text": "wherelinesbreak."
       },
       {
         "y": 344,
+        "text": "Bothletter-spacing3pxandword-spacing8px"
+      },
+      {
+        "y": 370,
         "text": "combinedtogether."
       }
     ]
@@ -6023,7 +6031,7 @@
     "lines": [
       {
         "y": 35,
-        "text": "ThisisEnglishtextمعنصعربيfollowedbymoreEnglish."
+        "text": "This is English text مع نص عربي followed by more English."
       },
       {
         "y": 80,
@@ -6031,7 +6039,7 @@
       },
       {
         "y": 125,
-        "text": "Thewordمرحباmeanshelloandشكراmeansthankyou."
+        "text": "The word مرحبا means hello and شكرا means thank you."
       },
       {
         "y": 170,
@@ -6415,7 +6423,7 @@
       },
       {
         "y": 47,
-        "text": "○Secondlevelunordered"
+        "text": "•Secondlevelunordered"
       },
       {
         "y": 73,
@@ -6423,11 +6431,11 @@
       },
       {
         "y": 99,
-        "text": "■Fourthlevelunordered"
+        "text": "•Fourthlevelunordered"
       },
       {
         "y": 122,
-        "text": "■Anotherfourthlevel"
+        "text": "•Anotherfourthlevel"
       },
       {
         "y": 148,
@@ -6435,7 +6443,7 @@
       },
       {
         "y": 175,
-        "text": "○Anothersecondlevel"
+        "text": "•Anothersecondlevel"
       },
       {
         "y": 201,
@@ -6447,7 +6455,7 @@
       },
       {
         "y": 254,
-        "text": "■Mixednesting"
+        "text": "•Mixednesting"
       },
       {
         "y": 280,
@@ -6687,10 +6695,14 @@
       },
       {
         "y": 75,
-        "text": "zero-width"
+        "text": "zero-"
       },
       {
         "y": 91,
+        "text": "width"
+      },
+      {
+        "y": 107,
         "text": "container."
       }
     ]
@@ -7287,7 +7299,7 @@
     "lines": [
       {
         "y": 34,
-        "text": "Helloمرحباשלום你好こんにちは안녕하세요สวัสดี—agreetingin"
+        "text": "Hello مرحبا שלום 你好 こんにちは 안녕하세요 สวัสดี — a greeting in"
       },
       {
         "y": 59,
@@ -7295,7 +7307,7 @@
       },
       {
         "y": 101,
-        "text": "Price:$42.99(عربي४२.९९)and¥128and₪158.50inoneline."
+        "text": "Price: $42.99 (عربي ४२.९९) and ¥128 and ₪158.50 in one line."
       }
     ]
   },
@@ -7315,11 +7327,11 @@
       },
       {
         "y": 107,
-        "text": "AnotherURL:"
+        "text": "AnotherURL:https://very-long-"
       },
       {
         "y": 128,
-        "text": "https://very-long-subdomain.example.org/path/to/deeply/nested/resource/page.html"
+        "text": "subdomain.example.org/path/to/deeply/nested/resource/page.html"
       },
       {
         "y": 149,
@@ -7327,15 +7339,11 @@
       },
       {
         "y": 184,
-        "text": "Email:"
+        "text": "Email:user.name+tag@very-long-domain-"
       },
       {
         "y": 205,
-        "text": "user.name+tag@very-long-domain-name.example.com"
-      },
-      {
-        "y": 226,
-        "text": "isalsolong."
+        "text": "name.example.comisalsolong."
       }
     ]
   },
@@ -7571,15 +7579,15 @@
       },
       {
         "y": 237,
-        "text": "TheArabicsupportthreadsaid:“هذاجيد،ولكنلاتكسرالعبارة«فيقول:وعليك"
+        "text": "The Arabic support thread said: “هذا جيد، ولكن لا تكسر العبارة «فيقول: وعليك"
       },
       {
         "y": 260,
-        "text": "السلام»داخلالبطاقة.”AsecondcommentmixedHebrewandEnglish:“"
+        "text": "السلام» داخل البطاقة.” A second comment mixed Hebrew and English: “"
       },
       {
         "y": 282,
-        "text": "בדיקהאחתנוספת:keep(RTL)punctuationstable,evenwhennumbers"
+        "text": "בדיקה אחת נוספת: keep (RTL) punctuation stable, even when numbers"
       },
       {
         "y": 305,
@@ -7639,11 +7647,11 @@
       },
       {
         "y": 207,
-        "text": "•Right-alignedlistitemthatwrapstoverify"
+        "text": "•Right-alignedlistitemthatwrapstoverifyright-"
       },
       {
         "y": 231,
-        "text": "right-alignmentwithbullets"
+        "text": "alignmentwithbullets"
       },
       {
         "y": 255,
@@ -7887,22 +7895,26 @@
       },
       {
         "y": 210,
-        "text": "Wordspacing10pxaddsextraspacebetweeneachwordinthis"
+        "text": "Wordspacing10pxaddsextraspacebetweeneachword"
       },
       {
         "y": 235,
-        "text": "sentence."
+        "text": "inthissentence."
       },
       {
         "y": 277,
-        "text": "Verywidewordspacing20pxdramaticallychangeswherelinesbreak."
+        "text": "Verywidewordspacing20pxdramaticallychanges"
       },
       {
-        "y": 319,
-        "text": "Bothletter-spacing3pxandword-spacing8px"
+        "y": 303,
+        "text": "wherelinesbreak."
       },
       {
         "y": 344,
+        "text": "Bothletter-spacing3pxandword-spacing8px"
+      },
+      {
+        "y": 370,
         "text": "combinedtogether."
       }
     ]
@@ -8371,11 +8383,11 @@
       },
       {
         "y": 183,
-        "text": "ustbeforciblybrokenbythelayoutenginetofiti"
+        "text": "ustbeforciblybrokenbythelayoutenginetofitin"
       },
       {
         "y": 204,
-        "text": "nsidethecontainer"
+        "text": "sidethecontainer"
       },
       {
         "y": 239,
@@ -8607,7 +8619,7 @@
     "lines": [
       {
         "y": 35,
-        "text": "ThisisEnglishtextمعنصعربيfollowedbymoreEnglish."
+        "text": "This is English text مع نص عربي followed by more English."
       },
       {
         "y": 80,
@@ -8615,7 +8627,7 @@
       },
       {
         "y": 125,
-        "text": "Thewordمرحباmeanshelloandشكراmeansthankyou."
+        "text": "The word مرحبا means hello and شكرا means thank you."
       },
       {
         "y": 170,
@@ -8995,7 +9007,7 @@
       },
       {
         "y": 46,
-        "text": "○Secondlevelunordered"
+        "text": "•Secondlevelunordered"
       },
       {
         "y": 73,
@@ -9003,11 +9015,11 @@
       },
       {
         "y": 99,
-        "text": "■Fourthlevelunordered"
+        "text": "•Fourthlevelunordered"
       },
       {
         "y": 121,
-        "text": "■Anotherfourthlevel"
+        "text": "•Anotherfourthlevel"
       },
       {
         "y": 148,
@@ -9015,7 +9027,7 @@
       },
       {
         "y": 174,
-        "text": "○Anothersecondlevel"
+        "text": "•Anothersecondlevel"
       },
       {
         "y": 201,
@@ -9027,7 +9039,7 @@
       },
       {
         "y": 253,
-        "text": "■Mixednesting"
+        "text": "•Mixednesting"
       },
       {
         "y": 280,
@@ -9263,10 +9275,14 @@
       },
       {
         "y": 78,
-        "text": "zero-width"
+        "text": "zero-"
       },
       {
         "y": 95,
+        "text": "width"
+      },
+      {
+        "y": 112,
         "text": "container."
       }
     ]
@@ -9839,7 +9855,7 @@
     "lines": [
       {
         "y": 34,
-        "text": "Helloمرحباשלום你好こんにちは안녕하세요สวัสดี—agreetinginseven"
+        "text": "Hello مرحبا שלום 你好 こんにちは 안녕하세요 สวัสดี — a greeting in seven"
       },
       {
         "y": 59,
@@ -9847,7 +9863,7 @@
       },
       {
         "y": 101,
-        "text": "Price:$42.99(عربي४२.९९)and¥128and₪158.50inoneline."
+        "text": "Price: $42.99 (عربي ४२.९९) and ¥128 and ₪158.50 in one line."
       }
     ]
   },
@@ -9867,11 +9883,11 @@
       },
       {
         "y": 106,
-        "text": "AnotherURL:"
+        "text": "AnotherURL:https://very-long-"
       },
       {
         "y": 127,
-        "text": "https://very-long-subdomain.example.org/path/to/deeply/nested/resource/page.html"
+        "text": "subdomain.example.org/path/to/deeply/nested/resource/page.html"
       },
       {
         "y": 148,
@@ -9879,15 +9895,11 @@
       },
       {
         "y": 183,
-        "text": "Email:"
+        "text": "Email:user.name+tag@very-long-domain-"
       },
       {
         "y": 204,
-        "text": "user.name+tag@very-long-domain-name.example.com"
-      },
-      {
-        "y": 225,
-        "text": "isalsolong."
+        "text": "name.example.comisalsolong."
       }
     ]
   },
@@ -10123,11 +10135,11 @@
       },
       {
         "y": 215,
-        "text": "TheArabicsupportthreadsaid:“هذاجيد،ولكنلاتكسرالعبارة«فيقول:وعليكالسلام»"
+        "text": "The Arabic support thread said: “هذا جيد، ولكن لا تكسر العبارة «فيقول: وعليك السلام»"
       },
       {
         "y": 237,
-        "text": "داخلالبطاقة.”AsecondcommentmixedHebrewandEnglish:“בדיקהאחתנוספת:"
+        "text": "داخل البطاقة.” A second comment mixed Hebrew and English: “בדיקה אחת נוספת:"
       },
       {
         "y": 259,
@@ -10151,11 +10163,11 @@
       },
       {
         "y": 399,
-        "text": "counts.Wealsohavehard spaceslike50 kg,wordjoinersinfoo⁠bar,anda"
+        "text": "counts.Wealsohavehard spaceslike50 kg,wordjoinersinfoo⁠bar,andazero-"
       },
       {
         "y": 422,
-        "text": "zero-widthbreakinalphabetaforverynarrowmobilecards."
+        "text": "widthbreakinalphabetaforverynarrowmobilecards."
       }
     ]
   },
@@ -10427,18 +10439,26 @@
       },
       {
         "y": 210,
-        "text": "Wordspacing10pxaddsextraspacebetweeneachwordinthissentence."
+        "text": "Wordspacing10pxaddsextraspacebetweeneachwordin"
       },
       {
-        "y": 251,
-        "text": "Verywidewordspacing20pxdramaticallychangeswherelinesbreak."
+        "y": 235,
+        "text": "thissentence."
       },
       {
-        "y": 293,
+        "y": 277,
+        "text": "Verywidewordspacing20pxdramaticallychanges"
+      },
+      {
+        "y": 303,
+        "text": "wherelinesbreak."
+      },
+      {
+        "y": 344,
         "text": "Bothletter-spacing3pxandword-spacing8px"
       },
       {
-        "y": 319,
+        "y": 370,
         "text": "combinedtogether."
       }
     ]
@@ -10907,11 +10927,11 @@
       },
       {
         "y": 183,
-        "text": "ustbeforciblybrokenbythelayoutenginetofiti"
+        "text": "ustbeforciblybrokenbythelayoutenginetofitin"
       },
       {
         "y": 204,
-        "text": "nsidethecontainer"
+        "text": "sidethecontainer"
       },
       {
         "y": 239,
@@ -11143,7 +11163,7 @@
     "lines": [
       {
         "y": 35,
-        "text": "ThisisEnglishtextمعنصعربيfollowedbymoreEnglish."
+        "text": "This is English text مع نص عربي followed by more English."
       },
       {
         "y": 80,
@@ -11151,7 +11171,7 @@
       },
       {
         "y": 125,
-        "text": "Thewordمرحباmeanshelloandشكراmeansthankyou."
+        "text": "The word مرحبا means hello and شكرا means thank you."
       },
       {
         "y": 170,
@@ -11531,7 +11551,7 @@
       },
       {
         "y": 46,
-        "text": "○Secondlevelunordered"
+        "text": "•Secondlevelunordered"
       },
       {
         "y": 73,
@@ -11539,11 +11559,11 @@
       },
       {
         "y": 99,
-        "text": "■Fourthlevelunordered"
+        "text": "•Fourthlevelunordered"
       },
       {
         "y": 121,
-        "text": "■Anotherfourthlevel"
+        "text": "•Anotherfourthlevel"
       },
       {
         "y": 148,
@@ -11551,7 +11571,7 @@
       },
       {
         "y": 174,
-        "text": "○Anothersecondlevel"
+        "text": "•Anothersecondlevel"
       },
       {
         "y": 201,
@@ -11563,7 +11583,7 @@
       },
       {
         "y": 253,
-        "text": "■Mixednesting"
+        "text": "•Mixednesting"
       },
       {
         "y": 280,
@@ -11799,10 +11819,14 @@
       },
       {
         "y": 78,
-        "text": "zero-width"
+        "text": "zero-"
       },
       {
         "y": 95,
+        "text": "width"
+      },
+      {
+        "y": 112,
         "text": "container."
       }
     ]
@@ -12375,7 +12399,7 @@
     "lines": [
       {
         "y": 34,
-        "text": "Helloمرحباשלום你好こんにちは안녕하세요สวัสดี—agreetinginseven"
+        "text": "Hello مرحبا שלום 你好 こんにちは 안녕하세요 สวัสดี — a greeting in seven"
       },
       {
         "y": 59,
@@ -12383,7 +12407,7 @@
       },
       {
         "y": 101,
-        "text": "Price:$42.99(عربي४२.९९)and¥128and₪158.50inoneline."
+        "text": "Price: $42.99 (عربي ४२.९९) and ¥128 and ₪158.50 in one line."
       }
     ]
   },
@@ -12403,11 +12427,11 @@
       },
       {
         "y": 106,
-        "text": "AnotherURL:"
+        "text": "AnotherURL:https://very-long-"
       },
       {
         "y": 127,
-        "text": "https://very-long-subdomain.example.org/path/to/deeply/nested/resource/page.html"
+        "text": "subdomain.example.org/path/to/deeply/nested/resource/page.html"
       },
       {
         "y": 148,
@@ -12415,15 +12439,11 @@
       },
       {
         "y": 183,
-        "text": "Email:"
+        "text": "Email:user.name+tag@very-long-domain-"
       },
       {
         "y": 204,
-        "text": "user.name+tag@very-long-domain-name.example.com"
-      },
-      {
-        "y": 225,
-        "text": "isalsolong."
+        "text": "name.example.comisalsolong."
       }
     ]
   },
@@ -12659,11 +12679,11 @@
       },
       {
         "y": 215,
-        "text": "TheArabicsupportthreadsaid:“هذاجيد،ولكنلاتكسرالعبارة«فيقول:وعليكالسلام»"
+        "text": "The Arabic support thread said: “هذا جيد، ولكن لا تكسر العبارة «فيقول: وعليك السلام»"
       },
       {
         "y": 237,
-        "text": "داخلالبطاقة.”AsecondcommentmixedHebrewandEnglish:“בדיקהאחתנוספת:"
+        "text": "داخل البطاقة.” A second comment mixed Hebrew and English: “בדיקה אחת נוספת:"
       },
       {
         "y": 259,
@@ -12687,11 +12707,11 @@
       },
       {
         "y": 399,
-        "text": "counts.Wealsohavehard spaceslike50 kg,wordjoinersinfoo⁠bar,anda"
+        "text": "counts.Wealsohavehard spaceslike50 kg,wordjoinersinfoo⁠bar,andazero-"
       },
       {
         "y": 422,
-        "text": "zero-widthbreakinalphabetaforverynarrowmobilecards."
+        "text": "widthbreakinalphabetaforverynarrowmobilecards."
       }
     ]
   },
@@ -12963,18 +12983,26 @@
       },
       {
         "y": 210,
-        "text": "Wordspacing10pxaddsextraspacebetweeneachwordinthissentence."
+        "text": "Wordspacing10pxaddsextraspacebetweeneachwordin"
       },
       {
-        "y": 251,
-        "text": "Verywidewordspacing20pxdramaticallychangeswherelinesbreak."
+        "y": 235,
+        "text": "thissentence."
       },
       {
-        "y": 293,
+        "y": 277,
+        "text": "Verywidewordspacing20pxdramaticallychanges"
+      },
+      {
+        "y": 303,
+        "text": "wherelinesbreak."
+      },
+      {
+        "y": 344,
         "text": "Bothletter-spacing3pxandword-spacing8px"
       },
       {
-        "y": 319,
+        "y": 370,
         "text": "combinedtogether."
       }
     ]
@@ -13423,15 +13451,15 @@
       },
       {
         "y": 64,
-        "text": "https://www.example.com/very/long/path/"
+        "text": "https://www.example.com/very/long/path/t"
       },
       {
         "y": 85,
-        "text": "that/should/wrap/across/multiple/lines/in"
+        "text": "hat/should/wrap/across/multiple/lines/in/"
       },
       {
         "y": 106,
-        "text": "/the/container"
+        "text": "the/container"
       },
       {
         "y": 141,
@@ -13439,15 +13467,15 @@
       },
       {
         "y": 162,
-        "text": "superlongwordwithoutanybreakpointsthat"
+        "text": "superlongwordwithoutanybreakpointsthatm"
       },
       {
         "y": 183,
-        "text": "mustbeforciblybrokenbythelayoutenginetofi"
+        "text": "ustbeforciblybrokenbythelayoutenginetofitin"
       },
       {
         "y": 204,
-        "text": "tinsidethecontainer"
+        "text": "sidethecontainer"
       },
       {
         "y": 239,
@@ -13679,7 +13707,7 @@
     "lines": [
       {
         "y": 36,
-        "text": "ThisisEnglishtextمعنصعربيfollowedbymoreEnglish."
+        "text": "This is English text مع نص عربي followed by more English."
       },
       {
         "y": 81,
@@ -13687,7 +13715,7 @@
       },
       {
         "y": 125,
-        "text": "Thewordمرحباmeanshelloandشكراmeansthankyou."
+        "text": "The word مرحبا means hello and شكرا means thank you."
       },
       {
         "y": 170,
@@ -14067,7 +14095,7 @@
       },
       {
         "y": 46,
-        "text": "○Secondlevelunordered"
+        "text": "•Secondlevelunordered"
       },
       {
         "y": 73,
@@ -14075,11 +14103,11 @@
       },
       {
         "y": 99,
-        "text": "■Fourthlevelunordered"
+        "text": "•Fourthlevelunordered"
       },
       {
         "y": 121,
-        "text": "■Anotherfourthlevel"
+        "text": "•Anotherfourthlevel"
       },
       {
         "y": 148,
@@ -14087,7 +14115,7 @@
       },
       {
         "y": 174,
-        "text": "○Anothersecondlevel"
+        "text": "•Anothersecondlevel"
       },
       {
         "y": 201,
@@ -14099,7 +14127,7 @@
       },
       {
         "y": 253,
-        "text": "■Mixednesting"
+        "text": "•Mixednesting"
       },
       {
         "y": 280,
@@ -14339,10 +14367,14 @@
       },
       {
         "y": 99,
-        "text": "zero-width"
+        "text": "zero-"
       },
       {
         "y": 122,
+        "text": "width"
+      },
+      {
+        "y": 145,
         "text": "container."
       }
     ]
@@ -14915,7 +14947,7 @@
     "lines": [
       {
         "y": 34,
-        "text": "Helloمرحباשלום你好こんにちは안녕하세요สวัสดี—agreetingin"
+        "text": "Hello مرحبا שלום 你好 こんにちは 안녕하세요 สวัสดี — a greeting in"
       },
       {
         "y": 60,
@@ -14923,7 +14955,7 @@
       },
       {
         "y": 101,
-        "text": "Price:$42.99(عربي४२.९९)and¥128and₪158.50inoneline."
+        "text": "Price: $42.99 (عربي ४२.९९) and ¥128 and ₪158.50 in one line."
       }
     ]
   },
@@ -14943,11 +14975,11 @@
       },
       {
         "y": 106,
-        "text": "AnotherURL:"
+        "text": "AnotherURL:https://very-long-"
       },
       {
         "y": 127,
-        "text": "https://very-long-subdomain.example.org/path/to/deeply/nested/resource/page.html"
+        "text": "subdomain.example.org/path/to/deeply/nested/resource/page.html"
       },
       {
         "y": 148,
@@ -14955,15 +14987,11 @@
       },
       {
         "y": 183,
-        "text": "Email:"
+        "text": "Email:user.name+tag@very-long-domain-"
       },
       {
         "y": 204,
-        "text": "user.name+tag@very-long-domain-name.example.com"
-      },
-      {
-        "y": 225,
-        "text": "isalsolong."
+        "text": "name.example.comisalsolong."
       }
     ]
   },
@@ -15199,15 +15227,15 @@
       },
       {
         "y": 215,
-        "text": "TheArabicsupportthreadsaid:“هذاجيد،ولكنلاتكسرالعبارة«فيقول:وعليك"
+        "text": "The Arabic support thread said: “هذا جيد، ولكن لا تكسر العبارة «فيقول: وعليك"
       },
       {
         "y": 237,
-        "text": "السلام»داخلالبطاقة.”AsecondcommentmixedHebrewandEnglish:“בדיקה"
+        "text": "السلام» داخل البطاقة.” A second comment mixed Hebrew and English: “בדיקה"
       },
       {
         "y": 259,
-        "text": "אחתנוספת:keep(RTL)punctuationstable,evenwhennumberslike"
+        "text": "אחת נוספת: keep (RTL) punctuation stable, even when numbers like"
       },
       {
         "y": 282,
@@ -15231,11 +15259,11 @@
       },
       {
         "y": 422,
-        "text": "counts.Wealsohavehard spaceslike50 kg,wordjoinersinfoo⁠bar,anda"
+        "text": "counts.Wealsohavehard spaceslike50 kg,wordjoinersinfoo⁠bar,andazero-"
       },
       {
         "y": 444,
-        "text": "zero-widthbreakinalphabetaforverynarrowmobilecards."
+        "text": "widthbreakinalphabetaforverynarrowmobilecards."
       }
     ]
   },
@@ -15267,11 +15295,11 @@
       },
       {
         "y": 206,
-        "text": "•Right-alignedlistitemthatwrapstoverify"
+        "text": "•Right-alignedlistitemthatwrapstoverifyright-"
       },
       {
         "y": 230,
-        "text": "right-alignmentwithbullets"
+        "text": "alignmentwithbullets"
       },
       {
         "y": 254,
@@ -15515,18 +15543,26 @@
       },
       {
         "y": 210,
-        "text": "Wordspacing10pxaddsextraspacebetweeneachwordinthissentence."
+        "text": "Wordspacing10pxaddsextraspacebetweeneachwordin"
       },
       {
-        "y": 252,
-        "text": "Verywidewordspacing20pxdramaticallychangeswherelinesbreak."
+        "y": 236,
+        "text": "thissentence."
       },
       {
-        "y": 293,
+        "y": 277,
+        "text": "Verywidewordspacing20pxdramaticallychanges"
+      },
+      {
+        "y": 303,
+        "text": "wherelinesbreak."
+      },
+      {
+        "y": 345,
         "text": "Bothletter-spacing3pxandword-spacing8px"
       },
       {
-        "y": 319,
+        "y": 370,
         "text": "combinedtogether."
       }
     ]
