@@ -5,6 +5,21 @@ import type { StyledNode, LayoutNode, LayoutBox, LayoutText, ResolvedStyle } fro
 let _useDomMeasurements = true;
 let _debug: ((entry: import('./types.ts').DebugEntry) => void) | undefined;
 
+// ─── measureText width cache ──────────────────────────────────────────
+// Caches ctx.measureText(text).width keyed by "font\0text".
+// Cleared at the start of each buildLayoutTree() call.
+const _measureCache = new Map<string, number>();
+
+function cachedMeasureWidth(ctx: CanvasRenderingContext2D, text: string): number {
+  // ctx.font must already be set by caller
+  const key = ctx.font + '\0' + text;
+  const cached = _measureCache.get(key);
+  if (cached !== undefined) return cached;
+  const w = ctx.measureText(text).width;
+  _measureCache.set(key, w);
+  return w;
+}
+
 
 /**
  * Check if a line has mixed fonts (different fontFamily/fontSize/fontWeight/fontStyle).
@@ -365,7 +380,7 @@ function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRu
   if (isPreserve) {
     // Split on spaces and tabs, keeping delimiters
     const words = text.split(/( +|\t)/);
-    const tabStopInterval = ctx.measureText(' ').width * 8; // CSS default: 8 spaces
+    const tabStopInterval = cachedMeasureWidth(ctx, ' ') * 8; // CSS default: 8 spaces
     for (const w of words) {
       if (w === '') continue;
       if (w === '\t') {
@@ -383,7 +398,7 @@ function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRu
       const isSpace = /^ +$/.test(w);
       allWords.push({
         text: w,
-        width: ctx.measureText(w).width,
+        width: cachedMeasureWidth(ctx, w),
         style: run.style,
         isSpace,
         boxStyle: run.boxStyle,
@@ -444,7 +459,7 @@ function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRu
       cumText += w;
       cumWidth = ctx.measureText(cumText).width;
       let width = cumWidth - prevCum;
-      const directWidth = ctx.measureText(w).width;
+      const directWidth = cachedMeasureWidth(ctx, w);
       if (_debug) {
         _debug({
           type: 'measure-word',
@@ -494,7 +509,7 @@ function tokenizeRuns(ctx: CanvasRenderingContext2D, runs: TextRun[]): Word[] {
       ctx.letterSpacing = run.style.letterSpacing > 0 ? `${run.style.letterSpacing}px` : '0px';
       const text = applyTextTransform(run.text, run.style.textTransform);
       const s = run.style;
-      const textWidth = ctx.measureText(text).width;
+      const textWidth = cachedMeasureWidth(ctx, text);
       const totalWidth = s.marginLeft + s.borderLeftWidth + s.paddingLeft +
         textWidth + s.paddingRight + s.borderRightWidth + s.marginRight;
       allWords.push({
@@ -602,20 +617,20 @@ function breakWordIfNeeded(
         current = '';
         currentWidth = 0;
       }
-      const charWidth = ctx.measureText(char).width;
+      const charWidth = cachedMeasureWidth(ctx, char);
       pieces.push({ ...word, text: char, width: charWidth });
       continue;
     }
 
     // Use cumulative measurement: measure the growing string, not individual chars
     const candidateText = current + char;
-    const candidateWidth = ctx.measureText(candidateText).width;
+    const candidateWidth = cachedMeasureWidth(ctx, candidateText);
 
     // For break-word: break when adding this char would exceed container
     if (needsBreak && candidateWidth > contentWidth && current) {
       pieces.push({ ...word, text: current, width: currentWidth });
       current = char;
-      currentWidth = ctx.measureText(char).width;
+      currentWidth = cachedMeasureWidth(ctx, char);
       continue;
     }
 
@@ -660,7 +675,7 @@ function flowWordsIntoLines(
       const lastWord = currentLine.words[currentLine.words.length - 1];
       if (lastWord.isSoftHyphenBreak) {
         applyFont(ctx, lastWord.style);
-        const hyphenWidth = ctx.measureText('-').width;
+        const hyphenWidth = cachedMeasureWidth(ctx, '-');
         currentLine.words.push({
           text: '-',
           width: hyphenWidth,
@@ -744,7 +759,7 @@ function flowWordsIntoLines(
         if (overflow < 1 && !hasMixedFonts([...currentLine.words, piece])) {
           applyFont(ctx, piece.style);
           const fullText = currentLine.words.map(w => w.text).join('') + piece.text;
-          const fullWidth = ctx.measureText(fullText).width;
+          const fullWidth = cachedMeasureWidth(ctx, fullText);
           // Allow tiny sub-pixel overflow — canvas measureText and DOM
           // text layout can differ by fractions of a pixel.
           if (fullWidth <= contentWidth + 0.1) {
@@ -765,7 +780,7 @@ function flowWordsIntoLines(
             const available = contentWidth - currentLine.totalWidth;
             for (; partIdx < parts.length; partIdx++) {
               const candidate = fitted + parts[partIdx];
-              const candidateWidth = ctx.measureText(candidate).width;
+              const candidateWidth = cachedMeasureWidth(ctx, candidate);
               if (candidateWidth > available) break;
               fitted = candidate;
               fittedWidth = candidateWidth;
@@ -777,7 +792,7 @@ function flowWordsIntoLines(
               pushLine(true);
               afterHardBreak = false;
               const remainder = parts.slice(partIdx).join('');
-              const remainderWidth = ctx.measureText(remainder).width;
+              const remainderWidth = cachedMeasureWidth(ctx, remainder);
               currentLine.words.push({ ...piece, text: remainder, width: remainderWidth });
               currentLine.totalWidth += remainderWidth;
               currentLine.lineHeight = Math.max(currentLine.lineHeight, wordLineHeight);
@@ -824,7 +839,7 @@ function flowWordsIntoLines(
           const newPieces: Word[] = subParts.filter(p => p).map(p => ({
             ...piece,
             text: p,
-            width: ctx.measureText(p).width,
+            width: cachedMeasureWidth(ctx, p),
           }));
           // Replace current piece with the sub-parts by splicing into the pieces array
           // Since we're iterating `pieces`, we push remaining sub-parts after the first
@@ -1094,7 +1109,7 @@ function layoutInlineContent(
       for (const group of groups) {
         rtlX -= group.padBefore; // spacing from padding markers
         applyFont(ctx, group.style);
-        const measuredWidth = ctx.measureText(group.text).width;
+        const measuredWidth = cachedMeasureWidth(ctx, group.text);
         rtlX -= measuredWidth;
         group.x = rtlX;
         group.width = measuredWidth;
@@ -1133,7 +1148,7 @@ function layoutInlineContent(
           w.style.verticalAlign === 'super' || w.style.verticalAlign === 'sub');
       if (hasBidiMix) {
         applyFont(ctx, textWords[0].style);
-        const measuredWidth = ctx.measureText(lineText).width;
+        const measuredWidth = cachedMeasureWidth(ctx, lineText);
         results.push({
           type: 'text',
           text: lineText,
@@ -1159,7 +1174,7 @@ function layoutInlineContent(
               text: word.text,
               x: textX,
               y: lineBaselineY,
-              width: ctx.measureText(word.text).width,
+              width: cachedMeasureWidth(ctx, word.text),
               style: word.style,
             });
             curX += word.width;
@@ -1529,7 +1544,7 @@ function addListMarker(
   const baselineY = box.y + style.borderTopWidth + style.paddingTop +
     computeBaselineY(ctx, style, lineHeight);
 
-  const markerWidth = ctx.measureText(node.listMarker).width;
+  const markerWidth = cachedMeasureWidth(ctx, node.listMarker);
   const gap = style.fontSize * 0.15; // small gap between marker and content
   const isRTL = style.direction === 'rtl';
 
@@ -1585,6 +1600,7 @@ export function buildLayoutTree(
   _lineHeightCache.clear();
   _fontMetricsCache.clear();
   _fontStringCache.clear();
+  _measureCache.clear();
 
   // The styledTree root is our container div — layout its children as a block flow
   const { box, height } = layoutBlock(ctx, styledTree, 0, 0, containerWidth);

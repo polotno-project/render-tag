@@ -119,12 +119,25 @@ function selectorSpecificity(selector: string): [number, number, number] {
   return [ids, classes, tags];
 }
 
+/** Parsed representation of a simple selector part (e.g. "ul.foo") */
+interface ParsedPart {
+  tag: string;       // '' if no tag, or the tag name
+  classes: string[];  // class names without the dot
+}
+
+function parsePart(part: string): ParsedPart {
+  const classMatches = part.match(/\.[\w-]+/g) || [];
+  const tag = part.replace(/\.[\w-]+/g, '').replace(/:[\w-]+/g, '').trim();
+  return {
+    tag: (tag && tag !== '*') ? tag : '',
+    classes: classMatches.map(c => c.slice(1)),
+  };
+}
+
 /**
- * Check if a simple selector part matches an element context.
- * Supports: tag, .class, tag.class
+ * Check if a parsed selector part matches an element context.
  */
 function matchesPart(part: string, ctx: ElementContext): boolean {
-  // Split into tag and classes: "ul.foo.bar" → tag="ul", classes=[".foo", ".bar"]
   const classMatches = part.match(/\.[\w-]+/g) || [];
   const tag = part.replace(/\.[\w-]+/g, '').replace(/:[\w-]+/g, '').trim();
 
@@ -135,55 +148,36 @@ function matchesPart(part: string, ctx: ElementContext): boolean {
   return true;
 }
 
-/**
- * Check if a full selector matches an element.
- * Supports descendant (space) and child (>) combinators.
- * Skips selectors with pseudo-elements (::before, ::after).
- */
-function matchesSelector(selector: string, ctx: ElementContext): boolean {
-  // Skip pseudo-element selectors — we handle list markers separately
-  if (selector.includes('::')) return false;
-
-  // Skip pseudo-class selectors that we can't evaluate statically
-  // (:nth-child, :hover, :focus, etc.)
-  if (/:(?:nth-|hover|focus|active|visited|first-child|last-child)/.test(selector)) return false;
-
-  // Split by child combinator first, then by descendant
-  const parts = selector.split(/\s*>\s*|\s+/).filter(Boolean);
-  // Detect which are child combinators vs descendant
-  const combinators: ('>' | ' ')[] = [];
-  {
-    const tokens = selector.trim().split(/\s+/);
-    for (let i = 1; i < tokens.length; i++) {
-      if (tokens[i] === '>') {
-        combinators.push('>');
-        i++; // skip the next token (already in parts)
-      } else if (tokens[i - 1] === '>') {
-        // already handled
-      } else {
-        combinators.push(' ');
-      }
-    }
+function matchesParsedPart(part: ParsedPart, ctx: ElementContext): boolean {
+  if (part.tag && part.tag !== ctx.tagName) return false;
+  for (const cls of part.classes) {
+    if (!ctx.classes.has(cls)) return false;
   }
+  return true;
+}
 
-  // Re-tokenize properly
-  return matchesSelectorTokenized(selector, ctx);
+/** Pre-parsed selector ready for fast matching */
+interface ParsedSelector {
+  /** Parsed parts, rightmost first (match order) */
+  parts: ParsedPart[];
+  /** Combinators between parts[i] and parts[i+1]: '>' or ' ' */
+  combinators: string[];
+  /** Rightmost part — used for index lookup */
+  rightmost: ParsedPart;
+  /** Whether the rightmost part is 'html' or 'body' (matches root) */
+  rightmostIsRoot: boolean;
+  /** Original specificity */
+  spec: [number, number, number];
 }
 
 /**
- * Check if a part matches, treating 'html' and 'body' as matching the root container.
+ * Pre-parse and tokenize a selector string into a ParsedSelector.
+ * Returns null for selectors we can't handle (pseudo-elements, pseudo-classes).
  */
-function matchesPartOrRoot(part: string, ctx: ElementContext, isRoot: boolean): boolean {
-  const tag = part.replace(/\.[\w-]+/g, '').replace(/:[\w-]+/g, '').trim();
-  if ((tag === 'html' || tag === 'body') && isRoot) return true;
-  return matchesPart(part, ctx);
-}
+function parseSelector(selector: string): ParsedSelector | null {
+  if (selector.includes('::')) return null;
+  if (/:(?:nth-|hover|focus|active|visited|first-child|last-child)/.test(selector)) return null;
 
-/**
- * Properly tokenize and match a selector against an element context.
- */
-function matchesSelectorTokenized(selector: string, ctx: ElementContext): boolean {
-  // Tokenize: split into parts and combinators
   const tokens: string[] = [];
   const combinators: string[] = [];
 
@@ -193,48 +187,79 @@ function matchesSelectorTokenized(selector: string, ctx: ElementContext): boolea
       combinators.push('>');
     } else {
       if (tokens.length > combinators.length + 1) {
-        // implicit descendant combinator
         combinators.push(' ');
       }
       tokens.push(raw[i]);
     }
   }
-
-  // Ensure combinators length = tokens.length - 1
   while (combinators.length < tokens.length - 1) {
     combinators.push(' ');
   }
 
-  // Match right-to-left
-  let current: ElementContext | null = ctx;
-  for (let ti = tokens.length - 1; ti >= 0; ti--) {
+  if (tokens.length === 0) return null;
+
+  const parts = tokens.map(parsePart);
+  const rightmost = parts[parts.length - 1];
+  const rightmostTag = rightmost.tag;
+
+  return {
+    parts,
+    combinators,
+    rightmost,
+    rightmostIsRoot: rightmostTag === 'html' || rightmostTag === 'body',
+    spec: selectorSpecificity(selector),
+  };
+}
+
+/**
+ * Match a pre-parsed selector against an element context.
+ */
+function matchesParsedSelector(sel: ParsedSelector, ctx: ElementContext): boolean {
+  // Quick check: rightmost part must match current element
+  if (sel.rightmostIsRoot) {
+    if (ctx.parent !== null) return false; // html/body only match root
+  } else {
+    if (!matchesParsedPart(sel.rightmost, ctx)) return false;
+  }
+
+  // Single-part selector — already matched
+  if (sel.parts.length === 1) return true;
+
+  // Walk ancestors for remaining parts (right-to-left)
+  let current: ElementContext | null = ctx.parent;
+  for (let ti = sel.parts.length - 2; ti >= 0; ti--) {
     if (!current) return false;
+    const part = sel.parts[ti];
+    const combinator = sel.combinators[ti];
 
-    const isRoot = current.parent === null;
-
-    if (ti === tokens.length - 1) {
-      // Rightmost part must match current element
-      if (!matchesPartOrRoot(tokens[ti], current, isRoot)) return false;
-      current = current.parent;
-    } else {
-      const combinator = combinators[ti]; // combinator between tokens[ti] and tokens[ti+1]
-      if (combinator === '>') {
-        // Direct child: parent must match
-        if (!current || !matchesPartOrRoot(tokens[ti], current, current.parent === null)) return false;
+    if (combinator === '>') {
+      // Direct child: current ancestor must match
+      const isRoot = current.parent === null;
+      if (isRoot && (part.tag === 'html' || part.tag === 'body')) {
+        current = current.parent;
+      } else if (matchesParsedPart(part, current)) {
         current = current.parent;
       } else {
-        // Descendant: any ancestor must match
-        let found = false;
-        while (current) {
-          if (matchesPartOrRoot(tokens[ti], current, current.parent === null)) {
-            current = current.parent;
-            found = true;
-            break;
-          }
-          current = current.parent;
-        }
-        if (!found) return false;
+        return false;
       }
+    } else {
+      // Descendant: any ancestor must match
+      let found = false;
+      while (current) {
+        const isRoot = current.parent === null;
+        if (isRoot && (part.tag === 'html' || part.tag === 'body')) {
+          current = current.parent;
+          found = true;
+          break;
+        }
+        if (matchesParsedPart(part, current)) {
+          current = current.parent;
+          found = true;
+          break;
+        }
+        current = current.parent;
+      }
+      if (!found) return false;
     }
   }
 
@@ -718,6 +743,80 @@ interface MatchedDeclaration {
   important: boolean;
 }
 
+/** A pre-processed rule entry with parsed selector and pre-expanded declarations */
+interface ProcessedRule {
+  selector: ParsedSelector;
+  declarations: { property: string; value: string; important: boolean }[];
+  /** Global order for cascade sorting */
+  orderBase: number;
+}
+
+/**
+ * Build an index of processed rules keyed by rightmost tag name and class names.
+ * The '*' key holds rules that match any element (no tag or class constraint).
+ */
+function buildRuleIndex(rules: CSSRule[]): {
+  byTag: Map<string, ProcessedRule[]>;
+  byClass: Map<string, ProcessedRule[]>;
+  universal: ProcessedRule[];
+} {
+  const byTag = new Map<string, ProcessedRule[]>();
+  const byClass = new Map<string, ProcessedRule[]>();
+  const universal: ProcessedRule[] = [];
+  let orderBase = 0;
+
+  for (const rule of rules) {
+    // Pre-expand declarations once
+    const expandedDecls: { property: string; value: string; important: boolean }[] = [];
+    for (const decl of rule.declarations) {
+      const isImportant = decl.value.includes('!important');
+      const cleanValue = isImportant
+        ? decl.value.replace(/\s*!important\s*/g, '').trim()
+        : decl.value;
+      const expanded = expandShorthand(decl.property, cleanValue);
+      for (const exp of expanded) {
+        expandedDecls.push({ property: exp.property, value: exp.value, important: isImportant });
+      }
+    }
+
+    for (const sel of rule.selectors) {
+      const parsed = parseSelector(sel);
+      if (!parsed) continue;
+
+      const entry: ProcessedRule = {
+        selector: parsed,
+        declarations: expandedDecls,
+        orderBase: orderBase++,
+      };
+
+      const rm = parsed.rightmost;
+      if (rm.tag && !parsed.rightmostIsRoot) {
+        // Index by tag
+        const list = byTag.get(rm.tag);
+        if (list) list.push(entry);
+        else byTag.set(rm.tag, [entry]);
+      }
+      if (rm.classes.length > 0) {
+        // Index by first class (most selective)
+        const cls = rm.classes[0];
+        const list = byClass.get(cls);
+        if (list) list.push(entry);
+        else byClass.set(cls, [entry]);
+      }
+      if (!rm.tag && rm.classes.length === 0) {
+        // Universal selector or html/body root
+        universal.push(entry);
+      }
+      // Also add root-matching selectors to universal
+      if (parsed.rightmostIsRoot) {
+        universal.push(entry);
+      }
+    }
+  }
+
+  return { byTag, byClass, universal };
+}
+
 /**
  * Detect list marker text for a <li> element based on tree position.
  */
@@ -783,18 +882,8 @@ export function resolveStylesFromCSS(
     document.head.appendChild(fontStyleEl);
   }
 
-  // Pre-compute specificity for each rule+selector combination
-  const ruleSpecificities: { rule: CSSRule; selector: string; spec: [number, number, number] }[] = [];
-  for (const rule of rules) {
-    for (const sel of rule.selectors) {
-      if (sel.includes('::')) continue; // skip pseudo-element selectors
-      ruleSpecificities.push({
-        rule,
-        selector: sel,
-        spec: selectorSpecificity(sel),
-      });
-    }
-  }
+  // Build indexed rule lookup
+  const ruleIndex = buildRuleIndex(rules);
 
   // Wrap fragment in a container div (matching DOM resolver behavior)
   const container = document.createElement('div');
@@ -832,24 +921,36 @@ export function resolveStylesFromCSS(
 
     // --- Step 1: Determine font-size first (needed for em/multiplier resolution) ---
 
-    // Collect matching CSS rules (needed for both font-size and other properties)
+    // Collect candidate rules from index (only rules that could match this element)
+    const candidates: ProcessedRule[] = [];
+    const seen = new Set<ProcessedRule>();
+
+    const tagRules = ruleIndex.byTag.get(tag);
+    if (tagRules) for (const r of tagRules) { seen.add(r); candidates.push(r); }
+
+    for (const cls of ctx.classes) {
+      const clsRules = ruleIndex.byClass.get(cls);
+      if (clsRules) for (const r of clsRules) {
+        if (!seen.has(r)) { seen.add(r); candidates.push(r); }
+      }
+    }
+
+    for (const r of ruleIndex.universal) {
+      if (!seen.has(r)) { seen.add(r); candidates.push(r); }
+    }
+
+    // Match candidates and collect pre-expanded declarations
     const matched: MatchedDeclaration[] = [];
-    let order = 0;
-    for (const { rule, selector, spec } of ruleSpecificities) {
-      if (matchesSelector(selector, ctx)) {
-        for (const decl of rule.declarations) {
-          const isImportant = decl.value.includes('!important');
-          const cleanValue = decl.value.replace(/\s*!important\s*/g, '').trim();
-          const expanded = expandShorthand(decl.property, cleanValue);
-          for (const exp of expanded) {
-            matched.push({
-              property: exp.property,
-              value: exp.value,
-              specificity: spec,
-              order: order++,
-              important: isImportant,
-            });
-          }
+    for (const candidate of candidates) {
+      if (matchesParsedSelector(candidate.selector, ctx)) {
+        for (const decl of candidate.declarations) {
+          matched.push({
+            property: decl.property,
+            value: decl.value,
+            specificity: candidate.selector.spec,
+            order: candidate.orderBase,
+            important: decl.important,
+          });
         }
       }
     }
@@ -869,14 +970,16 @@ export function resolveStylesFromCSS(
     }
 
     // Sort by: !important first, then specificity, then source order
-    matched.sort((a, b) => {
-      if (a.important !== b.important) return a.important ? 1 : -1; // important goes last (wins)
-      const sa = a.specificity, sb = b.specificity;
-      if (sa[0] !== sb[0]) return sa[0] - sb[0];
-      if (sa[1] !== sb[1]) return sa[1] - sb[1];
-      if (sa[2] !== sb[2]) return sa[2] - sb[2];
-      return a.order - b.order;
-    });
+    if (matched.length > 1) {
+      matched.sort((a, b) => {
+        if (a.important !== b.important) return a.important ? 1 : -1;
+        const sa = a.specificity, sb = b.specificity;
+        if (sa[0] !== sb[0]) return sa[0] - sb[0];
+        if (sa[1] !== sb[1]) return sa[1] - sb[1];
+        if (sa[2] !== sb[2]) return sa[2] - sb[2];
+        return a.order - b.order;
+      });
+    }
 
     // Apply font-size from CSS rules
     for (const m of matched) {
