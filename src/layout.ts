@@ -919,67 +919,8 @@ function layoutInlineContent(
       curX = x + contentWidth - line.totalWidth;
     }
 
-    // Two-pass: first collect inline background boxes, then text.
-    // This ensures backgrounds are rendered before (behind) text.
-
-    // Helper to emit an inline background box.
-    const emitInlineBox = (style: ResolvedStyle, bx: number, bw: number) => {
-      const { ascent, descent } = getFontMetrics(ctx, style);
-      const emHeight = ascent + descent;
-      const boxHeight = emHeight + style.paddingTop + style.paddingBottom
-        + style.borderTopWidth + style.borderBottomWidth;
-      let boxY: number;
-      if (style.display === 'inline-block') {
-        boxY = curY + style.marginTop;
-      } else {
-        boxY = curY + (lineHeight - boxHeight) / 2;
-      }
-      results.push({
-        type: 'box', style, x: bx, y: boxY, width: bw, height: boxHeight,
-        tagName: 'span', children: [],
-      });
-    };
-
-    // Pass 1: find inline background box regions (LTR only — RTL handled below)
-    if (!isRTL) {
-      let scanX = curX;
-      let boxStartX = scanX;
-      let currentBoxStyle: ResolvedStyle | undefined;
-      let boxHasText = false;
-
-      for (const word of line.words) {
-        if (word.boxOpen && word.boxClose && word.text) {
-          if (currentBoxStyle) {
-            if (boxHasText) emitInlineBox(currentBoxStyle, boxStartX, scanX - boxStartX);
-            currentBoxStyle = undefined;
-            boxHasText = false;
-          }
-          const s = word.style;
-          const textWidth = word.width - s.marginLeft - s.borderLeftWidth - s.paddingLeft
-            - s.paddingRight - s.borderRightWidth - s.marginRight;
-          const boxX = scanX + s.marginLeft;
-          const boxW = s.borderLeftWidth + s.paddingLeft + textWidth + s.paddingRight + s.borderRightWidth;
-          emitInlineBox(s, boxX, boxW);
-          boxHasText = false;
-          scanX += word.width;
-          continue;
-        }
-
-        if (word.boxStyle !== currentBoxStyle) {
-          if (currentBoxStyle && boxHasText) {
-            emitInlineBox(currentBoxStyle, boxStartX, scanX - boxStartX);
-          }
-          currentBoxStyle = word.boxStyle;
-          boxStartX = scanX;
-          boxHasText = false;
-        }
-        if (word.text && !word.isSpace) boxHasText = true;
-        scanX += word.width + (word.isSpace ? justifyExtraPerSpace : 0);
-      }
-      if (currentBoxStyle && boxHasText) {
-        emitInlineBox(currentBoxStyle, boxStartX, scanX - boxStartX);
-      }
-    }
+    // Inline background boxes and text are emitted after baseline computation
+    // (below) so that emitInlineBox can use line-level metrics for alignment.
 
     // Compute a single shared baseline for the entire line.
     // Exclude sub/sup words — they sit above/below the baseline and
@@ -1047,9 +988,69 @@ function layoutInlineContent(
       effectiveLineHeight = maxBottom - minTop;
     }
 
-    // Pass 2: emit text
-    // For RTL lines with uniform style, emit as a single text node
-    // so the canvas can handle BiDi glyph shaping and connected letters.
+    // Emit inline background box using line-level baseline for vertical alignment.
+    // Uses the line's ascent/descent (not the box's own font) so box aligns with text.
+    const emitInlineBox = (style: ResolvedStyle, bx: number, bw: number) => {
+      const padTop = style.paddingTop + style.borderTopWidth;
+      const padBottom = style.paddingBottom + style.borderBottomWidth;
+      const emHeight = maxAscent + maxDescent;
+      const boxHeight = emHeight + padTop + padBottom;
+      let boxY: number;
+      if (style.display === 'inline-block') {
+        boxY = curY + style.marginTop;
+      } else {
+        // Position box so text baseline inside box matches lineBaselineY.
+        // Box top = baseline - ascent - paddingTop
+        boxY = lineBaselineY - maxAscent - padTop;
+      }
+      results.push({
+        type: 'box', style, x: bx, y: boxY, width: bw, height: boxHeight,
+        tagName: 'span', children: [],
+      });
+    };
+
+    // LTR: emit inline background boxes (Pass 1) before text.
+    if (!isRTL) {
+      let scanX = curX;
+      let boxStartX = scanX;
+      let currentBoxStyle: ResolvedStyle | undefined;
+      let boxHasText = false;
+
+      for (const word of line.words) {
+        if (word.boxOpen && word.boxClose && word.text) {
+          if (currentBoxStyle) {
+            if (boxHasText) emitInlineBox(currentBoxStyle, boxStartX, scanX - boxStartX);
+            currentBoxStyle = undefined;
+            boxHasText = false;
+          }
+          const s = word.style;
+          const textWidth = word.width - s.marginLeft - s.borderLeftWidth - s.paddingLeft
+            - s.paddingRight - s.borderRightWidth - s.marginRight;
+          const boxX = scanX + s.marginLeft;
+          const boxW = s.borderLeftWidth + s.paddingLeft + textWidth + s.paddingRight + s.borderRightWidth;
+          emitInlineBox(s, boxX, boxW);
+          boxHasText = false;
+          scanX += word.width;
+          continue;
+        }
+
+        if (word.boxStyle !== currentBoxStyle) {
+          if (currentBoxStyle && boxHasText) {
+            emitInlineBox(currentBoxStyle, boxStartX, scanX - boxStartX);
+          }
+          currentBoxStyle = word.boxStyle;
+          boxStartX = scanX;
+          boxHasText = false;
+        }
+        if (word.text && !word.isSpace) boxHasText = true;
+        scanX += word.width + (word.isSpace ? justifyExtraPerSpace : 0);
+      }
+      if (currentBoxStyle && boxHasText) {
+        emitInlineBox(currentBoxStyle, boxStartX, scanX - boxStartX);
+      }
+    }
+
+    // Emit text nodes.
     const textWords = line.words.filter(w => w.text !== '');
     const allSameStyle = textWords.length > 0 && textWords.every(w =>
       sameTextStyle(w.style, textWords[0].style)
@@ -1057,22 +1058,22 @@ function layoutInlineContent(
 
     if (isRTL) {
       // RTL: build groups, compute positions, emit boxes then text.
-      // Groups are built from consecutive same-style words. Positions are
-      // computed once using group-level measureText (accurate for connected
-      // scripts like Arabic) and shared between box and text emission.
-      let rtlX = curX + line.totalWidth;
-
+      // Groups join consecutive same-style words for proper glyph shaping.
+      // Padding markers between groups create spacing.
       interface StyledGroup {
         text: string; style: ResolvedStyle; width: number;
         boxStyle?: ResolvedStyle; x: number;
+        padBefore: number; // padding before this group (from boxOpen/boxClose markers)
       }
       const groups: StyledGroup[] = [];
       let currentGroup: StyledGroup | null = null;
+      let pendingPad = 0;
 
       for (const word of line.words) {
         if (word.text === '') {
+          // Padding marker — accumulate for the next group boundary
           if (currentGroup) { groups.push(currentGroup); currentGroup = null; }
-          rtlX -= word.width;
+          pendingPad += word.width;
           continue;
         }
         if (currentGroup && sameTextStyle(currentGroup.style, word.style)) {
@@ -1080,13 +1081,17 @@ function layoutInlineContent(
           currentGroup.width += word.width;
         } else {
           if (currentGroup) groups.push(currentGroup);
-          currentGroup = { text: word.text, style: word.style, width: word.width, boxStyle: word.boxStyle, x: 0 };
+          currentGroup = { text: word.text, style: word.style, width: word.width, boxStyle: word.boxStyle, x: 0, padBefore: pendingPad };
+          pendingPad = 0;
         }
       }
       if (currentGroup) groups.push(currentGroup);
 
-      // Compute positions right-to-left using group-level measurement
+      // Compute positions right-to-left: group-level measureText for accuracy,
+      // with padding markers creating spacing between groups.
+      let rtlX = curX + line.totalWidth;
       for (const group of groups) {
+        rtlX -= group.padBefore; // spacing from padding markers
         applyFont(ctx, group.style);
         const measuredWidth = ctx.measureText(group.text).width;
         rtlX -= measuredWidth;
