@@ -172,7 +172,7 @@
     "wrap": true
   },
   "Very narrow container": {
-    "score": 0,
+    "score": 21.03,
     "wrap": true
   },
   "Nowrap overflow text": {
@@ -252,7 +252,7 @@
     "wrap": true
   },
   "URL text wrapping": {
-    "score": 41.94,
+    "score": 38.99,
     "wrap": false
   },
   "Numbers and currency in RTL": {
@@ -260,8 +260,8 @@
     "wrap": true
   },
   "Word joiner and zero-width space": {
-    "score": 0,
-    "wrap": true
+    "score": 4.7,
+    "wrap": false
   },
   "Dense emoji sequences": {
     "score": 13.34,
@@ -284,8 +284,8 @@
     "wrap": false
   },
   "Lists with alignment variations": {
-    "score": 13.06,
-    "wrap": false
+    "score": 4.22,
+    "wrap": true
   },
   "Arabic RTL formatting": {
     "score": 50.14,
@@ -512,7 +512,7 @@
     "wrap": true
   },
   "Very narrow container@Open Sans": {
-    "score": 0,
+    "score": 21.03,
     "wrap": true
   },
   "Nowrap overflow text@Open Sans": {
@@ -592,7 +592,7 @@
     "wrap": true
   },
   "URL text wrapping@Open Sans": {
-    "score": 41.94,
+    "score": 38.99,
     "wrap": false
   },
   "Numbers and currency in RTL@Open Sans": {
@@ -600,8 +600,8 @@
     "wrap": true
   },
   "Word joiner and zero-width space@Open Sans": {
-    "score": 0,
-    "wrap": true
+    "score": 4.7,
+    "wrap": false
   },
   "Dense emoji sequences@Open Sans": {
     "score": 13.34,
@@ -624,8 +624,8 @@
     "wrap": false
   },
   "Lists with alignment variations@Open Sans": {
-    "score": 13.06,
-    "wrap": false
+    "score": 4.22,
+    "wrap": true
   },
   "Arabic RTL formatting@Open Sans": {
     "score": 50.14,
@@ -844,7 +844,7 @@
     "wrap": true
   },
   "Very narrow container@Roboto": {
-    "score": 0,
+    "score": 17.75,
     "wrap": true
   },
   "Nowrap overflow text@Roboto": {
@@ -924,7 +924,7 @@
     "wrap": true
   },
   "URL text wrapping@Roboto": {
-    "score": 42.68,
+    "score": 39.9,
     "wrap": false
   },
   "Numbers and currency in RTL@Roboto": {
@@ -932,8 +932,8 @@
     "wrap": true
   },
   "Word joiner and zero-width space@Roboto": {
-    "score": 1.81,
-    "wrap": true
+    "score": 5.63,
+    "wrap": false
   },
   "Dense emoji sequences@Roboto": {
     "score": 5.14,
@@ -956,8 +956,8 @@
     "wrap": false
   },
   "Lists with alignment variations@Roboto": {
-    "score": 11.11,
-    "wrap": false
+    "score": 1.36,
+    "wrap": true
   },
   "Arabic RTL formatting@Roboto": {
     "score": 47.15,
@@ -1176,7 +1176,7 @@
     "wrap": true
   },
   "Very narrow container@Playfair Display": {
-    "score": 0,
+    "score": 18.65,
     "wrap": true
   },
   "Nowrap overflow text@Playfair Display": {
@@ -1256,7 +1256,7 @@
     "wrap": true
   },
   "URL text wrapping@Playfair Display": {
-    "score": 35.87,
+    "score": 34.51,
     "wrap": false
   },
   "Numbers and currency in RTL@Playfair Display": {
@@ -1264,8 +1264,8 @@
     "wrap": true
   },
   "Word joiner and zero-width space@Playfair Display": {
-    "score": 10.3,
-    "wrap": true
+    "score": 12.83,
+    "wrap": false
   },
   "Dense emoji sequences@Playfair Display": {
     "score": 7.54,
@@ -1288,8 +1288,8 @@
     "wrap": false
   },
   "Lists with alignment variations@Playfair Display": {
-    "score": 11.79,
-    "wrap": false
+    "score": 2.85,
+    "wrap": true
   },
   "Arabic RTL formatting@Playfair Display": {
     "score": 49.99,
@@ -1360,8 +1360,8 @@
     "wrap": true
   },
   "Text decorations & shadows@Merriweather": {
-    "score": 14.59,
-    "wrap": false
+    "score": 7.98,
+    "wrap": true
   },
   "Code blocks & quotes@Merriweather": {
     "score": 19.24,
@@ -1508,7 +1508,7 @@
     "wrap": true
   },
   "Very narrow container@Merriweather": {
-    "score": 0,
+    "score": 19.4,
     "wrap": true
   },
   "Nowrap overflow text@Merriweather": {
@@ -1588,7 +1588,7 @@
     "wrap": true
   },
   "URL text wrapping@Merriweather": {
-    "score": 30.1,
+    "score": 38.3,
     "wrap": false
   },
   "Numbers and currency in RTL@Merriweather": {
@@ -1616,12 +1616,12 @@
     "wrap": true
   },
   "Mixed app text comprehensive@Merriweather": {
-    "score": 44.21,
+    "score": 44.22,
     "wrap": false
   },
   "Lists with alignment variations@Merriweather": {
-    "score": 15.4,
-    "wrap": false
+    "score": 7.63,
+    "wrap": true
   },
   "Arabic RTL formatting@Merriweather": {
     "score": 52.08,
@@ -1840,7 +1840,7 @@
     "wrap": true
   },
   "Very narrow container@Lobster": {
-    "score": 0,
+    "score": 18.43,
     "wrap": true
   },
   "Nowrap overflow text@Lobster": {
@@ -1920,7 +1920,7 @@
     "wrap": true
   },
   "URL text wrapping@Lobster": {
-    "score": 48.27,
+    "score": 44.26,
     "wrap": false
   },
   "Numbers and currency in RTL@Lobster": {
@@ -1928,8 +1928,8 @@
     "wrap": true
   },
   "Word joiner and zero-width space@Lobster": {
-    "score": 8.74,
-    "wrap": true
+    "score": 12.6,
+    "wrap": false
   },
   "Dense emoji sequences@Lobster": {
     "score": 19.37,
@@ -1948,7 +1948,7 @@
     "wrap": true
   },
   "Mixed app text comprehensive@Lobster": {
-    "score": 9.65,
+    "score": 8.22,
     "wrap": true
   },
   "Lists with alignment variations@Lobster": {

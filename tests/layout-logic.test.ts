@@ -251,16 +251,17 @@ describe('Layout logic (mocked measureText)', () => {
       expect(lines).toEqual(['top-to-', 'bottom']);
     });
 
-    it('does not break at hyphens when whole word fits on next line', () => {
-      // "aa top-to-bottom" with container = 140px
-      // "aa" = 20, " top-to-bottom" = 140px → total 160px > 140px → wrap whole word
-      // "top-to-bottom" = 130px fits on fresh line (< 140px) → no hyphen split needed
+    it('fits hyphen prefix on current line when word overflows', () => {
+      // "aaaa top-to-end" with container = 100px
+      // "aaaa" = 40px, " top-to-end" = 10+100 = 110px → total 150px > 100px OVERFLOW
+      // Hyphen split: "top-" = 40px → 40+10+40 = 90px fits on current line!
+      // Line 1 = "aaaa top-", line 2 = "to-end"
       const tree = block('div', [
-        block('p', [textNode('aa top-to-bottom')]),
+        block('p', [textNode('aaaa top-to-end')]),
       ]);
-      const root = doLayout(tree, 140);
+      const root = doLayout(tree, 100);
       const lines = getLines(root);
-      expect(lines).toEqual(['aa', 'top-to-bottom']);
+      expect(lines).toEqual(['aaaa top-', 'to-end']);
     });
 
     it('splits at first fitting hyphen point', () => {

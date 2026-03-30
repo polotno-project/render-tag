@@ -180,10 +180,25 @@ async function showDetail(tc: BenchmarkCase, fontFamily: string, container: HTML
       }
     }
 
+    const debugWrap = document.createElement('div');
+    debugWrap.style.cssText = 'position:relative;margin-bottom:12px;';
+
+    const copyBtn = document.createElement('button');
+    copyBtn.textContent = 'Copy log';
+    copyBtn.style.cssText = 'position:absolute;top:6px;right:6px;padding:2px 10px;font-size:11px;cursor:pointer;background:#fff;border:1px solid #bae6fd;border-radius:4px;z-index:1;';
+    copyBtn.onclick = () => {
+      navigator.clipboard.writeText(debugText).then(() => {
+        copyBtn.textContent = 'Copied!';
+        setTimeout(() => { copyBtn.textContent = 'Copy log'; }, 1500);
+      });
+    };
+    debugWrap.appendChild(copyBtn);
+
     const debugInfo = document.createElement('div');
-    debugInfo.style.cssText = 'background:#f0f9ff;border:1px solid #bae6fd;border-radius:6px;padding:8px 12px;margin-bottom:12px;font-size:11px;font-family:monospace;white-space:pre-wrap;max-height:400px;overflow:auto;';
+    debugInfo.style.cssText = 'background:#f0f9ff;border:1px solid #bae6fd;border-radius:6px;padding:8px 12px;font-size:11px;font-family:monospace;white-space:pre-wrap;max-height:400px;overflow:auto;';
     debugInfo.textContent = debugText;
-    section.appendChild(debugInfo);
+    debugWrap.appendChild(debugInfo);
+    section.appendChild(debugWrap);
   }
 
   const row = document.createElement('div');
@@ -340,6 +355,22 @@ async function main() {
   fontProbe.remove();
 
   const fonts = FONT_VARIANTS;
+
+  // Isolated debug mode: ?case=Name&font=Family skips the grid
+  const urlParams = new URLSearchParams(window.location.search);
+  const debugCase = urlParams.get('case');
+  const debugFont = urlParams.get('font');
+  if (debugCase) {
+    const tc = allCases.find(c => c.name === debugCase);
+    const fontFamily = debugFont || fonts[0].family;
+    if (tc) {
+      status.textContent = `Debug: ${debugCase} — ${fontFamily}`;
+      showDetail(tc, fontFamily, detailContainer);
+      return;
+    }
+    status.textContent = `Case "${debugCase}" not found. Running full benchmark...`;
+  }
+
   const grid: ResultGrid = allCases.map(() => fonts.map(() => null));
 
   renderResultsTable(allCases, fonts, grid, tableContainer, detailContainer);

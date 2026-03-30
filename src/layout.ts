@@ -736,6 +736,40 @@ function flowWordsIntoLines(
           }
         }
 
+        // Hyphen break on current line: before wrapping the whole word,
+        // try fitting a hyphen prefix on the current line. Browsers prefer
+        // keeping content on the current line by splitting at hyphens.
+        if (reallyOverflows && piece.text.includes('-')) {
+          const hyphenParts = piece.text.split(/(?<=-)/);
+          if (hyphenParts.length > 1) {
+            applyFont(ctx, piece.style);
+            let fitted = '';
+            let fittedWidth = 0;
+            let partIdx = 0;
+            const available = contentWidth - currentLine.totalWidth;
+            for (; partIdx < hyphenParts.length; partIdx++) {
+              const candidate = fitted + hyphenParts[partIdx];
+              const candidateWidth = ctx.measureText(candidate).width;
+              if (candidateWidth > available && fitted) break;
+              fitted = candidate;
+              fittedWidth = candidateWidth;
+            }
+            if (partIdx > 0 && partIdx < hyphenParts.length) {
+              currentLine.words.push({ ...piece, text: fitted, width: fittedWidth });
+              currentLine.totalWidth += fittedWidth;
+              currentLine.lineHeight = Math.max(currentLine.lineHeight, wordLineHeight);
+              pushLine(true);
+              afterHardBreak = false;
+              const remainder = hyphenParts.slice(partIdx).join('');
+              const remainderWidth = ctx.measureText(remainder).width;
+              currentLine.words.push({ ...piece, text: remainder, width: remainderWidth });
+              currentLine.totalWidth += remainderWidth;
+              currentLine.lineHeight = Math.max(currentLine.lineHeight, wordLineHeight);
+              continue;
+            }
+          }
+        }
+
         if (reallyOverflows) {
           if (_debug) {
             const lineText = currentLine.words.map(w => w.text).join('');
