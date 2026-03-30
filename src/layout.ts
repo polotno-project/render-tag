@@ -1501,11 +1501,20 @@ function addListMarker(
   const isRTL = style.direction === 'rtl';
 
   let markerX: number;
+  let markerDirection = 'ltr';
   if (isRTL) {
     // RTL: marker in the parent's right padding area (outside the li box).
-    // Right-aligned within the padding, mirroring LTR behavior.
     const boxRightEdge = box.x + box.width;
-    markerX = boxRightEdge + gap;
+    // Numbered markers ("1.") need RTL direction to display as ".1".
+    // With textAlign='right', x is the right edge — so add markerWidth.
+    // Bullet markers (•, ○, ■) stay LTR — they're symmetric.
+    const isNumbered = /\d/.test(node.listMarker);
+    if (isNumbered) {
+      markerDirection = 'rtl';
+      markerX = boxRightEdge + gap + markerWidth;
+    } else {
+      markerX = boxRightEdge + gap;
+    }
   } else {
     // LTR: marker in the parent's left padding area (outside the li box).
     // Right-aligned within the padding, with a gap before content.
@@ -1519,10 +1528,7 @@ function addListMarker(
     x: markerX,
     y: baselineY,
     width: markerWidth,
-    // Force LTR so marker renders left-to-right from markerX regardless of
-    // parent direction. Without this, RTL markers draw leftward from markerX
-    // (textAlign='right'), putting them inside the content area.
-    style: { ...style, textDecorationLine: 'none', fontWeight: 400, fontStyle: 'normal', direction: 'ltr' },
+    style: { ...style, textDecorationLine: 'none', fontWeight: 400, fontStyle: 'normal', direction: markerDirection },
   });
 }
 
