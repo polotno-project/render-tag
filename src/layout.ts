@@ -12,31 +12,29 @@ let _debug: ((entry: import('./types.ts').DebugEntry) => void) | undefined;
  * Canvas measureText accumulates small errors over long lines; the DOM's layout
  * engine is the ground truth for whether text actually fits.
  */
-let _measureContainer: HTMLDivElement | null = null;
-let _measureSpan: HTMLSpanElement | null = null;
-
-function getDomMeasureElements(): { container: HTMLDivElement; span: HTMLSpanElement } {
-  if (_measureContainer && _measureContainer.parentNode) {
-    return { container: _measureContainer, span: _measureSpan! };
-  }
-  _measureContainer = document.createElement('div');
-  _measureContainer.style.cssText =
-    'position:absolute;top:-9999px;left:-9999px;visibility:hidden;white-space:nowrap;height:auto;width:auto;';
-  _measureSpan = document.createElement('span');
-  _measureContainer.appendChild(_measureSpan);
-  document.body.appendChild(_measureContainer);
-  return { container: _measureContainer, span: _measureSpan };
-}
+let _wrapProbe: HTMLDivElement | null = null;
 
 /**
- * Measure line width via DOM for a single-font line.
- * More accurate than canvas measureText for long lines due to kerning/shaping.
+ * Check if adding a word causes text to wrap in the DOM's layout engine.
+ * Uses a width-constrained div — the ground truth for whether text fits.
+ * More accurate than measuring text width because it uses the actual CSS
+ * line box model (which can differ from getBoundingClientRect on a span).
  */
-function measureLineWidthViaDom(text: string, font: string): number {
-  const { span } = getDomMeasureElements();
-  span.style.font = font;
-  span.textContent = text;
-  return span.getBoundingClientRect().width;
+function domSaysOverflow(text: string, font: string, maxWidth: number): boolean {
+  if (!_wrapProbe || !_wrapProbe.parentNode) {
+    _wrapProbe = document.createElement('div');
+    _wrapProbe.style.cssText =
+      'position:absolute;top:-9999px;left:-9999px;visibility:hidden;padding:0;margin:0;border:0;';
+    document.body.appendChild(_wrapProbe);
+  }
+  _wrapProbe.style.font = font;
+  _wrapProbe.style.width = `${maxWidth}px`;
+  // Single line height — if the div is taller, text wrapped
+  _wrapProbe.style.lineHeight = '1';
+  _wrapProbe.textContent = text;
+  const singleLineHeight = parseFloat(getComputedStyle(_wrapProbe).fontSize);
+  const actualHeight = _wrapProbe.getBoundingClientRect().height;
+  return actualHeight > singleLineHeight * 1.5;
 }
 
 /**
@@ -897,8 +895,7 @@ function flowWordsIntoLines(
         const threshold = candidateText.length >= 40 ? candidateText.length * 0.1 : 0;
         if (remaining < threshold) {
           const font = buildCanvasFont(piece.style);
-          const domWidth = measureLineWidthViaDom(candidateText, font);
-          if (domWidth > contentWidth) {
+          if (domSaysOverflow(candidateText, font, contentWidth)) {
             if (_debug) {
               _debug({
                 type: 'line-wrap',
