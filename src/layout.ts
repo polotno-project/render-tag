@@ -1122,52 +1122,73 @@ function layoutInlineContent(
         });
       }
     } else {
-      // LTR: word by word
-      for (const word of line.words) {
-        if (word.text === '') {
-          curX += word.width;
-          continue;
-        }
+      // LTR with mixed BiDi scripts: emit the entire line as one fillText call
+      // so the canvas engine handles BiDi reordering (Arabic/Hebrew in LTR).
+      // Only do this when the line contains RTL characters — pure LTR lines
+      // are more accurate with word-by-word positioning.
+      const lineText = line.words.map(w => w.text).join('');
+      const hasBidiMix = allSameStyle && /[\u0590-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/.test(lineText) &&
+        !line.words.some(w => w.boxOpen || w.boxClose ||
+          w.style.verticalAlign === 'super' || w.style.verticalAlign === 'sub');
+      if (hasBidiMix) {
+        applyFont(ctx, textWords[0].style);
+        const measuredWidth = ctx.measureText(lineText).width;
+        results.push({
+          type: 'text',
+          text: lineText,
+          x: curX,
+          y: lineBaselineY,
+          width: measuredWidth,
+          style: textWords[0].style,
+        });
+      } else {
+        // Mixed styles: word by word
+        for (const word of line.words) {
+          if (word.text === '') {
+            curX += word.width;
+            continue;
+          }
 
-        // Atomic inline-block: position text inside the box (after margin + padding)
-        if (word.boxOpen && word.boxClose) {
-          const s = word.style;
-          const textX = curX + s.marginLeft + s.borderLeftWidth + s.paddingLeft;
+          // Atomic inline-block: position text inside the box (after margin + padding)
+          if (word.boxOpen && word.boxClose) {
+            const s = word.style;
+            const textX = curX + s.marginLeft + s.borderLeftWidth + s.paddingLeft;
+            results.push({
+              type: 'text',
+              text: word.text,
+              x: textX,
+              y: lineBaselineY,
+              width: ctx.measureText(word.text).width,
+              style: word.style,
+            });
+            curX += word.width;
+            continue;
+          }
+
+          // Adjust baseline for vertical-align
+          let baselineY = lineBaselineY;
+          const va = word.style.verticalAlign;
+          if (va === 'super' || va === 'sub') {
+            const pfs = parentFontSize || word.style.fontSize;
+            if (va === 'super') {
+              baselineY -= pfs * 0.4;
+            } else {
+              baselineY += pfs * 0.26;
+            }
+          }
+          const effectiveWidth = word.width + (word.isSpace ? justifyExtraPerSpace : 0);
+
           results.push({
             type: 'text',
             text: word.text,
-            x: textX,
-            y: lineBaselineY,
-            width: ctx.measureText(word.text).width,
+            x: curX,
+            y: baselineY,
+            width: effectiveWidth,
             style: word.style,
           });
-          curX += word.width;
-          continue;
+
+          curX += effectiveWidth;
         }
-
-        // Adjust baseline for vertical-align
-        let baselineY = lineBaselineY;
-        const va = word.style.verticalAlign;
-        if (va === 'super' || va === 'sub') {
-          const pfs = parentFontSize || word.style.fontSize;
-          if (va === 'super') {
-            baselineY -= pfs * 0.4;
-          } else {
-            baselineY += pfs * 0.26;
-          }
-        }
-        const effectiveWidth = word.width + (word.isSpace ? justifyExtraPerSpace : 0);
-
-        results.push({
-          type: 'text',
-          text: word.text,
-          x: curX,
-          y: baselineY,
-          width: effectiveWidth,
-          style: word.style,
-        });
-
-        curX += effectiveWidth;
       }
     }
 

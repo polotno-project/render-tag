@@ -84,7 +84,7 @@
     "wrap": true
   },
   "Mixed LTR and RTL (English + Arabic)": {
-    "score": 8.06,
+    "score": 5.36,
     "wrap": true
   },
   "RTL with embedded numbers": {
@@ -248,7 +248,7 @@
     "wrap": true
   },
   "Multi-script single paragraph": {
-    "score": 18.39,
+    "score": 16.8,
     "wrap": true
   },
   "URL text wrapping": {
@@ -280,7 +280,7 @@
     "wrap": true
   },
   "Mixed app text comprehensive": {
-    "score": 44.31,
+    "score": 44.92,
     "wrap": false
   },
   "Lists with alignment variations": {
@@ -424,7 +424,7 @@
     "wrap": true
   },
   "Mixed LTR and RTL (English + Arabic)@Open Sans": {
-    "score": 7.26,
+    "score": 5.25,
     "wrap": true
   },
   "RTL with embedded numbers@Open Sans": {
@@ -588,7 +588,7 @@
     "wrap": true
   },
   "Multi-script single paragraph@Open Sans": {
-    "score": 18.39,
+    "score": 16.8,
     "wrap": true
   },
   "URL text wrapping@Open Sans": {
@@ -620,7 +620,7 @@
     "wrap": true
   },
   "Mixed app text comprehensive@Open Sans": {
-    "score": 44.31,
+    "score": 44.92,
     "wrap": false
   },
   "Lists with alignment variations@Open Sans": {
@@ -756,7 +756,7 @@
     "wrap": true
   },
   "Mixed LTR and RTL (English + Arabic)@Roboto": {
-    "score": 14.62,
+    "score": 13.81,
     "wrap": true
   },
   "RTL with embedded numbers@Roboto": {
@@ -920,7 +920,7 @@
     "wrap": true
   },
   "Multi-script single paragraph@Roboto": {
-    "score": 14.46,
+    "score": 11.71,
     "wrap": true
   },
   "URL text wrapping@Roboto": {
@@ -952,7 +952,7 @@
     "wrap": true
   },
   "Mixed app text comprehensive@Roboto": {
-    "score": 44.93,
+    "score": 45.54,
     "wrap": false
   },
   "Lists with alignment variations@Roboto": {
@@ -1088,7 +1088,7 @@
     "wrap": true
   },
   "Mixed LTR and RTL (English + Arabic)@Playfair Display": {
-    "score": 17.75,
+    "score": 16.79,
     "wrap": true
   },
   "RTL with embedded numbers@Playfair Display": {
@@ -1252,7 +1252,7 @@
     "wrap": true
   },
   "Multi-script single paragraph@Playfair Display": {
-    "score": 10.55,
+    "score": 7.36,
     "wrap": true
   },
   "URL text wrapping@Playfair Display": {
@@ -1284,7 +1284,7 @@
     "wrap": true
   },
   "Mixed app text comprehensive@Playfair Display": {
-    "score": 42.55,
+    "score": 43.06,
     "wrap": false
   },
   "Lists with alignment variations@Playfair Display": {
@@ -1420,7 +1420,7 @@
     "wrap": true
   },
   "Mixed LTR and RTL (English + Arabic)@Merriweather": {
-    "score": 8.56,
+    "score": 6.89,
     "wrap": true
   },
   "RTL with embedded numbers@Merriweather": {
@@ -1584,7 +1584,7 @@
     "wrap": true
   },
   "Multi-script single paragraph@Merriweather": {
-    "score": 23.26,
+    "score": 22.02,
     "wrap": true
   },
   "URL text wrapping@Merriweather": {
@@ -1616,7 +1616,7 @@
     "wrap": true
   },
   "Mixed app text comprehensive@Merriweather": {
-    "score": 44.19,
+    "score": 44.81,
     "wrap": false
   },
   "Lists with alignment variations@Merriweather": {
@@ -1752,7 +1752,7 @@
     "wrap": true
   },
   "Mixed LTR and RTL (English + Arabic)@Lobster": {
-    "score": 6.83,
+    "score": 5.08,
     "wrap": true
   },
   "RTL with embedded numbers@Lobster": {
@@ -1916,7 +1916,7 @@
     "wrap": true
   },
   "Multi-script single paragraph@Lobster": {
-    "score": 17.45,
+    "score": 15.88,
     "wrap": true
   },
   "URL text wrapping@Lobster": {
@@ -1948,7 +1948,7 @@
     "wrap": true
   },
   "Mixed app text comprehensive@Lobster": {
-    "score": 7.67,
+    "score": 9.54,
     "wrap": true
   },
   "Lists with alignment variations@Lobster": {
