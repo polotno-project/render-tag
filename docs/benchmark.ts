@@ -201,6 +201,79 @@ async function showDetail(tc: BenchmarkCase, fontFamily: string, container: HTML
       }
     }
 
+    // Font metrics and baseline calculation debug
+    {
+      // Get CSS from the variant
+      const css = variant.css;
+      // Find font-size from CSS (look for body font-size)
+      const fontSizeMatch = css.match(/font-size:\s*([\d.]+)px/);
+      const fontSize = fontSizeMatch ? parseFloat(fontSizeMatch[1]) : 16;
+
+      // Canvas font metrics
+      const metricsCtx = debugCanvas.getContext('2d')!;
+      metricsCtx.font = `400 ${fontSize}px ${fontFamily}`;
+      metricsCtx.fontKerning = 'normal';
+      const mM = metricsCtx.measureText('M');
+      const canvasAscent = mM.fontBoundingBoxAscent ?? mM.actualBoundingBoxAscent;
+      const canvasDescent = mM.fontBoundingBoxDescent ?? mM.actualBoundingBoxDescent;
+
+      debugText += `\n=== Font metrics (${fontSize}px ${fontFamily}) ===\n`;
+      debugText += `  canvas fontBoundingBoxAscent: ${mM.fontBoundingBoxAscent}\n`;
+      debugText += `  canvas fontBoundingBoxDescent: ${mM.fontBoundingBoxDescent}\n`;
+      debugText += `  canvas actualBoundingBoxAscent: ${mM.actualBoundingBoxAscent}\n`;
+      debugText += `  canvas actualBoundingBoxDescent: ${mM.actualBoundingBoxDescent}\n`;
+      debugText += `  canvas ascent (used): ${canvasAscent.toFixed(2)}\n`;
+      debugText += `  canvas descent (used): ${canvasDescent.toFixed(2)}\n`;
+      debugText += `  canvas textHeight (a+d): ${(canvasAscent + canvasDescent).toFixed(2)}\n`;
+
+      // DOM line height probe
+      const probe = document.createElement('div');
+      probe.style.cssText = `position:absolute;top:-9999px;left:-9999px;visibility:hidden;font:400 ${fontSize}px ${fontFamily};white-space:nowrap;padding:0;margin:0;border:0;`;
+      probe.textContent = 'Mg';
+      document.body.appendChild(probe);
+      const domLineHeight = probe.getBoundingClientRect().height;
+      probe.style.lineHeight = 'normal';
+      const domNormalLH = probe.getBoundingClientRect().height;
+      document.body.removeChild(probe);
+
+      debugText += `  DOM probe height (Mg): ${domLineHeight.toFixed(2)}\n`;
+      debugText += `  DOM probe height (normal LH): ${domNormalLH.toFixed(2)}\n`;
+
+      // Baseline calculation (mirrors layout.ts computeBaselineY)
+      const lineHeight = domNormalLH; // this is what getLineHeight returns with DOM measurement
+      const textBlockHeight = canvasAscent + canvasDescent;
+      const baselineY = (canvasAscent - canvasDescent) / 2 + lineHeight / 2;
+      const baselineY2 = (lineHeight - textBlockHeight) / 2 + canvasAscent;
+      debugText += `  computed lineHeight: ${lineHeight.toFixed(2)}\n`;
+      debugText += `  computeBaselineY (Konva): ${baselineY.toFixed(2)}\n`;
+      debugText += `  layoutInlineContent baselineY: ${baselineY2.toFixed(2)}\n`;
+
+      // DOM first element position for comparison
+      const domProbe = document.createElement('div');
+      domProbe.id = '__debug_probe__';
+      domProbe.style.cssText = `position:absolute;left:-9999px;width:${variant.width}px;overflow:hidden;`;
+      const scopedCss = css.replace(/(^|[},;\s])(\s*)(html|body)\b/gm, (m, before, space) => `${before}${space}#__debug_probe__`);
+      const styleEl = document.createElement('style');
+      styleEl.textContent = scopedCss;
+      domProbe.appendChild(styleEl);
+      const content = document.createElement('div');
+      content.style.cssText = 'margin:0;padding:0;';
+      content.innerHTML = variant.html;
+      domProbe.appendChild(content);
+      document.body.appendChild(domProbe);
+      const containerTop = content.getBoundingClientRect().top;
+
+      const allP = content.querySelectorAll('p');
+      debugText += `\n=== DOM <p> positions ===\n`;
+      for (let i = 0; i < Math.min(allP.length, 15); i++) {
+        const p = allP[i];
+        const rect = p.getBoundingClientRect();
+        const text = (p.textContent || '').trim().substring(0, 40);
+        debugText += `  p[${i}]: top=${(rect.top - containerTop).toFixed(1)} h=${rect.height.toFixed(1)} "${text || '(empty)'}"\n`;
+      }
+      document.body.removeChild(domProbe);
+    }
+
     const debugWrap = document.createElement('div');
     debugWrap.style.cssText = 'position:relative;margin-bottom:12px;';
 

@@ -221,11 +221,31 @@ export function resolveStyles(
       if (!parent) return null;
 
       const parentCS = window.getComputedStyle(parent);
+      const style = extractStyle(parentCS);
+
+      // CSS text-decoration is NOT inherited — each element paints its own.
+      // But visually, decorations from ancestor elements (like <u>) propagate
+      // to descendant text. Walk up and merge all ancestor decorations.
+      const decoSet = new Set(style.textDecorationLine.split(/\s+/).filter(d => d && d !== 'none'));
+      let ancestor = parent.parentElement;
+      while (ancestor && ancestor !== container) {
+        const aCS = window.getComputedStyle(ancestor);
+        const aDeco = aCS.textDecorationLine;
+        if (aDeco && aDeco !== 'none') {
+          for (const d of aDeco.split(/\s+/)) {
+            if (d) decoSet.add(d);
+          }
+        }
+        ancestor = ancestor.parentElement;
+      }
+      if (decoSet.size > 0) {
+        style.textDecorationLine = [...decoSet].join(' ');
+      }
 
       return {
         element: null,
         tagName: '#text',
-        style: extractStyle(parentCS),
+        style,
         children: [],
         textContent: text,
       };

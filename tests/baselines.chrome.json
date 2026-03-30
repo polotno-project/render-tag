@@ -56,7 +56,7 @@
     "wrap": true
   },
   "Deeply nested inline styles": {
-    "score": 16.38,
+    "score": 18.5,
     "wrap": true
   },
   "Adjacent styled spans no space": {
@@ -332,7 +332,7 @@
     "wrap": true
   },
   "Polotno HTML": {
-    "score": 10.29,
+    "score": 9.28,
     "wrap": true
   },
   "Polotno Lists": {
@@ -396,7 +396,7 @@
     "wrap": true
   },
   "Deeply nested inline styles@Open Sans": {
-    "score": 16.38,
+    "score": 18.5,
     "wrap": true
   },
   "Adjacent styled spans no space@Open Sans": {
@@ -728,7 +728,7 @@
     "wrap": true
   },
   "Deeply nested inline styles@Roboto": {
-    "score": 10.56,
+    "score": 11.11,
     "wrap": true
   },
   "Adjacent styled spans no space@Roboto": {
@@ -1060,7 +1060,7 @@
     "wrap": true
   },
   "Deeply nested inline styles@Playfair Display": {
-    "score": 12.97,
+    "score": 12.75,
     "wrap": true
   },
   "Adjacent styled spans no space@Playfair Display": {
@@ -1392,7 +1392,7 @@
     "wrap": true
   },
   "Deeply nested inline styles@Merriweather": {
-    "score": 18.15,
+    "score": 21.14,
     "wrap": true
   },
   "Adjacent styled spans no space@Merriweather": {
@@ -1724,7 +1724,7 @@
     "wrap": true
   },
   "Deeply nested inline styles@Lobster": {
-    "score": 17.91,
+    "score": 20.37,
     "wrap": true
   },
   "Adjacent styled spans no space@Lobster": {
