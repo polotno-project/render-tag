@@ -1592,7 +1592,7 @@
     "wrap": false
   },
   "Numbers and currency in RTL@Merriweather": {
-    "score": 20.16,
+    "score": 21.42,
     "wrap": true
   },
   "Word joiner and zero-width space@Merriweather": {
@@ -1932,7 +1932,7 @@
     "wrap": true
   },
   "Dense emoji sequences@Lobster": {
-    "score": 16.45,
+    "score": 16.4,
     "wrap": true
   },
   "Emoji in lists@Lobster": {
