@@ -920,23 +920,16 @@ function layoutInlineContent(
     // Two-pass: first collect inline background boxes, then text.
     // This ensures backgrounds are rendered before (behind) text.
 
-    // Pass 1: find inline background box regions
+    // Pass 1: find inline background box regions.
+    // For RTL, scan right-to-left to match Pass 2's text positioning.
     {
-      let scanX = curX;
-      let boxStartX = scanX;
-      let currentBoxStyle: ResolvedStyle | undefined;
-      let boxHasText = false; // track if region has visible text (not just padding/spaces)
-
-      const emitBox = (style: ResolvedStyle, startX: number, endX: number) => {
-        // Don't emit background box if this line segment has no visible text
-        // (e.g. only a boxOpen padding marker + trailing space before wrap)
-        if (!boxHasText) return;
+      const emitBox = (style: ResolvedStyle, startX: number, endX: number, hasText: boolean) => {
+        if (!hasText) return;
 
         const { ascent, descent } = getFontMetrics(ctx, style);
         const emHeight = ascent + descent;
         const boxHeight = emHeight + style.paddingTop + style.paddingBottom
           + style.borderTopWidth + style.borderBottomWidth;
-        // For inline-block: position with margin offset. For regular inline: center.
         let boxY: number;
         if (style.display === 'inline-block') {
           boxY = curY + style.marginTop;
@@ -944,54 +937,95 @@ function layoutInlineContent(
           boxY = curY + (lineHeight - boxHeight) / 2;
         }
 
+        const bx = Math.min(startX, endX);
+        const bw = Math.abs(endX - startX);
         results.push({
           type: 'box',
           style,
-          x: startX,
+          x: bx,
           y: boxY,
-          width: endX - startX,
+          width: bw,
           height: boxHeight,
           tagName: 'span',
           children: [],
         });
       };
 
-      for (const word of line.words) {
-        // Atomic inline-block: emit box with margin offset
-        if (word.boxOpen && word.boxClose && word.text) {
-          if (currentBoxStyle) {
-            emitBox(currentBoxStyle, boxStartX, scanX);
-            currentBoxStyle = undefined;
+      if (isRTL) {
+        // RTL: scan right-to-left, matching the text group positions from Pass 2.
+        // Compute group positions the same way Pass 2 does (right-to-left).
+        let scanX = curX + line.totalWidth; // start from right edge
+        let boxStartX = scanX;
+        let currentBoxStyle: ResolvedStyle | undefined;
+        let boxHasText = false;
+
+        for (const word of line.words) {
+          if (word.text === '') {
+            if (currentBoxStyle) {
+              emitBox(currentBoxStyle, boxStartX, scanX, boxHasText);
+              currentBoxStyle = undefined;
+              boxHasText = false;
+            }
+            scanX -= word.width;
+            boxStartX = scanX;
+            continue;
+          }
+
+          if (word.boxStyle !== currentBoxStyle) {
+            if (currentBoxStyle) {
+              emitBox(currentBoxStyle, boxStartX, scanX, boxHasText);
+            }
+            currentBoxStyle = word.boxStyle;
+            boxStartX = scanX;
             boxHasText = false;
           }
-          const s = word.style;
-          const textWidth = word.width - s.marginLeft - s.borderLeftWidth - s.paddingLeft
-            - s.paddingRight - s.borderRightWidth - s.marginRight;
-          const boxX = scanX + s.marginLeft;
-          const boxW = s.borderLeftWidth + s.paddingLeft + textWidth + s.paddingRight + s.borderRightWidth;
-          boxHasText = true;
-          emitBox(s, boxX, boxX + boxW);
-          boxHasText = false;
-          scanX += word.width;
-          continue;
+          if (word.text && !word.isSpace) boxHasText = true;
+          applyFont(ctx, word.style);
+          const measuredWidth = ctx.measureText(word.text).width;
+          scanX -= measuredWidth;
         }
+        if (currentBoxStyle) {
+          emitBox(currentBoxStyle, boxStartX, scanX, boxHasText);
+        }
+      } else {
+        // LTR: scan left-to-right
+        let scanX = curX;
+        let boxStartX = scanX;
+        let currentBoxStyle: ResolvedStyle | undefined;
+        let boxHasText = false;
 
-        if (word.boxStyle !== currentBoxStyle) {
-          if (currentBoxStyle) {
-            emitBox(currentBoxStyle, boxStartX, scanX);
+        for (const word of line.words) {
+          if (word.boxOpen && word.boxClose && word.text) {
+            if (currentBoxStyle) {
+              emitBox(currentBoxStyle, boxStartX, scanX, boxHasText);
+              currentBoxStyle = undefined;
+              boxHasText = false;
+            }
+            const s = word.style;
+            const textWidth = word.width - s.marginLeft - s.borderLeftWidth - s.paddingLeft
+              - s.paddingRight - s.borderRightWidth - s.marginRight;
+            const boxX = scanX + s.marginLeft;
+            const boxW = s.borderLeftWidth + s.paddingLeft + textWidth + s.paddingRight + s.borderRightWidth;
+            emitBox(s, boxX, boxX + boxW, true);
+            boxHasText = false;
+            scanX += word.width;
+            continue;
           }
-          currentBoxStyle = word.boxStyle;
-          boxStartX = scanX;
-          boxHasText = false;
+
+          if (word.boxStyle !== currentBoxStyle) {
+            if (currentBoxStyle) {
+              emitBox(currentBoxStyle, boxStartX, scanX, boxHasText);
+            }
+            currentBoxStyle = word.boxStyle;
+            boxStartX = scanX;
+            boxHasText = false;
+          }
+          if (word.text && !word.isSpace) boxHasText = true;
+          scanX += word.width + (word.isSpace ? justifyExtraPerSpace : 0);
         }
-        // Track if we've seen actual text content (not spaces or empty padding markers)
-        if (word.text && !word.isSpace) {
-          boxHasText = true;
+        if (currentBoxStyle) {
+          emitBox(currentBoxStyle, boxStartX, scanX, boxHasText);
         }
-        scanX += word.width + (word.isSpace ? justifyExtraPerSpace : 0);
-      }
-      if (currentBoxStyle) {
-        emitBox(currentBoxStyle, boxStartX, scanX);
       }
     }
 

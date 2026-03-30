@@ -266,6 +266,9 @@ function renderText(ctx: CanvasRenderingContext2D, node: LayoutText, gradientFil
   const decoColor = style.textDecorationColor || style.color;
   const decoStyle = style.textDecorationStyle || 'solid';
   const decoWidth = Math.max(1, fontSize / 15);
+  // For RTL text, node.x is the right edge (textAlign='right').
+  // Decoration lines need the left edge as start position.
+  const decoX = style.direction === 'rtl' ? node.x - textWidth : node.x;
 
   if (style.textDecorationLine !== 'none') {
     const { ascent: decoAscent } = getFontMetrics(ctx, style);
@@ -273,19 +276,17 @@ function renderText(ctx: CanvasRenderingContext2D, node: LayoutText, gradientFil
     const xHeight = ctx.measureText('x').actualBoundingBoxAscent;
 
     if (style.textDecorationLine.includes('underline')) {
-      // Underline sits just below the baseline
       const yOffset = fontSize * 0.1;
-      drawDecorationLine(ctx, node.x, node.y + yOffset, textWidth, decoWidth, decoStyle, decoColor);
+      drawDecorationLine(ctx, decoX, node.y + yOffset, textWidth, decoWidth, decoStyle, decoColor);
     }
 
     if (style.textDecorationLine.includes('line-through')) {
-      // Strikethrough at ~40% of x-height above baseline
       const yOffset = -(xHeight * 0.5);
-      drawDecorationLine(ctx, node.x, node.y + yOffset, textWidth, decoWidth, decoStyle, decoColor);
+      drawDecorationLine(ctx, decoX, node.y + yOffset, textWidth, decoWidth, decoStyle, decoColor);
     }
 
     if (style.textDecorationLine.includes('overline')) {
-      drawDecorationLine(ctx, node.x, node.y - decoAscent, textWidth, decoWidth, decoStyle, decoColor);
+      drawDecorationLine(ctx, decoX, node.y - decoAscent, textWidth, decoWidth, decoStyle, decoColor);
     }
   }
 

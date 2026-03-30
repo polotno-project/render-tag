@@ -244,7 +244,7 @@
     "wrap": true
   },
   "RTL with inline code": {
-    "score": 44.39,
+    "score": 20.21,
     "wrap": true
   },
   "Multi-script single paragraph": {
@@ -288,7 +288,7 @@
     "wrap": true
   },
   "Arabic RTL formatting": {
-    "score": 50.14,
+    "score": 32.57,
     "wrap": true
   },
   "CJK text with formatting": {
@@ -584,7 +584,7 @@
     "wrap": true
   },
   "RTL with inline code@Open Sans": {
-    "score": 44.39,
+    "score": 20.21,
     "wrap": true
   },
   "Multi-script single paragraph@Open Sans": {
@@ -628,7 +628,7 @@
     "wrap": true
   },
   "Arabic RTL formatting@Open Sans": {
-    "score": 50.14,
+    "score": 32.57,
     "wrap": true
   },
   "CJK text with formatting@Open Sans": {
@@ -916,7 +916,7 @@
     "wrap": true
   },
   "RTL with inline code@Roboto": {
-    "score": 48.64,
+    "score": 26.85,
     "wrap": true
   },
   "Multi-script single paragraph@Roboto": {
@@ -960,7 +960,7 @@
     "wrap": true
   },
   "Arabic RTL formatting@Roboto": {
-    "score": 47.15,
+    "score": 27.97,
     "wrap": true
   },
   "CJK text with formatting@Roboto": {
@@ -1248,7 +1248,7 @@
     "wrap": true
   },
   "RTL with inline code@Playfair Display": {
-    "score": 54.5,
+    "score": 37.69,
     "wrap": true
   },
   "Multi-script single paragraph@Playfair Display": {
@@ -1292,7 +1292,7 @@
     "wrap": true
   },
   "Arabic RTL formatting@Playfair Display": {
-    "score": 49.99,
+    "score": 30.19,
     "wrap": true
   },
   "CJK text with formatting@Playfair Display": {
@@ -1580,7 +1580,7 @@
     "wrap": true
   },
   "RTL with inline code@Merriweather": {
-    "score": 47.93,
+    "score": 26.43,
     "wrap": true
   },
   "Multi-script single paragraph@Merriweather": {
@@ -1624,7 +1624,7 @@
     "wrap": true
   },
   "Arabic RTL formatting@Merriweather": {
-    "score": 52.08,
+    "score": 34.09,
     "wrap": true
   },
   "CJK text with formatting@Merriweather": {
@@ -1912,7 +1912,7 @@
     "wrap": true
   },
   "RTL with inline code@Lobster": {
-    "score": 47.76,
+    "score": 26.39,
     "wrap": true
   },
   "Multi-script single paragraph@Lobster": {
@@ -1956,7 +1956,7 @@
     "wrap": true
   },
   "Arabic RTL formatting@Lobster": {
-    "score": 52.33,
+    "score": 33.81,
     "wrap": true
   },
   "CJK text with formatting@Lobster": {
