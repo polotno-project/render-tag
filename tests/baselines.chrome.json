@@ -172,7 +172,7 @@
     "wrap": true
   },
   "Very narrow container": {
-    "score": 21.03,
+    "score": 0,
     "wrap": true
   },
   "Nowrap overflow text": {
@@ -260,8 +260,8 @@
     "wrap": true
   },
   "Word joiner and zero-width space": {
-    "score": 4.7,
-    "wrap": false
+    "score": 0,
+    "wrap": true
   },
   "Dense emoji sequences": {
     "score": 13.34,
@@ -512,7 +512,7 @@
     "wrap": true
   },
   "Very narrow container@Open Sans": {
-    "score": 21.03,
+    "score": 0,
     "wrap": true
   },
   "Nowrap overflow text@Open Sans": {
@@ -600,8 +600,8 @@
     "wrap": true
   },
   "Word joiner and zero-width space@Open Sans": {
-    "score": 4.7,
-    "wrap": false
+    "score": 0,
+    "wrap": true
   },
   "Dense emoji sequences@Open Sans": {
     "score": 13.34,
@@ -844,7 +844,7 @@
     "wrap": true
   },
   "Very narrow container@Roboto": {
-    "score": 17.75,
+    "score": 0,
     "wrap": true
   },
   "Nowrap overflow text@Roboto": {
@@ -932,8 +932,8 @@
     "wrap": true
   },
   "Word joiner and zero-width space@Roboto": {
-    "score": 5.63,
-    "wrap": false
+    "score": 1.81,
+    "wrap": true
   },
   "Dense emoji sequences@Roboto": {
     "score": 5.14,
@@ -1176,7 +1176,7 @@
     "wrap": true
   },
   "Very narrow container@Playfair Display": {
-    "score": 18.65,
+    "score": 0,
     "wrap": true
   },
   "Nowrap overflow text@Playfair Display": {
@@ -1264,8 +1264,8 @@
     "wrap": true
   },
   "Word joiner and zero-width space@Playfair Display": {
-    "score": 12.83,
-    "wrap": false
+    "score": 10.3,
+    "wrap": true
   },
   "Dense emoji sequences@Playfair Display": {
     "score": 7.54,
@@ -1508,7 +1508,7 @@
     "wrap": true
   },
   "Very narrow container@Merriweather": {
-    "score": 19.4,
+    "score": 0,
     "wrap": true
   },
   "Nowrap overflow text@Merriweather": {
@@ -1840,7 +1840,7 @@
     "wrap": true
   },
   "Very narrow container@Lobster": {
-    "score": 18.43,
+    "score": 0,
     "wrap": true
   },
   "Nowrap overflow text@Lobster": {
@@ -1928,8 +1928,8 @@
     "wrap": true
   },
   "Word joiner and zero-width space@Lobster": {
-    "score": 12.6,
-    "wrap": false
+    "score": 8.74,
+    "wrap": true
   },
   "Dense emoji sequences@Lobster": {
     "score": 19.37,

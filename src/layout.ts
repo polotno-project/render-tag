@@ -756,7 +756,7 @@ function flowWordsIntoLines(
             for (; partIdx < parts.length; partIdx++) {
               const candidate = fitted + parts[partIdx];
               const candidateWidth = ctx.measureText(candidate).width;
-              if (candidateWidth > available && fitted) break;
+              if (candidateWidth > available) break;
               fitted = candidate;
               fittedWidth = candidateWidth;
             }

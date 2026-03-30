@@ -251,6 +251,27 @@ describe('Layout logic (mocked measureText)', () => {
       expect(lines).toEqual(['top-to-', 'bottom']);
     });
 
+    it('skips hyphen split when first part does not fit on current line', () => {
+      // "a zero-width" with container = 15px (very narrow)
+      // "a" = 10px fits. "zero-width" = 100px overflows.
+      // Hyphen split: "zero-" = 50px. Available = 15 - 10(a) - 10(space) = -5px.
+      // First part "zero-" doesn't fit → skip hyphen split → wrap whole word.
+      // "zero-width" on fresh line → fresh-line hyphen split: "zero-" (50px > 15px) → char break
+      // Actually at 15px, "a" = 10px fits, then "zero-width" wraps to fresh line,
+      // then fresh-line split: "zero-" = 50px > 15px, still too wide → char break.
+      // But the key point: "a" must be on its own line, not merged with "zero-".
+      const tree = block('div', [
+        block('p', [textNode('a zero-end')]),
+      ]);
+      const root = doLayout(tree, 15);
+      const lines = getLines(root);
+      // "a" on line 1, rest wraps. "zero-end" = 80px > 15px on fresh line.
+      // Fresh-line hyphen: "zero-" = 50px > 15px → still too wide → char break.
+      // "a" should NOT be merged with the next word.
+      expect(lines[0]).toBe('a');
+      expect(lines.length).toBeGreaterThan(1);
+    });
+
     it('fits hyphen prefix on current line when word overflows', () => {
       // "aaaa top-to-end" with container = 100px
       // "aaaa" = 40px, " top-to-end" = 10+100 = 110px → total 150px > 100px OVERFLOW
