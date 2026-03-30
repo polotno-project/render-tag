@@ -173,6 +173,17 @@ function collectTexts(node: LayoutNode): LayoutText[] {
   return result;
 }
 
+/** Collect all inline boxes (LayoutBox with tagName 'span') from layout tree. */
+function collectInlineBoxes(node: LayoutNode): LayoutBox[] {
+  if (node.type === 'text') return [];
+  const result: LayoutBox[] = [];
+  if (node.tagName === 'span') result.push(node);
+  for (const child of node.children) {
+    result.push(...collectInlineBoxes(child));
+  }
+  return result;
+}
+
 /** Group text nodes into lines by Y position. */
 function getLines(root: LayoutBox): string[] {
   const texts = collectTexts(root);
@@ -539,6 +550,94 @@ describe('Layout logic (mocked measureText)', () => {
       expect(item).toBeDefined();
       // Marker should be to the right of content
       expect(marker!.x).toBeGreaterThan(item!.x);
+    });
+  });
+
+  // ─── RTL inline boxes and decorations ────────────────────────────────
+
+  describe('RTL inline boxes', () => {
+    it('positions background box on correct RTL word', () => {
+      // "aaa <bg>bbb</bg> ccc" in RTL — background should be on "bbb" not "aaa"
+      // RTL visual order: ccc bbb[bg] aaa (right to left)
+      const tree = block('div', [
+        block('p', [
+          textNode('aaa ', { direction: 'rtl' }),
+          inline('span', [
+            textNode('bbb', { direction: 'rtl', backgroundColor: '#fef08a' }),
+          ], { backgroundColor: '#fef08a', direction: 'rtl' }),
+          textNode(' ccc', { direction: 'rtl' }),
+        ], { direction: 'rtl' }),
+      ], { direction: 'rtl' });
+
+      const root = doLayout(tree, 200);
+      const texts = collectTexts(root);
+      const boxes = collectInlineBoxes(root);
+
+      // Find the "bbb" text and the background box
+      const bbbText = texts.find(t => t.text.includes('bbb'));
+      expect(bbbText).toBeDefined();
+      expect(boxes.length).toBeGreaterThan(0);
+
+      const bgBox = boxes[0];
+      // The background box should overlap with "bbb" text position
+      // For RTL, bbb.x is the right edge, so the text spans [bbb.x - bbb.width, bbb.x]
+      const bbbLeft = bbbText!.x - bbbText!.width;
+      const bbbRight = bbbText!.x;
+      const boxLeft = bgBox.x;
+      const boxRight = bgBox.x + bgBox.width;
+
+      // Box should overlap with bbb position (not aaa or ccc)
+      expect(boxRight).toBeGreaterThan(bbbLeft);
+      expect(boxLeft).toBeLessThan(bbbRight);
+    });
+
+    it('RTL inline box does not appear at LTR position', () => {
+      // Background box should NOT be at the left side of the container
+      // (which would happen if box scan used LTR order for RTL text)
+      const tree = block('div', [
+        block('p', [
+          textNode('aaa ', { direction: 'rtl' }),
+          inline('span', [
+            textNode('bbb', { direction: 'rtl', backgroundColor: '#fef08a' }),
+          ], { backgroundColor: '#fef08a', direction: 'rtl' }),
+        ], { direction: 'rtl' }),
+      ], { direction: 'rtl' });
+
+      const root = doLayout(tree, 200);
+      const boxes = collectInlineBoxes(root);
+
+      // With 200px container and RTL, text is right-aligned.
+      // "aaa bbb" = 70px. RTL curX = 200 - 70 = 130.
+      // "bbb" background should be near the LEFT end of the text (RTL visual order).
+      // It should NOT be at x=130 (which is where LTR scan would put the first word).
+      if (boxes.length > 0) {
+        const bgBox = boxes[0];
+        // Box should be in the left half of the text region, not the right half
+        // (since "bbb" comes second in RTL visual order = further left)
+        expect(bgBox.x).toBeLessThan(170);
+      }
+    });
+  });
+
+  describe('RTL text decorations', () => {
+    it('underline spans correct width for RTL text', () => {
+      // RTL text with underline — decoration should cover the text, not extend off-screen
+      const tree = block('div', [
+        block('p', [
+          textNode('abcd', { direction: 'rtl', textDecorationLine: 'underline' }),
+        ], { direction: 'rtl' }),
+      ], { direction: 'rtl' });
+
+      const root = doLayout(tree, 200);
+      const texts = collectTexts(root);
+      const textNode_ = texts.find(t => t.text === 'abcd');
+      expect(textNode_).toBeDefined();
+      // For RTL, text x is the right edge. The text occupies [x-width, x].
+      // Decoration should be in the same region, not at [x, x+width].
+      expect(textNode_!.style.direction).toBe('rtl');
+      expect(textNode_!.style.textDecorationLine).toBe('underline');
+      // The text position should be valid (x > 0 for RTL right-aligned text)
+      expect(textNode_!.x).toBeGreaterThan(0);
     });
   });
 

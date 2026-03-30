@@ -190,7 +190,9 @@ function sameTextStyle(a: ResolvedStyle, b: ResolvedStyle): boolean {
     a.fontSize === b.fontSize &&
     a.fontWeight === b.fontWeight &&
     a.fontStyle === b.fontStyle &&
-    a.color === b.color;
+    a.color === b.color &&
+    a.textDecorationLine === b.textDecorationLine &&
+    a.backgroundColor === b.backgroundColor;
 }
 
 function hasVisibleBoxStyles(style: ResolvedStyle): boolean {
