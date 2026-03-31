@@ -170,6 +170,44 @@ code { font-family: var(--mono); font-size: 0.875em; }
   padding: 1px 6px;
 }
 
+.hero-for-line {
+  margin-top: 24px;
+  font-size: 13px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-3);
+}
+
+.hero-use-cases {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.use-pill {
+  padding: 5px 14px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 100px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.hero-pitch {
+  margin-top: 16px;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--text-2);
+  max-width: 540px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
 .hero-note {
   margin-top: 12px;
   font-size: 13px;
