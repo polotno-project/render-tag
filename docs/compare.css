@@ -1,0 +1,101 @@
+/* ── Compare page ── */
+
+.compare-page {
+  padding-top: 54px;
+}
+
+/* ── Sticky column headers ── */
+.compare-headers {
+  position: sticky;
+  top: 54px;
+  z-index: 50;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--border-dim);
+  border-bottom: 1px solid var(--border);
+}
+
+.compare-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.compare-header--dom {
+  background: rgba(220, 252, 231, 0.9);
+  color: #166534;
+  backdrop-filter: blur(12px);
+}
+
+.compare-header--canvas {
+  background: rgba(219, 234, 254, 0.9);
+  color: #1e40af;
+  backdrop-filter: blur(12px);
+}
+
+.compare-header-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.compare-header--dom .compare-header-dot { background: #22c55e; }
+.compare-header--canvas .compare-header-dot { background: #3b82f6; }
+
+/* ── Cards list ── */
+.compare-cards {
+  padding-top: 16px;
+  padding-bottom: 80px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* ── Each card: just a thin-bordered split row ── */
+.compare-card {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border: 1px solid var(--border-dim);
+  background: var(--border-dim);
+  gap: 1px;
+}
+
+.compare-pane {
+  padding: 20px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.compare-pane--canvas canvas {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+.compare-pane--dom iframe {
+  display: block;
+  width: 100%;
+  border: none;
+  overflow: hidden;
+}
+
+/* ── Responsive ── */
+@media (max-width: 672px) {
+  .compare-header {
+    font-size: 11px;
+    padding: 8px 12px;
+  }
+  .compare-pane {
+    padding: 12px;
+  }
+  .compare-cards {
+    gap: 4px;
+  }
+}

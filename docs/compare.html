@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <title>DOM vs Canvas — render-tag</title>
+  <meta name="description" content="Side-by-side comparison of native DOM rendering vs render-tag canvas output.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&family=Caveat:wght@700&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Roboto:ital,wght@0,400;0,700;1,400&family=Merriweather:ital,wght@0,400;0,700;1,400&family=Lobster&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="compare.css">
+</head>
+<body>
+
+  <nav class="nav">
+    <a href="index.html" class="nav-logo">render-tag</a>
+    <div class="nav-links">
+      <a href="index.html">Home</a>
+      <a href="compare.html" style="color: var(--text); font-weight: 500;">Compare</a>
+      <a href="benchmark.html">Benchmark</a>
+      <a href="https://github.com/polotno-project/render-tag" target="_blank" rel="noopener">GitHub</a>
+    </div>
+  </nav>
+
+  <div class="compare-page">
+    <div class="compare-headers">
+      <div class="compare-header compare-header--dom">
+        <span class="compare-header-dot"></span>
+        DOM
+      </div>
+      <div class="compare-header compare-header--canvas">
+        <span class="compare-header-dot"></span>
+        Canvas
+      </div>
+    </div>
+
+    <div id="cards" class="compare-cards container"></div>
+
+    <footer class="footer">
+      <span>render-tag</span> &middot;
+      <span>MIT</span> &middot;
+      <a href="https://github.com/polotno-project/render-tag" target="_blank" rel="noopener">GitHub</a>
+    </footer>
+  </div>
+
+  <script type="module" src="compare.ts"></script>
+</body>
+</html>
