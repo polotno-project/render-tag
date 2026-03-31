@@ -712,17 +712,6 @@ code { font-family: var(--mono); font-size: 0.875em; }
 }
 
 /* ── Performance ── */
-.perf-preview {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  padding: 16px;
-  display: inline-block;
-  max-width: 100%;
-  overflow-x: auto;
-  margin-bottom: 24px;
-}
-.perf-preview canvas { display: block; }
-
 .perf-status {
   font-size: 13px;
   color: var(--text-2);
@@ -780,6 +769,35 @@ code { font-family: var(--mono); font-size: 0.875em; }
 .perf-fast { background: var(--green); }
 .perf-mid { background: var(--yellow); }
 .perf-slow { background: var(--red); }
+
+.perf-outputs {
+  margin-top: 32px;
+  display: flex;
+  gap: 16px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 8px;
+}
+.perf-output-col {
+  flex: 0 0 200px;
+  min-width: 0;
+}
+.perf-output-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+  margin-bottom: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.perf-output-render {
+  border: 1px solid var(--border-dim);
+  border-radius: 4px;
+  background: #fff;
+  overflow: hidden;
+  height: 200px;
+}
 
 .perf-device-note {
   margin-top: 16px;

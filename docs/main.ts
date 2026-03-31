@@ -527,6 +527,14 @@ function tick(): Promise<void> {
   return new Promise(r => setTimeout(r, 50));
 }
 
+function cloneCanvas(src: HTMLCanvasElement): HTMLCanvasElement {
+  const c = document.createElement('canvas');
+  c.width = src.width;
+  c.height = src.height;
+  c.getContext('2d')!.drawImage(src, 0, 0);
+  return c;
+}
+
 function createBenchContainer(): HTMLDivElement {
   const el = document.createElement('div');
   el.style.cssText = 'position:fixed;left:-9999px;top:0;width:400px;font-family:system-ui,sans-serif;';
@@ -537,7 +545,7 @@ function createBenchContainer(): HTMLDivElement {
 
 interface BenchRunner {
   name: string;
-  load: () => Promise<(container: HTMLDivElement) => Promise<void>>;
+  load: () => Promise<(container: HTMLDivElement) => Promise<HTMLCanvasElement | null>>;
 }
 
 const BENCH_RUNNERS: BenchRunner[] = [
@@ -545,7 +553,8 @@ const BENCH_RUNNERS: BenchRunner[] = [
     name: 'render-tag',
     load: async () => {
       return async () => {
-        render({ html: BENCH_HTML, width: 400 });
+        const { canvas } = render({ html: BENCH_HTML, width: 400 });
+        return canvas;
       };
     },
   },
@@ -556,7 +565,7 @@ const BENCH_RUNNERS: BenchRunner[] = [
       const snapdom = mod.snapdom || mod.default;
       return async (container) => {
         const result = await snapdom(container, { embedFonts: true, scale: 1 });
-        await result.toCanvas();
+        return await result.toCanvas() as HTMLCanvasElement;
       };
     },
   },
@@ -565,7 +574,18 @@ const BENCH_RUNNERS: BenchRunner[] = [
     load: async () => {
       const mod = await import(/* @vite-ignore */ 'https://esm.sh/modern-screenshot@4.5.5');
       return async (container) => {
-        await mod.domToCanvas(container, { scale: 1 });
+        return await mod.domToCanvas(container, {
+          scale: 1,
+          backgroundColor: '#ffffff',
+          // Fix cloned node visibility/position so capture isn't blank
+          onCloneNode: (cloned: any) => {
+            if (cloned instanceof HTMLElement) {
+              cloned.style.position = 'static';
+              cloned.style.left = 'auto';
+              cloned.style.visibility = 'visible';
+            }
+          },
+        }) as HTMLCanvasElement;
       };
     },
   },
@@ -575,7 +595,7 @@ const BENCH_RUNNERS: BenchRunner[] = [
       const mod = await import(/* @vite-ignore */ 'https://esm.sh/html2canvas@1.4.1');
       const html2canvas = mod.default;
       return async (container) => {
-        await html2canvas(container, { scale: 1, logging: false });
+        return await html2canvas(container, { scale: 1, logging: false }) as HTMLCanvasElement;
       };
     },
   },
@@ -589,10 +609,10 @@ const BENCH_RUNNERS: BenchRunner[] = [
         fontCSS = await domToImage.getFontEmbedCSS(document.body);
       }
       return async (container) => {
-        await domToImage.toCanvas(container, {
+        return await domToImage.toCanvas(container, {
           preferredFontFormat: 'woff2',
           ...(fontCSS ? { fontEmbedCSS: fontCSS } : {}),
-        });
+        }) as HTMLCanvasElement;
       };
     },
   },
@@ -609,31 +629,36 @@ const BENCH_RUNNERS: BenchRunner[] = [
         const editor = carota.editor.create(el);
         const runs = carota.html.parse(BENCH_HTML, {});
         editor.load(runs);
+        // grab the canvas carota created inside the element
+        const cv = el.querySelector('canvas');
+        const result = cv ? cloneCanvas(cv) : null;
         el.remove();
+        return result;
       };
     },
   },
 ];
 
-const PRELOADED_RESULTS: { name: string; ms: number }[] = [
-  { name: 'render-tag', ms: 1.3 },
-  { name: 'snapdom', ms: 4.6 },
-  { name: 'modern-screenshot', ms: 33.4 },
-  { name: 'html2canvas', ms: 249.3 },
+interface BenchResult {
+  name: string;
+  ms: number;
+  preview?: HTMLCanvasElement | null;
+}
+
+const PRELOADED_RESULTS: BenchResult[] = [
+  { name: 'render-tag', ms: 0.9 },
+  { name: 'snapdom', ms: 4.3 },
+  { name: 'modern-screenshot', ms: 31.3 },
+  { name: 'html2canvas', ms: 306.9 },
   { name: 'dom-to-image-more', ms: 8.3 },
-  { name: 'carota', ms: -1 },
+  { name: 'carota', ms: 1.9 },
 ];
 
 function initBenchmark() {
   const btn = document.getElementById('run-benchmark') as HTMLButtonElement;
   const chart = document.getElementById('perf-chart')!;
-  const preview = document.getElementById('perf-preview')!;
   const deviceNote = document.querySelector('.perf-device-note')!;
-
-  try {
-    const { canvas } = render({ html: wrapCSS(BENCH_HTML, DEMO_BASE_CSS), width: 400 });
-    preview.appendChild(canvas);
-  } catch { /* ignore */ }
+  const outputsContainer = document.getElementById('perf-outputs')!;
 
   // Show pre-loaded results immediately
   renderChart(chart, PRELOADED_RESULTS);
@@ -645,7 +670,7 @@ function initBenchmark() {
 
     const container = createBenchContainer();
     const ROUNDS = 3;
-    const results: { name: string; ms: number }[] = [];
+    const results: BenchResult[] = [];
 
     const status = document.getElementById('perf-status')!;
 
@@ -656,6 +681,7 @@ function initBenchmark() {
       try {
         const fn = await runner.load();
         const roundMedians: number[] = [];
+        let preview: HTMLCanvasElement | null = null;
 
         for (let round = 0; round < ROUNDS; round++) {
           status.textContent = `Benchmarking ${runner.name} (round ${round + 1}/${ROUNDS})...`;
@@ -669,12 +695,16 @@ function initBenchmark() {
           const times: number[] = [];
           for (let i = 0; i < iterations; i++) {
             const t0 = performance.now();
-            await fn(container);
+            const result = await fn(container);
             times.push(performance.now() - t0);
+            // Capture preview from the last iteration of the last round
+            if (round === ROUNDS - 1 && i === iterations - 1 && result) {
+              preview = cloneCanvas(result);
+            }
           }
           roundMedians.push(median(times));
         }
-        results.push({ name: runner.name, ms: median(roundMedians) });
+        results.push({ name: runner.name, ms: median(roundMedians), preview });
       } catch (e) {
         console.warn(`${runner.name} failed:`, e);
         results.push({ name: runner.name, ms: -1 });
@@ -684,10 +714,11 @@ function initBenchmark() {
     container.remove();
     deviceNote.innerHTML = 'Results from your browser.';
     renderChart(chart, results);
+    renderOutputs(outputsContainer, results);
   });
 }
 
-function renderChart(container: HTMLElement, results: { name: string; ms: number }[]) {
+function renderChart(container: HTMLElement, results: BenchResult[]) {
   const valid = results.filter(r => r.ms > 0);
   const maxLog = Math.log10(Math.max(...valid.map(r => r.ms)));
   const minLog = Math.log10(Math.max(Math.min(...valid.map(r => r.ms)), 0.1));
@@ -725,6 +756,51 @@ function renderChart(container: HTMLElement, results: { name: string; ms: number
         bar.style.width = r.ms < 0 ? '100%' : logPct + '%';
       });
     });
+  }
+}
+
+function renderOutputs(container: HTMLElement, results: BenchResult[]) {
+  container.innerHTML = '';
+  const withPreview = results.filter(r => r.preview);
+  if (withPreview.length === 0) {
+    container.hidden = true;
+    return;
+  }
+  container.hidden = false;
+
+  // Input HTML column
+  const inputCol = document.createElement('div');
+  inputCol.className = 'perf-output-col';
+  const inputLabel = document.createElement('div');
+  inputLabel.className = 'perf-output-label';
+  inputLabel.textContent = 'Input HTML';
+  const inputBox = document.createElement('div');
+  inputBox.className = 'perf-output-render';
+  inputBox.innerHTML = BENCH_HTML;
+  inputBox.style.cssText = 'width:400px;font-family:system-ui,sans-serif;';
+  inputCol.appendChild(inputLabel);
+  inputCol.appendChild(inputBox);
+  container.appendChild(inputCol);
+
+  // One column per library with preview, sorted by speed
+  withPreview.sort((a, b) => {
+    if (a.ms <= 0) return 1;
+    if (b.ms <= 0) return -1;
+    return a.ms - b.ms;
+  });
+  for (const r of withPreview) {
+    const col = document.createElement('div');
+    col.className = 'perf-output-col';
+    const label = document.createElement('div');
+    label.className = 'perf-output-label';
+    label.textContent = `${r.name} (${r.ms > 0 ? r.ms.toFixed(1) + ' ms' : 'failed'})`;
+    const box = document.createElement('div');
+    box.className = 'perf-output-render';
+    r.preview!.style.cssText = 'display:block;width:100%;height:auto;';
+    box.appendChild(r.preview!);
+    col.appendChild(label);
+    col.appendChild(box);
+    container.appendChild(col);
   }
 }
 

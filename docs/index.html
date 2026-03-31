@@ -214,10 +214,10 @@
     <div class="container">
       <h2>Performance</h2>
       <p class="section-sub">Live benchmark in your browser. Median of 3 runs. Each run takes the median of multiple iterations.</p>
-      <div class="perf-preview" id="perf-preview"></div>
       <div class="perf-chart" id="perf-chart"></div>
       <p class="perf-device-note">Results from MacBook Pro, Chrome. <button class="btn-text" id="run-benchmark">Run in your browser</button></p>
       <p class="muted-note">Log scale. Other libraries use SVG <code>foreignObject</code> or DOM cloning &mdash; they render all HTML via the browser's own engine. render-tag is a pure Canvas 2D renderer (no SVG, no DOM snapshot) that only handles rich text. <a href="https://github.com/danielearwicker/carota" target="_blank" rel="noopener">Carota</a> is the closest canvas-based alternative.</p>
+      <div id="perf-outputs" class="perf-outputs" hidden></div>
     </div>
   </section>
 
