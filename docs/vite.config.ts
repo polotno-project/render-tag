@@ -16,6 +16,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: path.resolve(__dirname, 'index.html'),
+        compare: path.resolve(__dirname, 'compare.html'),
         benchmark: path.resolve(__dirname, 'benchmark.html'),
       },
     },

@@ -13,7 +13,25 @@
     "./umd": "./lib/render-tag.umd.js"
   },
   "homepage": "https://polotno.com/render-tag/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/polotno-project/render-tag.git"
+  },
+  "license": "MIT",
   "author": "Anton Lavrenov",
+  "keywords": [
+    "canvas",
+    "html",
+    "rich-text",
+    "text-rendering",
+    "html-to-canvas",
+    "canvas-text",
+    "design-editor",
+    "image-export",
+    "foreignObject",
+    "fillText",
+    "html2canvas"
+  ],
   "files": [
     "lib",
     "README.md"

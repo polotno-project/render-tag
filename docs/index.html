@@ -5,7 +5,21 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <title>render-tag — HTML rich text on canvas</title>
-  <meta name="description" content="Render HTML rich text onto canvas with the 2D API. No SVG, no foreignObject. Synchronous, zero dependencies.">
+  <meta name="description" content="Render HTML rich text onto canvas with the 2D API. No SVG, no foreignObject. 10-60x faster. Synchronous, zero dependencies.">
+
+  <!-- OpenGraph -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://polotno.com/render-tag/">
+  <meta property="og:title" content="render-tag — HTML rich text, drawn on canvas">
+  <meta property="og:description" content="Render HTML + CSS onto canvas with the 2D API. No SVG, no foreignObject. 10-60x faster than SVG-based approaches. Synchronous, zero dependencies.">
+  <meta property="og:image" content="https://polotno.com/render-tag/og-image.png">
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="render-tag — HTML rich text, drawn on canvas">
+  <meta name="twitter:description" content="Render HTML + CSS onto canvas with the 2D API. 10-60x faster than SVG foreignObject. Synchronous, zero dependencies.">
+  <meta name="twitter:image" content="https://polotno.com/render-tag/og-image.png">
+
   <link rel="stylesheet" href="style.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -16,6 +30,7 @@
   <nav class="nav">
     <a href="index.html" class="nav-logo">render-tag</a>
     <div class="nav-links">
+      <a href="compare.html">Compare</a>
       <a href="benchmark.html">Benchmark</a>
       <a href="https://github.com/polotno-project/render-tag" target="_blank" rel="noopener">GitHub</a>
     </div>
@@ -202,7 +217,7 @@
       <div class="perf-preview" id="perf-preview"></div>
       <div class="perf-chart" id="perf-chart"></div>
       <p class="perf-device-note">Results from MacBook Pro, Chrome. <button class="btn-text" id="run-benchmark">Run in your browser</button></p>
-      <p class="muted-note">Log scale. Other libraries render all HTML &mdash; render-tag only handles rich text.</p>
+      <p class="muted-note">Log scale. Other libraries use SVG <code>foreignObject</code> or DOM cloning &mdash; they render all HTML via the browser's own engine. render-tag is a pure Canvas 2D renderer (no SVG, no DOM snapshot) that only handles rich text. <a href="https://github.com/danielearwicker/carota" target="_blank" rel="noopener">Carota</a> is the closest canvas-based alternative.</p>
     </div>
   </section>
 

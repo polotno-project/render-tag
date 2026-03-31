@@ -596,6 +596,23 @@ const BENCH_RUNNERS: BenchRunner[] = [
       };
     },
   },
+  {
+    name: 'carota',
+    load: async () => {
+      const mod = await import(/* @vite-ignore */ 'https://esm.sh/carota@0.1.5');
+      const carota = mod.default || mod;
+      if (!carota?.editor?.create) throw new Error('carota API not found');
+      return async () => {
+        const el = document.createElement('div');
+        el.style.cssText = 'position:fixed;left:-9999px;top:0;width:400px;height:400px;';
+        document.body.appendChild(el);
+        const editor = carota.editor.create(el);
+        const runs = carota.html.parse(BENCH_HTML, {});
+        editor.load(runs);
+        el.remove();
+      };
+    },
+  },
 ];
 
 const PRELOADED_RESULTS: { name: string; ms: number }[] = [
@@ -604,6 +621,7 @@ const PRELOADED_RESULTS: { name: string; ms: number }[] = [
   { name: 'modern-screenshot', ms: 33.4 },
   { name: 'html2canvas', ms: 249.3 },
   { name: 'dom-to-image-more', ms: 8.3 },
+  { name: 'carota', ms: -1 },
 ];
 
 function initBenchmark() {
