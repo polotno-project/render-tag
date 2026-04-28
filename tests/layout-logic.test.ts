@@ -552,6 +552,101 @@ describe('Layout logic (mocked measureText)', () => {
       // Marker should be to the right of content
       expect(marker!.x).toBeGreaterThan(item!.x);
     });
+
+    // ─── ::marker pseudo-element overrides ────────────────────────────
+    // Default gap = fontSize * 0.15. With fontSize=16 and paddingLeft=30,
+    // marker width = 1*CHAR_WIDTH = 10, so:
+    //   default gap = 16 * 0.15 = 2.4
+    //   marker.x = paddingLeft - markerWidth - gap = 30 - 10 - 2.4 = 17.6
+
+    it('default gap unchanged when no markerStyle (regression)', () => {
+      const li: StyledNode = {
+        element: null,
+        tagName: 'li',
+        style: defaultStyle({ display: 'list-item', paddingLeft: 30, fontSize: 16 }),
+        children: [textNode('Item')],
+        textContent: null,
+        listMarker: '•',
+      };
+      const tree = block('div', [block('ul', [li])]);
+      const root = doLayout(tree, 200);
+      const marker = collectTexts(root).find(t => t.text === '•')!;
+      expect(marker.x).toBeCloseTo(17.6, 5);
+    });
+
+    it('LTR: markerStyle.paddingRight widens the gap', () => {
+      const li: StyledNode = {
+        element: null,
+        tagName: 'li',
+        style: defaultStyle({ display: 'list-item', paddingLeft: 30, fontSize: 16 }),
+        children: [textNode('Item')],
+        textContent: null,
+        listMarker: '•',
+        markerStyle: { paddingRight: 20 },
+      };
+      const tree = block('div', [block('ul', [li])]);
+      const root = doLayout(tree, 200);
+      const marker = collectTexts(root).find(t => t.text === '•')!;
+      // marker.x = 30 - 10 - 20 = 0
+      expect(marker.x).toBeCloseTo(0, 5);
+    });
+
+    it('LTR: markerStyle.paddingRight = 0 zeroes the gap (set vs absent)', () => {
+      const li: StyledNode = {
+        element: null,
+        tagName: 'li',
+        style: defaultStyle({ display: 'list-item', paddingLeft: 30, fontSize: 16 }),
+        children: [textNode('Item')],
+        textContent: null,
+        listMarker: '•',
+        markerStyle: { paddingRight: 0 },
+      };
+      const tree = block('div', [block('ul', [li])]);
+      const root = doLayout(tree, 200);
+      const marker = collectTexts(root).find(t => t.text === '•')!;
+      // marker.x = 30 - 10 - 0 = 20 (flush against content)
+      expect(marker.x).toBeCloseTo(20, 5);
+    });
+
+    it('RTL: markerStyle.paddingLeft widens the RTL gap', () => {
+      const li: StyledNode = {
+        element: null,
+        tagName: 'li',
+        style: defaultStyle({ display: 'list-item', paddingRight: 30, fontSize: 16, direction: 'rtl' }),
+        children: [textNode('عنصر', { direction: 'rtl' })],
+        textContent: null,
+        listMarker: '•',
+        markerStyle: { paddingLeft: 20 },
+      };
+      const tree = block('div', [
+        block('ul', [li], { direction: 'rtl' }),
+      ], { direction: 'rtl' });
+      const root = doLayout(tree, 200);
+      const marker = collectTexts(root).find(t => t.text === '•')!;
+      // RTL: marker placed to the right of li (boxRightEdge + gap).
+      // Default gap = 16 * 0.15 = 2.4 → marker.x = li.x + li.width + 2.4
+      // With paddingLeft=20 → gap = 20 → marker.x = li.x + li.width + 20
+      // Since width depends on layout, just verify the override-vs-default delta:
+      const liBox = (root.children[0] as LayoutBox).children[0] as LayoutBox;
+      const expectedX = liBox.x + liBox.width + 20;
+      expect(marker.x).toBeCloseTo(expectedX, 5);
+    });
+
+    it('marker font-size override flows into pushed marker text node', () => {
+      const li: StyledNode = {
+        element: null,
+        tagName: 'li',
+        style: defaultStyle({ display: 'list-item', paddingLeft: 30, fontSize: 16 }),
+        children: [textNode('Item')],
+        textContent: null,
+        listMarker: '•',
+        markerStyle: { fontSize: 8 },
+      };
+      const tree = block('div', [block('ul', [li])]);
+      const root = doLayout(tree, 200);
+      const marker = collectTexts(root).find(t => t.text === '•')!;
+      expect(marker.style.fontSize).toBe(8);
+    });
   });
 
   // ─── RTL inline boxes and decorations ────────────────────────────────

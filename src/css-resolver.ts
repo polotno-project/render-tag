@@ -168,14 +168,39 @@ interface ParsedSelector {
   rightmostIsRoot: boolean;
   /** Original specificity */
   spec: [number, number, number];
+  /**
+   * Pseudo-element on the rightmost compound. Currently we only honor
+   * `::marker` — its declarations apply to the marker box of `<li>`,
+   * not to the element body.
+   */
+  pseudoElement?: 'marker';
 }
 
 /**
  * Pre-parse and tokenize a selector string into a ParsedSelector.
- * Returns null for selectors we can't handle (pseudo-elements, pseudo-classes).
+ * Returns null for selectors we can't handle (pseudo-classes; pseudo-elements
+ * other than `::marker`).
  */
 function parseSelector(selector: string): ParsedSelector | null {
-  if (selector.includes('::')) return null;
+  // Detect `::marker` on the rightmost compound. Other pseudo-elements
+  // (::before, ::after, ::first-line, …) are still rejected.
+  let pseudoElement: 'marker' | undefined;
+  if (selector.includes('::')) {
+    // Allow only a single trailing ::marker on the rightmost compound.
+    // Anything else is unsupported.
+    const otherPseudo = selector.replace(/::marker\b/g, '');
+    if (otherPseudo.includes('::')) return null;
+    if (/::marker\b/.test(selector)) {
+      pseudoElement = 'marker';
+      // Bare `::marker` (start of input or after whitespace/`>`) → `*`
+      // so descendant/child combinators are preserved.
+      selector = selector.replace(/(^|[\s>])::marker\b/g, '$1*');
+      // `::marker` glued to a tag/class compound → strip the pseudo only.
+      selector = selector.replace(/::marker\b/g, '');
+    } else {
+      return null;
+    }
+  }
   if (/:(?:nth-|hover|focus|active|visited|first-child|last-child)/.test(selector)) return null;
 
   const tokens: string[] = [];
@@ -208,6 +233,7 @@ function parseSelector(selector: string): ParsedSelector | null {
     rightmost,
     rightmostIsRoot: rightmostTag === 'html' || rightmostTag === 'body',
     spec: selectorSpecificity(selector),
+    pseudoElement,
   };
 }
 
@@ -947,12 +973,16 @@ export function resolveStylesFromCSS(
       if (!seen.has(r)) { seen.add(r); candidates.push(r); }
     }
 
-    // Match candidates and collect pre-expanded declarations
+    // Match candidates and collect pre-expanded declarations.
+    // Rules with `::marker` are routed to a separate list and applied to the
+    // <li>'s markerStyle later — they do not affect the element body.
     const matched: MatchedDeclaration[] = [];
+    const matchedMarker: MatchedDeclaration[] = [];
     for (const candidate of candidates) {
       if (matchesParsedSelector(candidate.selector, ctx)) {
+        const target = candidate.selector.pseudoElement === 'marker' ? matchedMarker : matched;
         for (const decl of candidate.declarations) {
-          matched.push({
+          target.push({
             property: decl.property,
             value: decl.value,
             specificity: candidate.selector.spec,
@@ -1127,6 +1157,62 @@ export function resolveStylesFromCSS(
     // List marker
     const marker = getListMarker(el);
 
+    // Resolve `::marker` rules into a Partial<ResolvedStyle> override and a
+    // hidden flag. We only do this for `<li>` because `::marker` only applies
+    // to elements with `display: list-item` (in our model, just `<li>`).
+    // The override records ONLY the keys actually written by marker
+    // declarations, so the layout consumer can distinguish "user set padding
+    // to 0" from "no rule".
+    let markerStyle: Partial<ResolvedStyle> | undefined;
+    let markerHidden = false;
+    if (tag === 'li' && matchedMarker.length > 0) {
+      // Sort by cascade order — same rules as element style.
+      if (matchedMarker.length > 1) {
+        matchedMarker.sort((a, b) => {
+          if (a.important !== b.important) return a.important ? 1 : -1;
+          const sa = a.specificity, sb = b.specificity;
+          if (sa[0] !== sb[0]) return sa[0] - sb[0];
+          if (sa[1] !== sb[1]) return sa[1] - sb[1];
+          if (sa[2] !== sb[2]) return sa[2] - sb[2];
+          return a.order - b.order;
+        });
+      }
+
+      // Apply to a scratch style cloned from the resolved <li> style, then
+      // copy out the keys that changed. Whitelist the physical fields we
+      // actually consume in addListMarker — adding more later is a one-line
+      // change once the layout side reads them.
+      const TRACKED: (keyof ResolvedStyle)[] = [
+        'paddingLeft', 'paddingRight',
+        'fontSize', 'fontFamily', 'fontWeight', 'fontStyle',
+        'color', 'letterSpacing',
+      ];
+      const scratch = { ...style } as ResolvedStyle;
+      const touched = new Set<keyof ResolvedStyle>();
+      for (const m of matchedMarker) {
+        // `content: none` (and `content: ''`) suppresses the marker entirely,
+        // matching DOM `::marker` behavior. `content` isn't part of
+        // ResolvedStyle, so we handle it inline.
+        if (m.property === 'content') {
+          const v = m.value.trim().toLowerCase();
+          if (v === 'none' || v === '""' || v === "''" || v === 'normal') {
+            // 'normal' is the initial value — no override
+            markerHidden = (v === 'none' || v === '""' || v === "''");
+          }
+          continue;
+        }
+        const before = TRACKED.map(k => scratch[k]);
+        applyDeclaration(scratch, m.property, m.value, elemFontSize, containerWidth, direction);
+        TRACKED.forEach((k, i) => {
+          if (scratch[k] !== before[i]) touched.add(k);
+        });
+      }
+      if (touched.size > 0) {
+        markerStyle = {};
+        for (const k of touched) (markerStyle as any)[k] = scratch[k];
+      }
+    }
+
     // Walk children
     const children: StyledNode[] = [];
     for (const child of el.childNodes) {
@@ -1141,6 +1227,8 @@ export function resolveStylesFromCSS(
       children,
       textContent: null,
       listMarker: marker,
+      markerStyle,
+      markerHidden: markerHidden || undefined,
     };
   }
 

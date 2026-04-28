@@ -189,6 +189,20 @@ export interface StyledNode {
   textContent: string | null;
   /** For list items: the marker text (e.g. "•", "1.") */
   listMarker?: string;
+  /**
+   * For list items: explicitly-set properties from `::marker` rules.
+   * Only set keys are present (Partial), so unset keys fall back to the
+   * `<li>` style at the use site. Empty/undefined when no `::marker` rule matched.
+   */
+  markerStyle?: Partial<ResolvedStyle>;
+  /**
+   * For list items: true when `::marker { content: none }` is in effect.
+   * The layout engine skips drawing the marker entirely. This matches how
+   * the DOM treats `content: none` on `::marker`, and lets the recommended
+   * reset (`li::marker { content: none; font-size: 0; line-height: 0 }`)
+   * produce the same hidden-marker behavior on canvas.
+   */
+  markerHidden?: boolean;
 }
 
 /** A positioned text run ready for canvas rendering */

@@ -125,6 +125,103 @@ describe('HTML Canvas Renderer', () => {
     });
   });
 
+  describe('::marker pseudo-element', () => {
+    /**
+     * Walk the layout tree and find the LTR/RTL gap between an `<li>` marker
+     * and the first non-marker text. Returns null if either is missing.
+     */
+    async function measureMarkerGap(html: string, css: string, width = 400) {
+      const { layout } = await import('../src/index.ts');
+      const fullHtml = `<style>${css}</style>${html}`;
+      const r = layout({ html: fullHtml, width, height: 400 });
+
+      const markers: { x: number; width: number; y: number }[] = [];
+      const items: { x: number; width: number; y: number; text: string }[] = [];
+      const walk = (n: any, isMarker = false) => {
+        if (n.type === 'text') {
+          if (isMarker) markers.push({ x: n.x, width: n.width, y: n.y });
+          else if (n.text.trim()) items.push({ x: n.x, width: n.width, y: n.y, text: n.text });
+          return;
+        }
+        // The marker text is unshifted as the first child of an <li> box.
+        if (n.tagName === 'li' && n.children.length > 0) {
+          walk(n.children[0], true);
+          for (let i = 1; i < n.children.length; i++) walk(n.children[i], false);
+        } else {
+          for (const c of n.children) walk(c, false);
+        }
+      };
+      walk(r.layoutRoot);
+      return { markers, items };
+    }
+
+    it('::marker padding-inline-end widens marker→content gap (LTR)', async () => {
+      const html = '<ul><li>item</li></ul>';
+      const css = `body { font-family: sans-serif; font-size: 16px; }`;
+      const cssWide = css + ` ::marker { padding-inline-end: 1em; }`;
+
+      const def = await measureMarkerGap(html, css);
+      const wide = await measureMarkerGap(html, cssWide);
+
+      const defGap = def.items[0].x - (def.markers[0].x + def.markers[0].width);
+      const wideGap = wide.items[0].x - (wide.markers[0].x + wide.markers[0].width);
+      // Default ≈ 16 * 0.15 = 2.4. Widened should add ≈ 16px (1em) on top.
+      expect(wideGap - defGap).toBeGreaterThan(13);
+      expect(wideGap - defGap).toBeLessThan(17);
+    });
+
+    it('::marker padding-inline-end maps to the correct side in RTL', async () => {
+      const html = '<ul dir="rtl"><li>عنصر</li></ul>';
+      const css = `body { font-family: sans-serif; font-size: 16px; }`;
+      const cssWide = css + ` ::marker { padding-inline-end: 1em; }`;
+
+      const def = await measureMarkerGap(html, css);
+      const wide = await measureMarkerGap(html, cssWide);
+
+      // RTL: marker is to the RIGHT of content. Gap = marker.x - (item.x + item.width).
+      const defItem = def.items[0];
+      const wideItem = wide.items[0];
+      const defGap = def.markers[0].x - (defItem.x + defItem.width);
+      const wideGap = wide.markers[0].x - (wideItem.x + wideItem.width);
+      expect(wideGap - defGap).toBeGreaterThan(13);
+      expect(wideGap - defGap).toBeLessThan(17);
+    });
+
+    it('::marker rule only matches inside the selector ancestor', async () => {
+      const html = `
+        <ul class="fancy"><li>fancy</li></ul>
+        <ul><li>plain</li></ul>
+      `;
+      const css = `body { font-family: sans-serif; font-size: 16px; }
+        .fancy ::marker { padding-inline-end: 1em; }`;
+      const got = await measureMarkerGap(html, css, 400);
+
+      // Two <li>s. Match items by text to disambiguate.
+      const fancy = got.items.find(i => i.text.includes('fancy'))!;
+      const plain = got.items.find(i => i.text.includes('plain'))!;
+      const fancyMarker = got.markers.find(m => Math.abs(m.y - fancy.y) < 8)!;
+      const plainMarker = got.markers.find(m => Math.abs(m.y - plain.y) < 8)!;
+
+      const fancyGap = fancy.x - (fancyMarker.x + fancyMarker.width);
+      const plainGap = plain.x - (plainMarker.x + plainMarker.width);
+      expect(plainGap).toBeLessThan(5); // ≈ 2.4
+      expect(fancyGap).toBeGreaterThan(13);
+    });
+
+    it('higher-specificity ::marker rule wins over lower-specificity one', async () => {
+      const html = '<ul><li class="special">x</li></ul>';
+      const css = `body { font-family: sans-serif; font-size: 16px; }
+        li::marker { padding-inline-end: 0.5em; }
+        .special::marker { padding-inline-end: 2em; }`;
+      const got = await measureMarkerGap(html, css);
+
+      const gap = got.items[0].x - (got.markers[0].x + got.markers[0].width);
+      // 2em ≈ 32px. Allow a couple of px for measurement noise.
+      expect(gap).toBeGreaterThan(28);
+      expect(gap).toBeLessThan(36);
+    });
+  });
+
   describe('Punctuation wrapping', () => {
     it('trailing comma stays with preceding word', async () => {
       const html = '<p>Just some words before the <strong>target</strong>, then rest of text continues here</p>';
@@ -183,6 +280,127 @@ describe('HTML Canvas Renderer', () => {
       if (regressions.length > 0) console.log('Regressions:\n  ' + regressions.join('\n  '));
 
       expect(regressions.length, `${regressions.length} regressions:\n  ${regressions.join('\n  ')}`).toBe(0);
+    });
+  });
+
+  describe('Visual debug: bullet item with leading nbsp', () => {
+    it('renders the case and prints layout', async () => {
+      const html = `<style>
+    p, ul, ol, li { margin: 0; padding: 0; }
+    ul, ol { padding-left: 1.5em; }
+    .ql-cursor, .ql-ui { display: none; }
+  </style>
+  <div style="font-family: Roboto; font-size: 70.37037037037037px; line-height: 1.2; color: #000000; font-weight: normal; font-style: normal; text-align: center; text-decoration: none; word-break: break-word; letter-spacing: 0px; text-transform: none; white-space: pre-wrap; word-wrap: break-word; margin: 0; padding: 0">
+  <ul><li>&nbsp;competition</li><li>item</li></ul>
+  </div>`;
+      const css = `body { margin: 0; background: #eee; font-family: Roboto, sans-serif; }`;
+      const width = 413;
+      const height = 400;
+
+      const { render, layout } = await import('../src/index.ts');
+      const fullHtml = `<style>${css}</style>${html}`;
+
+      const layoutResult = layout({ html: fullHtml, width, height });
+      const renderResult = render({ html: fullHtml, width, height });
+
+      console.log(`\n=== Bullet/nbsp case | width=${width}px, content height=${layoutResult.height}px ===`);
+      console.log(`Lines (${renderResult.lines.length}):`);
+      for (let i = 0; i < renderResult.lines.length; i++) {
+        const l = renderResult.lines[i];
+        console.log(`  [${i}] y=${l.y}  "${l.text}"`);
+      }
+
+      // Reuse a measure context (same configuration as the layout engine)
+      const mctx = document.createElement('canvas').getContext('2d')!;
+      mctx.fontKerning = 'normal';
+
+      const f = (n: number | undefined) => (n === undefined ? '?' : n.toFixed(2));
+      const fmtBox = (s: any, prefix: string) => {
+        const t = s[`${prefix}Top`] ?? 0;
+        const r = s[`${prefix}Right`] ?? 0;
+        const b = s[`${prefix}Bottom`] ?? 0;
+        const l = s[`${prefix}Left`] ?? 0;
+        return (t || r || b || l) ? `${prefix}=[${t},${r},${b},${l}]` : '';
+      };
+
+      const dump = (node: any, depth = 0): void => {
+        const pad = '  '.repeat(depth);
+        const s = node.style ?? {};
+        if (node.type === 'text') {
+          mctx.font = `${s.fontStyle || 'normal'} ${s.fontWeight || 400} ${s.fontSize}px ${s.fontFamily}`;
+          (mctx as any).letterSpacing = `${s.letterSpacing || 0}px`;
+          const measured = mctx.measureText(node.text);
+          const ascent = measured.actualBoundingBoxAscent;
+          const descent = measured.actualBoundingBoxDescent;
+          const codepoints = [...node.text].map(c =>
+            c === ' ' ? 'SP' : c === ' ' ? 'NBSP' : c === '\t' ? 'TAB' :
+            c === '\n' ? 'LF' : c.charCodeAt(0) < 32 ? `U+${c.charCodeAt(0).toString(16)}` : c
+          ).join('|');
+          console.log(
+            `${pad}text  x=${f(node.x)} y(baseline)=${f(node.y)} w=${f(node.width)}` +
+            `  measure=${f(measured.width)}` +
+            `  ascent=${f(ascent)} descent=${f(descent)}` +
+            `  font="${s.fontFamily}" ${s.fontWeight} ${s.fontStyle} ${s.fontSize}px lh=${s.lineHeight}` +
+            `  ws=${s.whiteSpace} wb=${s.wordBreak} ow=${s.overflowWrap} ls=${s.letterSpacing}` +
+            `\n${pad}      text=[${codepoints}]  raw="${node.text}"`,
+          );
+        } else if (node.type === 'box') {
+          const tag = node.tagName || s.display || 'box';
+          const padBox = fmtBox(s, 'padding');
+          const marginBox = fmtBox(s, 'margin');
+          const borderBox = fmtBox(s, 'border').replace('border=', 'borderW=');
+          const fontInfo = s.fontSize
+            ? ` font="${s.fontFamily}" ${s.fontWeight} ${s.fontSize}px lh=${s.lineHeight}`
+            : '';
+          const align = s.textAlign && s.textAlign !== 'start' ? ` align=${s.textAlign}` : '';
+          const dir = s.direction && s.direction !== 'ltr' ? ` dir=${s.direction}` : '';
+          const wsInfo = s.whiteSpace ? ` ws=${s.whiteSpace}` : '';
+          const marker = node.listMarker ? ` marker="${node.listMarker}"` : '';
+          console.log(
+            `${pad}${tag}  x=${f(node.x)} y=${f(node.y)} w=${f(node.width)} h=${f(node.height)}` +
+            `${marker} display=${s.display}${align}${dir}${wsInfo}` +
+            `${fontInfo}` +
+            `${padBox ? '  ' + padBox : ''}${marginBox ? '  ' + marginBox : ''}${borderBox ? '  ' + borderBox : ''}`,
+          );
+          for (const c of node.children) dump(c, depth + 1);
+        }
+      };
+      console.log(`Layout tree:`);
+      dump(layoutResult.layoutRoot);
+
+      console.log(`\nDerived metrics:`);
+      console.log(`  font-size = 70.37037037037037px → line-height ratio 1.2 → line box = ${(70.37037037037037 * 1.2).toFixed(4)}px`);
+      console.log(`  ul padding-left = 1.5em = ${(70.37037037037037 * 1.5).toFixed(4)}px`);
+      console.log(`  available text width inside li = container ${width}px - ul.padding-left = ${(width - 70.37037037037037 * 1.5).toFixed(4)}px`);
+
+      const cmp = await compareRenders(html, css, width, height, 0.1, PIXEL_RATIO);
+      console.log(`Score: ${cmp.contentMismatchPercentage.toFixed(2)}%  (mismatched=${cmp.mismatchedPixels} content=${cmp.contentPixels})`);
+
+      // Make canvases visible during the browser test run and capture a
+      // screenshot reference under tests/__screenshots__ for inspection.
+      const wrapper = document.createElement('div');
+      wrapper.style.cssText = 'display:flex;flex-direction:column;gap:12px;background:#fff;padding:12px;align-items:flex-start;font-family:sans-serif;font-size:12px;width:fit-content';
+      const labels = ['DOM (reference)', 'Canvas (lib)', 'Diff'];
+      const canvases = [cmp.domCanvas, cmp.libCanvas, cmp.diffCanvas];
+      for (let i = 0; i < canvases.length; i++) {
+        const col = document.createElement('div');
+        const label = document.createElement('div');
+        label.textContent = labels[i];
+        label.style.cssText = 'margin-bottom:4px;font-weight:600';
+        col.appendChild(label);
+        const c = canvases[i];
+        c.style.cssText = `width:240px;height:auto;border:1px solid #ccc;display:block`;
+        col.appendChild(c);
+        wrapper.appendChild(col);
+      }
+      document.body.appendChild(wrapper);
+      try {
+        await (expect(wrapper) as any).toMatchScreenshot('bullet-nbsp');
+      } catch {
+        // toMatchScreenshot may need a reference; ignore on first run.
+      } finally {
+        wrapper.remove();
+      }
     });
   });
 

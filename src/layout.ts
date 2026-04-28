@@ -1539,16 +1539,32 @@ function addListMarker(
   node: StyledNode,
 ): void {
   if (!node.listMarker) return;
+  // `::marker { content: none }` suppresses the marker entirely —
+  // canonical CSS behavior, matches the DOM reference.
+  if (node.markerHidden) return;
 
   const style = node.style;
-  ctx.font = buildCanvasFont(style);
+  // Marker style = li style with explicit `::marker` overrides applied on top.
+  // `markerStyle` holds only keys explicitly set by `::marker` rules, so a
+  // missing key falls back to the li style. A present key (incl. 0) wins.
+  const ms = node.markerStyle;
+  const markerStyleObj: ResolvedStyle = ms ? { ...style, ...ms } : style;
+
+  ctx.font = buildCanvasFont(markerStyleObj);
   const lineHeight = getLineHeight(ctx, style);
   const baselineY = box.y + style.borderTopWidth + style.paddingTop +
     computeBaselineY(ctx, style, lineHeight);
 
   const markerWidth = cachedMeasureWidth(ctx, node.listMarker);
-  const gap = style.fontSize * 0.15; // small gap between marker and content
   const isRTL = style.direction === 'rtl';
+  // Gap between marker box and content. Default = fontSize * 0.15 (intrinsic).
+  // `::marker { padding-inline-end: <length> }` overrides — we honor the
+  // direction-resolved physical padding (paddingRight in LTR, paddingLeft
+  // in RTL) when explicitly set on the marker.
+  const explicitGap = isRTL ? ms?.paddingLeft : ms?.paddingRight;
+  const gap = explicitGap !== undefined
+    ? explicitGap
+    : markerStyleObj.fontSize * 0.15;
 
   let markerX: number;
   let markerDirection = 'ltr';
@@ -1578,7 +1594,7 @@ function addListMarker(
     x: markerX,
     y: baselineY,
     width: markerWidth,
-    style: { ...style, textDecorationLine: 'none', fontWeight: 400, fontStyle: 'normal', direction: markerDirection },
+    style: { ...markerStyleObj, textDecorationLine: 'none', fontWeight: ms?.fontWeight ?? 400, fontStyle: ms?.fontStyle ?? 'normal', direction: markerDirection },
   });
 }
 
