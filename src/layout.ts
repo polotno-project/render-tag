@@ -163,7 +163,7 @@ function applyTextTransform(text: string, transform: string): string {
   switch (transform) {
     case 'uppercase': return text.toUpperCase();
     case 'lowercase': return text.toLowerCase();
-    case 'capitalize': return text.replace(/\b\w/g, c => c.toUpperCase());
+    case 'capitalize': return text.replace(/(^|[\s\p{P}])(\p{L})/gu, (_, p, c) => p + c.toUpperCase());
     default: return text;
   }
 }
@@ -254,6 +254,9 @@ interface PositionedLine {
   words: Word[];
   totalWidth: number;
   lineHeight: number;
+  /** True if this line ends at a forced break (\n or <br>). Such a line is
+   *  treated as a "last line" for text-align — never justified. */
+  endedByHardBreak?: boolean;
 }
 
 // ─── Inline layout ─────────────────────────────────────────────────────
@@ -660,10 +663,13 @@ function flowWordsIntoLines(
   contentWidth: number,
   whiteSpace: string,
   useBulletProbe = false,
+  textIndent = 0,
 ): PositionedLine[] {
   const lines: PositionedLine[] = [];
   let currentLine: PositionedLine = { words: [], totalWidth: 0, lineHeight: 0 };
   const noWrap = whiteSpace === 'nowrap' || whiteSpace === 'pre';
+  // text-indent reduces the first line's width budget; subsequent lines use full width.
+  const effWidth = () => contentWidth - (lines.length === 0 ? textIndent : 0);
 
   const isPreWrap = whiteSpace === 'pre-wrap' || whiteSpace === 'pre' || whiteSpace === 'pre-line';
   // `pre`, `pre-wrap`, and `break-spaces` preserve author whitespace
@@ -730,9 +736,11 @@ function flowWordsIntoLines(
     if (word.text === '\n') {
       if (currentLine.words.length === 0) {
         currentLine.lineHeight = wordLineHeight;
+        currentLine.endedByHardBreak = true;
         lines.push(currentLine);
         currentLine = { words: [], totalWidth: 0, lineHeight: 0 };
       } else {
+        currentLine.endedByHardBreak = true;
         pushLine();
       }
       afterHardBreak = true;
@@ -749,7 +757,7 @@ function flowWordsIntoLines(
 
     // Break long words / CJK characters if needed
     const pieces = (!word.isSpace && word.text.length > 1)
-      ? breakWordIfNeeded(ctx, word, contentWidth, currentLine.totalWidth)
+      ? breakWordIfNeeded(ctx, word, effWidth(), currentLine.totalWidth)
       : [word];
 
     for (const piece of pieces) {
@@ -762,8 +770,8 @@ function flowWordsIntoLines(
 
       // Would this piece overflow?
       if (!piece.isSpace && !isTrailingPunct && currentLine.words.length > 0 &&
-        currentLine.totalWidth + piece.width > contentWidth) {
-        const overflow = currentLine.totalWidth + piece.width - contentWidth;
+        currentLine.totalWidth + piece.width > effWidth()) {
+        const overflow = currentLine.totalWidth + piece.width - effWidth();
 
         // For borderline cases (overflow < 1px), word-by-word delta
         // accumulation may introduce rounding errors. Re-measure the
@@ -777,7 +785,7 @@ function flowWordsIntoLines(
           const fullWidth = cachedMeasureWidth(ctx, fullText);
           // Allow tiny sub-pixel overflow — canvas measureText and DOM
           // text layout can differ by fractions of a pixel.
-          if (fullWidth <= contentWidth + 0.1) {
+          if (fullWidth <= effWidth() + 0.1) {
             reallyOverflows = false;
           }
         }
@@ -792,7 +800,7 @@ function flowWordsIntoLines(
             let fitted = '';
             let fittedWidth = 0;
             let partIdx = 0;
-            const available = contentWidth - currentLine.totalWidth;
+            const available = effWidth() - currentLine.totalWidth;
             for (; partIdx < parts.length; partIdx++) {
               const candidate = fitted + parts[partIdx];
               const candidateWidth = cachedMeasureWidth(ctx, candidate);
@@ -847,7 +855,7 @@ function flowWordsIntoLines(
       }
 
       // Hyphen break on a fresh line when word still too wide.
-      if (currentLine.words.length === 0 && pieceWidth > contentWidth &&
+      if (currentLine.words.length === 0 && pieceWidth > effWidth() &&
           !piece.isSpace && piece.text.includes('-')) {
         const subParts = piece.text.split(/(?<=-)/);
         if (subParts.length > 1) {
@@ -870,7 +878,7 @@ function flowWordsIntoLines(
               currentLine.words.push(sp);
               currentLine.totalWidth += sp.width;
               currentLine.lineHeight = Math.max(currentLine.lineHeight, wordLineHeight);
-            } else if (currentLine.totalWidth + sp.width > contentWidth) {
+            } else if (currentLine.totalWidth + sp.width > effWidth()) {
               // Overflow: wrap to next line
               pushLine(true);
               afterHardBreak = false;
@@ -914,12 +922,23 @@ function layoutInlineContent(
   if (runs.length === 0) return { nodes: results, height: 0 };
 
   const words = tokenizeRuns(ctx, runs);
-  const lines = flowWordsIntoLines(ctx, words, contentWidth, node.style.whiteSpace, useBulletProbe);
+  const textIndent = node.style.textIndent || 0;
+  const lines = flowWordsIntoLines(ctx, words, contentWidth, node.style.whiteSpace, useBulletProbe, textIndent);
   const isRTL = node.style.direction === 'rtl';
-  let textAlign = node.style.textAlign;
-  // In RTL, default alignment is right; 'start'='right', 'end'='left'
-  if (textAlign === 'start') textAlign = isRTL ? 'right' : 'left';
-  if (textAlign === 'end') textAlign = isRTL ? 'left' : 'right';
+  const resolveDir = (a: string) => {
+    if (a === 'start') return isRTL ? 'right' : 'left';
+    if (a === 'end') return isRTL ? 'left' : 'right';
+    return a;
+  };
+  let textAlign = resolveDir(node.style.textAlign);
+  // text-align-last: 'auto' inherits from text-align except when text-align is
+  // 'justify', then defaults to 'start' (CSS Text 3 §7.2).
+  let textAlignLast = node.style.textAlignLast || 'auto';
+  if (textAlignLast === 'auto') {
+    textAlignLast = node.style.textAlign === 'justify' ? (isRTL ? 'right' : 'left') : textAlign;
+  } else {
+    textAlignLast = resolveDir(textAlignLast);
+  }
 
   let curY = y;
 
@@ -932,24 +951,34 @@ function layoutInlineContent(
 
     const lineHeight = line.lineHeight;
     const isLastLine = lineIdx === lines.length - 1;
+    const isFirstLine = lineIdx === 0;
 
-    // Justify: expand spaces to fill the line (except last line)
+    // Per-line alignment: lines ending at a forced break or the last line
+    // use text-align-last; all others use text-align (CSS Text 3 §7.1, §7.2).
+    const useLast = isLastLine || line.endedByHardBreak;
+    const align = useLast ? textAlignLast : textAlign;
+
+    // text-indent narrows the first line's available width.
+    const indent = isFirstLine ? textIndent : 0;
+    const lineMaxWidth = contentWidth - indent;
+
+    // Justify: expand spaces to fill the line.
     let justifyExtraPerSpace = 0;
-    if (textAlign === 'justify' && !isLastLine && line.totalWidth < contentWidth) {
+    if (align === 'justify' && line.totalWidth < lineMaxWidth) {
       const spaceCount = line.words.filter(w => w.isSpace).length;
       if (spaceCount > 0) {
-        justifyExtraPerSpace = (contentWidth - line.totalWidth) / spaceCount;
+        justifyExtraPerSpace = (lineMaxWidth - line.totalWidth) / spaceCount;
       }
     }
 
-    // text-align
-    let curX = x;
-    if (textAlign === 'center') {
-      curX = x + (contentWidth - line.totalWidth) / 2;
-    } else if (textAlign === 'right' || (textAlign !== 'justify' && isRTL)) {
-      curX = x + contentWidth - line.totalWidth;
+    // text-align (with first-line indent baked into curX)
+    let curX = x + indent;
+    if (align === 'center') {
+      curX = x + indent + (lineMaxWidth - line.totalWidth) / 2;
+    } else if (align === 'right' || (align !== 'justify' && isRTL)) {
+      curX = x + indent + lineMaxWidth - line.totalWidth;
     } else if (isRTL) {
-      curX = x + contentWidth - line.totalWidth;
+      curX = x + indent + lineMaxWidth - line.totalWidth;
     }
 
     // Inline background boxes and text are emitted after baseline computation

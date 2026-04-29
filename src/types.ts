@@ -118,6 +118,8 @@ export interface ResolvedStyle {
   fontStyle: string;
   color: string;
   textAlign: string;
+  textAlignLast: string;
+  textIndent: number;
   textTransform: string;
   textDecorationLine: string;
   textDecorationStyle: string;

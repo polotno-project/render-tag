@@ -297,7 +297,7 @@ function matchesParsedSelector(sel: ParsedSelector, ctx: ElementContext): boolea
 /** Properties that inherit from parent to child */
 const INHERITED_PROPERTIES = new Set([
   'font-family', 'font-size', 'font-weight', 'font-style',
-  'color', 'text-align', 'text-transform',
+  'color', 'text-align', 'text-align-last', 'text-indent', 'text-transform',
   'text-decoration-line', 'text-decoration-style', 'text-decoration-color',
   'letter-spacing', 'word-spacing', 'font-kerning',
   'line-height', 'white-space', 'word-break', 'overflow-wrap',
@@ -314,6 +314,8 @@ function defaultStyle(): ResolvedStyle {
     fontStyle: 'normal',
     color: 'rgb(0, 0, 0)',
     textAlign: 'start',
+    textAlignLast: 'auto',
+    textIndent: 0,
     textTransform: 'none',
     textDecorationLine: 'none',
     textDecorationStyle: 'solid',
@@ -398,6 +400,14 @@ const TAG_DEFAULTS: Record<string, Partial<ResolvedStyle>> = {
   td: { display: 'table-cell' },
   th: { display: 'table-cell', fontWeight: 700 },
   br: { display: 'inline' },
+  hr: {
+    display: 'block',
+    borderTopWidth: 1,
+    borderTopStyle: 'solid',
+    borderTopColor: 'gray',
+    marginTop: -0.5,
+    marginBottom: -0.5,
+  },
 };
 
 /**
@@ -574,6 +584,9 @@ function applyDeclaration(
     case 'font-style': style.fontStyle = value.trim(); break;
     case 'color': style.color = value.trim(); break;
     case 'text-align': style.textAlign = value.trim(); break;
+    case 'text-align-last': style.textAlignLast = value.trim(); break;
+    case 'text-indent':
+      style.textIndent = parseValue(value, fontSize, containerWidth); break;
     case 'text-transform': style.textTransform = value.trim(); break;
     case 'text-decoration-line': style.textDecorationLine = value.trim(); break;
     // text-decoration is expanded in expandShorthand, should not reach here
@@ -713,7 +726,6 @@ function applyDeclaration(
     case 'outline':
     case 'transition':
     case 'transform':
-    case 'text-indent':
     case 'font-stretch':
     case 'font-display':
     case 'src':
@@ -730,6 +742,8 @@ const INHERITABLE_KEYS: [string, keyof ResolvedStyle][] = [
   ['font-style', 'fontStyle'],
   ['color', 'color'],
   ['text-align', 'textAlign'],
+  ['text-align-last', 'textAlignLast'],
+  ['text-indent', 'textIndent'],
   ['text-transform', 'textTransform'],
   ['white-space', 'whiteSpace'],
   ['word-break', 'wordBreak'],
@@ -851,30 +865,89 @@ function buildRuleIndex(rules: CSSRule[]): {
   return { byTag, byClass, universal };
 }
 
+/** Format an integer using a CSS list-style-type. */
+function formatListMarker(n: number, type: string): string {
+  switch (type) {
+    case 'disc': return '•';
+    case 'circle': return '○';
+    case 'square': return '■';
+    case 'none': return '';
+    case 'decimal-leading-zero':
+      return `${n < 10 && n >= 0 ? '0' + n : n}.`;
+    case 'lower-roman': return `${toRoman(n).toLowerCase()}.`;
+    case 'upper-roman': return `${toRoman(n)}.`;
+    case 'lower-alpha':
+    case 'lower-latin': return `${toAlpha(n).toLowerCase()}.`;
+    case 'upper-alpha':
+    case 'upper-latin': return `${toAlpha(n)}.`;
+    case 'decimal':
+    default:
+      return `${n}.`;
+  }
+}
+
+function toRoman(n: number): string {
+  if (n < 1 || n > 3999) return `${n}`;
+  const map: [number, string][] = [
+    [1000, 'M'], [900, 'CM'], [500, 'D'], [400, 'CD'],
+    [100, 'C'], [90, 'XC'], [50, 'L'], [40, 'XL'],
+    [10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I'],
+  ];
+  let out = '';
+  for (const [v, s] of map) {
+    while (n >= v) { out += s; n -= v; }
+  }
+  return out;
+}
+
+function toAlpha(n: number): string {
+  if (n < 1) return `${n}`;
+  let out = '';
+  while (n > 0) {
+    const r = (n - 1) % 26;
+    out = String.fromCharCode(65 + r) + out;
+    n = Math.floor((n - 1) / 26);
+  }
+  return out;
+}
+
 /**
- * Detect list marker text for a <li> element based on tree position.
+ * Detect list marker text for a <li> element based on tree position,
+ * honoring list-style-type, <ol start>, <ol reversed>, and <li value>.
  */
-function getListMarker(el: Element): string | undefined {
+function getListMarker(el: Element, listStyleType: string): string | undefined {
   const tag = el.tagName.toLowerCase();
   if (tag !== 'li') return undefined;
+  if (listStyleType === 'none') return '';
 
   const parent = el.parentElement;
-  if (!parent) return '•';
+  const parentTag = parent?.tagName.toLowerCase();
 
-  const parentTag = parent.tagName.toLowerCase();
-  if (parentTag === 'ol') {
-    let index = 0;
-    for (const child of parent.children) {
-      if (child.tagName.toLowerCase() === 'li') {
-        index++;
-        if (child === el) break;
-      }
-    }
-    return `${index}.`;
+  // Bullet markers: independent of position.
+  if (listStyleType === 'disc' || listStyleType === 'circle' || listStyleType === 'square') {
+    return formatListMarker(0, listStyleType);
   }
 
-  if (parentTag === 'ul') {
-    return '•';
+  // Numbered markers: compute index from siblings + ol attributes + li value.
+  if (parentTag === 'ol' || parentTag === 'ul' || !parent) {
+    const liItems = parent
+      ? Array.from(parent.children).filter(c => c.tagName.toLowerCase() === 'li')
+      : [el];
+    const startAttr = parent?.getAttribute('start');
+    const reversed = parent?.hasAttribute('reversed') ?? false;
+    const start = startAttr ? parseInt(startAttr, 10) : (reversed ? liItems.length : 1);
+    const step = reversed ? -1 : 1;
+    let n = start;
+    for (const item of liItems) {
+      const valueAttr = item.getAttribute('value');
+      if (valueAttr) {
+        const v = parseInt(valueAttr, 10);
+        if (!Number.isNaN(v)) n = v;
+      }
+      if (item === el) return formatListMarker(n, listStyleType || 'decimal');
+      n += step;
+    }
+    return formatListMarker(n, listStyleType || 'decimal');
   }
 
   return undefined;
@@ -1155,7 +1228,7 @@ export function resolveStylesFromCSS(
     }
 
     // List marker
-    const marker = getListMarker(el);
+    const marker = getListMarker(el, style.listStyleType);
 
     // Resolve `::marker` rules into a Partial<ResolvedStyle> override and a
     // hidden flag. We only do this for `<li>` because `::marker` only applies

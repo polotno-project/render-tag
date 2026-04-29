@@ -28,7 +28,7 @@
     "wrap": true
   },
   "Code blocks & quotes": {
-    "score": 19.06,
+    "score": 0.4,
     "wrap": true
   },
   "Dense inline formatting": {
@@ -332,11 +332,11 @@
     "wrap": true
   },
   "Polotno HTML": {
-    "score": 9.28,
+    "score": 9.12,
     "wrap": false
   },
   "Polotno Lists": {
-    "score": 2.88,
+    "score": 2.79,
     "wrap": true
   },
   "Simple paragraph@Open Sans": {
@@ -368,7 +368,7 @@
     "wrap": true
   },
   "Code blocks & quotes@Open Sans": {
-    "score": 19.06,
+    "score": 0.4,
     "wrap": true
   },
   "Dense inline formatting@Open Sans": {
@@ -700,7 +700,7 @@
     "wrap": true
   },
   "Code blocks & quotes@Roboto": {
-    "score": 19.07,
+    "score": 0.41,
     "wrap": true
   },
   "Dense inline formatting@Roboto": {
@@ -1032,7 +1032,7 @@
     "wrap": true
   },
   "Code blocks & quotes@Playfair Display": {
-    "score": 19.11,
+    "score": 0.4,
     "wrap": true
   },
   "Dense inline formatting@Playfair Display": {
@@ -1364,7 +1364,7 @@
     "wrap": true
   },
   "Code blocks & quotes@Merriweather": {
-    "score": 19.24,
+    "score": 0.4,
     "wrap": true
   },
   "Dense inline formatting@Merriweather": {
@@ -1696,7 +1696,7 @@
     "wrap": true
   },
   "Code blocks & quotes@Lobster": {
-    "score": 19.9,
+    "score": 0.41,
     "wrap": true
   },
   "Dense inline formatting@Lobster": {
