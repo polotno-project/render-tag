@@ -1269,12 +1269,23 @@ export function resolveStylesFromCSS(
       // Clone parent style for text node (text nodes don't match CSS rules)
       const style = { ...parentStyle };
 
+      // CSS Text 3 §4.1.1: in `normal` and `nowrap`, a source newline is
+      // collapsed to a single space (no forced break). Only `pre`,
+      // `pre-wrap`, `pre-line`, and `break-spaces` preserve newlines.
+      // <br>-derived text nodes are created separately below with `\n`
+      // and are not touched here, so they keep forcing breaks.
+      const ws = parentStyle.whiteSpace;
+      let normalizedText = text;
+      if (ws !== 'pre' && ws !== 'pre-wrap' && ws !== 'pre-line' && ws !== 'break-spaces') {
+        normalizedText = text.replace(/[\n\r]/g, ' ');
+      }
+
       return {
         element: null,
         tagName: '#text',
         style,
         children: [],
-        textContent: text,
+        textContent: normalizedText,
       };
     }
 

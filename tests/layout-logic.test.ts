@@ -439,6 +439,45 @@ describe('Layout logic (mocked measureText)', () => {
       const lines = getLines(root);
       expect(lines).toEqual(['before', 'after']);
     });
+
+    // CSS Text 3 §4.1.1: pre/pre-wrap preserve trailing whitespace at
+    // hard breaks and end-of-content; collapsing modes always strip it.
+    // Soft wraps strip even in pre-wrap (whitespace "hangs"). DOM-vs-render
+    // comparisons are in `tests/whitespace-edge-cases.test.ts`; these unit
+    // tests pin the deterministic line-width math.
+    it('pre-wrap: trailing space before \\n included in centered line width', () => {
+      // "Calcium \n" at width 200 (CHAR=SPACE=10):
+      //   buggy (trimmed):   width=70 → centered x=65
+      //   correct (kept):    width=80 → centered x=60
+      const tree = block('div', [
+        block('p', [textNode('Calcium \n')],
+          { whiteSpace: 'pre-wrap', textAlign: 'center' }),
+      ]);
+      const calcium = collectTexts(doLayout(tree, 200)).find(t => t.text === 'Calcium');
+      expect(calcium!.x).toBe(60);
+    });
+
+    it('pre: trailing space before \\n included in centered line width', () => {
+      // `pre` shares the trim logic with `pre-wrap` (both go through
+      // `preservesWhitespace`). This pins the `pre` branch directly since
+      // `white-space: pre` is not exercised by any DOM test.
+      const tree = block('div', [
+        block('p', [textNode('Calcium \n')],
+          { whiteSpace: 'pre', textAlign: 'center' }),
+      ]);
+      const calcium = collectTexts(doLayout(tree, 200)).find(t => t.text === 'Calcium');
+      expect(calcium!.x).toBe(60);
+    });
+
+    it('pre-wrap: trailing space at a soft wrap is trimmed (hangs)', () => {
+      // "aa bb cc" at width 60 must wrap to 2 lines, not 3 — the trailing
+      // space before the wrap must not become its own empty line.
+      const tree = block('div', [
+        block('p', [textNode('aa bb cc')],
+          { whiteSpace: 'pre-wrap', textAlign: 'center' }),
+      ]);
+      expect(getLines(doLayout(tree, 60)).length).toBe(2);
+    });
   });
 
   // ─── Block height ──────────────────────────────────────────────────

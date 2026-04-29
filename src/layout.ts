@@ -375,9 +375,12 @@ function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRu
     return;
   }
 
+  // `pre-line` preserves newlines (handled by the \n pre-split in
+  // tokenizeRuns) but collapses spaces and tabs — so it goes through the
+  // non-preserving branch below, same as `normal`.
   const isPreserve = run.style.whiteSpace === 'pre' ||
     run.style.whiteSpace === 'pre-wrap' ||
-    run.style.whiteSpace === 'pre-line';
+    run.style.whiteSpace === 'break-spaces';
 
   if (isPreserve) {
     // Split on spaces and tabs, keeping delimiters
@@ -663,13 +666,23 @@ function flowWordsIntoLines(
   const noWrap = whiteSpace === 'nowrap' || whiteSpace === 'pre';
 
   const isPreWrap = whiteSpace === 'pre-wrap' || whiteSpace === 'pre' || whiteSpace === 'pre-line';
+  // `pre`, `pre-wrap`, and `break-spaces` preserve author whitespace
+  // (leading and trailing); the others collapse it.
+  const preservesWhitespace =
+    whiteSpace === 'pre' || whiteSpace === 'pre-wrap' || whiteSpace === 'break-spaces';
 
   function pushLine(isSoftWrap = false) {
     const hadWords = currentLine.words.length > 0;
-    // Trim trailing spaces
-    while (currentLine.words.length > 0 && currentLine.words[currentLine.words.length - 1].isSpace) {
-      currentLine.totalWidth -= currentLine.words[currentLine.words.length - 1].width;
-      currentLine.words.pop();
+    // Trim trailing spaces. `break-spaces` preserves them even at soft wraps;
+    // `pre`/`pre-wrap` preserve them at hard breaks and end-of-content but not
+    // at soft wraps (per CSS Text 3 §4.1.1).
+    const preserveTrailing = whiteSpace === 'break-spaces'
+      || (preservesWhitespace && !isSoftWrap);
+    if (!preserveTrailing) {
+      while (currentLine.words.length > 0 && currentLine.words[currentLine.words.length - 1].isSpace) {
+        currentLine.totalWidth -= currentLine.words[currentLine.words.length - 1].width;
+        currentLine.words.pop();
+      }
     }
     // Soft hyphen: if this is a soft wrap and the last word has a soft-hyphen
     // break, append a visible '-' since the word is being broken here.
@@ -817,8 +830,11 @@ function flowWordsIntoLines(
         }
       }
 
-      // Skip leading spaces after soft wraps, but preserve after hard breaks (\n)
-      if (piece.isSpace && currentLine.words.length === 0 && !afterHardBreak) continue;
+      // Skip leading spaces at the start of a line. Preserving modes
+      // (pre/pre-wrap/break-spaces) keep them after hard breaks; collapsing
+      // modes (normal/nowrap/pre-line) drop them in all cases.
+      if (piece.isSpace && currentLine.words.length === 0
+          && (!afterHardBreak || !preservesWhitespace)) continue;
 
       // Tab: snap to next tab stop based on current position
       let pieceWidth = piece.width;
@@ -878,7 +894,6 @@ function flowWordsIntoLines(
     }
   }
   pushLine();
-
   return lines;
 }
 
