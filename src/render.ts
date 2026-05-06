@@ -1,5 +1,6 @@
 import type { LayoutNode, LayoutBox, LayoutText, ResolvedStyle } from './types.js';
 import { buildCanvasFont, isTransparent, getFontMetrics } from './layout.js';
+import { paintOrderHasStrokeFirst } from './css-resolver.js';
 
 /**
  * Parse a CSS text-shadow string into individual shadow values.
@@ -227,40 +228,47 @@ function renderText(ctx: CanvasRenderingContext2D, node: LayoutText, gradientFil
     }
   }
 
-  // Main text fill
-  if (isGradientText) {
-    ctx.save();
-    if (gradientFill) {
-      ctx.fillStyle = gradientFill;
-    } else {
-      // Fallback: per-word gradient (shouldn't normally reach here)
-      const { ascent, descent } = getFontMetrics(ctx, style);
-      const gradient = parseLinearGradient(
-        ctx, style.backgroundImage,
-        node.x, node.width,
-        node.y - ascent, ascent + descent,
-      );
-      ctx.fillStyle = gradient || style.color;
+  const drawFill = () => {
+    if (isGradientText) {
+      ctx.save();
+      if (gradientFill) {
+        ctx.fillStyle = gradientFill;
+      } else {
+        // Fallback: per-word gradient (shouldn't normally reach here)
+        const { ascent, descent } = getFontMetrics(ctx, style);
+        const gradient = parseLinearGradient(
+          ctx, style.backgroundImage,
+          node.x, node.width,
+          node.y - ascent, ascent + descent,
+        );
+        ctx.fillStyle = gradient || style.color;
+      }
+      ctx.fillText(node.text, node.x, node.y);
+      ctx.restore();
+    } else if (!isFillTransparent || !isStrokedText) {
+      // Normal text fill (skip if transparent + stroked, stroke handles it)
+      ctx.fillStyle = style.webkitTextFillColor && style.webkitTextFillColor !== 'transparent'
+        ? style.webkitTextFillColor : style.color;
+      ctx.fillText(node.text, node.x, node.y);
     }
-    ctx.fillText(node.text, node.x, node.y);
-    ctx.restore();
-  } else if (!isFillTransparent || !isStrokedText) {
-    // Normal text fill (skip if transparent + stroked, stroke handles it)
-    ctx.fillStyle = style.webkitTextFillColor && style.webkitTextFillColor !== 'transparent'
-      ? style.webkitTextFillColor : style.color;
+  };
 
-    // letterSpacing is set on ctx above — fillText handles it natively
-    ctx.fillText(node.text, node.x, node.y);
-  }
-
-  // Text stroke (outline text)
-  if (isStrokedText) {
+  const drawStroke = () => {
+    if (!isStrokedText) return;
     ctx.save();
     ctx.strokeStyle = style.webkitTextStrokeColor || style.color;
     ctx.lineWidth = style.webkitTextStrokeWidth;
     ctx.lineJoin = 'round';
     ctx.strokeText(node.text, node.x, node.y);
     ctx.restore();
+  };
+
+  if (paintOrderHasStrokeFirst(style.paintOrder)) {
+    drawStroke();
+    drawFill();
+  } else {
+    drawFill();
+    drawStroke();
   }
 
   // Text decorations — use font metrics for accurate positioning

@@ -302,7 +302,7 @@ const INHERITED_PROPERTIES = new Set([
   'letter-spacing', 'word-spacing', 'font-kerning',
   'line-height', 'white-space', 'word-break', 'overflow-wrap',
   'direction', 'text-shadow', 'list-style-type',
-  'vertical-align',
+  'vertical-align', 'paint-order',
 ]);
 
 /** Default values for all ResolvedStyle properties */
@@ -324,6 +324,7 @@ function defaultStyle(): ResolvedStyle {
     webkitTextStrokeWidth: 0,
     webkitTextStrokeColor: '',
     webkitTextFillColor: '',
+    paintOrder: 'normal',
     webkitBackgroundClip: '',
     backgroundImage: 'none',
     letterSpacing: 0,
@@ -442,10 +443,43 @@ function parseFontWeight(value: string): number {
 }
 
 /**
+ * Resolve `paint-order` to whether stroke is painted before fill.
+ * Per CSS spec, missing tokens append in order: fill, stroke, markers.
+ * So `stroke` alone implies `stroke fill markers` (stroke first).
+ */
+export function paintOrderHasStrokeFirst(paintOrder: string): boolean {
+  const v = paintOrder.trim().toLowerCase();
+  if (!v || v === 'normal') return false;
+  const tokens = v.split(/\s+/).filter(t => t === 'fill' || t === 'stroke');
+  const strokeIdx = tokens.indexOf('stroke');
+  const fillIdx = tokens.indexOf('fill');
+  if (strokeIdx === -1) return false;
+  if (fillIdx === -1) return true;
+  return strokeIdx < fillIdx;
+}
+
+/** Split on whitespace, but only at paren-depth 0 — keeps `rgb(1, 2, 3)` intact. */
+function splitTopLevelWhitespace(value: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let cur = '';
+  for (let i = 0; i < value.length; i++) {
+    const ch = value[i];
+    if (ch === '(') { depth++; cur += ch; }
+    else if (ch === ')') { depth = Math.max(0, depth - 1); cur += ch; }
+    else if (depth === 0 && /\s/.test(ch)) {
+      if (cur) { parts.push(cur); cur = ''; }
+    } else cur += ch;
+  }
+  if (cur) parts.push(cur);
+  return parts;
+}
+
+/**
  * Expand shorthand properties into individual ones.
  * E.g., margin: 10px 20px → marginTop/Right/Bottom/Left
  */
-function expandShorthand(property: string, value: string): CSSDeclaration[] {
+export function expandShorthand(property: string, value: string): CSSDeclaration[] {
   if (property === 'margin' || property === 'padding') {
     const parts = value.trim().split(/\s+/);
     let top: string, right: string, bottom: string, left: string;
@@ -524,7 +558,9 @@ function expandShorthand(property: string, value: string): CSSDeclaration[] {
 
   if (property === '-webkit-text-stroke') {
     // -webkit-text-stroke: 1px #1e40af → width + color
-    const parts = value.trim().split(/\s+/);
+    // Split on whitespace at paren-depth 0 so colors with internal spaces
+    // (rgb(255, 255, 255), var(--c, ...), color(srgb 1 0 0), …) survive intact.
+    const parts = splitTopLevelWhitespace(value.trim());
     const width = parts.find(p => p.endsWith('px') || /^\d/.test(p)) || '0';
     const color = parts.find(p => !p.endsWith('px') && !/^\d/.test(p)) || 'currentColor';
     return [
@@ -598,6 +634,7 @@ function applyDeclaration(
     case '-webkit-text-stroke-width': style.webkitTextStrokeWidth = parseValue(value, fontSize, containerWidth); break;
     case '-webkit-text-stroke-color': style.webkitTextStrokeColor = value.trim(); break;
     case '-webkit-text-fill-color': style.webkitTextFillColor = value.trim(); break;
+    case 'paint-order': style.paintOrder = value.trim(); break;
     case '-webkit-background-clip':
     case 'background-clip': style.webkitBackgroundClip = value.trim(); break;
     case 'background-image': style.backgroundImage = value.trim(); break;
@@ -756,6 +793,7 @@ const INHERITABLE_KEYS: [string, keyof ResolvedStyle][] = [
   ['font-kerning', 'fontKerning'],
   ['list-style-type', 'listStyleType'],
   ['vertical-align', 'verticalAlign'],
+  ['paint-order', 'paintOrder'],
 ];
 
 /**

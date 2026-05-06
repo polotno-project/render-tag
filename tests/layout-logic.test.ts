@@ -31,6 +31,7 @@ function defaultStyle(overrides: Partial<ResolvedStyle> = {}): ResolvedStyle {
     webkitTextStrokeWidth: 0,
     webkitTextStrokeColor: '',
     webkitTextFillColor: '',
+    paintOrder: 'normal',
     webkitBackgroundClip: '',
     backgroundImage: 'none',
     letterSpacing: 0,

@@ -128,6 +128,7 @@ export interface ResolvedStyle {
   webkitTextStrokeWidth: number;
   webkitTextStrokeColor: string;
   webkitTextFillColor: string;
+  paintOrder: string;
   webkitBackgroundClip: string;
   backgroundImage: string;
   letterSpacing: number;
