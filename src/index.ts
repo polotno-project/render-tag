@@ -1,7 +1,7 @@
 import type {
   RenderConfig, RenderResult,
   LayoutConfig, LayoutResult, DrawConfig,
-  LayoutLine, LayoutNode, AnyCanvas, AnyContext,
+  LayoutLine, AnyCanvas, AnyContext,
 } from './types.js';
 import { parseHTML } from './parse.js';
 import { resolveStylesFromCSS } from './css-resolver.js';
@@ -9,37 +9,6 @@ import { buildLayoutTree } from './layout.js';
 import { renderNode } from './render.js';
 
 export type { RenderConfig, RenderResult, LayoutConfig, LayoutResult, DrawConfig, LayoutLine };
-
-// ─── Line extraction ─────────────────────────────────────────────────
-
-function extractLines(root: LayoutNode): LayoutLine[] {
-  const wordPositions: { y: number; fontSize: number; text: string }[] = [];
-  function walk(node: LayoutNode) {
-    if (node.type === 'text' && node.text.trim()) {
-      wordPositions.push({ y: node.y, fontSize: node.style.fontSize, text: node.text });
-    }
-    if (node.type === 'box') {
-      for (const child of node.children) walk(child);
-    }
-  }
-  walk(root);
-  wordPositions.sort((a, b) => a.y - b.y);
-
-  const lines: LayoutLine[] = [];
-  let lineMaxFontSize = 0;
-  for (const wp of wordPositions) {
-    const lastLine = lines[lines.length - 1];
-    const tolerance = Math.max(lineMaxFontSize, wp.fontSize) * 0.5;
-    if (lastLine && Math.abs(wp.y - lastLine.y) < tolerance) {
-      lastLine.text += wp.text;
-      lineMaxFontSize = Math.max(lineMaxFontSize, wp.fontSize);
-    } else {
-      lines.push({ y: Math.round(wp.y), text: wp.text });
-      lineMaxFontSize = wp.fontSize;
-    }
-  }
-  return lines;
-}
 
 // ─── layout() ────────────────────────────────────────────────────────
 
@@ -69,9 +38,8 @@ export function layout(config: LayoutConfig): LayoutResult {
   const measureCtx = tmpCanvas.getContext('2d')!;
   measureCtx.fontKerning = 'normal';
 
-  const { root, height: contentHeight } = buildLayoutTree(measureCtx, tree, width, useDomMeasurements, debug);
+  const { root, height: contentHeight, lines } = buildLayoutTree(measureCtx, tree, width, useDomMeasurements, debug);
   const finalHeight = height || contentHeight;
-  const lines = extractLines(root);
 
   cleanup();
 

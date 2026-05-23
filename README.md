@@ -128,6 +128,25 @@ Compute layout without rendering. Use when you need to measure content or render
 
 Returns `{ layoutRoot, height, lines }`.
 
+### `LayoutLine`
+
+Each entry in the `lines` array on `LayoutResult` / `RenderResult`:
+
+```ts
+interface LayoutLine {
+  y: number;        // baseline y
+  text: string;     // concatenated text on the line
+  bounds: {         // line-box geometry (DOMRect-shaped)
+    x: number;      // leftmost x of content on the line
+    y: number;      // top of the line box
+    width: number;  // content width
+    height: number; // effective line height (incl. super/sub expansion)
+  };
+}
+```
+
+`bounds` is a drop-in replacement for `Range.getClientRects()` per line — useful for drawing per-line backgrounds, hit-testing, or highlighting.
+
 ### `drawLayout(config): { canvas }`
 
 Draw a pre-computed layout onto a canvas or context.
@@ -157,6 +176,43 @@ drawLayout({ layout: result, width: 400, canvas: mainCanvas });
 // Draw onto an existing context
 drawLayout({ layout: result, width: 400, ctx: offscreenCtx });
 ```
+
+## Text on path: `render-tag/path`
+
+Draw rich text along an SVG path. Sibling module, separate entry point — won't pull in the layout/render pipeline if you only need curved text.
+
+```ts
+import { drawTextOnPath } from 'render-tag/path';
+
+drawTextOnPath({
+  html: '<span style="font-size:24px;font-family:sans-serif">Hello <b>world</b></span>',
+  path: 'M20,150 Q200,20 380,150',  // SVG `d` string, or a PathLike
+  ctx,
+  align: 'center',  // 'left' | 'center' | 'right' | 'justify' (default 'left')
+});
+```
+
+The HTML/CSS dialect is the same as the main API — fonts, colors, weights, and CSS `direction: rtl` all work. The path is laid out as a single logical line (no wrapping). Glyphs that overflow the path's end are dropped.
+
+Returns `{ glyphs, textWidth, pathLength }`. Each `GlyphPlacement` has `{ char, x, y, rotation, width, style }` — useful for hit-testing or building selection rectangles.
+
+### Layout once, draw many
+
+The path module mirrors the main API's `layout()` / `drawLayout()` split:
+
+```ts
+import { layoutTextOnPath, drawTextOnPathLayout } from 'render-tag/path';
+
+const result = layoutTextOnPath({ html, path, align: 'center' });
+// inspect result.glyphs — hit-test, measure, build selection rects, etc.
+
+drawTextOnPathLayout({ layout: result, ctx: canvas1.getContext('2d')! });
+drawTextOnPathLayout({ layout: result, ctx: canvas2.getContext('2d')! });
+```
+
+`layoutTextOnPath` does not touch the canvas; it returns `{ glyphs, textWidth, pathLength }`. `drawTextOnPathLayout` paints a precomputed layout onto any 2D context. `drawTextOnPath` is just a convenience that chains both.
+
+Not yet supported in the path module: text-shadow, gradient/background-clip text, `text-decoration` lines (underline/line-through), mixed-script BiDi shaping.
 
 ## What it renders
 

@@ -10,6 +10,10 @@
       "import": "./lib/index.js",
       "types": "./lib/index.d.ts"
     },
+    "./path": {
+      "import": "./lib/path/index.js",
+      "types": "./lib/path/index.d.ts"
+    },
     "./umd": "./lib/render-tag.umd.js"
   },
   "homepage": "https://polotno.com/render-tag/",

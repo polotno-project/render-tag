@@ -1,9 +1,13 @@
-import type { StyledNode, LayoutNode, LayoutBox, LayoutText, ResolvedStyle } from './types.js';
+import type { StyledNode, LayoutNode, LayoutBox, LayoutText, ResolvedStyle, LayoutLine } from './types.js';
 
 // Module-level flag controlling DOM measurement usage.
 // Set by buildLayoutTree() based on the useDomMeasurements option.
 let _useDomMeasurements = true;
 let _debug: ((entry: import('./types.ts').DebugEntry) => void) | undefined;
+
+// Lines emitted during layout. Reset at the start of buildLayoutTree();
+// layoutInlineContent appends one entry per committed line.
+let _lines: LayoutLine[] = [];
 
 // ─── measureText width cache ──────────────────────────────────────────
 // Caches ctx.measureText(text).width keyed by "font\0text".
@@ -40,7 +44,7 @@ function hasMixedFonts(words: Word[]): boolean {
 /**
  * Set canvas font and kerning from resolved style.
  */
-function applyFont(ctx: CanvasRenderingContext2D, style: ResolvedStyle): void {
+export function applyFont(ctx: CanvasRenderingContext2D, style: ResolvedStyle): void {
   ctx.font = buildCanvasFont(style);
   ctx.fontKerning = style.fontKerning === 'none' ? 'none' : 'normal';
 }
@@ -980,6 +984,8 @@ function layoutInlineContent(
     } else if (isRTL) {
       curX = x + indent + lineMaxWidth - line.totalWidth;
     }
+    // Snapshot the line's left edge before LTR emission advances curX.
+    const lineLeftX = curX;
 
     // Inline background boxes and text are emitted after baseline computation
     // (below) so that emitInlineBox can use line-level metrics for alignment.
@@ -1020,35 +1026,29 @@ function layoutInlineContent(
     // Expand line height if sub/sup extends beyond the line box.
     // Browsers grow the line box to fit all content, but keep
     // the normal text baseline position unchanged.
-    let effectiveLineHeight = lineHeight;
-    {
+    let lineTop = curY;
+    let lineBottom = curY + lineHeight;
+    for (const word of line.words) {
+      if (word.text === '') continue;
+      const va = word.style.verticalAlign;
+      if (va !== 'super' && va !== 'sub') continue;
+      if (parentFontSize === 0) break;
 
-      let minTop = curY;
-      let maxBottom = curY + lineHeight;
+      const { ascent: wAscent, descent: wDescent } = getFontMetrics(ctx, word.style);
 
-      for (const word of line.words) {
-        if (word.text === '') continue;
-        const va = word.style.verticalAlign;
-        if (va !== 'super' && va !== 'sub') continue;
-        if (parentFontSize === 0) break;
-
-        const { ascent: wAscent, descent: wDescent } = getFontMetrics(ctx, word.style);
-
-        let shiftedBaseline = lineBaselineY;
-        if (va === 'super') {
-          shiftedBaseline -= parentFontSize * 0.4;
-        } else {
-          shiftedBaseline += parentFontSize * 0.26;
-        }
-
-        const wordTop = shiftedBaseline - wAscent;
-        const wordBottom = shiftedBaseline + wDescent;
-        if (wordTop < minTop) minTop = wordTop;
-        if (wordBottom > maxBottom) maxBottom = wordBottom;
+      let shiftedBaseline = lineBaselineY;
+      if (va === 'super') {
+        shiftedBaseline -= parentFontSize * 0.4;
+      } else {
+        shiftedBaseline += parentFontSize * 0.26;
       }
 
-      effectiveLineHeight = maxBottom - minTop;
+      const wordTop = shiftedBaseline - wAscent;
+      const wordBottom = shiftedBaseline + wDescent;
+      if (wordTop < lineTop) lineTop = wordTop;
+      if (wordBottom > lineBottom) lineBottom = wordBottom;
     }
+    const effectiveLineHeight = lineBottom - lineTop;
 
     // Emit inline background box using line-level baseline for vertical alignment.
     // Uses the line's ascent/descent (not the box's own font) so box aligns with text.
@@ -1253,6 +1253,26 @@ function layoutInlineContent(
         }
       }
     }
+
+    // Emit a public LayoutLine record for this committed line.
+    // bounds.width: justified lines fill lineMaxWidth (spaces expanded);
+    // others use the measured words width.
+    const lineWidth =
+      align === 'justify' && justifyExtraPerSpace > 0
+        ? lineMaxWidth
+        : line.totalWidth;
+    _lines.push({
+      y: Math.round(lineBaselineY),
+      text: line.words.map(w => w.text).join(''),
+      bounds: {
+        x: lineLeftX,
+        // Use the actual visual top (may be < curY when a super pushes the
+        // line box upward) so the rect covers ascenders/super content.
+        y: lineTop,
+        width: lineWidth,
+        height: effectiveLineHeight,
+      },
+    });
 
     curY += effectiveLineHeight;
   }
@@ -1640,6 +1660,24 @@ function addListMarker(
     width: markerWidth,
     style: { ...markerStyleObj, textDecorationLine: 'none', fontWeight: ms?.fontWeight ?? 400, fontStyle: ms?.fontStyle ?? 'normal', direction: markerDirection },
   });
+
+  // Also publish the marker through the LayoutLine stream so result.lines
+  // sees the bullet/number alongside the item text. Markers are added AFTER
+  // inline content is laid out, so they don't go through layoutInlineContent.
+  // The buildLayoutTree sort+merge step picks up the marker by its baseline.
+  const markerLeftX = isRTL && /\d/.test(node.listMarker)
+    ? markerX - markerWidth
+    : markerX;
+  _lines.push({
+    y: Math.round(baselineY),
+    text: node.listMarker,
+    bounds: {
+      x: markerLeftX,
+      y: box.y + style.borderTopWidth + style.paddingTop,
+      width: markerWidth,
+      height: lineHeight,
+    },
+  });
 }
 
 // ─── Main entry ────────────────────────────────────────────────────────
@@ -1654,7 +1692,7 @@ export function buildLayoutTree(
   containerWidth: number,
   useDomMeasurements = true,
   debug?: (entry: import('./types.ts').DebugEntry) => void,
-): { root: LayoutBox; height: number } {
+): { root: LayoutBox; height: number; lines: LayoutLine[] } {
   _useDomMeasurements = useDomMeasurements;
   _debug = debug;
 
@@ -1663,6 +1701,7 @@ export function buildLayoutTree(
   _fontMetricsCache.clear();
   _fontStringCache.clear();
   _measureCache.clear();
+  _lines = [];
 
   // The styledTree root is our container div — layout its children as a block flow
   const { box, height } = layoutBlock(ctx, styledTree, 0, 0, containerWidth);
@@ -1670,7 +1709,40 @@ export function buildLayoutTree(
   // Add list markers post-layout
   addListMarkersRecursive(ctx, box, styledTree);
 
-  return { root: box, height };
+  // Sort by baseline y, then by left edge so cross-cell content merges in
+  // reading order (LTR). List markers sit at smaller x than their content
+  // and so come first, producing "• Item" rather than "Item •".
+  const sorted = _lines.slice().sort((a, b) =>
+    (a.y - b.y) || (a.bounds.x - b.bounds.x)
+  );
+  const lines: LayoutLine[] = [];
+  for (const candidate of sorted) {
+    const last = lines[lines.length - 1];
+    // Tolerance keys off the candidate's line height (matches the legacy
+    // extractLines behavior). Using max(last, candidate) is symmetric but
+    // grows after each merge as last.bounds.height becomes the union — that
+    // leaks across rows in tight multi-column layouts.
+    const tolerance = candidate.bounds.height * 0.5;
+    if (last && Math.abs(candidate.y - last.y) < tolerance) {
+      // Cross-cell merge: insert a space separator so the text stays
+      // readable when N cells of a table row collapse into one LayoutLine.
+      // Skip if either side already has a boundary space.
+      const needsSep = last.text.length > 0 && candidate.text.length > 0 &&
+        !/\s$/.test(last.text) && !/^\s/.test(candidate.text);
+      last.text += (needsSep ? ' ' : '') + candidate.text;
+      // Carry baseline forward so the next comparison uses the running
+      // edge of the group, not the stale first element's baseline.
+      last.y = Math.max(last.y, candidate.y);
+      const x1 = Math.min(last.bounds.x, candidate.bounds.x);
+      const y1 = Math.min(last.bounds.y, candidate.bounds.y);
+      const x2 = Math.max(last.bounds.x + last.bounds.width, candidate.bounds.x + candidate.bounds.width);
+      const y2 = Math.max(last.bounds.y + last.bounds.height, candidate.bounds.y + candidate.bounds.height);
+      last.bounds = { x: x1, y: y1, width: x2 - x1, height: y2 - y1 };
+    } else {
+      lines.push({ y: candidate.y, text: candidate.text, bounds: { ...candidate.bounds } });
+    }
+  }
+  return { root: box, height, lines };
 }
 
 function addListMarkersRecursive(

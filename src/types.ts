@@ -96,6 +96,18 @@ export interface LayoutLine {
   y: number;
   /** Concatenated text content on this line */
   text: string;
+  /**
+   * Line-box geometry in canvas coordinates. Shape matches `DOMRect` — drop-in
+   * replacement for `Range.getClientRects()` when drawing per-line backgrounds.
+   * `bounds.y` is the top of the line box (not the baseline); `bounds.height`
+   * is the effective line height including any super/sub expansion.
+   */
+  bounds: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
 }
 
 export interface RenderResult {
