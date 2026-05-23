@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>render-tag/path — text on path demo</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Lobster&family=Merriweather:ital,wght@0,400;0,700&display=swap" rel="stylesheet">
+  <style>
+    body {
+      margin: 0;
+      padding: 24px;
+      background: #faf9f7;
+      color: #1a1a1a;
+      font-family: ui-sans-serif, system-ui, -apple-system, "Helvetica Neue", sans-serif;
+    }
+    h1 { margin: 0 0 24px 0; font-size: 24px; font-weight: 600; }
+    h2 { margin: 32px 0 8px 0; font-size: 14px; font-weight: 600; color: #555; text-transform: uppercase; letter-spacing: 0.04em; }
+    .row { display: flex; gap: 24px; flex-wrap: wrap; margin-bottom: 16px; }
+    .demo {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .demo-label {
+      font-size: 12px;
+      color: #777;
+    }
+    .demo-canvas {
+      background: white;
+      border: 1px solid #e5e3df;
+      border-radius: 6px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+    }
+    /* Side-by-side comparison: SVG ground truth + canvas render */
+    .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .compare > div { display: flex; flex-direction: column; gap: 6px; }
+    nav.nav { margin-bottom: 24px; }
+    nav.nav a { color: #1a1a1a; text-decoration: none; margin-right: 16px; }
+  </style>
+</head>
+<body>
+  <nav class="nav">
+    <a href="index.html">← render-tag</a>
+    <a href="compare.html">Compare</a>
+    <a href="benchmark.html">Benchmark</a>
+  </nav>
+
+  <h1>render-tag/path — text on path</h1>
+  <p style="max-width:780px;color:#444;line-height:1.5;">
+    Each demo below shows the same string laid out along an SVG path. Some demos
+    render an SVG version side-by-side as a visual ground truth. Use the path
+    overlay toggle to see the underlying curve.
+  </p>
+
+  <label style="display:inline-flex;align-items:center;gap:6px;margin:8px 16px 8px 0;">
+    <input id="showPath" type="checkbox" checked> show path overlay
+  </label>
+  <label style="display:inline-flex;align-items:center;gap:6px;margin:8px 0;">
+    textBaseline:
+    <select id="textBaseline">
+      <option value="alphabetic">alphabetic (default)</option>
+      <option value="middle">middle</option>
+      <option value="top">top</option>
+      <option value="bottom">bottom</option>
+      <option value="hanging">hanging</option>
+      <option value="ideographic">ideographic</option>
+    </select>
+  </label>
+
+  <div id="root"></div>
+
+  <script type="module" src="./path.ts"></script>
+</body>
+</html>

@@ -18,6 +18,7 @@ export default defineConfig({
         main: path.resolve(__dirname, 'index.html'),
         compare: path.resolve(__dirname, 'compare.html'),
         benchmark: path.resolve(__dirname, 'benchmark.html'),
+        path: path.resolve(__dirname, 'path.html'),
       },
     },
   },

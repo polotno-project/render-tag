@@ -188,6 +188,13 @@ export interface ResolvedStyle {
 
   // List
   listStyleType: string;
+
+  /**
+   * Multi-line ellipsis clamp — positive integer = clamp to N lines and
+   * append an ellipsis to the last visible line, 0 = no clamp.
+   * Recognized via `-webkit-line-clamp` and `line-clamp` (synonyms in spec).
+   */
+  lineClamp: number;
 }
 
 /** A node in our styled tree (no positions — layout computes those) */

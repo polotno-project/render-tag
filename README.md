@@ -1,14 +1,10 @@
 # render-tag
 
-Render HTML rich text onto canvas with the 2D API. No SVG, no `foreignObject` — just `fillText`, `measureText`, and drawing primitives.
+Render HTML rich text onto canvas with the 2D API. No SVG, no `foreignObject` — just `fillText`, `measureText`, and drawing primitives. Significantly faster than SVG-based approaches; synchronous; zero dependencies.
 
 **Website & demos:** [https://polotno.com/render-tag/](https://polotno.com/render-tag/)
 
-## Why
-
-When you need rich text as part of a canvas — design editors, image export, canvas-based apps — the standard SVG `foreignObject` approach is slow. `render-tag` parses your HTML, resolves styles with a built-in CSS parser, then lays out and draws everything with pure canvas 2D calls. It's significantly faster than SVG-based approaches.
-
-By design, render-tag focuses on **rich text only** — paragraphs, headings, lists, tables, inline formatting. It is not designed for interactive elements (buttons, inputs, iframes) or complex HTML layouts. This focus is what makes it fast.
+By design, render-tag focuses on **rich text only** — paragraphs, headings, lists, tables, inline formatting. Not interactive elements or arbitrary HTML layouts.
 
 ## Install
 
@@ -22,259 +18,131 @@ npm install render-tag
 import { render } from 'render-tag';
 
 const { canvas, height } = render({
-  html: '<p>Hello <strong>world</strong></p>',
+  html: `
+    <style>.title { font: 24px Georgia, serif; color: #1a1a1a; }</style>
+    <p class="title">Hello <strong>world</strong></p>
+  `,
   width: 400,
 });
 
 document.body.appendChild(canvas);
 ```
 
-### With CSS
-
-Include `<style>` tags in your HTML string:
-
-```typescript
-const { canvas } = render({
-  html: `
-    <style>
-      .title {
-        font-family: Georgia, serif;
-        font-size: 24px;
-        color: #1a1a1a;
-      }
-    </style>
-    <p class="title">Styled text</p>
-  `,
-  width: 600,
-});
-```
-
-### Font loading
-
-`render` is **synchronous** and does not load fonts. You must ensure fonts are loaded before calling it. If a font isn't loaded, the browser falls back to a default font and text metrics will be wrong.
-
-```typescript
-// Load fonts before rendering
-await document.fonts.load('400 16px "Roboto"');
-await document.fonts.load('700 16px "Roboto"');
-
-// Now render — fonts are guaranteed to be available
-const { canvas } = render({ html, width: 500 });
-
-// Re-render if fonts load later
-document.fonts.onloadingdone = () => {
-  render({ html, width: 500 });
-};
-```
-
-You do **not** need to pass `@font-face` rules separately. As long as fonts are loaded in the document (via `<link>`, `@font-face` in a stylesheet, or the CSS Font Loading API), `render` can use them.
-
-### High-DPI / Retina
-
-`pixelRatio` defaults to `devicePixelRatio`, so HiDPI displays are sharp out of the box. Override if needed:
-
-```typescript
-const { canvas } = render({ html, width: 600, pixelRatio: 1 });
-```
-
-### Render onto existing canvas
-
-```typescript
-const canvas = document.getElementById('my-canvas');
-render({ html, canvas, width: 800, height: 600 });
-```
-
-### Render onto existing context
-
-Draw directly onto a context you control (no canvas resizing or scaling):
-
-```typescript
-const ctx = myCanvas.getContext('2d');
-render({ html, ctx, width: 400 });
-```
-
-This is useful for compositing multiple renders onto one canvas or rendering onto an `OffscreenCanvas`.
+`render` is **synchronous** — load fonts before calling (e.g. `await document.fonts.load('400 16px "Roboto"')`). If a font isn't loaded yet, the browser falls back to a default and text metrics will be wrong. Re-render once fonts arrive.
 
 ## API
 
-### `render(config): RenderResult`
+```ts
+function render(config: RenderConfig): { canvas, height, layoutRoot, lines };
+function layout(config: LayoutConfig): { layoutRoot, height, lines };
+function drawLayout(config: DrawConfig): { canvas };
+```
 
-All-in-one: compute layout and draw in a single call.
+| Option | Default | Notes |
+|---|---|---|
+| `html` | *required* | HTML string (include `<style>` tags for CSS). |
+| `width` | *required* | Layout width in CSS pixels. |
+| `height` | auto | Fixed height; auto-sized from content if omitted. |
+| `canvas` | created | Existing target canvas (mutually exclusive with `ctx`). |
+| `ctx` | — | Existing 2D context — no canvas resizing or scaling. |
+| `pixelRatio` | `devicePixelRatio` | HiDPI scaling. |
+| `accuracy` | `'performance'` | `'balanced'` uses DOM probes for per-browser line-height accuracy; `'performance'` is pure canvas and consistent cross-browser. |
 
-| Option | Type | Default | Description |
-|---|---|---|---|
-| `html` | `string` | *required* | HTML string to render (include `<style>` tags for CSS) |
-| `width` | `number` | *required* | Layout width in CSS pixels |
-| `height` | `number` | auto | Fixed height (auto-sized from content if omitted) |
-| `ctx` | `CanvasRenderingContext2D` | — | Existing context to draw onto (no resizing/scaling) |
-| `canvas` | `HTMLCanvasElement \| OffscreenCanvas` | created | Target canvas element (mutually exclusive with `ctx`) |
-| `pixelRatio` | `number` | `devicePixelRatio` | Device pixel ratio for sharp rendering |
-| `accuracy` | `'balanced' \| 'performance'` | `'performance'` | `'balanced'` uses DOM probes for cross-browser line height accuracy. `'performance'` uses pure canvas API only. |
-
-Returns `{ canvas, height, layoutRoot, lines }`.
-
-The function is **synchronous**. Fonts must be loaded before calling.
-
-### `layout(config): LayoutResult`
-
-Compute layout without rendering. Use when you need to measure content or render the same layout onto multiple targets.
-
-| Option | Type | Default | Description |
-|---|---|---|---|
-| `html` | `string` | *required* | HTML string (include `<style>` tags for CSS) |
-| `width` | `number` | *required* | Layout width in CSS pixels |
-| `height` | `number` | auto | Fixed height (auto-sized from content if omitted) |
-| `accuracy` | `'balanced' \| 'performance'` | `'performance'` | Measurement accuracy mode |
-
-Returns `{ layoutRoot, height, lines }`.
+Use `layout()` + `drawLayout()` when you need to measure content, render the same layout onto multiple targets, or render onto an `OffscreenCanvas`.
 
 ### `LayoutLine`
 
-Each entry in the `lines` array on `LayoutResult` / `RenderResult`:
+Each entry in `result.lines`:
 
 ```ts
 interface LayoutLine {
   y: number;        // baseline y
-  text: string;     // concatenated text on the line
-  bounds: {         // line-box geometry (DOMRect-shaped)
-    x: number;      // leftmost x of content on the line
-    y: number;      // top of the line box
-    width: number;  // content width
-    height: number; // effective line height (incl. super/sub expansion)
-  };
+  text: string;
+  bounds: { x, y, width, height };  // DOMRect-shaped line box
 }
 ```
 
-`bounds` is a drop-in replacement for `Range.getClientRects()` per line — useful for drawing per-line backgrounds, hit-testing, or highlighting.
+`bounds` is a drop-in replacement for `Range.getClientRects()` per line — useful for per-line backgrounds, hit-testing, or highlighting.
 
-### `drawLayout(config): { canvas }`
+### Multi-line ellipsis (`-webkit-line-clamp`)
 
-Draw a pre-computed layout onto a canvas or context.
-
-| Option | Type | Default | Description |
-|---|---|---|---|
-| `layout` | `LayoutResult` | *required* | Result from `layout()` |
-| `width` | `number` | *required* | Width used during layout (must match) |
-| `ctx` | `CanvasRenderingContext2D` | — | Existing context to draw onto (no resizing/scaling) |
-| `canvas` | `HTMLCanvasElement \| OffscreenCanvas` | created | Target canvas (mutually exclusive with `ctx`) |
-| `pixelRatio` | `number` | `devicePixelRatio` | Device pixel ratio |
-
-### Example: layout once, draw many
-
-```typescript
-import { layout, drawLayout } from 'render-tag';
-
-const result = layout({ html, width: 400 });
-console.log('content height:', result.height);
-
-// Draw onto a thumbnail canvas
-drawLayout({ layout: result, width: 400, canvas: thumbnailCanvas });
-
-// Draw onto the main canvas
-drawLayout({ layout: result, width: 400, canvas: mainCanvas });
-
-// Draw onto an existing context
-drawLayout({ layout: result, width: 400, ctx: offscreenCtx });
+```css
+.caption { width: 240px; -webkit-line-clamp: 3; }
 ```
+
+Clips to N lines and appends an ellipsis to the Nth. `line-clamp` (unprefixed) is accepted as a synonym. `none` / `auto` / `0` mean "no clamp". Applies to the element that directly contains the wrapping text.
 
 ## Text on path: `render-tag/path`
 
-Draw rich text along an SVG path. Sibling module, separate entry point — won't pull in the layout/render pipeline if you only need curved text.
+Draw rich text along an SVG path. Separate subpath entry point.
 
 ```ts
 import { drawTextOnPath } from 'render-tag/path';
 
 drawTextOnPath({
-  html: '<span style="font-size:24px;font-family:sans-serif">Hello <b>world</b></span>',
+  html: '<span style="font:24px sans-serif">Hello <b>world</b></span>',
   path: 'M20,150 Q200,20 380,150',  // SVG `d` string, or a PathLike
   ctx,
-  align: 'center',  // 'left' | 'center' | 'right' | 'justify' (default 'left')
+  align: 'center',          // 'left' | 'center' | 'right' | 'justify' (default 'left')
+  textBaseline: 'middle',   // path = vertical center of text (default 'alphabetic')
 });
 ```
 
-The HTML/CSS dialect is the same as the main API — fonts, colors, weights, and CSS `direction: rtl` all work. The path is laid out as a single logical line (no wrapping). Glyphs that overflow the path's end are dropped.
+`textBaseline` controls where the path runs relative to the text:
+`'alphabetic'` (default) — path = baseline, descenders below.
+`'middle'` — path through the vertical center.
+`'top'` / `'bottom'` — text hangs below / above the path.
 
-Returns `{ glyphs, textWidth, pathLength }`. Each `GlyphPlacement` has `{ char, x, y, rotation, width, style }` — useful for hit-testing or building selection rectangles.
+Same HTML/CSS dialect as the main API: fonts, colors, weights, `direction: rtl`, `text-shadow`, `background-color`, `text-decoration`, gradient text via `background-clip: text`. Joining scripts (Arabic, Hebrew, Indic, Thai, Khmer, Myanmar) are shaped as runs so cursive joining works.
+
+The path lays out as a single logical line — glyphs that overflow the path's end are dropped.
+
+Returns `{ glyphs, textWidth, pathLength, lineHeight, bounds }`. Each `GlyphPlacement` has `{ char, x, y, rotation, width, style, ascent, descent, pathOffset, shaped }`.
+
+`bounds` is a `DOMRect`-shaped `{ x, y, width, height }` describing the visible area of the rendered curved text — the union of per-glyph cells. Use it to size a parent UI element without re-walking the glyphs. The library does not consume `bounds` internally; it's purely for consumers.
 
 ### Layout once, draw many
-
-The path module mirrors the main API's `layout()` / `drawLayout()` split:
 
 ```ts
 import { layoutTextOnPath, drawTextOnPathLayout } from 'render-tag/path';
 
 const result = layoutTextOnPath({ html, path, align: 'center' });
-// inspect result.glyphs — hit-test, measure, build selection rects, etc.
-
 drawTextOnPathLayout({ layout: result, ctx: canvas1.getContext('2d')! });
 drawTextOnPathLayout({ layout: result, ctx: canvas2.getContext('2d')! });
 ```
 
-`layoutTextOnPath` does not touch the canvas; it returns `{ glyphs, textWidth, pathLength }`. `drawTextOnPathLayout` paints a precomputed layout onto any 2D context. `drawTextOnPath` is just a convenience that chains both.
-
-Not yet supported in the path module: text-shadow, gradient/background-clip text, `text-decoration` lines (underline/line-through), mixed-script BiDi shaping.
+Not supported: full mixed-script BiDi shaping (pure-RTL via `direction: rtl` works).
 
 ## What it renders
 
-- Paragraphs, headings, divs, spans
-- Bold, italic, underline, strikethrough, overline
-- Text colors, background colors
-- Font families, sizes, weights (100-900)
-- Line height, letter spacing, text alignment (left/center/right/justify)
-- Ordered and unordered lists with nesting
-- Inline styles and CSS classes
-- Flexbox layout (row/column)
-- Table layout (basic)
-- Text shadows, text stroke, gradient text
-- Decoration styles: solid, dotted, dashed, double, wavy
-- RTL text, CJK characters, emoji
-- `pre-wrap` whitespace handling
-- `overflow-wrap: break-word`
-- Soft hyphens (`&shy;`)
+Paragraphs, headings, divs, spans · bold, italic, underline, strikethrough, overline · colors, background colors, text-shadow, text-stroke, gradient text · font families, sizes, weights (100–900) · line-height, letter-spacing, text-align (left/center/right/justify) · ordered/unordered lists with nesting · flexbox (row/column), basic tables · `-webkit-line-clamp` · `pre-wrap`, `overflow-wrap: break-word`, soft hyphens · RTL, CJK, emoji.
 
 ## Recommended CSS reset
 
-For best consistency between DOM and canvas rendering, add these CSS rules to your input HTML:
+For tighter DOM/canvas parity, drop these into your input HTML:
 
 ```css
-/* Normalize monospace font size.
-   Chrome reduces <code>/<pre> font-size via a UA quirk that canvas can't replicate.
-   This makes DOM and canvas render code at the same size. */
+/* Chrome shrinks <code>/<pre> font-size via a UA quirk; canvas can't replicate it. */
 code, pre, kbd, samp { font-size: inherit; }
 
-/* Suppress Firefox's ::marker extra line height (~1.5px per list item).
-   render-tag draws list markers itself, so this loses nothing visually. */
+/* Firefox's ::marker adds ~1.5px per <li>; render-tag draws markers itself. */
 li::marker { content: none; font-size: 0; line-height: 0; }
 
-/* Fix Firefox emoji position drift (apply to elements with emoji).
-   Firefox's canvas kerning differs from DOM kerning for emoji characters,
-   causing cumulative X position shift. Disabling kerning makes them match.
-   Note: this slightly affects letter pair spacing for regular text. */
+/* Firefox's canvas kerning drifts on emoji; disable it on emoji-bearing text. */
 .has-emoji { font-kerning: none; }
 ```
 
-The default `accuracy: 'performance'` uses pure canvas API measurements with no DOM touches, producing consistent canvas output across browsers. Use `accuracy: 'balanced'` if you need each browser's canvas output to match its own native DOM rendering more closely (at the cost of cross-browser canvas consistency).
-
-## Design decisions
-
-### Chrome-first rendering
-
-Chrome is the primary target browser. When a rendering choice must favor one browser over another, Chrome wins. All development and CI testing defaults to Chromium.
-
-### Cross-browser consistency over per-browser accuracy
-
-The library prioritizes producing **the same canvas output in every browser** over matching each browser's native DOM rendering pixel-for-pixel. If Chrome and Firefox render a `<p>` slightly differently in DOM, our canvas output should match Chrome's version in both browsers — not adapt to each browser's quirks.
-
-In other words: identical canvas output everywhere > perfect DOM fidelity per browser. Users expect the same visual result regardless of which browser their audience uses.
-
 ## How it works
 
-1. **Parse** HTML with `DOMParser`
-2. **Resolve styles** via built-in CSS resolver (selector matching, cascade, inheritance — no DOM insertion)
-3. **Layout** with canvas `measureText` (block flow, inline wrapping, margin collapsing)
-4. **Render** with canvas 2D API (`fillText`, `fillRect`, `strokeText`, etc.)
+1. Parse HTML with `DOMParser`.
+2. Resolve styles with a built-in CSS parser (selectors, specificity, cascade, inheritance — no DOM insertion).
+3. Lay out with canvas `measureText` (block flow, inline wrapping, margin collapsing).
+4. Render with the canvas 2D API (`fillText`, `fillRect`, `strokeText`, …).
 
-Style resolution uses a built-in CSS parser and resolver that handles selectors, specificity, cascade, and inheritance without inserting HTML into the document. Layout and rendering are done entirely with the canvas 2D API.
+### Design decisions
+
+- **Chrome-first.** When a rendering choice must favor one browser over another, Chrome wins.
+- **Cross-browser consistency over per-browser DOM fidelity.** Same canvas output in every browser, not pixel-matching each browser's quirks. Use `accuracy: 'balanced'` if you'd rather match each browser's own DOM rendering.
 
 ## License
 

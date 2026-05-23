@@ -6,7 +6,7 @@ import { paintOrderHasStrokeFirst } from './css-resolver.js';
  * Parse a CSS text-shadow string into individual shadow values.
  * Format: "2px 2px 4px rgba(0,0,0,0.3), ..."
  */
-function parseTextShadows(shadow: string): Array<{
+export function parseTextShadows(shadow: string): Array<{
   offsetX: number;
   offsetY: number;
   blur: number;
@@ -51,7 +51,7 @@ function hasBorder(style: ResolvedStyle, side: 'Top' | 'Right' | 'Bottom' | 'Lef
 /**
  * Draw a decoration line with the given style (solid, dotted, dashed, double, wavy).
  */
-function drawDecorationLine(
+export function drawDecorationLine(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
@@ -100,7 +100,7 @@ function drawDecorationLine(
 /**
  * Parse a CSS linear-gradient into canvas CanvasGradient.
  */
-function parseLinearGradient(
+export function parseLinearGradient(
   ctx: CanvasRenderingContext2D,
   bgImage: string,
   x: number,

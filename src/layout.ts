@@ -263,6 +263,96 @@ interface PositionedLine {
   endedByHardBreak?: boolean;
 }
 
+/** True for atomic inline-block words (boxOpen && boxClose && text together). */
+function isAtomicInlineBlock(w: Word): boolean {
+  return !!(w.boxOpen && w.boxClose && w.text);
+}
+
+/**
+ * Truncate a PositionedLine's trailing words and append "…" so the line
+ * fits within maxWidth. Used by `-webkit-line-clamp` to mark the visible
+ * cut-off on the Nth line.
+ *
+ * Trim strategy:
+ *  1. Pick the style of the last NON-empty, NON-atomic-inline-block word
+ *     — so the ellipsis font matches the surrounding text, not the button
+ *     or pill it was sitting next to.
+ *  2. Drop trailing isSpace words (genuine spaces only — box markers carry
+ *     padding/border that we must keep).
+ *  3. Back-trim: pop trailing non-space words until ellipsis fits. If we
+ *     end up with a single text word that STILL doesn't fit, pop it too —
+ *     the ellipsis stands alone rather than overflowing the container.
+ *     Box-open markers earlier on the line stay; they preserve inline-box
+ *     padding/border that the emit loop needs.
+ *  4. Inherit boxStyle from the trailing context so inline `<span>`
+ *     backgrounds/borders extend across the ellipsis.
+ */
+function applyEllipsisToLine(
+  ctx: CanvasRenderingContext2D,
+  line: PositionedLine,
+  maxWidth: number,
+): void {
+  // 1. Find the last word whose style should drive the ellipsis.
+  //    Skip empty-text markers AND atomic inline-blocks (their style is
+  //    the inline-block element's, not the surrounding text).
+  let styleIdx = line.words.length - 1;
+  while (
+    styleIdx >= 0 &&
+    (line.words[styleIdx].text === '' || isAtomicInlineBlock(line.words[styleIdx]))
+  ) styleIdx--;
+  if (styleIdx < 0) return;
+  const lastStyle = line.words[styleIdx].style;
+  const boxStyle = line.words[styleIdx].boxStyle;
+  applyFont(ctx, lastStyle);
+  // ALWAYS assign (don't gate on truthy) — otherwise a previous segment's
+  // non-zero letter-spacing leaks into the ellipsis measurement.
+  ctx.letterSpacing = `${lastStyle.letterSpacing || 0}px` as any;
+  const ellipsisWidth = cachedMeasureWidth(ctx, '…');
+
+  // Helper: pop trailing isSpace words. Box markers (text === '' with
+  // boxOpen/boxClose) are NOT popped — they carry inline-box padding the
+  // emit loop relies on.
+  const popTrailingSpaces = () => {
+    while (
+      line.words.length > 0 &&
+      line.words[line.words.length - 1].isSpace
+    ) {
+      const r = line.words.pop()!;
+      line.totalWidth -= r.width;
+    }
+  };
+
+  // 2. Strip purely trailing whitespace.
+  popTrailingSpaces();
+
+  // 3. Back-trim non-space text words until the ellipsis fits.
+  //    Atomic inline-blocks are non-space too; they pop along with words.
+  const isTrimmableText = (w: Word) =>
+    !w.isSpace && w.text !== '' && !w.boxOpen && !w.boxClose;
+  while (
+    line.totalWidth + ellipsisWidth > maxWidth &&
+    line.words.length > 0
+  ) {
+    const last = line.words[line.words.length - 1];
+    if (!isTrimmableText(last) && !isAtomicInlineBlock(last)) break;
+    line.totalWidth -= last.width;
+    line.words.pop();
+    popTrailingSpaces();
+  }
+
+  // 4. Append the ellipsis. Inherit boxStyle so inline-span backgrounds /
+  //    borders extend over the ellipsis.
+  const ellipsisWord: Word = {
+    text: '…',
+    width: ellipsisWidth,
+    style: lastStyle,
+    isSpace: false,
+    boxStyle,
+  };
+  line.words.push(ellipsisWord);
+  line.totalWidth += ellipsisWidth;
+}
+
 // ─── Inline layout ─────────────────────────────────────────────────────
 
 /**
@@ -928,6 +1018,22 @@ function layoutInlineContent(
   const words = tokenizeRuns(ctx, runs);
   const textIndent = node.style.textIndent || 0;
   const lines = flowWordsIntoLines(ctx, words, contentWidth, node.style.whiteSpace, useBulletProbe, textIndent);
+
+  // `-webkit-line-clamp` / `line-clamp`: truncate to N lines and append a
+  // CSS-style ellipsis ("…") to the Nth line, back-trimming trailing words
+  // until the ellipsis fits within contentWidth.
+  const clampN = node.style.lineClamp;
+  if (clampN > 0 && lines.length > clampN) {
+    lines.length = clampN;
+    const lastLine = lines[clampN - 1];
+    // First line has reduced width because of text-indent; clamp at N=1 hits it.
+    const lineMaxForEllipsis = contentWidth - (clampN === 1 ? textIndent : 0);
+    applyEllipsisToLine(ctx, lastLine, lineMaxForEllipsis);
+    // Tag the truncated line so per-line alignment (text-align vs
+    // text-align-last) still picks the right branch.
+    lastLine.endedByHardBreak = true;
+  }
+
   const isRTL = node.style.direction === 'rtl';
   const resolveDir = (a: string) => {
     if (a === 'start') return isRTL ? 'right' : 'left';

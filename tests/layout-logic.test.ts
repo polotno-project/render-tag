@@ -71,6 +71,7 @@ function defaultStyle(overrides: Partial<ResolvedStyle> = {}): ResolvedStyle {
     gap: 0,
     flexGrow: 0,
     listStyleType: 'disc',
+    lineClamp: 0,
     ...overrides,
   };
 }
@@ -855,6 +856,151 @@ describe('Layout logic (mocked measureText)', () => {
       for (const line of lines) {
         expect(line.length).toBeLessThanOrEqual(3);
       }
+    });
+  });
+
+  // ─── line-clamp ────────────────────────────────────────────────────
+
+  describe('-webkit-line-clamp', () => {
+    // Mock: each char is 10px wide. Default fontSize=16 / lineHeight=20.
+    // For ellipsis "…" measureText returns 1 * 10 = 10px (one grapheme).
+
+    it('no clamp leaves content untouched', () => {
+      // 200px container, 3 wraps; clamp=0 (default).
+      const tree = block('div', [
+        block('p', [textNode('aaaaaaaaa bbbbbbbbb ccccccccc ddddddddd')]),
+      ]);
+      const root = doLayout(tree, 100);
+      const lines = getLines(root);
+      // 4 words × 9 chars = each 90px; one per line at 100px width → 4 lines.
+      // No ellipsis anywhere.
+      expect(lines.length).toBe(4);
+      expect(lines.join('')).not.toContain('…');
+    });
+
+    it('content shorter than clamp: no ellipsis', () => {
+      const tree = block('div', [
+        block('p', [textNode('aaaaa bbbbb')], { lineClamp: 5 }),
+      ]);
+      const root = doLayout(tree, 1000);
+      const lines = getLines(root);
+      expect(lines.length).toBe(1);
+      expect(lines[0]).not.toContain('…');
+    });
+
+    it('clamp=2: drops lines past 2, appends ellipsis on line 2', () => {
+      // 4 single-word lines, each 9 chars wide on a 100px container.
+      const tree = block('div', [
+        block('p', [textNode('aaaaaaaaa bbbbbbbbb ccccccccc ddddddddd')], { lineClamp: 2 }),
+      ]);
+      const root = doLayout(tree, 100);
+      const lines = getLines(root);
+      expect(lines.length).toBe(2);
+      // Line 2 ends with ellipsis (after trimming "bbbbbbbbb" to fit).
+      expect(lines[1].endsWith('…')).toBe(true);
+    });
+
+    it('back-trims trailing words until ellipsis fits', () => {
+      // 200px wide container; "aaaaa bbbbb ccccc ddddd" = three lines fitting
+      // "aaaaa bbbbb" (11 chars + space = 12) twice... let's pick a concrete case.
+      // Container 60px: "aaaa bbbb" = 9 chars=90px > 60, so first wraps.
+      // Actually let's just verify ellipsis added and last char isn't a space.
+      const tree = block('div', [
+        block('p', [textNode('one two three four five six')], { lineClamp: 1 }),
+      ]);
+      const root = doLayout(tree, 50); // very narrow
+      const lines = getLines(root);
+      expect(lines.length).toBe(1);
+      expect(lines[0].endsWith('…')).toBe(true);
+      // Verify the ellipsis is preceded by a non-space character.
+      const beforeEllipsis = lines[0].slice(0, -1);
+      expect(beforeEllipsis).not.toMatch(/\s$/);
+    });
+
+    it('clamp=1 on already-fitting single line: no ellipsis', () => {
+      const tree = block('div', [
+        block('p', [textNode('short')], { lineClamp: 1 }),
+      ]);
+      const root = doLayout(tree, 1000);
+      const lines = getLines(root);
+      expect(lines.length).toBe(1);
+      expect(lines[0]).not.toContain('…');
+    });
+
+    it('clamp keeps emitted line count == clampN even if content has 10 lines', () => {
+      // 10 short words on a narrow container → 10 lines naturally.
+      const tree = block('div', [
+        block('p', [textNode('a b c d e f g h i j')], { lineClamp: 3 }),
+      ]);
+      const root = doLayout(tree, 15); // each 'a' (10px) + space barely fits
+      const lines = getLines(root);
+      expect(lines.length).toBe(3);
+      expect(lines[2]).toContain('…');
+    });
+
+    it('preserves earlier lines verbatim — only the Nth gets ellipsized', () => {
+      const tree = block('div', [
+        block('p', [textNode('first second third fourth')], { lineClamp: 2 }),
+      ]);
+      // 100px width: "first" (50) + " " (10) + "second" (60) overflows;
+      // so line 0 = "first", line 1 = "second", line 2 = "third", line 3 = "fourth".
+      const root = doLayout(tree, 80);
+      const lines = getLines(root);
+      expect(lines.length).toBe(2);
+      expect(lines[0]).toBe('first');
+      expect(lines[1]).toContain('…');
+      // Earlier lines are untouched.
+      expect(lines[0]).not.toContain('…');
+    });
+
+    // ─── Regression: single-word that doesn't fit + ellipsis ─────────
+
+    it('single word wider than line drops the word — ellipsis renders alone', () => {
+      // Two long words. Container is narrow enough that NEITHER word fits
+      // alongside the ellipsis. After clamp=1 keeps line 0 ("verylongword"),
+      // back-trim must pop the word (since with ellipsis it still doesn't
+      // fit) and the line ends with just '…'.
+      const tree = block('div', [
+        block('p', [textNode('verylongword anotherword')], { lineClamp: 1 }),
+      ]);
+      // 60px container, "verylongword" = 120px → forces a wrap.
+      // Without the fix, the single-word line would have totalWidth=130
+      // (>60); with the fix, the word is popped → '…' alone (10px).
+      const root = doLayout(tree, 60);
+      const lines = getLines(root);
+      expect(lines.length).toBe(1);
+      expect(lines[0]).toBe('…');
+    });
+
+    // ─── Regression: boxClose markers preserved across trim ──────────
+
+    it('does not pop boxOpen/boxClose markers during back-trim', () => {
+      // An inline span with horizontal padding/border emits boxOpen and
+      // boxClose markers with empty text. After clamp+trim those markers
+      // must still be present so the inline-box renders with its padding.
+      // We can't easily inspect markers from the public layout API, but
+      // we CAN verify the clamp produces visually-correct output (no crash,
+      // ellipsis exists).
+      const tree = block('div', [
+        block(
+          'p',
+          [
+            textNode('aaaa '),
+            inline('span', [textNode('bbbb')], {
+              backgroundColor: 'yellow',
+              paddingLeft: 4,
+              paddingRight: 4,
+              display: 'inline',
+            }),
+            textNode(' cccc'),
+          ],
+          { lineClamp: 1 },
+        ),
+      ]);
+      const root = doLayout(tree, 100);
+      const lines = getLines(root);
+      expect(lines.length).toBe(1);
+      expect(lines[0]).toContain('…');
     });
   });
 });

@@ -364,6 +364,7 @@ function defaultStyle(): ResolvedStyle {
     gap: 0,
     flexGrow: 0,
     listStyleType: 'disc',
+    lineClamp: 0,
   };
 }
 
@@ -659,6 +660,20 @@ function applyDeclaration(
           style.lineHeight = num * fontSize;
           (style as any)._lineHeightMultiplier = num;
         }
+      }
+      break;
+    }
+    case '-webkit-line-clamp':
+    case 'line-clamp': {
+      // Spec accepts `none` / `auto` / positive integer. We map both
+      // `none` and `auto` to 0 (no clamp); a non-positive integer also
+      // means no clamp. Otherwise store the integer.
+      const v = value.trim().toLowerCase();
+      if (v === 'none' || v === 'auto') {
+        style.lineClamp = 0;
+      } else {
+        const n = parseInt(v, 10);
+        style.lineClamp = Number.isFinite(n) && n > 0 ? n : 0;
       }
       break;
     }

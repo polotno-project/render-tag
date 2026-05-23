@@ -2,10 +2,16 @@
  * Pure layout: walks styled segments and lays each grapheme along a path.
  * No canvas rendering happens here — that's the caller's job. Reusable
  * for hit-testing, debugging, alternate renderers (SVG, GPU).
+ *
+ * Joining-script support: graphemes from Arabic, Hebrew, Indic, Thai, Khmer,
+ * Myanmar and related scripts within a single segment are grouped into one
+ * "shaped run" placement. The browser's fillText/measureText then shapes the
+ * run as a unit (cursive joining, reordering, conjuncts) — something
+ * per-grapheme drawing cannot do.
  */
 
 import type { ResolvedStyle, StyledNode } from '../types.js';
-import { applyFont } from '../layout.js';
+import { applyFont, getFontMetrics } from '../layout.js';
 import { stringToArray } from './grapheme.js';
 import type { PathLike, Point } from './svg-path.js';
 
@@ -17,26 +23,50 @@ export interface Segment {
 }
 
 export interface GlyphPlacement {
-  /** Single grapheme cluster. */
+  /**
+   * Renderable text unit — usually a single grapheme cluster, but joining
+   * scripts (Arabic, Indic, Thai, Khmer, Myanmar, …) emit multi-grapheme runs
+   * here so the browser can shape them correctly during fillText.
+   */
   char: string;
-  /** Origin of the glyph on the path (where to translate to before fillText). */
+  /** Origin of the glyph on the path (translate target before fillText). */
   x: number;
   y: number;
   /** Tangent angle at the glyph origin, in radians. */
   rotation: number;
-  /** Advance width of the glyph (without letterSpacing). */
+  /** Advance width of the glyph or shaped run. */
   width: number;
   /** Resolved style to apply when drawing this glyph. */
   style: ResolvedStyle;
+  /** Font ascent above the baseline (px) — used for visual extent. */
+  ascent: number;
+  /** Font descent below the baseline (px). */
+  descent: number;
+  /** Distance from the start of the text along the path (px). */
+  pathOffset: number;
+  /** True when this placement is a shaped run, not a single grapheme. */
+  shaped: boolean;
 }
 
 export type AlignMode = 'left' | 'center' | 'right' | 'justify';
+
+/**
+ * Where the path runs relative to the rendered text.
+ *  - `alphabetic` (default) — path = text baseline; descenders drop below.
+ *  - `middle` — path runs through the vertical center of the text.
+ *  - `top` — path runs along the top of the text.
+ *  - `bottom` — path runs along the bottom (including descenders).
+ *  - `hanging` / `ideographic` — approximations of the matching CSS values.
+ */
+export type TextBaseline =
+  | 'alphabetic' | 'middle' | 'top' | 'bottom' | 'hanging' | 'ideographic';
 
 export interface LayoutInput {
   segments: Segment[];
   path: PathLike;
   ctx: CanvasRenderingContext2D;
   align: AlignMode;
+  textBaseline: TextBaseline;
 }
 
 export interface LayoutOutput {
@@ -50,6 +80,42 @@ export interface LayoutOutput {
    * when drawing a background polygon around curved text.
    */
   lineHeight: number;
+  /**
+   * Visible bounding box of the rendered text in the layout's coordinate
+   * system. Computed as the union of each glyph's cell, where the cell is
+   * width × per-glyph line-height (CSS line-height in px when set, else
+   * font size) and rotated by the glyph's tangent. lineHeight is
+   * distributed above/below the baseline by the font's ascent/descent
+   * ratio. Per-glyph (not max-across) so mixed-size curve text doesn't
+   * inflate.
+   *
+   * Consumers (e.g. Polotno) use this to keep an element's width/height in
+   * sync with the rendered model. The library does not consume `bounds`
+   * itself — it's purely exposed for callers.
+   */
+  bounds: { x: number; y: number; width: number; height: number };
+  /** The textBaseline mode used for this layout (echoes the input). */
+  textBaseline: TextBaseline;
+}
+
+/**
+ * Returns the local-y of the alphabetic baseline given a textBaseline
+ * choice and a glyph's ascent/descent. All baseline-relative computations
+ * (decoration positions, background polygons, bounds cells) ADD this offset
+ * to their local-y so the path line through (0,0) corresponds to the
+ * requested baseline anchor.
+ */
+export function baselineLocalY(
+  tb: TextBaseline, ascent: number, descent: number,
+): number {
+  switch (tb) {
+    case 'alphabetic':  return 0;
+    case 'middle':      return (ascent - descent) / 2;
+    case 'top':         return ascent;
+    case 'bottom':      return -descent;
+    case 'hanging':     return ascent * 0.8;
+    case 'ideographic': return -descent * 0.5;
+  }
 }
 
 /**
@@ -71,36 +137,154 @@ export function flattenSegments(root: StyledNode): Segment[] {
   return out;
 }
 
+// Unicode ranges where graphemes need shape-aware rendering. The browser's
+// fillText handles these correctly only when given the whole run at once,
+// not one grapheme at a time:
+//  - Hebrew (no joining, but RTL+BiDi)
+//  - Arabic + presentation forms (cursive joining)
+//  - N'Ko, Mandaic, Syriac, Thaana (joining/RTL)
+//  - Devanagari, Bengali, Gurmukhi, Gujarati, Oriya, Tamil, Telugu, Kannada,
+//    Malayalam, Sinhala (Indic reordering + conjuncts)
+//  - Thai, Lao (combining marks + word break)
+//  - Tibetan (stacking)
+//  - Myanmar (reordering + stacking)
+//  - Khmer (reordering + subscript consonants)
+// IMPORTANT: written with `\u` escapes only. Mixing literal RTL characters
+// confuses the regex parser at parse time — e.g. the precomposed `יִ` is
+// actually two code points (U+05D9 + U+05B4) and a literal range starting
+// at the second code point engulfs CJK / Hangul / Hiragana / Katakana,
+// causing `needsShaping('中')` to return true.
+const SHAPING_RE = new RegExp(
+  '[' +
+    '\\u0590-\\u05FF' +            // Hebrew
+    '\\u0600-\\u06FF' +            // Arabic
+    '\\u0700-\\u074F' +            // Syriac
+    '\\u0750-\\u077F' +            // Arabic Supplement
+    '\\u0780-\\u07BF' +            // Thaana
+    '\\u07C0-\\u07FF' +            // NKo
+    '\\u0800-\\u083F' +            // Samaritan
+    '\\u0840-\\u085F' +            // Mandaic
+    '\\u0860-\\u086F' +            // Syriac Supplement
+    '\\u08A0-\\u08FF' +            // Arabic Extended-A
+    '\\u0900-\\u097F' +            // Devanagari
+    '\\u0980-\\u09FF' +            // Bengali
+    '\\u0A00-\\u0A7F' +            // Gurmukhi
+    '\\u0A80-\\u0AFF' +            // Gujarati
+    '\\u0B00-\\u0B7F' +            // Oriya
+    '\\u0B80-\\u0BFF' +            // Tamil
+    '\\u0C00-\\u0C7F' +            // Telugu
+    '\\u0C80-\\u0CFF' +            // Kannada
+    '\\u0D00-\\u0D7F' +            // Malayalam
+    '\\u0D80-\\u0DFF' +            // Sinhala
+    '\\u0E00-\\u0E7F' +            // Thai
+    '\\u0E80-\\u0EFF' +            // Lao
+    '\\u0F00-\\u0FFF' +            // Tibetan
+    '\\u1000-\\u109F' +            // Myanmar
+    '\\u1780-\\u17FF' +            // Khmer
+    '\\u1800-\\u18AF' +            // Mongolian
+    '\\uFB1D-\\uFB4F' +            // Hebrew Presentation Forms
+    '\\uFB50-\\uFDFF' +            // Arabic Presentation Forms-A
+    '\\uFE70-\\uFEFF' +            // Arabic Presentation Forms-B
+  ']'
+);
+
+function needsShaping(s: string): boolean {
+  return SHAPING_RE.test(s);
+}
+
 interface PreGlyph {
-  char: string;
+  /** Renderable text — one grapheme or one shaped run. */
+  text: string;
+  /** Advance width as measured by ctx.measureText AFTER applying the style. */
   width: number;
   style: ResolvedStyle;
-  /** True for space characters — relevant for justify expansion. */
+  /** True when this is purely an ASCII U+0020 space (justify-eligible). */
   isSpace: boolean;
+  ascent: number;
+  descent: number;
+  shaped: boolean;
+}
+
+/**
+ * Split a single styled segment into PreGlyphs.
+ *
+ * Non-joining graphemes (Latin, CJK, …) emit one PreGlyph per grapheme so the
+ * curve can drive per-glyph rotation. Joining-script graphemes are grouped
+ * into runs (split at whitespace + style boundaries) so the browser can shape
+ * them correctly when we later call fillText on the run as a whole.
+ *
+ * For RTL segments, the RUN ORDER is reversed (not the graphemes inside a
+ * shaped run) — that way Arabic words still shape correctly while flowing in
+ * visual right-to-left order along an LTR path walk.
+ */
+function preGlyphsForSegment(
+  ctx: CanvasRenderingContext2D,
+  seg: Segment,
+): PreGlyph[] {
+  const graphemes = stringToArray(seg.text);
+  if (graphemes.length === 0) return [];
+
+  applyFont(ctx, seg.style);
+  // Always assign — when the current segment's letterSpacing is 0/unset,
+  // we still need to reset the previous segment's value.
+  ctx.letterSpacing = `${seg.style.letterSpacing || 0}px` as any;
+  const { ascent, descent } = getFontMetrics(ctx, seg.style);
+
+  // Group graphemes into (shaped run | single non-shaped grapheme).
+  // Boundaries: shape-status change, ASCII whitespace.
+  const runs: { text: string; shaped: boolean; isSpace: boolean }[] = [];
+  let currentShapedRun = '';
+  for (const g of graphemes) {
+    const isSpace = g === ' ';
+    if (needsShaping(g) && !isSpace) {
+      currentShapedRun += g;
+    } else {
+      if (currentShapedRun) {
+        runs.push({ text: currentShapedRun, shaped: true, isSpace: false });
+        currentShapedRun = '';
+      }
+      runs.push({ text: g, shaped: false, isSpace });
+    }
+  }
+  if (currentShapedRun) {
+    runs.push({ text: currentShapedRun, shaped: true, isSpace: false });
+  }
+
+  // RTL: reverse run order. Don't reverse graphemes inside a shaped run —
+  // the browser will lay them out right-to-left during fillText.
+  if (seg.rtl) runs.reverse();
+
+  // Measure each run with the current ctx font/letterSpacing.
+  const out: PreGlyph[] = [];
+  for (const r of runs) {
+    const width = ctx.measureText(r.text).width;
+    out.push({
+      text: r.text,
+      width,
+      style: seg.style,
+      isSpace: r.isSpace,
+      ascent,
+      descent,
+      shaped: r.shaped,
+    });
+  }
+  return out;
 }
 
 /**
  * Lay out graphemes along a path. Pure: does not call ctx.fillText.
  *
  * Algorithm:
- *  1. Per segment, split into graphemes and measure each via ctx.measureText.
- *     RTL segments have their grapheme order reversed before walking the path
- *     (so a left-to-right path walk produces correct visual order).
+ *  1. Per segment, split into graphemes and shaped runs, measure each.
  *  2. Compute total natural width.
  *  3. Pick a starting offset along the path based on `align`.
- *  4. For each grapheme:
- *       p0 = path.getPointAtLength(offset)
- *       p1 = path.getPointAtLength(offset + width)
- *       rotation = atan2(p1.y - p0.y, p1.x - p0.x)
- *     A trailing kerning slack (sum-of-glyph-widths > whole-string width)
- *     can push the last glyph 1–2px past pathLength; clamp the end point
- *     to pathLength in that narrow case to avoid dropping the last glyph.
- *  5. If a glyph would extend past the path entirely, stop emitting.
+ *  4. For each placement: get p0 / p1 from the path, rotation = atan2(p1-p0).
+ *     If a placement would overshoot, only allow it within kerning slack.
  */
 export function layoutGlyphsOnPath(input: LayoutInput): LayoutOutput {
-  const { segments, path, ctx, align } = input;
+  const { segments, path, ctx, align, textBaseline } = input;
 
-  // 1. Pre-measure all graphemes, segment-by-segment.
+  // 1. Pre-measure all placements (one per grapheme or shaped run).
   // Caller's ctx state is mutated here (font, fontKerning, letterSpacing).
   // The outer drawTextOnPath/drawTextOnPathLayout calls ctx.save before this
   // and ctx.restore after, so the leak doesn't reach the caller.
@@ -109,35 +293,16 @@ export function layoutGlyphsOnPath(input: LayoutInput): LayoutOutput {
   let maxLineHeight = 0;
   for (const seg of segments) {
     if (!seg.text) continue;
-    const graphemes = stringToArray(seg.text);
-    if (graphemes.length === 0) continue;
-    if (seg.rtl) graphemes.reverse();
-    applyFont(ctx, seg.style);
-    // Always assign — when the current segment's letterSpacing is 0/unset,
-    // we still need to reset the previous segment's value.
-    ctx.letterSpacing = `${seg.style.letterSpacing || 0}px` as any;
-    // Track ribbon thickness: CSS line-height in px when set, else font size.
     const lh = seg.style.lineHeight > 0 ? seg.style.lineHeight : seg.style.fontSize;
     if (lh > maxLineHeight) maxLineHeight = lh;
-    // Per-glyph width via measureText (browsers honor letterSpacing here).
-    for (const g of graphemes) {
-      const m = ctx.measureText(g);
-      preGlyphs.push({
-        char: g,
-        width: m.width,
-        style: seg.style,
-        // Only ASCII space (U+0020) is justify-eligible. \n/\t/&nbsp; and
-        // other Unicode whitespace must NOT expand — that would break
-        // no-break-space contract and treat <br>-synthesized newlines as
-        // expansible spaces.
-        isSpace: g === ' ',
-      });
-    }
+    const segGlyphs = preGlyphsForSegment(ctx, seg);
+    if (segGlyphs.length === 0) continue;
+    preGlyphs.push(...segGlyphs);
     // Whole-segment width — kerning makes this < sum of per-glyph widths.
     measuredWholeWidth += ctx.measureText(seg.text).width;
   }
 
-  // 2. Sum natural width (sum of glyph widths + letterSpacing per glyph).
+  // 2. Sum natural width (sum of placement widths + letterSpacing per item).
   let textWidth = 0;
   for (const g of preGlyphs) {
     textWidth += g.width + (g.style.letterSpacing || 0);
@@ -168,8 +333,16 @@ export function layoutGlyphsOnPath(input: LayoutInput): LayoutOutput {
   }
 
   // 4. Walk the path.
+  // We track two cumulative offsets:
+  //  - `offset` is the path arc-length (used for path.getPointAtLength), and
+  //    advances by `effectiveWidth` (incl. justify extraPerSpace).
+  //  - `naturalOffset` is the glyph's position in NATURAL text-space
+  //    [0, textWidth]. Used as `pathOffset` for gradient slicing — must NOT
+  //    include extraPerSpace, otherwise late justified glyphs map past the
+  //    gradient's last stop.
   const glyphs: GlyphPlacement[] = [];
   let offset = startOffset;
+  let naturalOffset = 0;
   for (let i = 0; i < preGlyphs.length; i++) {
     const g = preGlyphs[i];
     const effectiveWidth = g.width + (g.isSpace ? extraPerSpace : 0);
@@ -180,7 +353,7 @@ export function layoutGlyphsOnPath(input: LayoutInput): LayoutOutput {
     let p1: Point | null;
     if (endLen > pathLength) {
       // Clamp to pathLength only if the overshoot is within the kerning slack —
-      // matches konva's behavior to keep the last glyph from getting dropped.
+      // keeps the last glyph from getting dropped to a sub-px rounding miss.
       if (endLen - pathLength <= kerningSlack + 0.5) {
         p1 = path.getPointAtLength(pathLength);
       } else {
@@ -193,16 +366,82 @@ export function layoutGlyphsOnPath(input: LayoutInput): LayoutOutput {
 
     const rotation = Math.atan2(p1.y - p0.y, p1.x - p0.x);
     glyphs.push({
-      char: g.char,
+      char: g.text,
       x: p0.x,
       y: p0.y,
       rotation,
       width: g.width,
       style: g.style,
+      ascent: g.ascent,
+      descent: g.descent,
+      pathOffset: naturalOffset,
+      shaped: g.shaped,
     });
 
     offset = endLen + (g.style.letterSpacing || 0);
+    naturalOffset += g.width + (g.style.letterSpacing || 0);
   }
 
-  return { glyphs, textWidth, pathLength, lineHeight: maxLineHeight };
+  const bounds = computeBounds(glyphs, textBaseline);
+  return {
+    glyphs,
+    textWidth,
+    pathLength,
+    lineHeight: maxLineHeight,
+    bounds,
+    textBaseline,
+  };
+}
+
+/**
+ * Bounding box of the rendered text: union of each glyph's
+ * `width × per-glyph line-height` cell, rotated by the glyph's tangent.
+ *
+ * The cell height is the per-glyph line-height (CSS line-height when set,
+ * else font-size — Polotno's chosen metric). It is distributed
+ * ASYMMETRICALLY above/below the baseline using the font's natural
+ * ascent/descent ratio, so cap-height + ascender area is covered and the
+ * cell doesn't waste pixels below an empty descender. For a typical font
+ * with ascent ~25 / descent ~7 / lineHeight 32, the cell extends ~25px
+ * above and ~7px below the baseline, matching the painted glyph extent.
+ *
+ * Empty layouts return `{ x: 0, y: 0, width: 0, height: 0 }`.
+ */
+function computeBounds(
+  glyphs: GlyphPlacement[],
+  textBaseline: TextBaseline,
+): { x: number; y: number; width: number; height: number } {
+  if (glyphs.length === 0) return { x: 0, y: 0, width: 0, height: 0 };
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const g of glyphs) {
+    const lh = g.style.lineHeight > 0 ? g.style.lineHeight : g.style.fontSize;
+    // Distribute the lineHeight above/below the baseline by the font's
+    // natural ascent/descent ratio (CSS line-box half-leading semantics).
+    const fontHeight = g.ascent + g.descent;
+    const ascentShare = fontHeight > 0 ? g.ascent / fontHeight : 0.75;
+    const topFromBaseline = lh * ascentShare;        // above baseline
+    const bottomFromBaseline = lh * (1 - ascentShare); // below baseline
+    // Shift by the local-y of the baseline so the cell stays correct under
+    // any textBaseline (e.g. 'middle' places the cell vertically centred
+    // on the path; 'top' moves the entire cell down).
+    const baseY = baselineLocalY(textBaseline, g.ascent, g.descent);
+    const top = baseY - topFromBaseline;
+    const bottom = baseY + bottomFromBaseline;
+    const c = Math.cos(g.rotation);
+    const s = Math.sin(g.rotation);
+    // Local cell: x in [0, width], y in [top, bottom]. Rotate + translate.
+    const corners = [
+      { x: g.x + (-s) * top, y: g.y + c * top },
+      { x: g.x + c * g.width + (-s) * top, y: g.y + s * g.width + c * top },
+      { x: g.x + c * g.width + (-s) * bottom, y: g.y + s * g.width + c * bottom },
+      { x: g.x + (-s) * bottom, y: g.y + c * bottom },
+    ];
+    for (const p of corners) {
+      if (p.x < minX) minX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y > maxY) maxY = p.y;
+    }
+  }
+  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
 }
