@@ -1081,9 +1081,18 @@ function layoutInlineContent(
       }
     }
 
-    // text-align (with first-line indent baked into curX)
+    // text-align (with first-line indent baked into curX).
+    // When the line overflows its container, browsers fall back to start
+    // alignment (per CSS Text 3 §7.1) instead of pushing the line outside
+    // the box. Common trigger: wide letter-spacing on text that doesn't
+    // wrap at letter boundaries (no break-word/break-all), where centering
+    // would put glyphs at negative x. Sub-pixel tolerance avoids switching
+    // to start for rounding noise on lines that visually fit.
+    const overflows = line.totalWidth > lineMaxWidth + 0.5;
     let curX = x + indent;
-    if (align === 'center') {
+    if (overflows) {
+      curX = isRTL ? x + indent + lineMaxWidth - line.totalWidth : x + indent;
+    } else if (align === 'center') {
       curX = x + indent + (lineMaxWidth - line.totalWidth) / 2;
     } else if (align === 'right' || (align !== 'justify' && isRTL)) {
       curX = x + indent + lineMaxWidth - line.totalWidth;
