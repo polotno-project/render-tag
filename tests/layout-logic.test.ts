@@ -42,6 +42,7 @@ function defaultStyle(overrides: Partial<ResolvedStyle> = {}): ResolvedStyle {
     whiteSpace: 'normal',
     wordBreak: 'normal',
     overflowWrap: 'normal',
+    unicodeBidi: 'normal',
     direction: 'ltr',
     display: 'block',
     width: 0,
@@ -130,7 +131,10 @@ function mockCtx(): CanvasRenderingContext2D {
     textAlign: 'start' as CanvasTextAlign,
     textBaseline: 'alphabetic' as CanvasTextBaseline,
     measureText(text: string) {
-      const width = text.length * CHAR_WIDTH;
+      // Mirror Chrome canvas: letter-spacing adds after every character
+      // (trailing included). Lets tests exercise letter-spacing-aware paths.
+      const ls = parseFloat((ctx as any).letterSpacing) || 0;
+      const width = text.length * CHAR_WIDTH + text.length * ls;
       return {
         width,
         actualBoundingBoxAscent: 12,
@@ -414,6 +418,25 @@ describe('Layout logic (mocked measureText)', () => {
       const allText = texts.map(t => t.text).join('');
       expect(allText).toContain('Hello');
       expect(allText).toContain('World');
+    });
+
+    it('capitalize does not break on a mid-word apostrophe', () => {
+      // UAX#29: "o'clock" is one word → "O'clock", not "O'Clock".
+      const tree = block('div', [
+        block('p', [textNode("o'clock don't", { textTransform: 'capitalize' })]),
+      ]);
+      const allText = collectTexts(doLayout(tree, 300)).map(t => t.text).join('');
+      expect(allText).toContain("O'clock");
+      expect(allText).toContain("Don't");
+    });
+
+    it('capitalize still breaks on hyphen and punctuation', () => {
+      const tree = block('div', [
+        block('p', [textNode('test-case (paren)', { textTransform: 'capitalize' })]),
+      ]);
+      const allText = collectTexts(doLayout(tree, 300)).map(t => t.text).join('');
+      expect(allText).toContain('Test-Case');
+      expect(allText).toContain('(Paren)');
     });
   });
 
@@ -820,6 +843,103 @@ describe('Layout logic (mocked measureText)', () => {
     });
   });
 
+  // ─── RTL text alignment ──────────────────────────────────────────────
+
+  describe('RTL text alignment', () => {
+    // RTL text nodes use x = right edge of the run. Container = 200, "abc" = 30px.
+    const rtlRightEdge = (textAlign: string, extra: Partial<ResolvedStyle> = {}) => {
+      const tree = block('div', [textNode('abc', { direction: 'rtl' })],
+        { direction: 'rtl', textAlign, ...extra });
+      const t = collectTexts(doLayout(tree, 200)).find(t => t.text === 'abc')!;
+      return t.x;
+    };
+
+    it('default (start) aligns to the right edge', () => {
+      expect(rtlRightEdge('start')).toBe(200);
+    });
+
+    it('text-align:right aligns to the right edge', () => {
+      expect(rtlRightEdge('right')).toBe(200);
+    });
+
+    it('text-align:left aligns to the left edge', () => {
+      // RTL + explicit left → line hugs the left; right edge = text width.
+      expect(rtlRightEdge('left')).toBe(30);
+    });
+
+    it('text-align:end aligns to the left edge (end = left in RTL)', () => {
+      expect(rtlRightEdge('end')).toBe(30);
+    });
+
+    it('text-align:center centers within the container', () => {
+      expect(rtlRightEdge('center')).toBe(115); // (200-30)/2 + 30
+    });
+
+    it('text-indent insets the first line from the right edge', () => {
+      // RTL inline-start is the right; indent moves the right edge inward by 40.
+      expect(rtlRightEdge('start', { textIndent: 40 })).toBe(160);
+    });
+
+    it('justify expands spaces so non-last lines fill the width', () => {
+      // "aaa bbb ccc ddd eee" wraps in a 100px box; non-last lines justify.
+      const tree = block('div', [textNode('aaa bbb ccc ddd eee', { direction: 'rtl' })],
+        { direction: 'rtl', textAlign: 'justify', width: 100 });
+      const texts = collectTexts(doLayout(tree, 100));
+      // Group by line (y); RTL node x = right edge, left edge = x - width.
+      const byY = new Map<number, LayoutText[]>();
+      for (const t of texts) {
+        const y = Math.round(t.y);
+        if (!byY.has(y)) byY.set(y, []);
+        byY.get(y)!.push(t);
+      }
+      const lines = [...byY.entries()].sort((a, b) => a[0] - b[0]).map(([, a]) => a);
+      expect(lines.length).toBeGreaterThan(1);
+      // Every non-last line must fill the box: right edge ~100 and left edge ~0.
+      for (let i = 0; i < lines.length - 1; i++) {
+        const rightEdge = Math.max(...lines[i].map(t => t.x));
+        const leftEdge = Math.min(...lines[i].map(t => t.x - t.width));
+        expect(rightEdge).toBeCloseTo(100, 1);
+        expect(leftEdge).toBeCloseTo(0, 1);
+      }
+    });
+  });
+
+  // ─── Bidi override (bdo) ─────────────────────────────────────────────
+
+  describe('Bidi override', () => {
+    it('bdo dir=rtl reverses character order', () => {
+      const tree = block('div', [
+        inline('bdo', [textNode('abcdef', { direction: 'rtl', unicodeBidi: 'bidi-override' })],
+          { direction: 'rtl', unicodeBidi: 'bidi-override' }),
+      ]);
+      const texts = collectTexts(doLayout(tree, 200));
+      expect(texts.map(t => t.text).join('')).toBe('fedcba');
+    });
+
+    it('bidi-override reverses run order and text across styled children', () => {
+      // <bdo dir=rtl>ab<b>cd</b>ef</bdo> → visual "fe dc ba" (bold on "dc")
+      const tree = block('div', [
+        inline('bdo', [
+          textNode('ab', { direction: 'rtl', unicodeBidi: 'bidi-override' }),
+          textNode('cd', { direction: 'rtl', unicodeBidi: 'bidi-override', fontWeight: 700 }),
+          textNode('ef', { direction: 'rtl', unicodeBidi: 'bidi-override' }),
+        ], { direction: 'rtl', unicodeBidi: 'bidi-override' }),
+      ]);
+      const texts = collectTexts(doLayout(tree, 200));
+      expect(texts.map(t => t.text).join('')).toBe('fedcba');
+      // The bold run carries "dc"
+      expect(texts.find(t => t.style.fontWeight === 700)!.text).toBe('dc');
+    });
+
+    it('bdo without rtl leaves order unchanged', () => {
+      const tree = block('div', [
+        inline('bdo', [textNode('abc', { unicodeBidi: 'bidi-override' })], { unicodeBidi: 'bidi-override' }),
+      ]);
+      const texts = collectTexts(doLayout(tree, 200));
+      expect(texts.map(t => t.text).join('')).toBe('abc');
+    });
+  });
+
   // ─── Word spacing ──────────────────────────────────────────────────
 
   describe('Word spacing', () => {
@@ -837,6 +957,67 @@ describe('Layout logic (mocked measureText)', () => {
       // With extra 20px per space, wraps earlier than without
       expect(lines.length).toBeGreaterThan(1);
       expect(lines[0]).toBe('aa bb');
+    });
+  });
+
+  // ─── Letter spacing ────────────────────────────────────────────────
+
+  describe('Letter spacing', () => {
+    it('break-all accounts for letter-spacing when choosing break points', () => {
+      // "ABCDEFGH" with char=10 + letter-spacing=5 → 15px effective per char.
+      // Container 60px: cumulative "ABCD"=60 fits, "ABCDE"=75 wraps → 4 chars/line.
+      // A trailing run with letter-spacing:0 is tokenized last, so ctx.letterSpacing
+      // is left at 0px — exposing whether breakWordIfNeeded re-sets it per word.
+      // If it ignored letter-spacing it would fit 6 chars (60px) → "ABCDEF".
+      const tree = block('div', [
+        block('p', [
+          textNode('ABCDEFGH', { letterSpacing: 5, wordBreak: 'break-all' }),
+          textNode(' z', { letterSpacing: 0 }),
+        ]),
+      ]);
+      const root = doLayout(tree, 60);
+      const lines = getLines(root);
+      expect(lines[0]).toBe('ABCD');
+    });
+  });
+
+  // ─── Vertical align ────────────────────────────────────────────────
+
+  describe('Vertical align', () => {
+    // Baseline word + an aligned word on the same line; measure the y delta.
+    // Mock font metrics are uniform, so length/percent/sub/super deltas are
+    // deterministic (text-top/middle need real metrics → covered by pixel tests).
+    const yDelta = (va: string) => {
+      const tree = block('div', [block('p', [
+        textNode('base'),
+        textNode('X', { verticalAlign: va }),
+      ])]);
+      const texts = collectTexts(doLayout(tree, 400));
+      const base = texts.find(t => t.text === 'base')!;
+      const x = texts.find(t => t.text === 'X')!;
+      return x.y - base.y;
+    };
+
+    it('length raises the baseline by the given px', () => {
+      expect(yDelta('5px')).toBeCloseTo(-5, 5); // positive value → up (smaller y)
+    });
+
+    it('percentage raises by percent of line-height (20px)', () => {
+      expect(yDelta('50%')).toBeCloseTo(-10, 5);
+    });
+
+    it('sub lowers, super raises (fractions of parent font size 16)', () => {
+      expect(yDelta('sub')).toBeCloseTo(16 * 0.26, 5);
+      expect(yDelta('super')).toBeCloseTo(-16 * 0.4, 5);
+    });
+
+    it('baseline leaves the word on the baseline', () => {
+      expect(yDelta('baseline')).toBeCloseTo(0, 5);
+    });
+
+    it('unsupported line-relative keywords fall back to baseline', () => {
+      expect(yDelta('top')).toBeCloseTo(0, 5);
+      expect(yDelta('bottom')).toBeCloseTo(0, 5);
     });
   });
 

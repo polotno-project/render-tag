@@ -15,8 +15,9 @@ let _lines: LayoutLine[] = [];
 const _measureCache = new Map<string, number>();
 
 function cachedMeasureWidth(ctx: CanvasRenderingContext2D, text: string): number {
-  // ctx.font must already be set by caller
-  const key = ctx.font + '\0' + text;
+  // ctx.font and ctx.letterSpacing must already be set by caller.
+  // letterSpacing is part of the key because it changes measured width.
+  const key = ctx.font + '\0' + (ctx.letterSpacing || '') + '\0' + text;
   const cached = _measureCache.get(key);
   if (cached !== undefined) return cached;
   const w = ctx.measureText(text).width;
@@ -47,6 +48,11 @@ function hasMixedFonts(words: Word[]): boolean {
 export function applyFont(ctx: CanvasRenderingContext2D, style: ResolvedStyle): void {
   ctx.font = buildCanvasFont(style);
   ctx.fontKerning = style.fontKerning === 'none' ? 'none' : 'normal';
+}
+
+/** Format a letter-spacing value (px) as a canvas `ctx.letterSpacing` string. */
+function formatLetterSpacing(value: number): string {
+  return value > 0 ? `${value}px` : '0px';
 }
 
 /**
@@ -167,7 +173,10 @@ function applyTextTransform(text: string, transform: string): string {
   switch (transform) {
     case 'uppercase': return text.toUpperCase();
     case 'lowercase': return text.toLowerCase();
-    case 'capitalize': return text.replace(/(^|[\s\p{P}])(\p{L})/gu, (_, p, c) => p + c.toUpperCase());
+    // Capitalize the first letter of each word. A mid-word apostrophe is NOT a
+    // word boundary (UAX#29), so "o'clock" → "O'clock", not "O'Clock".
+    case 'capitalize': return text.replace(/(^|[\s\p{P}])(\p{L})/gu, (m, p, c) =>
+      p === "'" || p === '’' ? m : p + c.toUpperCase());
     default: return text;
   }
 }
@@ -201,6 +210,45 @@ export function getFontMetrics(ctx: CanvasRenderingContext2D, style: ResolvedSty
   const result = { ascent, descent };
   _fontMetricsCache.set(font, result);
   return result;
+}
+
+/**
+ * Baseline shift (canvas pixels, positive = downward) for a vertical-align
+ * value, applied on top of the line baseline. Returns 0 for 'baseline' and for
+ * the line-box-relative keywords 'top'/'bottom' — those need a second layout
+ * pass (the box position depends on the final line box it helps size), so they
+ * fall back to baseline rather than being approximated wrongly.
+ *
+ *  - super/sub        legacy fixed fractions of the parent font size
+ *  - text-top/-bottom align the box's ascent/descent edge with the line's
+ *  - middle           box midpoint at parent baseline + half the x-height
+ *  - <length>/<%>     raise (positive value) by the length / % of line-height
+ */
+function verticalAlignShift(
+  va: string,
+  wAscent: number, wDescent: number,
+  parentFontSize: number, maxAscent: number, maxDescent: number,
+  lineHeight: number,
+): number {
+  switch (va) {
+    case 'super': return -parentFontSize * 0.4;
+    case 'sub': return parentFontSize * 0.26;
+    case 'text-top': return -(maxAscent - wAscent);
+    case 'text-bottom': return maxDescent - wDescent;
+    case 'middle': return -(parentFontSize * 0.25) - (wDescent - wAscent) / 2;
+    default: {
+      // baseline / top / bottom / '' all parseFloat to NaN → 0 (callers gate
+      // on isShiftedVAlign, so those never actually reach here).
+      const n = parseFloat(va);
+      if (!Number.isFinite(n)) return 0;
+      return va.endsWith('%') ? -(n / 100) * lineHeight : -n;
+    }
+  }
+}
+
+/** True when a vertical-align value moves content off the baseline. */
+function isShiftedVAlign(va: string): boolean {
+  return va !== 'baseline' && va !== 'top' && va !== 'bottom' && va !== '';
 }
 
 /**
@@ -391,6 +439,14 @@ function collectTextRuns(node: StyledNode): TextRun[] {
       return;
     }
 
+    // unicode-bidi: bidi-override (e.g. <bdo dir="rtl">) forces visual order.
+    // For an RTL override, reverse both the characters of each descendant run
+    // and the order of the runs, so the subtree renders right-to-left.
+    const ub = n.style.unicodeBidi;
+    const overrideRtl = (ub === 'bidi-override' || ub === 'isolate-override') &&
+      n.style.direction === 'rtl';
+    const overrideStart = runs.length;
+
     if (hasHorizSpacing) {
       runs.push({ text: '', style: n.style, boxStyle: newBoxStyle, boxOpen: n.style });
     }
@@ -401,6 +457,21 @@ function collectTextRuns(node: StyledNode): TextRun[] {
 
     if (hasHorizSpacing) {
       runs.push({ text: '', style: n.style, boxStyle: newBoxStyle, boxClose: n.style });
+    }
+
+    if (overrideRtl && runs.length > overrideStart) {
+      const seg = runs.splice(overrideStart);
+      for (const r of seg) {
+        if (r.text) {
+          r.text = [...r.text].reverse().join('');
+          // The glyphs are now in visual (reversed) order, so render them
+          // left-to-right; otherwise renderText would right-anchor x and the
+          // LTR emission (which set x as the left edge) would misposition them.
+          r.style = { ...r.style, direction: 'ltr' };
+        }
+      }
+      seg.reverse();
+      runs.push(...seg);
     }
   }
 
@@ -608,7 +679,7 @@ function tokenizeRuns(ctx: CanvasRenderingContext2D, runs: TextRun[]): Word[] {
     // Must check before boxOpen/boxClose handlers since atomic has both set.
     if (run.boxOpen && run.boxClose && run.text) {
       applyFont(ctx, run.style);
-      ctx.letterSpacing = run.style.letterSpacing > 0 ? `${run.style.letterSpacing}px` : '0px';
+      ctx.letterSpacing = formatLetterSpacing(run.style.letterSpacing);
       const text = applyTextTransform(run.text, run.style.textTransform);
       const s = run.style;
       const textWidth = cachedMeasureWidth(ctx, text);
@@ -643,7 +714,7 @@ function tokenizeRuns(ctx: CanvasRenderingContext2D, runs: TextRun[]): Word[] {
     }
 
     applyFont(ctx, run.style);
-    ctx.letterSpacing = run.style.letterSpacing > 0 ? `${run.style.letterSpacing}px` : '0px';
+    ctx.letterSpacing = formatLetterSpacing(run.style.letterSpacing);
     const text = applyTextTransform(run.text, run.style.textTransform);
 
     // Handle explicit newlines (from <br> or pre-wrap) — always force line break
@@ -705,6 +776,9 @@ function breakWordIfNeeded(
   // Measuring each char individually ignores kerning — the sum of individual
   // widths diverges from the true string width over many characters.
   ctx.font = buildCanvasFont(word.style);
+  // Re-assert letter-spacing: tokenizeRuns may have left ctx at a later run's
+  // value, but break points must use THIS word's letter-spacing.
+  ctx.letterSpacing = formatLetterSpacing(word.style.letterSpacing);
   const chars = [...word.text];
   const pieces: Word[] = [];
 
@@ -1088,16 +1162,24 @@ function layoutInlineContent(
     // wrap at letter boundaries (no break-word/break-all), where centering
     // would put glyphs at negative x. Sub-pixel tolerance avoids switching
     // to start for rounding noise on lines that visually fit.
+    // Start edge differs by direction. LTR lines start at the left (x+indent).
+    // RTL lines are anchored at the right, inset from the content's right edge
+    // by text-indent — and lineMaxWidth already subtracts indent, so the RTL
+    // right edge is x+lineMaxWidth. `align` here is physically resolved
+    // (start/end → left/right via resolveDir), so RTL with align==='left'
+    // (explicit left, or end) correctly falls through to left alignment.
     const overflows = line.totalWidth > lineMaxWidth + 0.5;
     let curX = x + indent;
     if (overflows) {
-      curX = isRTL ? x + indent + lineMaxWidth - line.totalWidth : x + indent;
+      // Overflow fallback: pin to the start edge (CSS Text 3 §7.1).
+      curX = isRTL ? x + lineMaxWidth - line.totalWidth : x + indent;
     } else if (align === 'center') {
       curX = x + indent + (lineMaxWidth - line.totalWidth) / 2;
-    } else if (align === 'right' || (align !== 'justify' && isRTL)) {
-      curX = x + indent + lineMaxWidth - line.totalWidth;
-    } else if (isRTL) {
-      curX = x + indent + lineMaxWidth - line.totalWidth;
+    } else if (align === 'right') {
+      curX = (isRTL ? x + lineMaxWidth : x + indent + lineMaxWidth) - line.totalWidth;
+    } else if (align === 'justify' && isRTL) {
+      // RTL justify: anchor the right edge at the inset start; spaces expand left.
+      curX = x + lineMaxWidth - line.totalWidth;
     }
     // Snapshot the line's left edge before LTR emission advances curX.
     const lineLeftX = curX;
@@ -1112,13 +1194,14 @@ function layoutInlineContent(
     let maxDescent = 0;
     for (const word of line.words) {
       if (word.text === '') continue;
-      const va = word.style.verticalAlign;
-      if (va === 'super' || va === 'sub') continue; // skip sub/sup for baseline calc
+      // Off-baseline content (sub/sup/middle/lengths/...) does not establish
+      // the line's baseline position — only baseline-aligned content does.
+      if (isShiftedVAlign(word.style.verticalAlign)) continue;
       const { ascent: a, descent: d } = getFontMetrics(ctx, word.style);
       if (a > maxAscent) maxAscent = a;
       if (d > maxDescent) maxDescent = d;
     }
-    // If only sub/sup words on the line, use the first word's metrics
+    // If only off-baseline words on the line, use the first word's metrics
     if (maxAscent === 0) {
       for (const word of line.words) {
         if (word.text === '') continue;
@@ -1132,31 +1215,27 @@ function layoutInlineContent(
     const textBlockHeight = maxAscent + maxDescent;
     let lineBaselineY = curY + (lineHeight - textBlockHeight) / 2 + maxAscent;
 
-    // Compute parent font size for sub/sup positioning (used in expansion + text emit)
+    // Parent font size for vertical-align positioning (used in expansion + text
+    // emit) — the largest baseline-aligned font on the line.
     const lineNormalWords = line.words.filter(w =>
-      w.text !== '' && w.style.verticalAlign !== 'super' && w.style.verticalAlign !== 'sub');
+      w.text !== '' && !isShiftedVAlign(w.style.verticalAlign));
     const parentFontSize = lineNormalWords.length > 0
       ? Math.max(...lineNormalWords.map(w => w.style.fontSize)) : 0;
 
-    // Expand line height if sub/sup extends beyond the line box.
-    // Browsers grow the line box to fit all content, but keep
-    // the normal text baseline position unchanged.
+    // Expand line height if vertically-shifted content extends beyond the line
+    // box. Browsers grow the line box to fit all content, but keep the normal
+    // text baseline position unchanged.
     let lineTop = curY;
     let lineBottom = curY + lineHeight;
     for (const word of line.words) {
       if (word.text === '') continue;
       const va = word.style.verticalAlign;
-      if (va !== 'super' && va !== 'sub') continue;
+      if (!isShiftedVAlign(va)) continue;
       if (parentFontSize === 0) break;
 
       const { ascent: wAscent, descent: wDescent } = getFontMetrics(ctx, word.style);
-
-      let shiftedBaseline = lineBaselineY;
-      if (va === 'super') {
-        shiftedBaseline -= parentFontSize * 0.4;
-      } else {
-        shiftedBaseline += parentFontSize * 0.26;
-      }
+      const shiftedBaseline = lineBaselineY +
+        verticalAlignShift(va, wAscent, wDescent, parentFontSize, maxAscent, maxDescent, lineHeight);
 
       const wordTop = shiftedBaseline - wAscent;
       const wordBottom = shiftedBaseline + wDescent;
@@ -1253,6 +1332,16 @@ function layoutInlineContent(
           pendingPad += word.width;
           continue;
         }
+        if (word.isSpace && justifyExtraPerSpace > 0) {
+          // Justify only: break the shaping group at the space and fold the
+          // expansion into the inter-group advance so the line fills the width.
+          // (Arabic does not join across spaces, so this is shaping-safe.)
+          // When not justifying, spaces stay merged into the group text below
+          // so the canvas BiDi engine can reorder embedded LTR runs/numbers.
+          if (currentGroup) { groups.push(currentGroup); currentGroup = null; }
+          pendingPad += word.width + justifyExtraPerSpace;
+          continue;
+        }
         if (currentGroup && sameTextStyle(currentGroup.style, word.style)) {
           currentGroup.text += word.text;
           currentGroup.width += word.width;
@@ -1345,13 +1434,10 @@ function layoutInlineContent(
           // Adjust baseline for vertical-align
           let baselineY = lineBaselineY;
           const va = word.style.verticalAlign;
-          if (va === 'super' || va === 'sub') {
+          if (isShiftedVAlign(va)) {
             const pfs = parentFontSize || word.style.fontSize;
-            if (va === 'super') {
-              baselineY -= pfs * 0.4;
-            } else {
-              baselineY += pfs * 0.26;
-            }
+            const { ascent: wA, descent: wD } = getFontMetrics(ctx, word.style);
+            baselineY += verticalAlignShift(va, wA, wD, pfs, maxAscent, maxDescent, lineHeight);
           }
           const effectiveWidth = word.width + (word.isSpace ? justifyExtraPerSpace : 0);
 

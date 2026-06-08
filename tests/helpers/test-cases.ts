@@ -287,6 +287,21 @@ export async function loadBasicCases(): Promise<BenchmarkCase[]> {
     },
 
     {
+      name: 'Stroked transparent text with shadow',
+      width: 520,
+      height: 200,
+      css: withOpenSans(`
+        body { ${font} }
+        .so { -webkit-text-stroke: 2px #1e3a8a; color: transparent;
+              text-shadow: 3px 3px 2px rgba(0,0,0,0.5); font-size: 40px; font-weight: 800; }
+        .fo { color: #dc2626; text-shadow: 3px 3px 2px rgba(0,0,0,0.5); font-size: 40px; font-weight: 800; }
+      `),
+      // .so casts its shadow from the stroke outline (transparent fill);
+      // .fo from the solid fill. Both must show a drop shadow.
+      html: `<p class="so">Outline</p><p class="fo">Filled</p>`,
+    },
+
+    {
       name: 'Code blocks & quotes',
       width: 700,
       height: 500,
@@ -455,6 +470,25 @@ console.log(msg);</pre>
 <p>Chemical formula: Ca(OH)<sub>2</sub> + H<sub>2</sub>SO<sub>4</sub> \u2192 CaSO<sub>4</sub> + 2H<sub>2</sub>O</p>`,
     },
 
+    {
+      name: 'Vertical-align keywords and lengths',
+      width: 520,
+      height: 260,
+      css: withOpenSans(
+        `body { ${font} font-size: 18px; line-height: 2; }
+         .big { font-size: 30px; }
+         .mid { vertical-align: middle; }
+         .ttop { vertical-align: text-top; }
+         .tbot { vertical-align: text-bottom; }
+         .up { vertical-align: 8px; }
+         .down { vertical-align: -6px; }`,
+      ),
+      html: `<p>Icon <span class="big mid">M</span> middle aligned with text.</p>
+<p>Edge <span class="big ttop">T</span> text-top and <span class="big tbot">B</span> text-bottom.</p>
+<p>Raise <span class="up">up8</span> and drop <span class="down">down6</span> by length.</p>
+<p>Mixed <span class="big mid">x</span> baseline <sup>sup</sup> and <sub>sub</sub> together.</p>`,
+    },
+
     // =========================================================================
     // 11. Inline elements with mixed font-sizes on the same line
     // =========================================================================
@@ -552,6 +586,16 @@ console.log(msg);</pre>
 <p>\u05D4\u05EA\u05DB\u05E0\u05D5\u05EA \u05D4\u05D9\u05D0 \u05D0\u05D5\u05DE\u05E0\u05D5\u05EA \u05E9\u05DC \u05D9\u05E6\u05D9\u05E8\u05EA\u05D9\u05D5\u05EA, \u05D7\u05D3\u05E9\u05E0\u05D5\u05EA, \u05D5\u05E4\u05EA\u05E8\u05D5\u05DF \u05D1\u05E2\u05D9\u05D5\u05EA.</p>
 <p><strong>\u05D8\u05E7\u05E1\u05D8 \u05DE\u05D5\u05D3\u05D2\u05E9</strong> \u2013 \u05E2\u05DD \u05E1\u05D9\u05DE\u05E0\u05D9 \u05E4\u05D9\u05E1\u05D5\u05E7 (\u05DB\u05DE\u05D5: \u05E1\u05D5\u05D2\u05E8\u05D9\u05D9\u05DD \u05D5\u05E0\u05E7\u05D5\u05D3\u05D5\u05EA).</p>
 </div>`,
+    },
+
+    {
+      name: 'Bidi override with bdo',
+      width: 500,
+      height: 200,
+      css: `body { font-family: system-ui, sans-serif; font-size: 22px; line-height: 1.8; }`,
+      html: `<p>Order: <bdo dir="rtl">ABCDEF</bdo> reversed.</p>
+<p>Code <bdo dir="rtl">12345</bdo> shown right-to-left.</p>
+<p>Mixed <bdo dir="rtl">ab<strong>CD</strong>ef</bdo> styled.</p>`,
     },
 
     // =========================================================================

@@ -185,6 +185,19 @@ export function parseLinearGradient(
   return gradient;
 }
 
+/** The solid fill color for text: -webkit-text-fill-color if set, else color. */
+function textFillColor(style: ResolvedStyle): string {
+  return style.webkitTextFillColor && style.webkitTextFillColor !== 'transparent'
+    ? style.webkitTextFillColor : style.color;
+}
+
+/** Apply the canvas stroke settings for -webkit-text-stroke. */
+function applyTextStroke(ctx: CanvasRenderingContext2D, style: ResolvedStyle): void {
+  ctx.strokeStyle = style.webkitTextStrokeColor || style.color;
+  ctx.lineWidth = style.webkitTextStrokeWidth;
+  ctx.lineJoin = 'round';
+}
+
 /**
  * Render a single text node to canvas.
  * @param gradientFill — pre-computed gradient for background-clip:text spanning full element
@@ -213,17 +226,28 @@ function renderText(ctx: CanvasRenderingContext2D, node: LayoutText, gradientFil
   const isFillTransparent = style.webkitTextFillColor === 'transparent' ||
     style.color === 'transparent';
 
-  // Text shadow (draw before main text)
+  // Text shadow (drawn behind the text). Cast the shadow from the shape that
+  // is actually painted: the fill when it's visible, and/or the stroke. This
+  // matters for stroked text with a transparent fill (color:transparent +
+  // -webkit-text-stroke), where CSS casts the shadow from the stroke outline
+  // rather than the invisible fill.
   const shadows = parseTextShadows(style.textShadow);
   if (shadows.length > 0) {
+    const hasVisibleFill = isGradientText || !isFillTransparent;
     for (const shadow of shadows) {
       ctx.save();
       ctx.shadowOffsetX = shadow.offsetX;
       ctx.shadowOffsetY = shadow.offsetY;
       ctx.shadowBlur = shadow.blur;
       ctx.shadowColor = shadow.color;
-      ctx.fillStyle = style.color;
-      ctx.fillText(node.text, node.x, node.y);
+      if (hasVisibleFill) {
+        ctx.fillStyle = isGradientText && gradientFill ? gradientFill : textFillColor(style);
+        ctx.fillText(node.text, node.x, node.y);
+      }
+      if (isStrokedText) {
+        applyTextStroke(ctx, style);
+        ctx.strokeText(node.text, node.x, node.y);
+      }
       ctx.restore();
     }
   }
@@ -247,8 +271,7 @@ function renderText(ctx: CanvasRenderingContext2D, node: LayoutText, gradientFil
       ctx.restore();
     } else if (!isFillTransparent || !isStrokedText) {
       // Normal text fill (skip if transparent + stroked, stroke handles it)
-      ctx.fillStyle = style.webkitTextFillColor && style.webkitTextFillColor !== 'transparent'
-        ? style.webkitTextFillColor : style.color;
+      ctx.fillStyle = textFillColor(style);
       ctx.fillText(node.text, node.x, node.y);
     }
   };
@@ -256,9 +279,7 @@ function renderText(ctx: CanvasRenderingContext2D, node: LayoutText, gradientFil
   const drawStroke = () => {
     if (!isStrokedText) return;
     ctx.save();
-    ctx.strokeStyle = style.webkitTextStrokeColor || style.color;
-    ctx.lineWidth = style.webkitTextStrokeWidth;
-    ctx.lineJoin = 'round';
+    applyTextStroke(ctx, style);
     ctx.strokeText(node.text, node.x, node.y);
     ctx.restore();
   };

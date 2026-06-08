@@ -27,6 +27,10 @@
     "score": 8.99,
     "wrap": true
   },
+  "Stroked transparent text with shadow": {
+    "score": 15.76,
+    "wrap": true
+  },
   "Code blocks & quotes": {
     "score": 0.4,
     "wrap": true
@@ -67,6 +71,10 @@
     "score": 30.62,
     "wrap": true
   },
+  "Vertical-align keywords and lengths": {
+    "score": 46.93,
+    "wrap": false
+  },
   "Mixed font-sizes same line": {
     "score": 1.08,
     "wrap": true
@@ -93,6 +101,10 @@
   },
   "Hebrew text with punctuation": {
     "score": 6.99,
+    "wrap": true
+  },
+  "Bidi override with bdo": {
+    "score": 8.42,
     "wrap": true
   },
   "Japanese text mixed scripts": {
@@ -236,7 +248,7 @@
     "wrap": true
   },
   "Non-Latin text alignment": {
-    "score": 40.35,
+    "score": 39.13,
     "wrap": true
   },
   "Mixed scripts with formatting": {
@@ -316,7 +328,7 @@
     "wrap": true
   },
   "RTL lists with alignment": {
-    "score": 27.3,
+    "score": 18.95,
     "wrap": true
   },
   "Letter spacing and word spacing": {
@@ -367,6 +379,10 @@
     "score": 8.99,
     "wrap": true
   },
+  "Stroked transparent text with shadow@Open Sans": {
+    "score": 15.76,
+    "wrap": true
+  },
   "Code blocks & quotes@Open Sans": {
     "score": 0.4,
     "wrap": true
@@ -407,6 +423,10 @@
     "score": 30.62,
     "wrap": true
   },
+  "Vertical-align keywords and lengths@Open Sans": {
+    "score": 46.93,
+    "wrap": false
+  },
   "Mixed font-sizes same line@Open Sans": {
     "score": 1.08,
     "wrap": true
@@ -433,6 +453,10 @@
   },
   "Hebrew text with punctuation@Open Sans": {
     "score": 7.53,
+    "wrap": true
+  },
+  "Bidi override with bdo@Open Sans": {
+    "score": 0.81,
     "wrap": true
   },
   "Japanese text mixed scripts@Open Sans": {
@@ -576,7 +600,7 @@
     "wrap": true
   },
   "Non-Latin text alignment@Open Sans": {
-    "score": 40.35,
+    "score": 39.13,
     "wrap": true
   },
   "Mixed scripts with formatting@Open Sans": {
@@ -656,7 +680,7 @@
     "wrap": true
   },
   "RTL lists with alignment@Open Sans": {
-    "score": 27.3,
+    "score": 18.95,
     "wrap": true
   },
   "Letter spacing and word spacing@Open Sans": {
@@ -699,6 +723,10 @@
     "score": 6.7,
     "wrap": true
   },
+  "Stroked transparent text with shadow@Roboto": {
+    "score": 14.07,
+    "wrap": true
+  },
   "Code blocks & quotes@Roboto": {
     "score": 0.41,
     "wrap": true
@@ -739,6 +767,10 @@
     "score": 25.01,
     "wrap": true
   },
+  "Vertical-align keywords and lengths@Roboto": {
+    "score": 49.97,
+    "wrap": false
+  },
   "Mixed font-sizes same line@Roboto": {
     "score": 1.17,
     "wrap": true
@@ -765,6 +797,10 @@
   },
   "Hebrew text with punctuation@Roboto": {
     "score": 7.26,
+    "wrap": true
+  },
+  "Bidi override with bdo@Roboto": {
+    "score": 0.77,
     "wrap": true
   },
   "Japanese text mixed scripts@Roboto": {
@@ -908,7 +944,7 @@
     "wrap": true
   },
   "Non-Latin text alignment@Roboto": {
-    "score": 39.14,
+    "score": 36.89,
     "wrap": true
   },
   "Mixed scripts with formatting@Roboto": {
@@ -988,7 +1024,7 @@
     "wrap": true
   },
   "RTL lists with alignment@Roboto": {
-    "score": 14.19,
+    "score": 5.63,
     "wrap": true
   },
   "Letter spacing and word spacing@Roboto": {
@@ -1031,6 +1067,10 @@
     "score": 12.4,
     "wrap": true
   },
+  "Stroked transparent text with shadow@Playfair Display": {
+    "score": 16.64,
+    "wrap": true
+  },
   "Code blocks & quotes@Playfair Display": {
     "score": 0.4,
     "wrap": true
@@ -1071,6 +1111,10 @@
     "score": 22.1,
     "wrap": true
   },
+  "Vertical-align keywords and lengths@Playfair Display": {
+    "score": 43.05,
+    "wrap": false
+  },
   "Mixed font-sizes same line@Playfair Display": {
     "score": 1.93,
     "wrap": true
@@ -1097,6 +1141,10 @@
   },
   "Hebrew text with punctuation@Playfair Display": {
     "score": 1.28,
+    "wrap": true
+  },
+  "Bidi override with bdo@Playfair Display": {
+    "score": 13.63,
     "wrap": true
   },
   "Japanese text mixed scripts@Playfair Display": {
@@ -1240,7 +1288,7 @@
     "wrap": true
   },
   "Non-Latin text alignment@Playfair Display": {
-    "score": 39.15,
+    "score": 36.91,
     "wrap": true
   },
   "Mixed scripts with formatting@Playfair Display": {
@@ -1320,7 +1368,7 @@
     "wrap": true
   },
   "RTL lists with alignment@Playfair Display": {
-    "score": 14.28,
+    "score": 5.93,
     "wrap": true
   },
   "Letter spacing and word spacing@Playfair Display": {
@@ -1363,6 +1411,10 @@
     "score": 7.74,
     "wrap": true
   },
+  "Stroked transparent text with shadow@Merriweather": {
+    "score": 14.08,
+    "wrap": true
+  },
   "Code blocks & quotes@Merriweather": {
     "score": 0.4,
     "wrap": true
@@ -1403,6 +1455,10 @@
     "score": 27.88,
     "wrap": true
   },
+  "Vertical-align keywords and lengths@Merriweather": {
+    "score": 49.95,
+    "wrap": false
+  },
   "Mixed font-sizes same line@Merriweather": {
     "score": 0,
     "wrap": true
@@ -1429,6 +1485,10 @@
   },
   "Hebrew text with punctuation@Merriweather": {
     "score": 7.37,
+    "wrap": true
+  },
+  "Bidi override with bdo@Merriweather": {
+    "score": 9.19,
     "wrap": true
   },
   "Japanese text mixed scripts@Merriweather": {
@@ -1572,7 +1632,7 @@
     "wrap": true
   },
   "Non-Latin text alignment@Merriweather": {
-    "score": 40.24,
+    "score": 39.15,
     "wrap": true
   },
   "Mixed scripts with formatting@Merriweather": {
@@ -1652,7 +1712,7 @@
     "wrap": true
   },
   "RTL lists with alignment@Merriweather": {
-    "score": 26.57,
+    "score": 22.52,
     "wrap": true
   },
   "Letter spacing and word spacing@Merriweather": {
@@ -1695,6 +1755,10 @@
     "score": 13.06,
     "wrap": true
   },
+  "Stroked transparent text with shadow@Lobster": {
+    "score": 14.32,
+    "wrap": true
+  },
   "Code blocks & quotes@Lobster": {
     "score": 0.41,
     "wrap": true
@@ -1735,6 +1799,10 @@
     "score": 24.86,
     "wrap": true
   },
+  "Vertical-align keywords and lengths@Lobster": {
+    "score": 53.98,
+    "wrap": false
+  },
   "Mixed font-sizes same line@Lobster": {
     "score": 0.02,
     "wrap": true
@@ -1761,6 +1829,10 @@
   },
   "Hebrew text with punctuation@Lobster": {
     "score": 7.35,
+    "wrap": true
+  },
+  "Bidi override with bdo@Lobster": {
+    "score": 7.08,
     "wrap": true
   },
   "Japanese text mixed scripts@Lobster": {
@@ -1904,7 +1976,7 @@
     "wrap": true
   },
   "Non-Latin text alignment@Lobster": {
-    "score": 39.55,
+    "score": 39.29,
     "wrap": true
   },
   "Mixed scripts with formatting@Lobster": {
@@ -1984,7 +2056,7 @@
     "wrap": true
   },
   "RTL lists with alignment@Lobster": {
-    "score": 27.41,
+    "score": 22.2,
     "wrap": true
   },
   "Letter spacing and word spacing@Lobster": {

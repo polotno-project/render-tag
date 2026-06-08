@@ -151,6 +151,8 @@ export interface ResolvedStyle {
   whiteSpace: string;
   wordBreak: string;
   overflowWrap: string;
+  /** unicode-bidi: 'normal' | 'bidi-override' | 'isolate' | 'isolate-override' | 'embed' */
+  unicodeBidi: string;
   direction: string;
 
   // Box

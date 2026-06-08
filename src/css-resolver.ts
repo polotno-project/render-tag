@@ -335,6 +335,7 @@ function defaultStyle(): ResolvedStyle {
     whiteSpace: 'normal',
     wordBreak: 'normal',
     overflowWrap: 'normal',
+    unicodeBidi: 'normal',
     direction: 'ltr',
     display: 'block',
     width: 0,
@@ -384,6 +385,8 @@ const TAG_DEFAULTS: Record<string, Partial<ResolvedStyle>> = {
   sup: { display: 'inline', verticalAlign: 'super', fontSize: 0.83 },
   code: { display: 'inline', fontFamily: 'monospace' },
   cite: { display: 'inline', fontStyle: 'italic' },
+  bdo: { display: 'inline', unicodeBidi: 'bidi-override' },
+  bdi: { display: 'inline', unicodeBidi: 'isolate' },
   p: { display: 'block', marginTop: -1, marginBottom: -1 }, // -1 = 1em, resolved later
   div: { display: 'block' },
   h1: { display: 'block', fontSize: 2, fontWeight: 700, marginTop: -0.67, marginBottom: -0.67 },
@@ -683,6 +686,7 @@ function applyDeclaration(
     case 'overflow-wrap':
     case 'word-wrap': style.overflowWrap = value.trim(); break;
     case 'direction': style.direction = value.trim(); break;
+    case 'unicode-bidi': style.unicodeBidi = value.trim(); break;
 
     // Box model
     case 'display': style.display = value.trim(); break;
