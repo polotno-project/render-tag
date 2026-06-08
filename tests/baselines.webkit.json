@@ -1308,7 +1308,7 @@
     "wrap": true
   },
   "Numbers and currency in RTL@Playfair Display": {
-    "score": 21.16,
+    "score": 23.84,
     "wrap": true
   },
   "Word joiner and zero-width space@Playfair Display": {
@@ -1600,8 +1600,8 @@
     "wrap": true
   },
   "Dense mixed inline styles@Merriweather": {
-    "score": 48.96,
-    "wrap": false
+    "score": 27.21,
+    "wrap": true
   },
   "Hindi Devanagari text@Merriweather": {
     "score": 30.13,

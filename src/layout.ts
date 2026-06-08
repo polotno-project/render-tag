@@ -925,6 +925,9 @@ function breakWordIfNeeded(
   return pieces;
 }
 
+/** Punctuation that cannot start a line — stays with the preceding word. */
+const TRAILING_PUNCT = /^[,.\;:!?\)\]\}'"»›]+$/;
+
 /**
  * Flow words into lines that fit within contentWidth.
  * Handles: word wrapping, nowrap, break-word, CJK character wrapping.
@@ -995,7 +998,8 @@ function flowWordsIntoLines(
 
   let afterHardBreak = true; // start of content is like after a hard break
 
-  for (const word of words) {
+  for (let wordIndex = 0; wordIndex < words.length; wordIndex++) {
+    const word = words[wordIndex];
     let wordLineHeight = getLineHeight(ctx, word.style, useBulletProbe);
     // Inline-block elements expand line height with their vertical padding+margin
     if (word.boxStyle && word.boxStyle.display === 'inline-block') {
@@ -1032,11 +1036,29 @@ function flowWordsIntoLines(
       ? breakWordIfNeeded(ctx, word, effWidth(), currentLine.totalWidth)
       : [word];
 
+    // Glued tail: content immediately after this word that cannot start a new
+    // line — trailing punctuation (",.)]}…") and an inline span's right
+    // padding/border (empty boxClose markers). The browser includes it when
+    // deciding whether this word fits, so a word + its trailing "," / right
+    // padding wraps as a unit. Stops at whitespace or the next breakable word.
+    let gluedTailWidth = 0;
+    for (let j = wordIndex + 1; j < words.length; j++) {
+      const nw = words[j];
+      if (nw.isSpace || nw.text === '\n') break;
+      const isPunct = !!nw.text && TRAILING_PUNCT.test(nw.text);
+      const isCloseMarker = !nw.text && !!nw.boxClose;
+      if (isPunct || isCloseMarker) { gluedTailWidth += nw.width; continue; }
+      break;
+    }
+
     for (const piece of pieces) {
+      const isLastPiece = piece === pieces[pieces.length - 1];
+      // Only the last piece of the word carries the glued tail.
+      const tail = isLastPiece ? gluedTailWidth : 0;
       // Trailing punctuation (e.g. comma after </span>) should not wrap
       // independently — browsers keep it with the preceding word.
       const isTrailingPunct = !piece.isSpace && piece.text.length > 0 &&
-        /^[,.\;:!?\)\]\}'"»›]+$/.test(piece.text) &&
+        TRAILING_PUNCT.test(piece.text) &&
         currentLine.words.length > 0 &&
         !currentLine.words[currentLine.words.length - 1].isSpace;
 
@@ -1062,8 +1084,8 @@ function flowWordsIntoLines(
 
       // Would this piece overflow?
       if (!piece.isSpace && !isTrailingPunct && !isGlued && currentLine.words.length > 0 &&
-        currentLine.totalWidth + piece.width + shReserve > effWidth()) {
-        const overflow = currentLine.totalWidth + piece.width + shReserve - effWidth();
+        currentLine.totalWidth + piece.width + shReserve + tail > effWidth()) {
+        const overflow = currentLine.totalWidth + piece.width + shReserve + tail - effWidth();
 
         // For borderline cases (overflow < 1px), word-by-word delta
         // accumulation may introduce rounding errors. Re-measure the
@@ -1081,7 +1103,7 @@ function flowWordsIntoLines(
           let markerWidth = 0;
           for (const w of currentLine.words) if (!w.text) markerWidth += w.width;
           if (!piece.text) markerWidth += piece.width;
-          const fullWidth = cachedMeasureWidth(ctx, fullText) + markerWidth;
+          const fullWidth = cachedMeasureWidth(ctx, fullText) + markerWidth + tail;
           // Allow only a hair of sub-pixel overflow. measureText matches the
           // browser's rendered width to ~0.01px, so a larger slack would keep
           // lines the browser actually wraps (packing one extra word per

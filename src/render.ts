@@ -209,7 +209,7 @@ function renderText(ctx: CanvasRenderingContext2D, node: LayoutText, gradientFil
   ctx.font = buildCanvasFont(style);
   ctx.textBaseline = 'alphabetic';
   ctx.fontKerning = style.fontKerning === 'none' ? 'none' : 'normal';
-  if (Number.isFinite(style.letterSpacing) && style.letterSpacing !== 0) {
+  if (style.letterSpacing > 0) {
     ctx.letterSpacing = `${style.letterSpacing}px`;
   }
   if (style.wordSpacing) {

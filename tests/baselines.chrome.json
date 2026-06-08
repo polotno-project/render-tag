@@ -1600,8 +1600,8 @@
     "wrap": true
   },
   "Dense mixed inline styles@Merriweather": {
-    "score": 50.38,
-    "wrap": false
+    "score": 14.75,
+    "wrap": true
   },
   "Hindi Devanagari text@Merriweather": {
     "score": 13.29,
@@ -1944,8 +1944,8 @@
     "wrap": true
   },
   "Dense mixed inline styles@Lobster": {
-    "score": 15.03,
-    "wrap": false
+    "score": 8.22,
+    "wrap": true
   },
   "Hindi Devanagari text@Lobster": {
     "score": 13.37,
