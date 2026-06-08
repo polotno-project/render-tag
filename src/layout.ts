@@ -1070,6 +1070,26 @@ function flowWordsIntoLines(
         currentLine.words.length > 0 &&
         !currentLine.words[currentLine.words.length - 1].isSpace;
 
+      // Leading inline padding/border (an empty boxOpen marker) must not be
+      // stranded at the end of a line — it belongs with the span's following
+      // content (CSS applies padding-left at the box's start). Include the next
+      // content word's width in this marker's fit test so the two wrap together
+      // and the left padding lands on the new line with the content.
+      let headExtra = 0;
+      if (!piece.text && piece.boxOpen) {
+        const next = words[wordIndex + 1];
+        if (next && !next.isSpace && next.text) {
+          // Only the next word's first BREAKABLE unit must stay with the leading
+          // padding — the whole word for unbreakable Latin, but just the first
+          // character for CJK / break-word (which wrap per character). Using the
+          // whole word here would over-wrap a long CJK run that follows padding.
+          const np = next.text.length > 1
+            ? breakWordIfNeeded(ctx, next, effWidth(), 0)
+            : [next];
+          headExtra = np[0].width;
+        }
+      }
+
       // A soft-hyphen break point draws a visible '-' when the line breaks
       // right after this piece. Chrome only allows a break there if the prefix
       // PLUS the hyphen fits, so reserve the hyphen advance in the overflow
@@ -1084,8 +1104,8 @@ function flowWordsIntoLines(
 
       // Would this piece overflow?
       if (!piece.isSpace && !isTrailingPunct && !isGlued && currentLine.words.length > 0 &&
-        currentLine.totalWidth + piece.width + shReserve + tail > effWidth()) {
-        const overflow = currentLine.totalWidth + piece.width + shReserve + tail - effWidth();
+        currentLine.totalWidth + piece.width + shReserve + tail + headExtra > effWidth()) {
+        const overflow = currentLine.totalWidth + piece.width + shReserve + tail + headExtra - effWidth();
 
         // For borderline cases (overflow < 1px), word-by-word delta
         // accumulation may introduce rounding errors. Re-measure the
@@ -1103,7 +1123,7 @@ function flowWordsIntoLines(
           let markerWidth = 0;
           for (const w of currentLine.words) if (!w.text) markerWidth += w.width;
           if (!piece.text) markerWidth += piece.width;
-          const fullWidth = cachedMeasureWidth(ctx, fullText) + markerWidth + tail;
+          const fullWidth = cachedMeasureWidth(ctx, fullText) + markerWidth + tail + headExtra;
           // Allow only a hair of sub-pixel overflow. measureText matches the
           // browser's rendered width to ~0.01px, so a larger slack would keep
           // lines the browser actually wraps (packing one extra word per

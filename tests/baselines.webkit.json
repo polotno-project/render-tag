@@ -216,7 +216,7 @@
     "wrap": true
   },
   "Dense mixed inline styles": {
-    "score": 25.32,
+    "score": 23.81,
     "wrap": true
   },
   "Hindi Devanagari text": {
@@ -568,7 +568,7 @@
     "wrap": true
   },
   "Dense mixed inline styles@Open Sans": {
-    "score": 30.79,
+    "score": 23.95,
     "wrap": true
   },
   "Hindi Devanagari text@Open Sans": {
@@ -912,7 +912,7 @@
     "wrap": true
   },
   "Dense mixed inline styles@Roboto": {
-    "score": 25.32,
+    "score": 23.81,
     "wrap": true
   },
   "Hindi Devanagari text@Roboto": {
@@ -1256,7 +1256,7 @@
     "wrap": true
   },
   "Dense mixed inline styles@Playfair Display": {
-    "score": 19.9,
+    "score": 18.49,
     "wrap": true
   },
   "Hindi Devanagari text@Playfair Display": {
@@ -1308,7 +1308,7 @@
     "wrap": true
   },
   "Numbers and currency in RTL@Playfair Display": {
-    "score": 23.84,
+    "score": 21.16,
     "wrap": true
   },
   "Word joiner and zero-width space@Playfair Display": {
