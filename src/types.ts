@@ -128,6 +128,8 @@ export interface ResolvedStyle {
   fontSize: number;
   fontWeight: number;
   fontStyle: string;
+  /** font-variant-caps: 'normal' | 'small-caps' (only small-caps is rendered). */
+  fontVariantCaps: string;
   color: string;
   textAlign: string;
   textAlignLast: string;
