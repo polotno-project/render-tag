@@ -55,6 +55,27 @@ Unit tests cover deterministic layout algorithms directly — no browser, no fon
 4. Run it — confirm it **passes** (green)
 5. Then run baseline tests (`npm test`) to check for regressions
 
+### Wrap-accuracy debugging harness (`tests/wrap-debug.test.ts`)
+A maintainer tool (not part of `npm test`) for hunting text-wrapping divergences
+between the canvas and the real DOM. Run `npx vitest run tests/wrap-debug.test.ts`
+(or `-c vitest.firefox.config.ts` / `.webkit`); it sweeps every case × font ×
+width via `compareWrapping` and writes `tests/wrap-report.<browser>.json`
+(git-ignored) listing each failure with per-line diffs and by-case/by-font
+counts. Tune the run by editing the `FONT_MODE` / `WIDTH_MODE` / `CASE_FILTER`
+constants at the top (they're plain constants — the browser context has no
+`process.env`).
+
+When triaging a divergence, classify it before chasing it:
+- **structural** (different line *count*) → likely a real break-logic bug
+- **same line-count, ±1 char drift** → sub-pixel cumulative noise (rarely fixable)
+
+The benchmark demo (`docs/benchmark.ts`, isolated via
+`benchmark.html?case=…&font=…`) prints a per-character canvas-vs-DOM line check
+and per-word `measureText`-vs-DOM-rect deltas — use those to tell a real
+measurement bug (nonzero Δ) from a sub-pixel/font-loading artifact (Δ≈0). Note:
+`measureText` matches the browser to ~0.01px, so most residual mismatches are
+sub-pixel knife-edges where browser builds themselves disagree, not bugs.
+
 ## Code conventions
 
 ### Making changes

@@ -13,19 +13,15 @@ const isFirefox = ua.includes('Firefox');
 const isWebKit = ua.includes('AppleWebKit') && !ua.includes('Chrome');
 const browserName = isFirefox ? 'firefox' : isWebKit ? 'webkit' : 'chrome';
 
-// ─── Config (env-tunable) ────────────────────────────────────────────────
-// WRAP_FONTS=default        → only the default font pass
-// WRAP_FONTS=all (default)  → default + all FONT_VARIANTS
-// WRAP_CASES="Simple paragraph,URL text wrapping" → only these case names
-// WRAP_WIDTHS=coarse (default) | fine | <step px>
-const env = (k: string): string | undefined =>
-  (globalThis as any).process?.env?.[k];
-
-const FONT_MODE = env('WRAP_FONTS') || 'all';
-const CASE_FILTER = env('WRAP_CASES')
-  ? new Set(env('WRAP_CASES')!.split(',').map((s) => s.trim()))
-  : null;
-const WIDTH_MODE = env('WRAP_WIDTHS') || 'coarse';
+// ─── Config ──────────────────────────────────────────────────────────────
+// This runs in the browser context, where process.env is NOT populated — so
+// these are plain constants you edit to tune a debugging run, not env vars.
+//   FONT_MODE   'all' = default + all FONT_VARIANTS; 'default' = default only
+//   CASE_FILTER null = all cases; or a Set of case names to isolate
+//   WIDTH_MODE  'coarse' (6 widths/case) | 'fine' (20px sweep) | a step in px
+const FONT_MODE: 'all' | 'default' = 'all';
+const CASE_FILTER: Set<string> | null = null;
+const WIDTH_MODE: 'coarse' | 'fine' | string = 'coarse';
 
 // Cases that are inherently impossible / out of scope for wrap matching.
 // We still measure them but flag results as "known" so they don't pollute

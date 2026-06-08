@@ -1,6 +1,146 @@
 import { compareRenders, compareWrapping, extractDomLines } from '../tests/helpers/compare.ts';
 import { loadBasicCases, polotnoCase, polotnoListsCase, FONT_VARIANTS, loadMultiFontCss } from '../tests/helpers/test-cases.ts';
 import type { BenchmarkCase } from '../tests/helpers/test-cases.ts';
+import { layout } from '../src/index.ts';
+
+// ─── Accurate canvas-vs-DOM word-level debug (runs in THIS browser) ───────
+// Compares the canvas engine's per-word widths/positions against the real DOM
+// rendered in the same browser, so a metric divergence (e.g. test Chromium vs
+// real Chrome) shows up as per-word width deltas. Logs to console too.
+function logWordLevelDebug(variant: BenchmarkCase): string {
+  const W = variant.width;
+  const L: string[] = [];
+  const p = (s: string) => L.push(s);
+
+  p(`========== WORD-LEVEL DEBUG ==========`);
+  p(`UA: ${navigator.userAgent}`);
+  p(`devicePixelRatio: ${window.devicePixelRatio}`);
+  p(`width: ${W}px`);
+  // Which fonts are actually available right now?
+  const fams = ["'Merriweather'", "'Roboto'", "'Lobster'", "'Playfair Display'"];
+  for (const f of fams) {
+    for (const variant2 of [`400 16px ${f}`, `700 16px ${f}`, `italic 400 16px ${f}`]) {
+      p(`  fonts.check(${variant2}) = ${document.fonts.check(variant2)}`);
+    }
+  }
+
+  // ── Canvas engine output (lines) — MUST include the CSS (font override) ──
+  const fullHtml = variant.css ? `<style>${variant.css}</style>${variant.html}` : variant.html;
+  const lr = layout({ html: fullHtml, width: W, height: variant.height });
+
+  // ── DOM words (real browser layout in a scoped container) ──
+  const id = `__wld_${Date.now()}__`;
+  const host = document.createElement('div');
+  host.id = id;
+  host.style.cssText = `position:absolute;left:-9999px;top:0;width:${W}px;overflow:hidden;`;
+  const scoped = (variant.css || '').replace(/(^|[},;\s])(\s*)(html|body)\b/gm, (m, b, s) => `${b}${s}#${id}`);
+  const st = document.createElement('style'); st.textContent = scoped; host.appendChild(st);
+  const content = document.createElement('div'); content.style.cssText = 'margin:0;padding:0;'; content.innerHTML = variant.html;
+  host.appendChild(content);
+  document.body.appendChild(host);
+  const cTop = content.getBoundingClientRect().top;
+  const cLeft = content.getBoundingClientRect().left;
+  interface DWord { x: number; top: number; bot: number; w: number; t: string; font: string }
+  const dWords: DWord[] = [];
+  const wlk = document.createTreeWalker(content, NodeFilter.SHOW_TEXT);
+  const rg = document.createRange();
+  let tn: Node | null;
+  while ((tn = wlk.nextNode())) {
+    const text = tn.textContent || '';
+    if (!text.trim()) continue;
+    const parent = (tn as Text).parentElement!;
+    if (/^(style|script)$/i.test(parent.tagName)) continue;
+    const font = getComputedStyle(parent).font;
+    let off = 0;
+    for (const wd of text.split(/(\s+)/)) {
+      if (wd && wd.trim()) {
+        rg.setStart(tn, off); rg.setEnd(tn, off + wd.length);
+        const rc = rg.getBoundingClientRect();
+        dWords.push({ x: +(rc.left - cLeft).toFixed(2), top: +(rc.top - cTop).toFixed(2), bot: +(rc.bottom - cTop).toFixed(2), w: +rc.width.toFixed(2), t: wd, font });
+      }
+      off += wd.length;
+    }
+  }
+  document.body.removeChild(host);
+
+  // ── AUTHORITATIVE wrap verdict (what the benchmark badge uses) ──
+  const cmp = compareWrapping(variant.html, variant.css, W, variant.height);
+  const realDomLines = extractDomLines(variant.html, variant.css, W);
+  p(`\n*** AUTHORITATIVE compareWrapping: match=${cmp.wrappingMatch} (canvas ${cmp.canvasLineCount} / dom ${cmp.domLineCount}) ***`);
+  if (!cmp.wrappingMatch) {
+    p(`  DIFFERING LINES:`);
+    cmp.differentLines.forEach(d => p(`    line ${d.lineIndex}: canvas="${d.canvas}" dom="${d.dom}"`));
+  }
+
+  // ── PER-CHARACTER line check: for every non-space char, which visual line
+  // is it on in the canvas vs the real DOM? The first char whose line differs
+  // is the exact wrap divergence (no line-grouping ambiguity). ──
+  {
+    // Canvas: char -> line index from the engine's lines.
+    const cLines = (lr as any).lines || [];
+    const cChars: string[] = []; const cIdx: number[] = [];
+    cLines.forEach((l: any, i: number) => { for (const ch of l.text) if (!/\s/.test(ch)) { cChars.push(ch); cIdx.push(i); } });
+    // DOM: group words into visual lines by BASELINE (rect bottom, tolerant of
+    // tall mixed-size spans), ordered top-to-bottom; then char -> line index.
+    const byBaseline: { bot: number; words: DWord[] }[] = [];
+    for (const w of [...dWords].sort((a, b) => a.bot - b.bot || a.x - b.x)) {
+      const g = byBaseline.find(b => Math.abs(b.bot - w.bot) < 10);
+      if (g) { g.words.push(w); g.bot = (g.bot + w.bot) / 2; } else byBaseline.push({ bot: w.bot, words: [w] });
+    }
+    byBaseline.sort((a, b) => a.bot - b.bot);
+    const dChars: string[] = []; const dIdx: number[] = [];
+    byBaseline.forEach((g, i) => g.words.sort((a, b) => a.x - b.x).forEach(w => { for (const ch of w.t) if (!/\s/.test(ch)) { dChars.push(ch); dIdx.push(i); } }));
+
+    p(`\n=== PER-CHARACTER line check (canvas vs DOM) ===`);
+    p(`  canvas chars=${cChars.length} (${cIdx[cIdx.length - 1] + 1} lines), dom chars=${dChars.length} (${(dIdx[dIdx.length - 1] ?? -1) + 1} lines)`);
+    const n = Math.min(cChars.length, dChars.length);
+    let firstDiff = -1; let diffCount = 0;
+    for (let k = 0; k < n; k++) {
+      if (cChars[k] !== dChars[k]) { p(`  ⚠ char sequence diverged at #${k}: canvas '${cChars[k]}' vs dom '${dChars[k]}' (can't align further)`); break; }
+      if (cIdx[k] !== dIdx[k]) { diffCount++; if (firstDiff < 0) firstDiff = k; }
+    }
+    if (firstDiff < 0) p(`  ✓ every character is on the SAME line in canvas and DOM`);
+    else {
+      const ctx = cChars.slice(Math.max(0, firstDiff - 12), firstDiff + 12).join('');
+      p(`  ✗ FIRST DIVERGENCE at char #${firstDiff}: '${cChars[firstDiff]}' is on canvas line ${cIdx[firstDiff]} but DOM line ${dIdx[firstDiff]}`);
+      p(`     context: "...${ctx}..."`);
+      p(`     (${diffCount} of ${n} chars are on different lines)`);
+    }
+  }
+
+  p(`\n=== CANVAS lines (engine) ===`);
+  const canvasLines = (lr as any).lines || [];
+  for (let i = 0; i < canvasLines.length; i++) p(`  ${i}: y=${canvasLines[i].y} w=${(canvasLines[i].bounds?.width ?? 0).toFixed(2)} "${canvasLines[i].text}"`);
+
+  p(`\n=== REAL extractDomLines (what compareWrapping compares against) ===`);
+  realDomLines.forEach((l, i) => p(`  ${i}: "${l.text}"`));
+
+  // ── Per-word width: canvas measureText (with the word's computed font) vs
+  // the DOM-rendered rect width — IN THIS BROWSER. If these differ, the canvas
+  // and the real DOM disagree on glyph metrics → that's the wrap cause. If they
+  // match (Δ≈0), any wrap difference is a logic/grouping issue, not metrics.
+  const mctx = document.createElement('canvas').getContext('2d')!;
+  mctx.fontKerning = 'normal';
+  p(`\n=== Per-word width: canvas measureText vs DOM rect (same font, this browser) ===`);
+  let maxDelta = 0; let sumCanvas = 0; let sumDom = 0;
+  for (const dw of dWords) {
+    mctx.font = dw.font;          // the DOM's computed font for this word
+    (mctx as any).letterSpacing = '0px';
+    const cwid = mctx.measureText(dw.t).width;
+    const delta = cwid - dw.w;
+    sumCanvas += cwid; sumDom += dw.w;
+    if (Math.abs(delta) > Math.abs(maxDelta)) maxDelta = delta;
+    const flag = Math.abs(delta) > 0.3 ? '  <-- DELTA' : '';
+    p(`  "${dw.t}" canvasMeasure=${cwid.toFixed(2)} domRect=${dw.w.toFixed(2)} Δ=${delta.toFixed(2)}${flag}  font=${dw.font}`);
+  }
+  p(`\nSUM canvasMeasure=${sumCanvas.toFixed(2)} domRect=${sumDom.toFixed(2)} Δtotal=${(sumCanvas - sumDom).toFixed(2)}`);
+  p(`Max single-word Δ (canvas - dom): ${maxDelta.toFixed(2)}px`);
+  p(`\nINTERPRETATION:`);
+  p(`  • If Δs are ~0 but canvas/DOM lines differ → grouping/logic (not metrics).`);
+  p(`  • If Δs are nonzero → canvas measureText disagrees with the DOM in YOUR`);
+  p(`    browser (font version / hinting / not-loaded). Check fonts.check above.`);
+  return L.join('\n');
+}
 
 const PIXEL_RATIO = window.devicePixelRatio || 2;
 
@@ -282,6 +422,17 @@ async function showDetail(tc: BenchmarkCase, fontFamily: string, container: HTML
       document.body.removeChild(domProbe);
     }
 
+    // Accurate per-word canvas-vs-DOM comparison (the key signal for a
+    // test-vs-real-browser metric divergence). Runs in THIS browser.
+    try {
+      const wordDebug = logWordLevelDebug(variant);
+      debugText += '\n\n' + wordDebug;
+      console.log(`\n### ${tc.name} @ ${fontFamily} ###\n` + wordDebug);
+    } catch (e) {
+      debugText += `\n\n[word-level debug error: ${e}]`;
+      console.error('word-level debug error', e);
+    }
+
     const debugWrap = document.createElement('div');
     debugWrap.style.cssText = 'position:relative;margin-bottom:12px;';
 
@@ -447,14 +598,34 @@ async function main() {
   const preloadStyle = document.createElement('style');
   preloadStyle.textContent = fontFaceOnly.join('\n');
   document.head.appendChild(preloadStyle);
-  const fontProbe = document.createElement('div');
-  fontProbe.style.cssText = 'position:absolute;left:-9999px;visibility:hidden;';
-  fontProbe.innerHTML = FONT_VARIANTS.map(f =>
-    `<span style="font-family:${f.family}">Mg</span>`
-  ).join('');
-  document.body.appendChild(fontProbe);
+  // Explicitly load every variant family at the weights/styles the cases use,
+  // then await. `document.fonts.ready` alone can resolve before URL-based
+  // Google fonts finish, leaving the SYNCHRONOUS render() measuring a fallback
+  // font (different metrics → false wrapping mismatches vs the DOM). render()
+  // requires fonts to be loaded first, so guarantee it here.
+  const famNames = ['Open Sans', 'Roboto', 'Playfair Display', 'Merriweather', 'Lobster', 'Inconsolata'];
+  const weights = ['300', '400', '600', '700', '900'];
+  const styles = ['normal', 'italic'];
+  const loadJobs: Promise<unknown>[] = [];
+  for (const fam of famNames)
+    for (const w of weights)
+      for (const st of styles)
+        loadJobs.push(document.fonts.load(`${st} ${w} 24px '${fam}'`, 'Mg 0123').catch(() => {}));
+  await Promise.all(loadJobs);
   await document.fonts.ready;
-  fontProbe.remove();
+  // Warn loudly if any variant still failed (e.g. Google Fonts unreachable) —
+  // wrapping comparisons are unreliable when the canvas falls back.
+  const missing = FONT_VARIANTS.filter(f => !document.fonts.check(`400 24px ${f.family.split(',')[0]}`));
+  if (missing.length) {
+    console.warn('[benchmark] fonts NOT loaded (wrapping checks unreliable):', missing.map(f => f.name));
+    // Persistent banner (the status text gets overwritten in isolated mode).
+    const banner = document.createElement('div');
+    banner.style.cssText = 'background:#fee2e2;color:#991b1b;padding:8px 16px;font:600 13px system-ui;border:1px solid #fca5a5;';
+    banner.textContent = `⚠ Fonts NOT loaded: ${missing.map(f => f.name).join(', ')}. Canvas falls back → wrapping checks are unreliable. Check Network tab for blocked fonts.gstatic.com requests.`;
+    document.body.insertBefore(banner, document.body.firstChild);
+  } else {
+    console.log('[benchmark] all variant fonts loaded ✓');
+  }
 
   const fonts = FONT_VARIANTS;
 
