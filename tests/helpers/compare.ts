@@ -316,33 +316,96 @@ export function extractDomLines(
   // Use the word's vertical midpoint for grouping, with a tolerance based
   // on word height. This avoids merging overlapping lines (tight line-height)
   // while still grouping mixed-size words on the same baseline.
-  wordPositions.sort((a, b) => a.y - b.y);
+  // Group words into visual lines using DOCUMENT (reading) order, not a Y sort.
+  //
+  // A word continues the current line only when BOTH hold:
+  //   1. its vertical band overlaps the line's band (anchored on the first
+  //      word, never expanded by tall outliers), and
+  //   2. its left edge advances in the line's reading direction (LTR: x grows,
+  //      RTL: x shrinks) — a line wrap resets x to the opposite margin.
+  //
+  // The x-reset signal is what makes this robust where pure Y-clustering fails:
+  //   • vertical-align / sup / sub / mixed font sizes: x keeps advancing, so
+  //     a 30px text-top glyph stays on its baseline line (no phantom line).
+  //   • tight line-height (lines whose glyph boxes overlap): the wrapped word
+  //     resets x, so it still starts a new line despite the vertical overlap.
+  //   • multi-column / separate flows: a new column starts above (no vertical
+  //     overlap) → new line, matching the canvas LayoutLine stream which keeps
+  //     columns separate.
+  const TOL_X = 4;
+  const RTL_RE = /[\u0590-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
   const lineGroups: {
-    yMid: number;
-    maxHeight: number;
+    top: number;
+    bottom: number;
+    lastX: number;
+    rtl: boolean;
     words: typeof wordPositions;
   }[] = [];
   for (const wp of wordPositions) {
-    const wpMid = wp.y + wp.height / 2;
-    const lastLine = lineGroups[lineGroups.length - 1];
-    // Use the tallest word in the line for tolerance — small fonts next to
-    // large fonts on the same baseline have very different midpoints, but
-    // the large font's height covers the range.
-    const tolerance = lastLine
-      ? Math.max(lastLine.maxHeight, wp.height) * 0.5
-      : 0;
-    if (lastLine && Math.abs(wpMid - lastLine.yMid) < tolerance) {
-      lastLine.words.push(wp);
-      lastLine.maxHeight = Math.max(lastLine.maxHeight, wp.height);
+    const top = wp.y;
+    const bottom = wp.y + wp.height;
+    const last = lineGroups[lineGroups.length - 1];
+    if (last) {
+      const overlap = Math.min(bottom, last.bottom) - Math.max(top, last.top);
+      const minH = Math.min(bottom - top, last.bottom - last.top);
+      const ratio = overlap / minH;
+      // Near-full vertical overlap → same line unconditionally. This covers
+      // baseline-aligned text of mixed font sizes AND bidi (LTR+RTL) lines,
+      // where x is non-monotonic and the reading-direction test below would
+      // wrongly split. Partial overlap is the ambiguous zone — a tall
+      // vertical-align glyph (same line) vs a tight-line-height wrap (new
+      // line) — disambiguated by whether x advances in the reading direction
+      // (a wrap resets x to the opposite margin).
+      let join = false;
+      if (ratio >= 0.7) {
+        join = true;
+      } else if (ratio > 0.2) {
+        join = last.rtl
+          ? wp.x <= last.lastX + TOL_X
+          : wp.x >= last.lastX - TOL_X;
+      }
+      if (join) {
+        last.words.push(wp);
+        last.lastX = wp.x;
+        if (!last.rtl && RTL_RE.test(wp.text)) last.rtl = true;
+        continue;
+      }
+    }
+    lineGroups.push({
+      top,
+      bottom,
+      lastX: wp.x,
+      rtl: RTL_RE.test(wp.text),
+      words: [wp],
+    });
+  }
+  // Second pass: merge reading-order lines that share the SAME visual row but
+  // belong to different flows (flex/multi-column). The canvas emits one
+  // LayoutLine per Y row spanning all columns, so two lines whose vertical
+  // bands FULLY overlap (parallel columns at the same Y) are one visual row
+  // here too. Partially-overlapping lines (tight line-height within one flow)
+  // are left separate — that's the single-flow wrap signal we must preserve.
+  lineGroups.sort((a, b) => a.top - b.top);
+  const merged: typeof lineGroups = [];
+  for (const g of lineGroups) {
+    const target = merged.find((m) => {
+      const overlap =
+        Math.min(g.bottom, m.bottom) - Math.max(g.top, m.top);
+      const minH = Math.min(g.bottom - g.top, m.bottom - m.top);
+      return overlap / minH >= 0.7;
+    });
+    if (target) {
+      target.words.push(...g.words);
     } else {
-      lineGroups.push({ yMid: wpMid, maxHeight: wp.height, words: [wp] });
+      merged.push(g);
     }
   }
-  // Sort words within each line by X position
-  return lineGroups.map((l) => {
+  // Sort lines top-to-bottom, and words within each line by X position.
+  merged.sort((a, b) => a.top - b.top);
+  return merged.map((l) => {
     l.words.sort((a, b) => a.x - b.x);
     return {
-      y: Math.round(l.yMid),
+      y: Math.round(l.top),
       text: l.words.map((w) => w.text).join(' '),
     };
   });

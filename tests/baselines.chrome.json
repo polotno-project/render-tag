@@ -73,7 +73,7 @@
   },
   "Vertical-align keywords and lengths": {
     "score": 46.93,
-    "wrap": false
+    "wrap": true
   },
   "Mixed font-sizes same line": {
     "score": 1.08,
@@ -264,8 +264,8 @@
     "wrap": true
   },
   "URL text wrapping": {
-    "score": 38.99,
-    "wrap": false
+    "score": 4.54,
+    "wrap": true
   },
   "Numbers and currency in RTL": {
     "score": 12.31,
@@ -292,8 +292,8 @@
     "wrap": true
   },
   "Mixed app text comprehensive": {
-    "score": 45.27,
-    "wrap": false
+    "score": 11.11,
+    "wrap": true
   },
   "Lists with alignment variations": {
     "score": 4.22,
@@ -332,7 +332,7 @@
     "wrap": true
   },
   "Letter spacing and word spacing": {
-    "score": 16.82,
+    "score": 12.8,
     "wrap": true
   },
   "Text transform": {
@@ -425,7 +425,7 @@
   },
   "Vertical-align keywords and lengths@Open Sans": {
     "score": 46.93,
-    "wrap": false
+    "wrap": true
   },
   "Mixed font-sizes same line@Open Sans": {
     "score": 1.08,
@@ -616,8 +616,8 @@
     "wrap": true
   },
   "URL text wrapping@Open Sans": {
-    "score": 38.99,
-    "wrap": false
+    "score": 4.54,
+    "wrap": true
   },
   "Numbers and currency in RTL@Open Sans": {
     "score": 12.31,
@@ -644,8 +644,8 @@
     "wrap": true
   },
   "Mixed app text comprehensive@Open Sans": {
-    "score": 45.27,
-    "wrap": false
+    "score": 11.11,
+    "wrap": true
   },
   "Lists with alignment variations@Open Sans": {
     "score": 4.22,
@@ -684,7 +684,7 @@
     "wrap": true
   },
   "Letter spacing and word spacing@Open Sans": {
-    "score": 16.82,
+    "score": 12.8,
     "wrap": true
   },
   "Text transform@Open Sans": {
@@ -769,7 +769,7 @@
   },
   "Vertical-align keywords and lengths@Roboto": {
     "score": 49.97,
-    "wrap": false
+    "wrap": true
   },
   "Mixed font-sizes same line@Roboto": {
     "score": 1.17,
@@ -960,8 +960,8 @@
     "wrap": true
   },
   "URL text wrapping@Roboto": {
-    "score": 39.9,
-    "wrap": false
+    "score": 3.45,
+    "wrap": true
   },
   "Numbers and currency in RTL@Roboto": {
     "score": 1.93,
@@ -988,8 +988,8 @@
     "wrap": true
   },
   "Mixed app text comprehensive@Roboto": {
-    "score": 45.91,
-    "wrap": false
+    "score": 9.53,
+    "wrap": true
   },
   "Lists with alignment variations@Roboto": {
     "score": 1.36,
@@ -1028,7 +1028,7 @@
     "wrap": true
   },
   "Letter spacing and word spacing@Roboto": {
-    "score": 8.43,
+    "score": 1.41,
     "wrap": true
   },
   "Text transform@Roboto": {
@@ -1113,7 +1113,7 @@
   },
   "Vertical-align keywords and lengths@Playfair Display": {
     "score": 43.05,
-    "wrap": false
+    "wrap": true
   },
   "Mixed font-sizes same line@Playfair Display": {
     "score": 1.93,
@@ -1304,8 +1304,8 @@
     "wrap": true
   },
   "URL text wrapping@Playfair Display": {
-    "score": 34.52,
-    "wrap": false
+    "score": 1.32,
+    "wrap": true
   },
   "Numbers and currency in RTL@Playfair Display": {
     "score": 3.23,
@@ -1332,8 +1332,8 @@
     "wrap": true
   },
   "Mixed app text comprehensive@Playfair Display": {
-    "score": 43.47,
-    "wrap": false
+    "score": 19.49,
+    "wrap": true
   },
   "Lists with alignment variations@Playfair Display": {
     "score": 2.85,
@@ -1372,7 +1372,7 @@
     "wrap": true
   },
   "Letter spacing and word spacing@Playfair Display": {
-    "score": 13.9,
+    "score": 8.84,
     "wrap": true
   },
   "Text transform@Playfair Display": {
@@ -1457,7 +1457,7 @@
   },
   "Vertical-align keywords and lengths@Merriweather": {
     "score": 49.95,
-    "wrap": false
+    "wrap": true
   },
   "Mixed font-sizes same line@Merriweather": {
     "score": 0,
@@ -1520,7 +1520,7 @@
     "wrap": true
   },
   "Soft hyphens and zero-width spaces@Merriweather": {
-    "score": 17.79,
+    "score": 16.13,
     "wrap": true
   },
   "Non-breaking spaces vs regular spaces@Merriweather": {
@@ -1648,8 +1648,8 @@
     "wrap": true
   },
   "URL text wrapping@Merriweather": {
-    "score": 38.3,
-    "wrap": false
+    "score": 7.71,
+    "wrap": true
   },
   "Numbers and currency in RTL@Merriweather": {
     "score": 12.77,
@@ -1676,7 +1676,7 @@
     "wrap": true
   },
   "Mixed app text comprehensive@Merriweather": {
-    "score": 45.17,
+    "score": 8.87,
     "wrap": false
   },
   "Lists with alignment variations@Merriweather": {
@@ -1716,7 +1716,7 @@
     "wrap": true
   },
   "Letter spacing and word spacing@Merriweather": {
-    "score": 19.61,
+    "score": 15.69,
     "wrap": true
   },
   "Text transform@Merriweather": {
@@ -1801,7 +1801,7 @@
   },
   "Vertical-align keywords and lengths@Lobster": {
     "score": 53.98,
-    "wrap": false
+    "wrap": true
   },
   "Mixed font-sizes same line@Lobster": {
     "score": 0.02,
@@ -1992,8 +1992,8 @@
     "wrap": true
   },
   "URL text wrapping@Lobster": {
-    "score": 44.26,
-    "wrap": false
+    "score": 3.92,
+    "wrap": true
   },
   "Numbers and currency in RTL@Lobster": {
     "score": 11.44,
@@ -2020,7 +2020,7 @@
     "wrap": true
   },
   "Mixed app text comprehensive@Lobster": {
-    "score": 8.87,
+    "score": 6.2,
     "wrap": true
   },
   "Lists with alignment variations@Lobster": {
@@ -2060,7 +2060,7 @@
     "wrap": true
   },
   "Letter spacing and word spacing@Lobster": {
-    "score": 15.33,
+    "score": 11.79,
     "wrap": true
   },
   "Text transform@Lobster": {

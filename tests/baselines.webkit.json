@@ -27,6 +27,10 @@
     "score": 10.67,
     "wrap": true
   },
+  "Stroked transparent text with shadow": {
+    "score": 16.21,
+    "wrap": true
+  },
   "Code blocks & quotes": {
     "score": 0.4,
     "wrap": false
@@ -67,6 +71,10 @@
     "score": 20.41,
     "wrap": true
   },
+  "Vertical-align keywords and lengths": {
+    "score": 43.22,
+    "wrap": true
+  },
   "Mixed font-sizes same line": {
     "score": 1.09,
     "wrap": true
@@ -95,12 +103,16 @@
     "score": 21.51,
     "wrap": true
   },
+  "Bidi override with bdo": {
+    "score": 23.45,
+    "wrap": true
+  },
   "Japanese text mixed scripts": {
     "score": 27.74,
     "wrap": true
   },
   "Simplified Chinese text": {
-    "score": 27.18,
+    "score": 27.09,
     "wrap": true
   },
   "Korean Hangul text": {
@@ -108,7 +120,7 @@
     "wrap": true
   },
   "Mixed CJK and Latin text": {
-    "score": 8.08,
+    "score": 7.87,
     "wrap": true
   },
   "Thai text no word boundaries": {
@@ -232,15 +244,15 @@
     "wrap": true
   },
   "Japanese CJK lists": {
-    "score": 38.1,
+    "score": 38.07,
     "wrap": true
   },
   "Non-Latin text alignment": {
-    "score": 40.03,
+    "score": 39.71,
     "wrap": true
   },
   "Mixed scripts with formatting": {
-    "score": 27.79,
+    "score": 27.78,
     "wrap": true
   },
   "RTL with inline code": {
@@ -252,8 +264,8 @@
     "wrap": true
   },
   "URL text wrapping": {
-    "score": 36.21,
-    "wrap": false
+    "score": 4.92,
+    "wrap": true
   },
   "Numbers and currency in RTL": {
     "score": 25.49,
@@ -272,16 +284,16 @@
     "wrap": true
   },
   "Mixed font sizes with CJK": {
-    "score": 24.86,
+    "score": 24.84,
     "wrap": true
   },
   "Long CJK paragraph": {
-    "score": 36.73,
+    "score": 36.65,
     "wrap": true
   },
   "Mixed app text comprehensive": {
-    "score": 45.7,
-    "wrap": false
+    "score": 30.98,
+    "wrap": true
   },
   "Lists with alignment variations": {
     "score": 4.54,
@@ -292,7 +304,7 @@
     "wrap": true
   },
   "CJK text with formatting": {
-    "score": 30.11,
+    "score": 30.09,
     "wrap": true
   },
   "Hindi lists and formatting": {
@@ -312,15 +324,15 @@
     "wrap": true
   },
   "CJK lists with alignment": {
-    "score": 32.17,
+    "score": 32.05,
     "wrap": true
   },
   "RTL lists with alignment": {
-    "score": 34.74,
+    "score": 33.87,
     "wrap": true
   },
   "Letter spacing and word spacing": {
-    "score": 33.75,
+    "score": 32.53,
     "wrap": true
   },
   "Text transform": {
@@ -367,6 +379,10 @@
     "score": 10.67,
     "wrap": true
   },
+  "Stroked transparent text with shadow@Open Sans": {
+    "score": 16.21,
+    "wrap": true
+  },
   "Code blocks & quotes@Open Sans": {
     "score": 0.4,
     "wrap": false
@@ -407,6 +423,10 @@
     "score": 15.7,
     "wrap": true
   },
+  "Vertical-align keywords and lengths@Open Sans": {
+    "score": 43.22,
+    "wrap": true
+  },
   "Mixed font-sizes same line@Open Sans": {
     "score": 1.09,
     "wrap": true
@@ -435,12 +455,16 @@
     "score": 22.49,
     "wrap": true
   },
+  "Bidi override with bdo@Open Sans": {
+    "score": 10.85,
+    "wrap": true
+  },
   "Japanese text mixed scripts@Open Sans": {
     "score": 27.67,
     "wrap": true
   },
   "Simplified Chinese text@Open Sans": {
-    "score": 27.44,
+    "score": 27.3,
     "wrap": true
   },
   "Korean Hangul text@Open Sans": {
@@ -572,15 +596,15 @@
     "wrap": true
   },
   "Japanese CJK lists@Open Sans": {
-    "score": 38.1,
+    "score": 38.07,
     "wrap": true
   },
   "Non-Latin text alignment@Open Sans": {
-    "score": 40.03,
+    "score": 39.71,
     "wrap": true
   },
   "Mixed scripts with formatting@Open Sans": {
-    "score": 27.79,
+    "score": 27.78,
     "wrap": true
   },
   "RTL with inline code@Open Sans": {
@@ -592,8 +616,8 @@
     "wrap": true
   },
   "URL text wrapping@Open Sans": {
-    "score": 36.21,
-    "wrap": false
+    "score": 4.92,
+    "wrap": true
   },
   "Numbers and currency in RTL@Open Sans": {
     "score": 25.49,
@@ -612,16 +636,16 @@
     "wrap": true
   },
   "Mixed font sizes with CJK@Open Sans": {
-    "score": 24.86,
+    "score": 24.84,
     "wrap": true
   },
   "Long CJK paragraph@Open Sans": {
-    "score": 36.73,
+    "score": 36.65,
     "wrap": true
   },
   "Mixed app text comprehensive@Open Sans": {
-    "score": 45.7,
-    "wrap": false
+    "score": 30.98,
+    "wrap": true
   },
   "Lists with alignment variations@Open Sans": {
     "score": 4.54,
@@ -632,7 +656,7 @@
     "wrap": true
   },
   "CJK text with formatting@Open Sans": {
-    "score": 30.11,
+    "score": 30.09,
     "wrap": true
   },
   "Hindi lists and formatting@Open Sans": {
@@ -652,15 +676,15 @@
     "wrap": true
   },
   "CJK lists with alignment@Open Sans": {
-    "score": 32.17,
+    "score": 32.05,
     "wrap": true
   },
   "RTL lists with alignment@Open Sans": {
-    "score": 34.74,
+    "score": 33.87,
     "wrap": true
   },
   "Letter spacing and word spacing@Open Sans": {
-    "score": 33.75,
+    "score": 32.53,
     "wrap": true
   },
   "Text transform@Open Sans": {
@@ -697,6 +721,10 @@
   },
   "Text decorations & shadows@Roboto": {
     "score": 6.28,
+    "wrap": true
+  },
+  "Stroked transparent text with shadow@Roboto": {
+    "score": 16.35,
     "wrap": true
   },
   "Code blocks & quotes@Roboto": {
@@ -739,6 +767,10 @@
     "score": 15.42,
     "wrap": true
   },
+  "Vertical-align keywords and lengths@Roboto": {
+    "score": 46.12,
+    "wrap": true
+  },
   "Mixed font-sizes same line@Roboto": {
     "score": 0.98,
     "wrap": true
@@ -767,12 +799,16 @@
     "score": 22.3,
     "wrap": true
   },
+  "Bidi override with bdo@Roboto": {
+    "score": 11.34,
+    "wrap": true
+  },
   "Japanese text mixed scripts@Roboto": {
     "score": 32.29,
     "wrap": true
   },
   "Simplified Chinese text@Roboto": {
-    "score": 31.82,
+    "score": 31.67,
     "wrap": true
   },
   "Korean Hangul text@Roboto": {
@@ -780,7 +816,7 @@
     "wrap": true
   },
   "Mixed CJK and Latin text@Roboto": {
-    "score": 8.96,
+    "score": 8.82,
     "wrap": true
   },
   "Thai text no word boundaries@Roboto": {
@@ -904,15 +940,15 @@
     "wrap": true
   },
   "Japanese CJK lists@Roboto": {
-    "score": 38.03,
+    "score": 38.01,
     "wrap": true
   },
   "Non-Latin text alignment@Roboto": {
-    "score": 37.92,
+    "score": 37.62,
     "wrap": true
   },
   "Mixed scripts with formatting@Roboto": {
-    "score": 22.36,
+    "score": 22.34,
     "wrap": true
   },
   "RTL with inline code@Roboto": {
@@ -924,11 +960,11 @@
     "wrap": true
   },
   "URL text wrapping@Roboto": {
-    "score": 36.55,
-    "wrap": false
+    "score": 4.35,
+    "wrap": true
   },
   "Numbers and currency in RTL@Roboto": {
-    "score": 19.21,
+    "score": 13.99,
     "wrap": true
   },
   "Word joiner and zero-width space@Roboto": {
@@ -944,16 +980,16 @@
     "wrap": true
   },
   "Mixed font sizes with CJK@Roboto": {
-    "score": 15.3,
+    "score": 15.28,
     "wrap": true
   },
   "Long CJK paragraph@Roboto": {
-    "score": 35.28,
+    "score": 35.21,
     "wrap": true
   },
   "Mixed app text comprehensive@Roboto": {
-    "score": 45.77,
-    "wrap": false
+    "score": 30.79,
+    "wrap": true
   },
   "Lists with alignment variations@Roboto": {
     "score": 1.45,
@@ -964,7 +1000,7 @@
     "wrap": true
   },
   "CJK text with formatting@Roboto": {
-    "score": 19.98,
+    "score": 19.96,
     "wrap": true
   },
   "Hindi lists and formatting@Roboto": {
@@ -984,15 +1020,15 @@
     "wrap": true
   },
   "CJK lists with alignment@Roboto": {
-    "score": 26.28,
+    "score": 26.21,
     "wrap": true
   },
   "RTL lists with alignment@Roboto": {
-    "score": 27,
+    "score": 25.95,
     "wrap": true
   },
   "Letter spacing and word spacing@Roboto": {
-    "score": 31.34,
+    "score": 29.81,
     "wrap": true
   },
   "Text transform@Roboto": {
@@ -1029,6 +1065,10 @@
   },
   "Text decorations & shadows@Playfair Display": {
     "score": 10.48,
+    "wrap": true
+  },
+  "Stroked transparent text with shadow@Playfair Display": {
+    "score": 15.71,
     "wrap": true
   },
   "Code blocks & quotes@Playfair Display": {
@@ -1071,6 +1111,10 @@
     "score": 15.58,
     "wrap": true
   },
+  "Vertical-align keywords and lengths@Playfair Display": {
+    "score": 39.27,
+    "wrap": true
+  },
   "Mixed font-sizes same line@Playfair Display": {
     "score": 1.84,
     "wrap": true
@@ -1099,12 +1143,16 @@
     "score": 11.22,
     "wrap": true
   },
+  "Bidi override with bdo@Playfair Display": {
+    "score": 21.93,
+    "wrap": true
+  },
   "Japanese text mixed scripts@Playfair Display": {
-    "score": 31.47,
+    "score": 31.46,
     "wrap": true
   },
   "Simplified Chinese text@Playfair Display": {
-    "score": 31.85,
+    "score": 31.7,
     "wrap": true
   },
   "Korean Hangul text@Playfair Display": {
@@ -1112,7 +1160,7 @@
     "wrap": true
   },
   "Mixed CJK and Latin text@Playfair Display": {
-    "score": 11.56,
+    "score": 11.42,
     "wrap": true
   },
   "Thai text no word boundaries@Playfair Display": {
@@ -1236,15 +1284,15 @@
     "wrap": true
   },
   "Japanese CJK lists@Playfair Display": {
-    "score": 37.2,
+    "score": 37.17,
     "wrap": true
   },
   "Non-Latin text alignment@Playfair Display": {
-    "score": 37.91,
+    "score": 37.61,
     "wrap": true
   },
   "Mixed scripts with formatting@Playfair Display": {
-    "score": 22.3,
+    "score": 22.29,
     "wrap": true
   },
   "RTL with inline code@Playfair Display": {
@@ -1256,11 +1304,11 @@
     "wrap": true
   },
   "URL text wrapping@Playfair Display": {
-    "score": 31.53,
-    "wrap": false
+    "score": 0,
+    "wrap": true
   },
   "Numbers and currency in RTL@Playfair Display": {
-    "score": 23.84,
+    "score": 21.16,
     "wrap": true
   },
   "Word joiner and zero-width space@Playfair Display": {
@@ -1276,16 +1324,16 @@
     "wrap": true
   },
   "Mixed font sizes with CJK@Playfair Display": {
-    "score": 18.38,
+    "score": 18.36,
     "wrap": true
   },
   "Long CJK paragraph@Playfair Display": {
-    "score": 35.16,
+    "score": 35.09,
     "wrap": true
   },
   "Mixed app text comprehensive@Playfair Display": {
-    "score": 43,
-    "wrap": false
+    "score": 31.03,
+    "wrap": true
   },
   "Lists with alignment variations@Playfair Display": {
     "score": 2.13,
@@ -1296,7 +1344,7 @@
     "wrap": true
   },
   "CJK text with formatting@Playfair Display": {
-    "score": 19.57,
+    "score": 19.55,
     "wrap": true
   },
   "Hindi lists and formatting@Playfair Display": {
@@ -1316,15 +1364,15 @@
     "wrap": true
   },
   "CJK lists with alignment@Playfair Display": {
-    "score": 26.29,
+    "score": 26.22,
     "wrap": true
   },
   "RTL lists with alignment@Playfair Display": {
-    "score": 26.98,
+    "score": 25.99,
     "wrap": true
   },
   "Letter spacing and word spacing@Playfair Display": {
-    "score": 27.61,
+    "score": 26.24,
     "wrap": true
   },
   "Text transform@Playfair Display": {
@@ -1356,11 +1404,15 @@
     "wrap": true
   },
   "Multi-column layout@Merriweather": {
-    "score": 16.81,
+    "score": 16.77,
     "wrap": true
   },
   "Text decorations & shadows@Merriweather": {
-    "score": 7.46,
+    "score": 7.47,
+    "wrap": true
+  },
+  "Stroked transparent text with shadow@Merriweather": {
+    "score": 16.18,
     "wrap": true
   },
   "Code blocks & quotes@Merriweather": {
@@ -1372,15 +1424,15 @@
     "wrap": true
   },
   "Long paragraph word wrapping@Merriweather": {
-    "score": 7.15,
+    "score": 7.14,
     "wrap": true
   },
   "Long unbroken word overflow-wrap@Merriweather": {
-    "score": 7.89,
+    "score": 7.78,
     "wrap": true
   },
   "Narrow container single char per line@Merriweather": {
-    "score": 23.18,
+    "score": 23.11,
     "wrap": false
   },
   "Line-height variations@Merriweather": {
@@ -1388,7 +1440,7 @@
     "wrap": true
   },
   "Whitespace handling pre-wrap vs normal@Merriweather": {
-    "score": 4.15,
+    "score": 4.14,
     "wrap": true
   },
   "Deeply nested inline styles@Merriweather": {
@@ -1401,6 +1453,10 @@
   },
   "Subscript and superscript@Merriweather": {
     "score": 15.69,
+    "wrap": true
+  },
+  "Vertical-align keywords and lengths@Merriweather": {
+    "score": 46.97,
     "wrap": true
   },
   "Mixed font-sizes same line@Merriweather": {
@@ -1420,23 +1476,27 @@
     "wrap": true
   },
   "Mixed LTR and RTL (English + Arabic)@Merriweather": {
-    "score": 25.11,
+    "score": 25.09,
     "wrap": true
   },
   "RTL with embedded numbers@Merriweather": {
-    "score": 26.32,
+    "score": 26.3,
     "wrap": true
   },
   "Hebrew text with punctuation@Merriweather": {
     "score": 25.52,
     "wrap": true
   },
+  "Bidi override with bdo@Merriweather": {
+    "score": 25.25,
+    "wrap": true
+  },
   "Japanese text mixed scripts@Merriweather": {
-    "score": 27.7,
+    "score": 27.69,
     "wrap": true
   },
   "Simplified Chinese text@Merriweather": {
-    "score": 27.37,
+    "score": 27.23,
     "wrap": true
   },
   "Korean Hangul text@Merriweather": {
@@ -1456,39 +1516,39 @@
     "wrap": true
   },
   "Pre-wrap preserved whitespace@Merriweather": {
-    "score": 26.72,
+    "score": 26.67,
     "wrap": true
   },
   "Soft hyphens and zero-width spaces@Merriweather": {
-    "score": 31.94,
+    "score": 31.1,
     "wrap": true
   },
   "Non-breaking spaces vs regular spaces@Merriweather": {
-    "score": 7.26,
+    "score": 7.25,
     "wrap": true
   },
   "Explicit br line breaks@Merriweather": {
-    "score": 7.49,
+    "score": 7.48,
     "wrap": true
   },
   "Long wrapping list items@Merriweather": {
-    "score": 26.71,
+    "score": 26.67,
     "wrap": true
   },
   "Deeply nested mixed lists@Merriweather": {
-    "score": 29.04,
+    "score": 28.95,
     "wrap": true
   },
   "List items with rich formatting@Merriweather": {
-    "score": 21.95,
+    "score": 21.92,
     "wrap": true
   },
   "Empty list items mixed with content@Merriweather": {
-    "score": 7.5,
+    "score": 7.49,
     "wrap": true
   },
   "Mixed alignment paragraphs@Merriweather": {
-    "score": 10.69,
+    "score": 10.68,
     "wrap": true
   },
   "Font stack fallback@Merriweather": {
@@ -1500,7 +1560,7 @@
     "wrap": true
   },
   "Extreme font sizes 8px and 48px@Merriweather": {
-    "score": 21.43,
+    "score": 21.42,
     "wrap": true
   },
   "Font weight variations 100-900@Merriweather": {
@@ -1520,11 +1580,11 @@
     "wrap": true
   },
   "Long document 20+ paragraphs@Merriweather": {
-    "score": 40.23,
+    "score": 40.2,
     "wrap": true
   },
   "Single word paragraphs@Merriweather": {
-    "score": 29.26,
+    "score": 29.19,
     "wrap": true
   },
   "Empty and whitespace-only paragraphs@Merriweather": {
@@ -1532,7 +1592,7 @@
     "wrap": true
   },
   "Nested divs with margins@Merriweather": {
-    "score": 8.7,
+    "score": 8.65,
     "wrap": true
   },
   "Mixed Google Fonts inline@Merriweather": {
@@ -1540,7 +1600,7 @@
     "wrap": true
   },
   "Dense mixed inline styles@Merriweather": {
-    "score": 48.97,
+    "score": 48.96,
     "wrap": false
   },
   "Hindi Devanagari text@Merriweather": {
@@ -1560,23 +1620,23 @@
     "wrap": true
   },
   "Arabic RTL lists@Merriweather": {
-    "score": 34.34,
+    "score": 34.32,
     "wrap": true
   },
   "Hebrew RTL lists@Merriweather": {
-    "score": 35.32,
+    "score": 35.31,
     "wrap": true
   },
   "Japanese CJK lists@Merriweather": {
-    "score": 38,
+    "score": 37.96,
     "wrap": true
   },
   "Non-Latin text alignment@Merriweather": {
-    "score": 40.02,
+    "score": 39.71,
     "wrap": true
   },
   "Mixed scripts with formatting@Merriweather": {
-    "score": 28.89,
+    "score": 28.87,
     "wrap": true
   },
   "RTL with inline code@Merriweather": {
@@ -1588,11 +1648,11 @@
     "wrap": true
   },
   "URL text wrapping@Merriweather": {
-    "score": 35.35,
-    "wrap": false
+    "score": 7.98,
+    "wrap": true
   },
   "Numbers and currency in RTL@Merriweather": {
-    "score": 34.35,
+    "score": 34.34,
     "wrap": true
   },
   "Word joiner and zero-width space@Merriweather": {
@@ -1600,23 +1660,23 @@
     "wrap": true
   },
   "Dense emoji sequences@Merriweather": {
-    "score": 50.7,
+    "score": 50.69,
     "wrap": true
   },
   "Emoji in lists@Merriweather": {
-    "score": 37.29,
+    "score": 37.28,
     "wrap": true
   },
   "Mixed font sizes with CJK@Merriweather": {
-    "score": 22.62,
+    "score": 22.59,
     "wrap": true
   },
   "Long CJK paragraph@Merriweather": {
-    "score": 36.73,
+    "score": 36.65,
     "wrap": true
   },
   "Mixed app text comprehensive@Merriweather": {
-    "score": 45.78,
+    "score": 31.94,
     "wrap": false
   },
   "Lists with alignment variations@Merriweather": {
@@ -1628,7 +1688,7 @@
     "wrap": true
   },
   "CJK text with formatting@Merriweather": {
-    "score": 30.59,
+    "score": 30.57,
     "wrap": true
   },
   "Hindi lists and formatting@Merriweather": {
@@ -1636,7 +1696,7 @@
     "wrap": true
   },
   "Thai lists and formatting@Merriweather": {
-    "score": 31.93,
+    "score": 31.92,
     "wrap": true
   },
   "Myanmar lists and formatting@Merriweather": {
@@ -1648,23 +1708,23 @@
     "wrap": true
   },
   "CJK lists with alignment@Merriweather": {
-    "score": 32.24,
+    "score": 32.12,
     "wrap": true
   },
   "RTL lists with alignment@Merriweather": {
-    "score": 34.56,
+    "score": 33.63,
     "wrap": true
   },
   "Letter spacing and word spacing@Merriweather": {
-    "score": 35.68,
+    "score": 34.67,
     "wrap": true
   },
   "Text transform@Merriweather": {
-    "score": 30.73,
+    "score": 30.71,
     "wrap": true
   },
   "Pre-wrap tabs and hard breaks@Merriweather": {
-    "score": 8.83,
+    "score": 8.55,
     "wrap": false
   },
   "Simple paragraph@Lobster": {
@@ -1693,6 +1753,10 @@
   },
   "Text decorations & shadows@Lobster": {
     "score": 19.4,
+    "wrap": true
+  },
+  "Stroked transparent text with shadow@Lobster": {
+    "score": 35.96,
     "wrap": true
   },
   "Code blocks & quotes@Lobster": {
@@ -1735,6 +1799,10 @@
     "score": 11.42,
     "wrap": true
   },
+  "Vertical-align keywords and lengths@Lobster": {
+    "score": 51.45,
+    "wrap": true
+  },
   "Mixed font-sizes same line@Lobster": {
     "score": 0,
     "wrap": true
@@ -1763,12 +1831,16 @@
     "score": 23.25,
     "wrap": true
   },
+  "Bidi override with bdo@Lobster": {
+    "score": 17.86,
+    "wrap": true
+  },
   "Japanese text mixed scripts@Lobster": {
-    "score": 27.05,
+    "score": 27.04,
     "wrap": true
   },
   "Simplified Chinese text@Lobster": {
-    "score": 27.42,
+    "score": 27.28,
     "wrap": true
   },
   "Korean Hangul text@Lobster": {
@@ -1776,7 +1848,7 @@
     "wrap": true
   },
   "Mixed CJK and Latin text@Lobster": {
-    "score": 1.67,
+    "score": 1.66,
     "wrap": false
   },
   "Thai text no word boundaries@Lobster": {
@@ -1900,15 +1972,15 @@
     "wrap": true
   },
   "Japanese CJK lists@Lobster": {
-    "score": 38.88,
+    "score": 38.86,
     "wrap": true
   },
   "Non-Latin text alignment@Lobster": {
-    "score": 39.8,
+    "score": 39.57,
     "wrap": true
   },
   "Mixed scripts with formatting@Lobster": {
-    "score": 28.08,
+    "score": 28.06,
     "wrap": true
   },
   "RTL with inline code@Lobster": {
@@ -1920,11 +1992,11 @@
     "wrap": true
   },
   "URL text wrapping@Lobster": {
-    "score": 41.57,
-    "wrap": false
+    "score": 4.67,
+    "wrap": true
   },
   "Numbers and currency in RTL@Lobster": {
-    "score": 25.92,
+    "score": 24.53,
     "wrap": true
   },
   "Word joiner and zero-width space@Lobster": {
@@ -1940,15 +2012,15 @@
     "wrap": true
   },
   "Mixed font sizes with CJK@Lobster": {
-    "score": 14.83,
+    "score": 14.81,
     "wrap": true
   },
   "Long CJK paragraph@Lobster": {
-    "score": 36.73,
+    "score": 36.65,
     "wrap": true
   },
   "Mixed app text comprehensive@Lobster": {
-    "score": 35.2,
+    "score": 34.79,
     "wrap": true
   },
   "Lists with alignment variations@Lobster": {
@@ -1960,7 +2032,7 @@
     "wrap": true
   },
   "CJK text with formatting@Lobster": {
-    "score": 30.21,
+    "score": 30.19,
     "wrap": true
   },
   "Hindi lists and formatting@Lobster": {
@@ -1980,15 +2052,15 @@
     "wrap": true
   },
   "CJK lists with alignment@Lobster": {
-    "score": 32.36,
+    "score": 32.24,
     "wrap": true
   },
   "RTL lists with alignment@Lobster": {
-    "score": 34.93,
+    "score": 33.61,
     "wrap": true
   },
   "Letter spacing and word spacing@Lobster": {
-    "score": 39.21,
+    "score": 38.86,
     "wrap": true
   },
   "Text transform@Lobster": {

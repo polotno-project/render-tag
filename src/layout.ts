@@ -52,7 +52,12 @@ export function applyFont(ctx: CanvasRenderingContext2D, style: ResolvedStyle): 
 
 /** Format a letter-spacing value (px) as a canvas `ctx.letterSpacing` string. */
 function formatLetterSpacing(value: number): string {
-  return value > 0 ? `${value}px` : '0px';
+  // Negative letter-spacing is valid and narrows text — Chrome applies it per
+  // character (trailing included). Clamping it to 0 measured text wider than
+  // the browser renders it, causing earlier/extra line wraps. Guard against
+  // non-finite values (undefined/NaN), which would produce an invalid
+  // "undefinedpx"/"NaNpx" string that canvas silently ignores.
+  return Number.isFinite(value) && value !== 0 ? `${value}px` : '0px';
 }
 
 /**
@@ -295,6 +300,12 @@ interface Word {
   isTab?: boolean;
   /** Word came from soft-hyphen split — show '-' if this word ends a line */
   isSoftHyphenBreak?: boolean;
+  /**
+   * No soft-wrap opportunity before this word: it abuts the previous word with
+   * no whitespace (e.g. adjacent inline spans `<span>a</span><span>b</span>`),
+   * so the browser treats them as one unbreakable unit at that boundary.
+   */
+  noBreakBefore?: boolean;
   boxStyle?: ResolvedStyle;
   /** Marks the start of an inline box (adds left padding/border) */
   boxOpen?: ResolvedStyle;
@@ -578,8 +589,18 @@ function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRu
       });
     }
   } else {
-    // Split on whitespace but NOT on non-breaking spaces (\u00A0)
-    const words = text.split(/([ \t\n\r\f\v]+)/);
+    // Split on whitespace but NOT on non-breaking spaces (\u00A0).
+    // Then add a break opportunity AFTER "?" inside an otherwise-unbreakable
+    // token (the URL query delimiter): Chrome wraps "\u2026/q3?" | "lang=ar&\u2026"
+    // even with overflow-wrap:normal. It does NOT break at "/", "&", "=", "."
+    // or ":" (verified against the browser), so only "?" is split here. The
+    // "?" stays with the preceding fragment; a trailing "?" (no follower) is
+    // left intact. Fragments measure cumulatively so kerning stays accurate.
+    const words = text
+      .split(/([ \t\n\r\f\v]+)/)
+      .flatMap((w) =>
+        /^[ \t\n\r\f\v]+$/.test(w) ? [w] : w.split(/(?<=\?)(?=.)/),
+      );
 
     // Use cumulative measurement to avoid rounding error accumulation
     // within a single text run. When cumState is provided (from \u200B/\u00AD
@@ -717,6 +738,33 @@ function tokenizeRuns(ctx: CanvasRenderingContext2D, runs: TextRun[]): Word[] {
     ctx.letterSpacing = formatLetterSpacing(run.style.letterSpacing);
     const text = applyTextTransform(run.text, run.style.textTransform);
 
+    // Mark the first word produced from `startLen` as having no soft-wrap
+    // opportunity before it when it directly abuts real text from a previous
+    // run (adjacent inline elements with no whitespace between them). The
+    // preceding word must be actual text — not a space, newline, empty
+    // box-padding marker, or box edge — so a whitespace/padding boundary still
+    // allows a break.
+    const markGlue = (startLen: number) => {
+      const first = allWords[startLen];
+      if (!first || first.isSpace || !first.text || first.text === '\n') return;
+      const prev = allWords[startLen - 1];
+      if (
+        !prev || prev.isSpace || !prev.text.trim() ||
+        prev.boxOpen || prev.boxClose
+      ) return;
+      // CJK and segmenter-driven scripts (Thai/Khmer/…) have break
+      // opportunities between characters regardless of element boundaries, so
+      // an element edge between them is NOT a no-break point. Only glue when
+      // both sides are ordinary (Latin-like) text with no intrinsic break.
+      const firstChar = [...first.text][0];
+      const prevChar = [...prev.text][prev.text.length - 1];
+      if (
+        isCJK(firstChar) || isCJK(prevChar) ||
+        needsSegmenter(first.text) || needsSegmenter(prev.text)
+      ) return;
+      first.noBreakBefore = true;
+    };
+
     // Handle explicit newlines (from <br> or pre-wrap) — always force line break
     if (text.includes('\n')) {
       const parts = text.split('\n');
@@ -725,11 +773,15 @@ function tokenizeRuns(ctx: CanvasRenderingContext2D, runs: TextRun[]): Word[] {
           allWords.push({ text: '\n', width: 0, style: run.style, isSpace: false, boxStyle: run.boxStyle });
         }
         if (parts[i]) {
+          const startLen = allWords.length;
           tokenizeString(ctx, parts[i], run, allWords);
+          markGlue(startLen);
         }
       }
     } else {
+      const startLen = allWords.length;
       tokenizeString(ctx, text, run, allWords);
+      markGlue(startLen);
     }
   }
 
@@ -753,8 +805,36 @@ function isCJK(char: string): boolean {
   );
 }
 
+let _graphemeSegmenter: Intl.Segmenter | undefined;
+function getGraphemeSegmenter(): Intl.Segmenter | null {
+  if (_graphemeSegmenter) return _graphemeSegmenter;
+  if (typeof Intl !== 'undefined' && Intl.Segmenter) {
+    _graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+    return _graphemeSegmenter;
+  }
+  return null;
+}
+
+const EMOJI_PICTOGRAPHIC = /\p{Extended_Pictographic}/u;
 /**
- * Break a word into character-level pieces if it contains CJK or if
+ * Is this grapheme cluster an emoji that creates a line-break opportunity?
+ * Restricted to emoji-presentation clusters (emoji planes, regional-indicator
+ * flags, and ZWJ/VS16 sequences) so plain text symbols like ©/®/™ — which are
+ * Extended_Pictographic but render as text and do NOT break — are excluded.
+ */
+function isEmojiCluster(s: string): boolean {
+  for (const ch of s) {
+    const cp = ch.codePointAt(0)!;
+    if (cp >= 0x1f000) return true; // emoji planes (incl. regional indicators)
+  }
+  if (s.includes('\u200D') || s.includes('\uFE0F')) {
+    return EMOJI_PICTOGRAPHIC.test(s); // ZWJ sequence or VS16 emoji presentation
+  }
+  return false;
+}
+
+/**
+ * Break a word into character-level pieces if it contains CJK/emoji or if
  * overflow-wrap: break-word is set and the word is too wide.
  */
 function breakWordIfNeeded(
@@ -766,11 +846,16 @@ function breakWordIfNeeded(
   // Check if word has CJK characters — always break at character level
   const hasCJK = [...word.text].some(isCJK);
 
+  // Emoji form their own break opportunities (a run of emoji wraps between
+  // clusters). Only meaningful when a grapheme segmenter is available so ZWJ
+  // sequences / skin-tone / flag pairs stay intact.
+  const hasEmoji = EMOJI_PICTOGRAPHIC.test(word.text) && !!getGraphemeSegmenter();
+
   // Check if word needs break-word splitting — when it won't fit on a fresh line
   const needsBreak = word.width > contentWidth &&
     (word.style.overflowWrap === 'break-word' || word.style.wordBreak === 'break-all');
 
-  if (!hasCJK && !needsBreak) return [word];
+  if (!hasCJK && !hasEmoji && !needsBreak) return [word];
 
   // Split into characters using cumulative measurement for accuracy.
   // Measuring each char individually ignores kerning — the sum of individual
@@ -779,13 +864,30 @@ function breakWordIfNeeded(
   // Re-assert letter-spacing: tokenizeRuns may have left ctx at a later run's
   // value, but break points must use THIS word's letter-spacing.
   ctx.letterSpacing = formatLetterSpacing(word.style.letterSpacing);
-  const chars = [...word.text];
+  // When the word contains emoji, iterate by GRAPHEME cluster so multi-codepoint
+  // emoji (ZWJ families, skin tones, flags) are never split mid-cluster.
+  const seg = hasEmoji ? getGraphemeSegmenter() : null;
+  const chars = seg
+    ? [...seg.segment(word.text)].map((s) => s.segment)
+    : [...word.text];
   const pieces: Word[] = [];
 
   let current = '';
   let currentWidth = 0;
 
   for (const char of chars) {
+    // Emoji clusters each get their own word — a break opportunity between
+    // adjacent emoji, matching the browser line breaker.
+    if (hasEmoji && isEmojiCluster(char)) {
+      if (current) {
+        pieces.push({ ...word, text: current, width: currentWidth });
+        current = '';
+        currentWidth = 0;
+      }
+      pieces.push({ ...word, text: char, width: cachedMeasureWidth(ctx, char) });
+      continue;
+    }
+
     // CJK chars always get their own word for wrapping
     if (isCJK(char)) {
       if (current) {
@@ -936,10 +1038,30 @@ function flowWordsIntoLines(
         currentLine.words.length > 0 &&
         !currentLine.words[currentLine.words.length - 1].isSpace;
 
+      // A word that abuts the previous run with no whitespace has no soft-wrap
+      // opportunity before it — keep it with the preceding word like trailing
+      // punctuation. Only the FIRST piece carries the flag; a break-word split
+      // inside the word may still wrap mid-word.
+      const isGlued = piece === pieces[0] && piece.noBreakBefore &&
+        currentLine.words.length > 0 &&
+        !currentLine.words[currentLine.words.length - 1].isSpace;
+
+      // A soft-hyphen break point draws a visible '-' when the line breaks
+      // right after this piece. Chrome only allows a break there if the prefix
+      // PLUS the hyphen fits, so reserve the hyphen advance in the overflow
+      // test — otherwise we pack one extra segment and the appended hyphen
+      // overflows the line (breaking one segment later than the browser).
+      let shReserve = 0;
+      if (piece.isSoftHyphenBreak) {
+        applyFont(ctx, piece.style);
+        ctx.letterSpacing = formatLetterSpacing(piece.style.letterSpacing);
+        shReserve = cachedMeasureWidth(ctx, '-');
+      }
+
       // Would this piece overflow?
-      if (!piece.isSpace && !isTrailingPunct && currentLine.words.length > 0 &&
-        currentLine.totalWidth + piece.width > effWidth()) {
-        const overflow = currentLine.totalWidth + piece.width - effWidth();
+      if (!piece.isSpace && !isTrailingPunct && !isGlued && currentLine.words.length > 0 &&
+        currentLine.totalWidth + piece.width + shReserve > effWidth()) {
+        const overflow = currentLine.totalWidth + piece.width + shReserve - effWidth();
 
         // For borderline cases (overflow < 1px), word-by-word delta
         // accumulation may introduce rounding errors. Re-measure the
@@ -949,7 +1071,8 @@ function flowWordsIntoLines(
         let reallyOverflows = true;
         if (overflow < 1 && !hasMixedFonts([...currentLine.words, piece])) {
           applyFont(ctx, piece.style);
-          const fullText = currentLine.words.map(w => w.text).join('') + piece.text;
+          const fullText = currentLine.words.map(w => w.text).join('') + piece.text +
+            (piece.isSoftHyphenBreak ? '-' : '');
           const fullWidth = cachedMeasureWidth(ctx, fullText);
           // Allow tiny sub-pixel overflow — canvas measureText and DOM
           // text layout can differ by fractions of a pixel.
@@ -962,7 +1085,7 @@ function flowWordsIntoLines(
         // try fitting a hyphen prefix on the current line. Browsers prefer
         // keeping content on the current line by splitting at hyphens.
         if (reallyOverflows && piece.text.includes('-')) {
-          const parts = piece.text.split(/(?<=-)/);
+          const parts = piece.text.split(/(?<=-)(?!\d)|(?<=[^\d]-)/);
           if (parts.length > 1) {
             applyFont(ctx, piece.style);
             let fitted = '';
@@ -1025,7 +1148,7 @@ function flowWordsIntoLines(
       // Hyphen break on a fresh line when word still too wide.
       if (currentLine.words.length === 0 && pieceWidth > effWidth() &&
           !piece.isSpace && piece.text.includes('-')) {
-        const subParts = piece.text.split(/(?<=-)/);
+        const subParts = piece.text.split(/(?<=-)(?!\d)|(?<=[^\d]-)/);
         if (subParts.length > 1) {
           applyFont(ctx, piece.style);
           // Inject sub-parts as individual pieces — they'll flow through
@@ -1399,13 +1522,20 @@ function layoutInlineContent(
       if (hasBidiMix) {
         applyFont(ctx, textWords[0].style);
         const measuredWidth = cachedMeasureWidth(ctx, lineText);
+        // This line belongs to an LTR block (we're in the !isRTL branch), so it
+        // must be painted with an LTR base direction even when its first word is
+        // RTL (an RTL span that wrapped onto this line). Without forcing LTR the
+        // node inherits the first word's direction:'rtl' and the paint path
+        // right-aligns the whole line at the left edge (x=curX), drawing it
+        // off-screen. The canvas BiDi engine still reorders the embedded
+        // Arabic/Hebrew runs within the LTR line.
         results.push({
           type: 'text',
           text: lineText,
           x: curX,
           y: lineBaselineY,
           width: measuredWidth,
-          style: textWords[0].style,
+          style: { ...textWords[0].style, direction: 'ltr' },
         });
       } else {
         // Mixed styles: word by word

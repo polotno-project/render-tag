@@ -303,6 +303,15 @@ describe('Layout logic (mocked measureText)', () => {
       expect(lines).toEqual(['aaaa top-', 'to-end']);
     });
 
+    it('does not break a hyphen flanked by digits (phone/number/date)', () => {
+      // "+1-555-123-4567" — every hyphen sits between digits, which is NOT a
+      // break opportunity in the browser, so the token stays whole (overflowing)
+      // rather than splitting at the hyphens.
+      const tree = block('div', [block('p', [textNode('+1-555-123-4567')])]);
+      const root = doLayout(tree, 100);
+      expect(getLines(root)).toEqual(['+1-555-123-4567']);
+    });
+
     it('splits at first fitting hyphen point', () => {
       // "a-b-c-d" = 7 chars = 70px, container = 40px
       // Fresh line, doesn't fit → try hyphen splits
@@ -313,6 +322,99 @@ describe('Layout logic (mocked measureText)', () => {
       const root = doLayout(tree, 40);
       const lines = getLines(root);
       expect(lines).toEqual(['a-b-', 'c-d']);
+    });
+
+    it('reserves the visible hyphen width at a soft-hyphen break', () => {
+      // "ab­cd­ef": soft hyphens split into pieces ab|cd|ef (char=10).
+      // hyphen '-' = 10px. Container = 45px.
+      // Chrome only breaks at a soft hyphen if prefix + '-' fits: "ab-" = 30 ≤ 45
+      // but "abcd-" = 50 > 45, so it must break after "ab", giving "ab-" / "cdef".
+      // Without reserving the hyphen, the engine packs "abcd" (40 ≤ 45) then adds
+      // "-" → "abcd-" = 50px overflowing the line.
+      const tree = block('div', [
+        block('p', [textNode('ab­cd­ef')]),
+      ]);
+      const root = doLayout(tree, 45);
+      const lines = getLines(root);
+      expect(lines[0]).toBe('ab-');
+    });
+  });
+
+  describe('Emoji cluster breaking', () => {
+    it('breaks between emoji clusters in an unspaced run', () => {
+      // Each emoji measures 20px (2 UTF-16 units × 10px in the mock).
+      // Container 50px: 😀😁 = 40px fits, 😂 wraps. Browsers treat each emoji
+      // grapheme as a break opportunity; without the rule the run stays whole.
+      const tree = block('div', [block('p', [textNode('😀😁😂')])]);
+      const root = doLayout(tree, 50);
+      const lines = getLines(root);
+      expect(lines.length).toBe(2);
+      expect(lines[0]).toBe('😀😁');
+    });
+
+    it('never splits inside a ZWJ emoji sequence (family)', () => {
+      // 👨‍👩‍👧‍👦 is a single grapheme cluster — must stay intact even when narrow.
+      const tree = block('div', [block('p', [textNode('👨‍👩‍👧‍👦')])]);
+      const root = doLayout(tree, 10);
+      const lines = getLines(root);
+      expect(lines.length).toBe(1);
+      expect(lines[0]).toBe('👨‍👩‍👧‍👦');
+    });
+  });
+
+  describe('Adjacent inline spans with no whitespace', () => {
+    it('does not break between adjacent spans that have no whitespace between them', () => {
+      // <span>RED</span><span>BLUE</span> with no space → "REDBLUE" is one
+      // unbreakable unit in CSS (no break opportunity at the element boundary).
+      // char=10: REDBLUE = 70px overflows a 40px container but must stay whole.
+      const tree = block('div', [
+        block('p', [
+          inline('span', [textNode('RED')]),
+          inline('span', [textNode('BLUE')]),
+        ]),
+      ]);
+      const root = doLayout(tree, 40);
+      expect(getLines(root)).toEqual(['REDBLUE']);
+    });
+
+    it('still breaks at real whitespace between spans', () => {
+      // A space between the spans is a genuine break opportunity.
+      const tree = block('div', [
+        block('p', [
+          inline('span', [textNode('RED')]),
+          textNode(' '),
+          inline('span', [textNode('BLUE')]),
+        ]),
+      ]);
+      const root = doLayout(tree, 40);
+      expect(getLines(root)).toEqual(['RED', 'BLUE']);
+    });
+  });
+
+  describe('URL break opportunities', () => {
+    it('breaks after "?" (query delimiter) inside an unbreakable token', () => {
+      // char=10. "q3?lang" = 7 chars. Container 35px.
+      // Chrome breaks after the query delimiter "?": "q3?" (30px) fits,
+      // "lang" wraps. Without the rule the whole token overflows on one line.
+      const tree = block('div', [block('p', [textNode('q3?lang')])]);
+      const root = doLayout(tree, 35);
+      expect(getLines(root)).toEqual(['q3?', 'lang']);
+    });
+
+    it('does NOT break at "/", "&", "=" or "." inside a token', () => {
+      // These are NOT break opportunities in Chrome (verified against the
+      // browser): a path/query without "?" stays whole and overflows.
+      const tree = block('div', [block('p', [textNode('a/b&c=d.e')])]);
+      const root = doLayout(tree, 40);
+      // 9 chars = 90px overflows 40px but must stay on ONE line (no break).
+      expect(getLines(root)).toEqual(['a/b&c=d.e']);
+    });
+
+    it('does not split a token that has no "?" follower', () => {
+      // Trailing "?" (end of token) must not create a phantom empty fragment.
+      const tree = block('div', [block('p', [textNode('Done?')])]);
+      const root = doLayout(tree, 200);
+      expect(getLines(root)).toEqual(['Done?']);
     });
   });
 
@@ -978,6 +1080,21 @@ describe('Layout logic (mocked measureText)', () => {
       const root = doLayout(tree, 60);
       const lines = getLines(root);
       expect(lines[0]).toBe('ABCD');
+    });
+
+    it('negative letter-spacing narrows measurement so more chars fit per line', () => {
+      // char=10, letter-spacing=-2 → 8px effective per char.
+      // Container 80px: with -2 spacing, "AAAAAAAAAA" (10 chars) = 80px fits.
+      // If negatives were clamped to 0 (the bug), only 8 chars (80px) would fit
+      // and the word would wrap earlier.
+      const tree = block('div', [
+        block('p', [
+          textNode('AAAAAAAAAA BBBB', { letterSpacing: -2, wordBreak: 'break-all' }),
+        ]),
+      ]);
+      const root = doLayout(tree, 80);
+      const lines = getLines(root);
+      expect(lines[0]).toBe('AAAAAAAAAA');
     });
   });
 

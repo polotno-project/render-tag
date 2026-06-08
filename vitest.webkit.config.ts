@@ -1,6 +1,7 @@
 import { defineConfig } from 'vitest/config';
 import { playwright } from '@vitest/browser-playwright';
 import path from 'path';
+import { saveWrapReport } from './tests/helpers/wrap-report-command.ts';
 
 export default defineConfig({
   resolve: {
@@ -13,6 +14,7 @@ export default defineConfig({
     browser: {
       enabled: true,
       provider: playwright(),
+      commands: { saveWrapReport },
       instances: [
         { browser: 'webkit', headless: true },
       ],
