@@ -36,7 +36,7 @@
     "wrap": true
   },
   "Dense inline formatting": {
-    "score": 15.64,
+    "score": 6.5,
     "wrap": true
   },
   "Long paragraph word wrapping": {
@@ -212,7 +212,7 @@
     "wrap": true
   },
   "Mixed Google Fonts inline": {
-    "score": 30.71,
+    "score": 22.9,
     "wrap": true
   },
   "Dense mixed inline styles": {
@@ -324,7 +324,7 @@
     "wrap": true
   },
   "CJK lists with alignment": {
-    "score": 34.87,
+    "score": 27.02,
     "wrap": true
   },
   "RTL lists with alignment": {
@@ -388,7 +388,7 @@
     "wrap": true
   },
   "Dense inline formatting@Open Sans": {
-    "score": 15.64,
+    "score": 6.5,
     "wrap": true
   },
   "Long paragraph word wrapping@Open Sans": {
@@ -676,7 +676,7 @@
     "wrap": true
   },
   "CJK lists with alignment@Open Sans": {
-    "score": 34.87,
+    "score": 27.02,
     "wrap": true
   },
   "RTL lists with alignment@Open Sans": {
@@ -732,7 +732,7 @@
     "wrap": true
   },
   "Dense inline formatting@Roboto": {
-    "score": 15.64,
+    "score": 6.5,
     "wrap": true
   },
   "Long paragraph word wrapping@Roboto": {
@@ -1020,7 +1020,7 @@
     "wrap": true
   },
   "CJK lists with alignment@Roboto": {
-    "score": 28.88,
+    "score": 14.42,
     "wrap": true
   },
   "RTL lists with alignment@Roboto": {
@@ -1076,7 +1076,7 @@
     "wrap": true
   },
   "Dense inline formatting@Playfair Display": {
-    "score": 15.64,
+    "score": 6.5,
     "wrap": true
   },
   "Long paragraph word wrapping@Playfair Display": {
@@ -1236,8 +1236,8 @@
     "wrap": true
   },
   "Long document 20+ paragraphs@Playfair Display": {
-    "score": 31.63,
-    "wrap": false
+    "score": 16.35,
+    "wrap": true
   },
   "Single word paragraphs@Playfair Display": {
     "score": 5.99,
@@ -1364,7 +1364,7 @@
     "wrap": true
   },
   "CJK lists with alignment@Playfair Display": {
-    "score": 29.01,
+    "score": 14.55,
     "wrap": true
   },
   "RTL lists with alignment@Playfair Display": {
@@ -1420,7 +1420,7 @@
     "wrap": true
   },
   "Dense inline formatting@Merriweather": {
-    "score": 15.64,
+    "score": 6.5,
     "wrap": true
   },
   "Long paragraph word wrapping@Merriweather": {
@@ -1708,7 +1708,7 @@
     "wrap": true
   },
   "CJK lists with alignment@Merriweather": {
-    "score": 34.8,
+    "score": 26.93,
     "wrap": true
   },
   "RTL lists with alignment@Merriweather": {
@@ -1764,7 +1764,7 @@
     "wrap": true
   },
   "Dense inline formatting@Lobster": {
-    "score": 15.64,
+    "score": 6.5,
     "wrap": true
   },
   "Long paragraph word wrapping@Lobster": {
@@ -2052,7 +2052,7 @@
     "wrap": true
   },
   "CJK lists with alignment@Lobster": {
-    "score": 34.48,
+    "score": 26.57,
     "wrap": true
   },
   "RTL lists with alignment@Lobster": {

@@ -296,7 +296,7 @@ function matchesParsedSelector(sel: ParsedSelector, ctx: ElementContext): boolea
 
 /** Properties that inherit from parent to child */
 const INHERITED_PROPERTIES = new Set([
-  'font-family', 'font-size', 'font-weight', 'font-style',
+  'font-family', 'font-size', 'font-weight', 'font-style', 'font-variant', 'font-variant-caps',
   'color', 'text-align', 'text-align-last', 'text-indent', 'text-transform',
   'text-decoration-line', 'text-decoration-style', 'text-decoration-color',
   'letter-spacing', 'word-spacing', 'font-kerning',
@@ -308,10 +308,13 @@ const INHERITED_PROPERTIES = new Set([
 /** Default values for all ResolvedStyle properties */
 function defaultStyle(): ResolvedStyle {
   return {
-    fontFamily: 'sans-serif',
+    // Browsers default unstyled text to the UA serif font (Times). Match it so
+    // HTML without an explicit font-family wraps/positions like the browser.
+    fontFamily: 'serif',
     fontSize: 16,
     fontWeight: 400,
     fontStyle: 'normal',
+    fontVariantCaps: 'normal',
     color: 'rgb(0, 0, 0)',
     textAlign: 'start',
     textAlignLast: 'auto',
@@ -622,6 +625,12 @@ function applyDeclaration(
     }
     case 'font-weight': style.fontWeight = parseFontWeight(value); break;
     case 'font-style': style.fontStyle = value.trim(); break;
+    // Canvas only renders the `small-caps` variant; map anything containing it
+    // (incl. the font-variant shorthand) to small-caps, else normal.
+    case 'font-variant':
+    case 'font-variant-caps':
+      style.fontVariantCaps = /\bsmall-caps\b/.test(value) ? 'small-caps' : 'normal';
+      break;
     case 'color': style.color = value.trim(); break;
     case 'text-align': style.textAlign = value.trim(); break;
     case 'text-align-last': style.textAlignLast = value.trim(); break;

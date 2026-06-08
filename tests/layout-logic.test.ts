@@ -21,6 +21,7 @@ function defaultStyle(overrides: Partial<ResolvedStyle> = {}): ResolvedStyle {
     fontSize: 16,
     fontWeight: 400,
     fontStyle: 'normal',
+    fontVariantCaps: 'normal',
     color: 'black',
     textAlign: 'left',
     textTransform: 'none',

@@ -36,7 +36,7 @@
     "wrap": false
   },
   "Dense inline formatting": {
-    "score": 16.64,
+    "score": 6.53,
     "wrap": true
   },
   "Long paragraph word wrapping": {
@@ -212,7 +212,7 @@
     "wrap": true
   },
   "Mixed Google Fonts inline": {
-    "score": 21.96,
+    "score": 11.05,
     "wrap": true
   },
   "Dense mixed inline styles": {
@@ -388,7 +388,7 @@
     "wrap": false
   },
   "Dense inline formatting@Open Sans": {
-    "score": 16.64,
+    "score": 6.53,
     "wrap": true
   },
   "Long paragraph word wrapping@Open Sans": {
@@ -732,7 +732,7 @@
     "wrap": false
   },
   "Dense inline formatting@Roboto": {
-    "score": 16.64,
+    "score": 6.53,
     "wrap": true
   },
   "Long paragraph word wrapping@Roboto": {
@@ -1076,7 +1076,7 @@
     "wrap": false
   },
   "Dense inline formatting@Playfair Display": {
-    "score": 16.64,
+    "score": 6.53,
     "wrap": true
   },
   "Long paragraph word wrapping@Playfair Display": {
@@ -1420,7 +1420,7 @@
     "wrap": false
   },
   "Dense inline formatting@Merriweather": {
-    "score": 16.64,
+    "score": 6.53,
     "wrap": true
   },
   "Long paragraph word wrapping@Merriweather": {
@@ -1764,7 +1764,7 @@
     "wrap": false
   },
   "Dense inline formatting@Lobster": {
-    "score": 16.64,
+    "score": 6.53,
     "wrap": true
   },
   "Long paragraph word wrapping@Lobster": {

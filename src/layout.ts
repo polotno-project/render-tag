@@ -65,11 +65,13 @@ function formatLetterSpacing(value: number): string {
  */
 const _fontStringCache = new Map<string, string>();
 export function buildCanvasFont(style: ResolvedStyle): string {
-  const key = `${style.fontStyle}|${style.fontWeight}|${style.fontSize}|${style.fontFamily}`;
+  const key = `${style.fontStyle}|${style.fontVariantCaps}|${style.fontWeight}|${style.fontSize}|${style.fontFamily}`;
   const cached = _fontStringCache.get(key);
   if (cached) return cached;
   const parts: string[] = [];
+  // CSS font shorthand order: style, variant, weight, size, family.
   if (style.fontStyle !== 'normal') parts.push(style.fontStyle);
+  if (style.fontVariantCaps === 'small-caps') parts.push('small-caps');
   if (style.fontWeight !== 400) parts.push(String(style.fontWeight));
   parts.push(`${style.fontSize}px`);
   parts.push(style.fontFamily);
@@ -1073,10 +1075,18 @@ function flowWordsIntoLines(
           applyFont(ctx, piece.style);
           const fullText = currentLine.words.map(w => w.text).join('') + piece.text +
             (piece.isSoftHyphenBreak ? '-' : '');
-          const fullWidth = cachedMeasureWidth(ctx, fullText);
-          // Allow tiny sub-pixel overflow — canvas measureText and DOM
-          // text layout can differ by fractions of a pixel.
-          if (fullWidth <= effWidth() + 0.1) {
+          // Empty-text words carry non-glyph advance (inline padding/border
+          // markers, inline-block margins) that measureText(fullText) misses —
+          // add them back so padded inline spans aren't under-measured.
+          let markerWidth = 0;
+          for (const w of currentLine.words) if (!w.text) markerWidth += w.width;
+          if (!piece.text) markerWidth += piece.width;
+          const fullWidth = cachedMeasureWidth(ctx, fullText) + markerWidth;
+          // Allow only a hair of sub-pixel overflow. measureText matches the
+          // browser's rendered width to ~0.01px, so a larger slack would keep
+          // lines the browser actually wraps (packing one extra word per
+          // borderline line and drifting the whole document's breaks).
+          if (fullWidth <= effWidth() + 0.02) {
             reallyOverflows = false;
           }
         }
