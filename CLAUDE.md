@@ -76,6 +76,31 @@ measurement bug (nonzero Δ) from a sub-pixel/font-loading artifact (Δ≈0). No
 `measureText` matches the browser to ~0.01px, so most residual mismatches are
 sub-pixel knife-edges where browser builds themselves disagree, not bugs.
 
+### Generative wrap fuzzer (`tests/wrap-fuzz.test.ts`) — regression gate in `npm test`
+A generative differential test that *synthesizes* rich-text variations instead
+of relying on the hand-curated corpus — the curated baselines only cover "cases
+someone thought to write down", which is how a whole class of bugs (a word
+split across inline-run boundaries: `<span>E</span>xperience`, font-size/weight
+changes mid-word, hyphenated words bisected by a formatting span) went
+uncovered. It generates words wrapped mid-word in random `<span>`/`<strong>`/
+`<em>` with style mutations, under every `text-align` × `white-space` ×
+`overflow-wrap` × base-size combo, and sweeps each through the `compareWrapping`
+oracle across widths. Seeded PRNG → deterministic corpus, so it can gate CI.
+
+**It asserts** (and so runs in `npm test`, Chrome only):
+- **zero box-overflow** — any canvas line wider than its container fails the
+  build (the clear render-bug class, e.g. "last glyph outside the box").
+- **no NEW structural (line-count) divergence signature** beyond those recorded
+  in `tests/wrap-fuzz-baseline.json` (keyed per browser). Known residuals are
+  promoted there deliberately — same philosophy as the pixel baselines.
+
+**On failure** it prints the offending signatures + HTML reproducers and writes
+`tests/wrap-report.fuzz-<browser>.json` (git-ignored) with all findings. To
+promote a verified new residual, copy its signature into the baseline's browser
+array. Tune `NUM_CASES`/`SEED` at the top. Firefox/WebKit baselines are `null`
+(set-matching skipped there); the overflow gate still applies if added to those
+configs.
+
 ## Code conventions
 
 ### Making changes

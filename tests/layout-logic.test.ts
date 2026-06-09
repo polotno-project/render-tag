@@ -391,6 +391,70 @@ describe('Layout logic (mocked measureText)', () => {
       expect(getLines(root)).toEqual(['RED', 'BLUE']);
     });
 
+    it('break-word splits a word that overflows even when it is split across a span boundary', () => {
+      // "Experience" = <span>E</span>xperience, overflow-wrap:break-word.
+      // char=10: "Experience"=100. Container=80. Neither "E"(10) nor
+      // "xperience"(90) alone exceeds 80, so per-word break-word never fires —
+      // the word overflows. The browser breaks the whole word at char level:
+      // "Experien"(80) / "ce"(20). The break must span the run boundary.
+      const bw = { overflowWrap: 'break-word' as const };
+      const tree = block('div', [
+        block('p', [
+          inline('span', [textNode('E', bw)], bw),
+          textNode('xperience', bw),
+        ], bw),
+      ]);
+      const root = doLayout(tree, 80);
+      expect(getLines(root)).toEqual(['Experien', 'ce']);
+    });
+
+    it('break-word across a span boundary accounts for the glued prefix already on the line', () => {
+      // "E"(span) + "xperience". char=10, container=80. The first break chunk
+      // must include the "E" already placed: "Experien"(80)/"ce", NOT
+      // "xperienc"(broken in isolation, ignoring "E", which would overflow).
+      const bw = { overflowWrap: 'break-word' as const };
+      const tree = block('div', [
+        block('p', [
+          inline('span', [textNode('E', bw)], bw),
+          textNode('xperience', bw),
+        ], bw),
+      ]);
+      const root = doLayout(tree, 80);
+      const lines = getLines(root);
+      // First line must not exceed 8 chars (80px / 10px).
+      expect(lines[0].length).toBeLessThanOrEqual(8);
+      expect(lines.join('')).toBe('Experience');
+    });
+
+    it('breaks a hyphenated word at the hyphen even when split across a span boundary', () => {
+      // "well-being" = <span>wel</span>l-being. A hyphen is a normal break
+      // opportunity (independent of overflow-wrap). char=10: "well-"=50,
+      // "being"=50. Container=70: "well-" fits, "being" wraps. The break must
+      // happen at the hyphen, which sits across the run boundary.
+      const tree = block('div', [
+        block('p', [
+          inline('span', [textNode('wel')]),
+          textNode('l-being'),
+        ]),
+      ]);
+      const root = doLayout(tree, 70);
+      expect(getLines(root)).toEqual(['well-', 'being']);
+    });
+
+    it('fills the current line up to the hyphen of a split word (hyphen is not last-resort)', () => {
+      // "x <span>wel</span>l-being", container=70. Unlike break-word, a hyphen
+      // fills the current line: "x well-" / "being" (NOT "x" / "well-being").
+      const tree = block('div', [
+        block('p', [
+          textNode('x '),
+          inline('span', [textNode('wel')]),
+          textNode('l-being'),
+        ]),
+      ]);
+      const root = doLayout(tree, 70);
+      expect(getLines(root)).toEqual(['x well-', 'being']);
+    });
+
     it('wraps a whole word that is split across a span boundary as one unit', () => {
       // "Experience" is split across an inline span: <span>Experie</span>nce.
       // There is NO break opportunity between "Experie" and "nce", so the word

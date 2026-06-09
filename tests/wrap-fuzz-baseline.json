@@ -1,0 +1,14 @@
+{
+  "_comment": "Known-acceptable wrap-fuzz divergence signatures per browser. The generative fuzzer (tests/wrap-fuzz.test.ts) FAILS when a structural line-count divergence appears whose signature is NOT listed here, or when ANY box-overflow is found. These residuals are the lower-severity 'break-word should prefer a hyphen break over a mid-character break' class (off-by-one line count, nothing overflows). To update deliberately after a verified change: run the fuzzer, copy the linecount signatures from tests/wrap-report.fuzz-<browser>.json into the matching browser array below.",
+  "chrome": [
+    "center|normal|break-word|sz40|bold,size-down",
+    "center|normal|break-word|sz40|size-down",
+    "center|pre-wrap|break-word|sz40|italic",
+    "left|normal|break-word|sz40|super",
+    "left|normal|break-word|sz70|ls-pos,size-up",
+    "left|pre-wrap|break-word|sz40|size-down",
+    "left|pre-wrap|break-word|sz40|size-up"
+  ],
+  "firefox": null,
+  "webkit": null
+}

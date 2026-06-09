@@ -1031,6 +1031,123 @@ function flowWordsIntoLines(
       continue;
     }
 
+    // Breaking a word that is split across a run boundary. A single word split
+    // across adjacent inline runs (e.g. <span>E</span>xperience, a font-size
+    // change mid-word, or <span>wel</span>l-being) is several Words glued by
+    // `noBreakBefore`. Per-word break logic can't see the whole word, so its
+    // internal break opportunities — hyphens, and break-word char points — are
+    // lost and the unit overflows the edge. Detect the maximal glued chain
+    // starting here and break it across the run boundaries like the browser.
+    if (!word.isSpace && word.text && !word.noBreakBefore && !word.boxOpen && !word.boxClose) {
+      let end = wordIndex;
+      while (end + 1 < words.length) {
+        const nx = words[end + 1];
+        if (!nx.text || nx.isSpace || nx.boxOpen || nx.boxClose || !nx.noBreakBefore) break;
+        end++;
+      }
+      if (end > wordIndex) {
+        const breakWord = word.style.overflowWrap === 'break-word' || word.style.wordBreak === 'break-all';
+        let combined = 0;
+        for (let j = wordIndex; j <= end; j++) combined += words[j].width;
+        // Flatten the chain into styled characters (per-run style retained).
+        const cells: { ch: string; style: ResolvedStyle }[] = [];
+        for (let j = wordIndex; j <= end; j++)
+          for (const ch of [...words[j].text]) cells.push({ ch, style: words[j].style });
+        const combinedText = cells.map((c) => c.ch).join('');
+        // Hyphen break opportunities (same rule as the single-word hyphen path).
+        const segTexts = combinedText.split(/(?<=-)(?!\d)|(?<=[^\d]-)/).filter((s) => s.length);
+        const hyphenMode = segTexts.length > 1;
+        const fitsLine = currentLine.totalWidth + combined <= effWidth();
+        // A hyphen is an ordinary break opportunity — intervene whenever the
+        // unit doesn't fit the remaining space. break-word is last-resort —
+        // only when the unit can't fit a full line at all (otherwise the normal
+        // flow + glued-tail fit check correctly wraps it whole to a fresh line).
+        const enter = !fitsLine && (hyphenMode || (breakWord && combined > effWidth()));
+        if (enter) {
+          // Atomic units for breaking: hyphen segments, else the whole chain.
+          const segs: { ch: string; style: ResolvedStyle }[][] = [];
+          let ci = 0;
+          for (const st of segTexts) {
+            const len = [...st].length;
+            segs.push(cells.slice(ci, ci + len));
+            ci += len;
+          }
+          // Place a segment's cells onto the current line, splitting same-style
+          // runs into pieces. When `chars` is set, wrap at the line edge between
+          // characters (break-word); otherwise place atomically (it may overflow
+          // its own line, e.g. a hyphen prefix wider than the container).
+          const placeCells = (cs: { ch: string; style: ResolvedStyle }[], chars: boolean) => {
+            let i = 0;
+            while (i < cs.length) {
+              const st = cs[i].style;
+              applyFont(ctx, st);
+              ctx.letterSpacing = formatLetterSpacing(st.letterSpacing);
+              const lh = getLineHeight(ctx, st, useBulletProbe);
+              const run: { ch: string; style: ResolvedStyle }[] = [];
+              let cur = '';
+              let curW = 0;
+              while (i < cs.length && cs[i].style === st) {
+                const ch = cs[i].ch;
+                const candW = cachedMeasureWidth(ctx, cur + ch);
+                if (chars && currentLine.totalWidth + candW > effWidth() &&
+                    (currentLine.words.length > 0 || cur)) {
+                  if (cur) {
+                    currentLine.words.push({ text: cur, width: curW, style: st, isSpace: false });
+                    currentLine.totalWidth += curW;
+                    currentLine.lineHeight = Math.max(currentLine.lineHeight, lh);
+                  }
+                  pushLine(true);
+                  afterHardBreak = false;
+                  cur = ch;
+                  curW = cachedMeasureWidth(ctx, ch);
+                } else {
+                  cur += ch;
+                  curW = candW;
+                }
+                i++;
+              }
+              if (cur) {
+                currentLine.words.push({ text: cur, width: curW, style: st, isSpace: false });
+                currentLine.totalWidth += curW;
+                currentLine.lineHeight = Math.max(currentLine.lineHeight, lh);
+                afterHardBreak = false;
+              }
+            }
+          };
+          const measureSeg = (cs: { ch: string; style: ResolvedStyle }[]) => {
+            let w = 0;
+            let i = 0;
+            while (i < cs.length) {
+              const st = cs[i].style;
+              let txt = '';
+              while (i < cs.length && cs[i].style === st) { txt += cs[i].ch; i++; }
+              applyFont(ctx, st);
+              ctx.letterSpacing = formatLetterSpacing(st.letterSpacing);
+              w += cachedMeasureWidth(ctx, txt);
+            }
+            return w;
+          };
+          // Pure break-word (no hyphen) is last-resort: move the whole word to a
+          // fresh line first (using the preceding space), then break it there.
+          if (!hyphenMode && currentLine.words.length > 0) {
+            pushLine(true);
+            afterHardBreak = false;
+          }
+          for (const seg of segs) {
+            const segW = measureSeg(seg);
+            if (currentLine.words.length > 0 && currentLine.totalWidth + segW > effWidth()) {
+              pushLine(true);
+              afterHardBreak = false;
+            }
+            // Char-break a segment only when break-word and it can't fit a line.
+            placeCells(seg, breakWord && segW > effWidth());
+          }
+          wordIndex = end;
+          continue;
+        }
+      }
+    }
+
     // Break long words / CJK characters if needed
     const pieces = (!word.isSpace && word.text.length > 1)
       ? breakWordIfNeeded(ctx, word, effWidth(), currentLine.totalWidth)
