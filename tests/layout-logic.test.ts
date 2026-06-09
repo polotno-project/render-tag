@@ -517,6 +517,27 @@ describe('Layout logic (mocked measureText)', () => {
       const lines = getLines(root);
       expect(lines).toEqual(['abc', 'def', 'ghi', 'j']);
     });
+
+    it('prefers a hyphen break over a mid-character break', () => {
+      // "well-being"=100, container=70, overflow-wrap:break-word. A hyphen is a
+      // normal break opportunity, so the browser breaks there ("well-"/"being")
+      // rather than mid-character ("well-be"/"ing"). break-word is last-resort.
+      const tree = block('div', [
+        block('p', [textNode('well-being', { overflowWrap: 'break-word' })]),
+      ]);
+      const root = doLayout(tree, 70);
+      expect(getLines(root)).toEqual(['well-', 'being']);
+    });
+
+    it('char-breaks a hyphen segment that is itself too wide', () => {
+      // container=30: each hyphen segment ("well-"=50, "being"=50) still
+      // overflows, so it falls back to char-breaking within the segment.
+      const tree = block('div', [
+        block('p', [textNode('well-being', { overflowWrap: 'break-word' })]),
+      ]);
+      const root = doLayout(tree, 30);
+      expect(getLines(root)).toEqual(['wel', 'l-', 'bei', 'ng']);
+    });
   });
 
   // ─── Margin collapsing ─────────────────────────────────────────────

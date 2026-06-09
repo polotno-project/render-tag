@@ -859,6 +859,32 @@ function breakWordIfNeeded(
 
   if (!hasCJK && !hasEmoji && !needsBreak) return [word];
 
+  // overflow-wrap:break-word is a LAST RESORT — the browser first uses any
+  // normal break opportunity inside the word (a hyphen) before breaking
+  // mid-character. So split a hyphenated word at its hyphens first and only
+  // char-break the segments that are themselves still too wide. (word-break:
+  // break-all genuinely allows breaking between any two characters, so it
+  // skips this and falls through to the char loop below.)
+  if (needsBreak && word.style.wordBreak !== 'break-all' &&
+      word.style.overflowWrap === 'break-word') {
+    const segTexts = word.text.split(/(?<=-)(?!\d)|(?<=[^\d]-)/).filter((s) => s.length);
+    if (segTexts.length > 1) {
+      ctx.font = buildCanvasFont(word.style);
+      ctx.letterSpacing = formatLetterSpacing(word.style.letterSpacing);
+      const out: Word[] = [];
+      for (const segText of segTexts) {
+        const segWidth = cachedMeasureWidth(ctx, segText);
+        if (segWidth <= contentWidth) {
+          out.push({ ...word, text: segText, width: segWidth });
+        } else {
+          // Segment still overflows — char-break just this segment.
+          out.push(...breakWordIfNeeded(ctx, { ...word, text: segText, width: segWidth }, contentWidth, 0));
+        }
+      }
+      return out;
+    }
+  }
+
   // Split into characters using cumulative measurement for accuracy.
   // Measuring each char individually ignores kerning — the sum of individual
   // widths diverges from the true string width over many characters.
