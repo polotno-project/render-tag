@@ -1037,17 +1037,22 @@ function flowWordsIntoLines(
       : [word];
 
     // Glued tail: content immediately after this word that cannot start a new
-    // line — trailing punctuation (",.)]}…") and an inline span's right
-    // padding/border (empty boxClose markers). The browser includes it when
-    // deciding whether this word fits, so a word + its trailing "," / right
-    // padding wraps as a unit. Stops at whitespace or the next breakable word.
+    // line — trailing punctuation (",.)]}…"), an inline span's right
+    // padding/border (empty boxClose markers), and a word continuation that
+    // abuts this word across a run boundary with no soft-wrap opportunity
+    // (noBreakBefore — e.g. one word split across two inline spans with
+    // different font sizes). The browser includes all of it when deciding
+    // whether this word fits, so the unit wraps together: if "Music Experie"
+    // doesn't leave room for the glued "nce", the whole word wraps as one.
+    // Stops at whitespace or the next breakable word.
     let gluedTailWidth = 0;
     for (let j = wordIndex + 1; j < words.length; j++) {
       const nw = words[j];
       if (nw.isSpace || nw.text === '\n') break;
       const isPunct = !!nw.text && TRAILING_PUNCT.test(nw.text);
       const isCloseMarker = !nw.text && !!nw.boxClose;
-      if (isPunct || isCloseMarker) { gluedTailWidth += nw.width; continue; }
+      const isGluedCont = !!nw.text && !!nw.noBreakBefore;
+      if (isPunct || isCloseMarker || isGluedCont) { gluedTailWidth += nw.width; continue; }
       break;
     }
 

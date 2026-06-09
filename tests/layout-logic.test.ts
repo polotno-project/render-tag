@@ -390,6 +390,27 @@ describe('Layout logic (mocked measureText)', () => {
       const root = doLayout(tree, 40);
       expect(getLines(root)).toEqual(['RED', 'BLUE']);
     });
+
+    it('wraps a whole word that is split across a span boundary as one unit', () => {
+      // "Experience" is split across an inline span: <span>Experie</span>nce.
+      // There is NO break opportunity between "Experie" and "nce", so the word
+      // must wrap as a unit. The fit check for "Experie" must include the glued
+      // "nce" that follows — otherwise "Experie" packs onto the "Music " line
+      // and the glued "nce" overflows it.
+      // char=10: "Music"=50 +space=10, "Experie"=70, "nce"=30.
+      // Width 130: "Music Experie"=130 would just fit, but the full word
+      // "Experience"=100 doesn't fit after "Music " (60+100=160>130), so the
+      // browser wraps the whole word.
+      const tree = block('div', [
+        block('p', [
+          textNode('Music '),
+          inline('span', [textNode('Experie')]),
+          textNode('nce'),
+        ]),
+      ]);
+      const root = doLayout(tree, 130);
+      expect(getLines(root)).toEqual(['Music', 'Experience']);
+    });
   });
 
   describe('URL break opportunities', () => {
