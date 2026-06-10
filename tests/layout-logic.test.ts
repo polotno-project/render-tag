@@ -826,13 +826,13 @@ describe('Layout logic (mocked measureText)', () => {
       expect(marker!.x).toBeGreaterThan(item!.x);
     });
 
-    // ─── ::marker pseudo-element overrides ────────────────────────────
-    // Default gap = fontSize * 0.15. With fontSize=16 and paddingLeft=30,
-    // marker width = 1*CHAR_WIDTH = 10, so:
-    //   default gap = 16 * 0.15 = 2.4
-    //   marker.x = paddingLeft - markerWidth - gap = 30 - 10 - 2.4 = 17.6
+    // ─── Chrome-matching marker positions ──────────────────────────────
+    // Bullet glyphs (•/○/■) mimic Chrome's painted symbols: ink right edge
+    // at contentStart - (7 + ascent/3), ink center ascent/3 above baseline.
+    // Mock metrics: ascent = 12 → bullet gap = 7 + 4 = 11.
+    // Text markers ("1."): gap = one space advance (Chrome suffix ". ").
 
-    it('default gap unchanged when no markerStyle (regression)', () => {
+    it('bullet: ink ends 7px + ascent/3 before content', () => {
       const li: StyledNode = {
         element: null,
         tagName: 'li',
@@ -844,7 +844,57 @@ describe('Layout logic (mocked measureText)', () => {
       const tree = block('div', [block('ul', [li])]);
       const root = doLayout(tree, 200);
       const marker = collectTexts(root).find(t => t.text === '•')!;
-      expect(marker.x).toBeCloseTo(17.6, 5);
+      // mock ink right edge = advance = 10 → x = 30 - 11 - 10 = 9
+      expect(marker.x).toBeCloseTo(9, 5);
+    });
+
+    it('bullet: glyph ink center lands ascent/3 above baseline', () => {
+      // Custom ctx where the bullet glyph's ink sits higher than Chrome's
+      // symbol position: actual bounds ascent 12 / descent 0 → ink center 6
+      // above draw baseline. Desired center = ascent/3 = 4 above the line
+      // baseline → marker baseline shifts down by 2.
+      const ctx = mockCtx();
+      const base = ctx.measureText.bind(ctx);
+      (ctx as any).measureText = (text: string) => {
+        const m = base(text);
+        if (text === '•') {
+          return { ...m, actualBoundingBoxAscent: 12, actualBoundingBoxDescent: 0 };
+        }
+        return m;
+      };
+      const li: StyledNode = {
+        element: null,
+        tagName: 'li',
+        style: defaultStyle({ display: 'list-item', paddingLeft: 30, fontSize: 16 }),
+        children: [textNode('Item')],
+        textContent: null,
+        listMarker: '•',
+      };
+      const tree = block('div', [block('ul', [li])]);
+      const { root } = buildLayoutTree(ctx, tree, 200, false);
+      const texts = collectTexts(root);
+      const marker = texts.find(t => t.text === '•')!;
+      const item = texts.find(t => t.text === 'Item')!;
+      expect(marker.y - item.y).toBeCloseTo(2, 5);
+    });
+
+    it('numbered: gap is one space advance, baseline unchanged', () => {
+      const li: StyledNode = {
+        element: null,
+        tagName: 'li',
+        style: defaultStyle({ display: 'list-item', paddingLeft: 30, fontSize: 16, listStyleType: 'decimal' }),
+        children: [textNode('Item')],
+        textContent: null,
+        listMarker: '1.',
+      };
+      const tree = block('div', [block('ul', [li])]);
+      const root = doLayout(tree, 200);
+      const texts = collectTexts(root);
+      const marker = texts.find(t => t.text === '1.')!;
+      const item = texts.find(t => t.text === 'Item')!;
+      // space advance = 10, marker advance = 20 → x = 30 - 10 - 20 = 0
+      expect(marker.x).toBeCloseTo(0, 5);
+      expect(marker.y).toBeCloseTo(item.y, 5);
     });
 
     it('LTR: markerStyle.paddingRight widens the gap', () => {

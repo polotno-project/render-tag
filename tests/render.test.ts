@@ -165,9 +165,10 @@ describe('HTML Canvas Renderer', () => {
 
       const defGap = def.items[0].x - (def.markers[0].x + def.markers[0].width);
       const wideGap = wide.items[0].x - (wide.markers[0].x + wide.markers[0].width);
-      // Default ≈ 16 * 0.15 = 2.4. Widened should add ≈ 16px (1em) on top.
-      expect(wideGap - defGap).toBeGreaterThan(13);
-      expect(wideGap - defGap).toBeLessThan(17);
+      // Default bullet gap ≈ 7 + ascent/3 ≈ 11.8 at 16px. An explicit 1em
+      // padding replaces it → delta ≈ 16 - 11.8 ≈ 4.2.
+      expect(wideGap - defGap).toBeGreaterThan(2);
+      expect(wideGap - defGap).toBeLessThan(7);
     });
 
     it('::marker padding-inline-end maps to the correct side in RTL', async () => {
@@ -183,8 +184,9 @@ describe('HTML Canvas Renderer', () => {
       const wideItem = wide.items[0];
       const defGap = def.markers[0].x - (defItem.x + defItem.width);
       const wideGap = wide.markers[0].x - (wideItem.x + wideItem.width);
-      expect(wideGap - defGap).toBeGreaterThan(13);
-      expect(wideGap - defGap).toBeLessThan(17);
+      // Same as LTR: 1em replaces the ≈11.8px default → delta ≈ 4.2.
+      expect(wideGap - defGap).toBeGreaterThan(2);
+      expect(wideGap - defGap).toBeLessThan(7);
     });
 
     it('::marker rule only matches inside the selector ancestor', async () => {
@@ -204,8 +206,9 @@ describe('HTML Canvas Renderer', () => {
 
       const fancyGap = fancy.x - (fancyMarker.x + fancyMarker.width);
       const plainGap = plain.x - (plainMarker.x + plainMarker.width);
-      expect(plainGap).toBeLessThan(5); // ≈ 2.4
-      expect(fancyGap).toBeGreaterThan(13);
+      // plain keeps the default (≈11.8), fancy gets 1em → ≈ 4.2px wider
+      expect(fancyGap - plainGap).toBeGreaterThan(2);
+      expect(fancyGap - plainGap).toBeLessThan(7);
     });
 
     it('higher-specificity ::marker rule wins over lower-specificity one', async () => {

@@ -2152,42 +2152,62 @@ function addListMarker(
 
   const markerWidth = cachedMeasureWidth(ctx, node.listMarker);
   const isRTL = style.direction === 'rtl';
-  // Gap between marker box and content. Default = fontSize * 0.15 (intrinsic).
-  // `::marker { padding-inline-end: <length> }` overrides — we honor the
-  // direction-resolved physical padding (paddingRight in LTR, paddingLeft
+  const isBullet = BULLET_MARKERS.has(style.listStyleType);
+  // Gap between marker and content, matching Chrome (measured empirically):
+  // - bullets: Chrome paints a symbol (diameter ascent/3) whose ink ends
+  //   7px + ascent/3 before the content edge, centered ascent/3 above the
+  //   baseline. We keep the glyph but position its ink to land there.
+  // - text markers ("1."): Chrome's marker text carries a ". " suffix, so
+  //   the gap is one space advance and the baseline is the line baseline.
+  // `::marker { padding-inline-end: <length> }` overrides the gap — we honor
+  // the direction-resolved physical padding (paddingRight in LTR, paddingLeft
   // in RTL) when explicitly set on the marker.
   const explicitGap = isRTL ? ms?.paddingLeft : ms?.paddingRight;
-  const gap = explicitGap !== undefined
-    ? explicitGap
-    : markerStyleObj.fontSize * 0.15;
 
   let markerX: number;
+  let markerY = baselineY;
   let markerDirection = 'ltr';
-  if (isRTL) {
-    // RTL: marker in the parent's right padding area (outside the li box).
-    const boxRightEdge = box.x + box.width;
-    // Numbered markers ("1.") need RTL direction to display as ".1".
-    // With textAlign='right', x is the right edge — so add markerWidth.
-    // Bullet markers (•, ○, ■) stay LTR — they're symmetric.
-    const isNumbered = /\d/.test(node.listMarker);
-    if (isNumbered) {
-      markerDirection = 'rtl';
-      markerX = boxRightEdge + gap + markerWidth;
+  const contentStartX = box.x + style.borderLeftWidth + style.paddingLeft;
+  const boxRightEdge = box.x + box.width;
+  if (isBullet) {
+    const { ascent } = getFontMetrics(ctx, markerStyleObj);
+    const m = ctx.measureText(node.listMarker);
+    const gap = explicitGap !== undefined ? explicitGap : 7 + ascent / 3;
+    if (isRTL) {
+      // actualBoundingBoxLeft is positive when ink extends left of origin
+      markerX = boxRightEdge + gap + (m.actualBoundingBoxLeft ?? 0);
     } else {
-      markerX = boxRightEdge + gap;
+      markerX = contentStartX - gap - (m.actualBoundingBoxRight ?? markerWidth);
     }
+    const glyphInkCenter =
+      ((m.actualBoundingBoxAscent ?? 0) - (m.actualBoundingBoxDescent ?? 0)) / 2;
+    markerY = baselineY - ascent / 3 + glyphInkCenter;
   } else {
-    // LTR: marker in the parent's left padding area (outside the li box).
-    // Right-aligned within the padding, with a gap before content.
-    const contentStartX = box.x + style.borderLeftWidth + style.paddingLeft;
-    markerX = contentStartX - markerWidth - gap;
+    const gap = explicitGap !== undefined
+      ? explicitGap
+      : cachedMeasureWidth(ctx, ' ');
+    if (isRTL) {
+      // RTL: marker in the parent's right padding area (outside the li box).
+      // Numbered markers ("1.") need RTL direction to display as ".1".
+      // With textAlign='right', x is the right edge — so add markerWidth.
+      const isNumbered = /\d/.test(node.listMarker);
+      if (isNumbered) {
+        markerDirection = 'rtl';
+        markerX = boxRightEdge + gap + markerWidth;
+      } else {
+        markerX = boxRightEdge + gap;
+      }
+    } else {
+      // LTR: marker in the parent's left padding area (outside the li box).
+      markerX = contentStartX - markerWidth - gap;
+    }
   }
 
   box.children.unshift({
     type: 'text',
     text: node.listMarker,
     x: markerX,
-    y: baselineY,
+    y: markerY,
     width: markerWidth,
     style: { ...markerStyleObj, textDecorationLine: 'none', fontWeight: ms?.fontWeight ?? 400, fontStyle: ms?.fontStyle ?? 'normal', direction: markerDirection },
   });
@@ -2196,9 +2216,8 @@ function addListMarker(
   // sees the bullet/number alongside the item text. Markers are added AFTER
   // inline content is laid out, so they don't go through layoutInlineContent.
   // The buildLayoutTree sort+merge step picks up the marker by its baseline.
-  const markerLeftX = isRTL && /\d/.test(node.listMarker)
-    ? markerX - markerWidth
-    : markerX;
+  // RTL numbered markers store their right edge in markerX (textAlign trick).
+  const markerLeftX = markerDirection === 'rtl' ? markerX - markerWidth : markerX;
   _lines.push({
     y: Math.round(baselineY),
     text: node.listMarker,
