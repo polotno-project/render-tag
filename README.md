@@ -70,7 +70,7 @@ interface LayoutLine {
 .caption { width: 240px; -webkit-line-clamp: 3; }
 ```
 
-Clips to N lines and appends an ellipsis to the Nth. `line-clamp` (unprefixed) is accepted as a synonym. `none` / `auto` / `0` mean "no clamp". Applies to the element that directly contains the wrapping text.
+Clips to N lines and appends an ellipsis to the Nth. `line-clamp` (unprefixed) is accepted as a synonym. `none` / `auto` / `0` mean "no clamp". Like Chrome's legacy `-webkit-box` behavior, the line count spans block descendants — a clamp on a wrapper truncates across its `<p>`/`<div>` children and drops everything below the cut.
 
 ## Text on path: `render-tag/path`
 

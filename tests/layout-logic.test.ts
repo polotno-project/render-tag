@@ -1457,5 +1457,111 @@ describe('Layout logic (mocked measureText)', () => {
       expect(lines.length).toBe(1);
       expect(lines[0]).toContain('…');
     });
+
+    // ─── Clamp on a wrapper with block children (Chrome -webkit-box
+    //     semantics: line boxes are counted across block descendants) ──
+
+    describe('clamp across block children', () => {
+      // 9-char words = 90px → exactly one word per line on a 100px container.
+
+      it('truncates a single <p> child of a clamped wrapper', () => {
+        const tree = block('div', [
+          block('p', [textNode('aaaaaaaaa bbbbbbbbb ccccccccc ddddddddd')]),
+        ], { lineClamp: 2 });
+        const root = doLayout(tree, 100);
+        const lines = getLines(root);
+        expect(lines.length).toBe(2);
+        expect(lines[1].endsWith('…')).toBe(true);
+        expect(root.height).toBe(40); // 2 lines × 20px
+      });
+
+      it('line budget spans multiple <p> children', () => {
+        const tree = block('div', [
+          block('p', [textNode('aaaaaaaaa bbbbbbbbb')]),            // 2 lines
+          block('p', [textNode('ccccccccc ddddddddd eeeeeeeee')]),  // 3 lines
+        ], { lineClamp: 3 });
+        const root = doLayout(tree, 100);
+        const lines = getLines(root);
+        expect(lines.length).toBe(3);
+        expect(lines[0]).toBe('aaaaaaaaa');
+        expect(lines[1]).toBe('bbbbbbbbb');
+        expect(lines[2].endsWith('…')).toBe(true);
+        expect(root.height).toBe(60);
+      });
+
+      it('drops all content after the clamp point', () => {
+        const tree = block('div', [
+          block('p', [textNode('aaaaaaaaa bbbbbbbbb ccccccccc')]),
+          block('p', [textNode('hidden1')]),
+          block('p', [textNode('hidden2')]),
+        ], { lineClamp: 2 });
+        const root = doLayout(tree, 100);
+        const lines = getLines(root);
+        expect(lines.length).toBe(2);
+        expect(lines.join('')).not.toContain('hidden');
+      });
+
+      it('clamp larger than total lines: untouched, no ellipsis', () => {
+        const tree = block('div', [
+          block('p', [textNode('aaaaaaaaa bbbbbbbbb')]),
+          block('p', [textNode('ccccccccc ddddddddd')]),
+        ], { lineClamp: 10 });
+        const root = doLayout(tree, 100);
+        const lines = getLines(root);
+        expect(lines.length).toBe(4);
+        expect(lines.join('')).not.toContain('…');
+        expect(root.height).toBe(80);
+      });
+
+      it("truncated paragraph's margin-bottom does not extend the wrapper", () => {
+        const tree = block('div', [
+          block('p', [textNode('aaaaaaaaa bbbbbbbbb ccccccccc')], { marginBottom: 30 }),
+          block('p', [textNode('hidden')]),
+        ], { lineClamp: 2 });
+        const root = doLayout(tree, 100);
+        expect(getLines(root).length).toBe(2);
+        expect(root.height).toBe(40); // margin below the cut line is clipped
+      });
+
+      it('works through nested block wrappers', () => {
+        const tree = block('div', [
+          block('div', [
+            block('p', [textNode('aaaaaaaaa bbbbbbbbb ccccccccc ddddddddd')]),
+          ]),
+        ], { lineClamp: 2 });
+        const root = doLayout(tree, 100);
+        const lines = getLines(root);
+        expect(lines.length).toBe(2);
+        expect(lines[1].endsWith('…')).toBe(true);
+      });
+
+      it('exact-fit boundary: following paragraph is dropped', () => {
+        // First paragraph consumes the whole budget without truncation;
+        // anything after it must still be dropped. (No ellipsis in this
+        // case — the budget ran out between paragraphs, after the Nth
+        // line was already emitted. Known limitation.)
+        const tree = block('div', [
+          block('p', [textNode('aaaaaaaaa bbbbbbbbb')]), // exactly 2 lines
+          block('p', [textNode('hidden')]),
+        ], { lineClamp: 2 });
+        const root = doLayout(tree, 100);
+        const lines = getLines(root);
+        expect(lines.length).toBe(2);
+        expect(lines.join('')).not.toContain('hidden');
+        expect(root.height).toBe(40);
+      });
+
+      it('mixed inline + block children under a clamped wrapper', () => {
+        const tree = block('div', [
+          textNode('aaaaaaaaa bbbbbbbbb ccccccccc'), // 3 lines, truncated at 2
+          block('p', [textNode('hidden')]),
+        ], { lineClamp: 2 });
+        const root = doLayout(tree, 100);
+        const lines = getLines(root);
+        expect(lines.length).toBe(2);
+        expect(lines[1].endsWith('…')).toBe(true);
+        expect(lines.join('')).not.toContain('hidden');
+      });
+    });
   });
 });

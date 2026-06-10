@@ -1397,6 +1397,25 @@ function flowWordsIntoLines(
 }
 
 /**
+ * Shared line budget for `-webkit-line-clamp` on a block container whose
+ * text lives in block descendants (Chrome legacy `-webkit-box` semantics:
+ * line boxes are counted across ALL descendants; the Nth line gets an
+ * ellipsis and everything after it is dropped). Created in layoutBlock at
+ * the clamped element and threaded through descendant layout calls.
+ *
+ * Known limitation: when the budget runs out exactly at a paragraph
+ * boundary (Nth line is a paragraph's last line), following content is
+ * dropped but the already-emitted Nth line gets no ellipsis — its layout
+ * nodes were positioned before we learned more content follows.
+ */
+interface LineClampState {
+  /** Line boxes still allowed before the cut. */
+  remaining: number;
+  /** Truncation point reached — all subsequent content is dropped. */
+  exhausted: boolean;
+}
+
+/**
  * Layout inline content: text wrapping + positioning using pure canvas measurement.
  * Returns layout nodes and the total height consumed.
  */
@@ -1407,8 +1426,14 @@ function layoutInlineContent(
   y: number,
   contentWidth: number,
   useBulletProbe = false,
+  clamp?: LineClampState,
 ): { nodes: LayoutNode[]; height: number } {
   const results: LayoutNode[] = [];
+  if (clamp && (clamp.exhausted || clamp.remaining <= 0)) {
+    // An ancestor's clamp already used its line budget — drop this content.
+    clamp.exhausted = true;
+    return { nodes: results, height: 0 };
+  }
   const runs = collectTextRuns(node);
   if (runs.length === 0) return { nodes: results, height: 0 };
 
@@ -1418,17 +1443,26 @@ function layoutInlineContent(
 
   // `-webkit-line-clamp` / `line-clamp`: truncate to N lines and append a
   // CSS-style ellipsis ("…") to the Nth line, back-trimming trailing words
-  // until the ellipsis fits within contentWidth.
-  const clampN = node.style.lineClamp;
+  // until the ellipsis fits within contentWidth. The budget comes from an
+  // ancestor's shared clamp state when one is active (clamp on a block
+  // container with block children), else from this element's own style.
+  const clampN = clamp ? clamp.remaining : node.style.lineClamp;
   if (clampN > 0 && lines.length > clampN) {
     lines.length = clampN;
     const lastLine = lines[clampN - 1];
-    // First line has reduced width because of text-indent; clamp at N=1 hits it.
+    // First line has reduced width because of text-indent; a cut on this
+    // element's first line (effective budget of 1) hits it.
     const lineMaxForEllipsis = contentWidth - (clampN === 1 ? textIndent : 0);
     applyEllipsisToLine(ctx, lastLine, lineMaxForEllipsis);
     // Tag the truncated line so per-line alignment (text-align vs
     // text-align-last) still picks the right branch.
     lastLine.endedByHardBreak = true;
+    if (clamp) {
+      clamp.remaining = 0;
+      clamp.exhausted = true;
+    }
+  } else if (clamp) {
+    clamp.remaining -= lines.length;
   }
 
   const isRTL = node.style.direction === 'rtl';
@@ -1850,8 +1884,17 @@ function layoutBlock(
   x: number,
   y: number,
   availableWidth: number,
+  clamp?: LineClampState,
 ): { box: LayoutBox; height: number; marginBottomOut: number } {
   const style = node.style;
+
+  // `-webkit-line-clamp` on a block container: start a shared line budget
+  // here and thread it through descendant layout so the count spans block
+  // children (Chrome legacy -webkit-box semantics). An ancestor's active
+  // clamp wins over a nested one.
+  if (!clamp && style.lineClamp > 0) {
+    clamp = { remaining: style.lineClamp, exhausted: false };
+  }
 
   // Box model
   const marginLeft = style.marginLeft;
@@ -1916,7 +1959,7 @@ function layoutBlock(
   if (hasOnlyInlineChildren(node)) {
     // Inline formatting context
     const bulletProbe = node.tagName === 'li' && BULLET_MARKERS.has(style.listStyleType);
-    const { nodes, height } = layoutInlineContent(ctx, node, contentX, contentStartY, contentWidth, bulletProbe);
+    const { nodes, height } = layoutInlineContent(ctx, node, contentX, contentStartY, contentWidth, bulletProbe, clamp);
     box.children = nodes;
     box.height = borderTop + padTop + height + padBottom + borderBottom;
   } else {
@@ -1931,6 +1974,14 @@ function layoutBlock(
 
     for (let ci = 0; ci < node.children.length; ci++) {
       const child = node.children[ci];
+
+      // Line-clamp budget exhausted — everything below the cut is dropped,
+      // including the margin trailing the cut line.
+      if (clamp && (clamp.exhausted || clamp.remaining <= 0)) {
+        clamp.exhausted = true;
+        prevMarginBottom = 0;
+        break;
+      }
 
       if (child.tagName === '#text' || isInline(child)) {
         // Collect ALL consecutive inline/text children into one group
@@ -1959,7 +2010,7 @@ function layoutBlock(
           textContent: null,
         };
         const bulletProbe2 = node.tagName === 'li' && BULLET_MARKERS.has(style.listStyleType);
-        const { nodes, height } = layoutInlineContent(ctx, inlineGroup, contentX, curY, contentWidth, bulletProbe2);
+        const { nodes, height } = layoutInlineContent(ctx, inlineGroup, contentX, curY, contentWidth, bulletProbe2, clamp);
         box.children.push(...nodes);
         curY += height;
         prevMarginBottom = 0;
@@ -1982,11 +2033,12 @@ function layoutBlock(
       }
 
       const { box: childBox, height: childTotalHeight, marginBottomOut } = layoutBlock(
-        ctx, child, contentX, curY, contentWidth,
+        ctx, child, contentX, curY, contentWidth, clamp,
       );
       box.children.push(childBox);
       curY += childTotalHeight;
-      prevMarginBottom = marginBottomOut;
+      // A child truncated by line-clamp clips its trailing margin too.
+      prevMarginBottom = clamp?.exhausted ? 0 : marginBottomOut;
       hasContent = true;
     }
 
