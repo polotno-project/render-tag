@@ -38,6 +38,7 @@ import {
   parseTextShadows,
   parseLinearGradient,
   drawDecorationLine,
+  decorationThickness,
   textFillColor,
   applyTextStroke,
 } from '../render.js';
@@ -486,7 +487,7 @@ function strokeDecorationAlongGlyphs(
   tb: TextBaseline,
 ): void {
   if (group.length === 0) return;
-  const lineWidth = Math.max(1, group[0].style.fontSize / 15);
+  const lineWidth = decorationThickness(group[0].style.fontSize);
 
   // Per-glyph local y for this decoration kind. The decoration position is
   // baseline-relative, so we shift by the baseline's local-y under the

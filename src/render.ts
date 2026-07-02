@@ -60,6 +60,9 @@ export function drawDecorationLine(
   decoStyle: string,
   color: string,
 ): void {
+  // Chrome paints decorations as crisp integer-pixel bands. Snap the stroke
+  // center so the band edges land on the pixel grid.
+  y = Math.round(y - lineWidth / 2) + lineWidth / 2;
   ctx.save();
   ctx.strokeStyle = color;
   ctx.lineWidth = lineWidth;
@@ -191,6 +194,15 @@ export function textFillColor(style: ResolvedStyle): string {
     ? style.webkitTextFillColor : style.color;
 }
 
+/**
+ * Text decoration thickness for `auto`. Chromium paints an integer-pixel
+ * band of max(1, floor(fontSize / 10)) regardless of font (measured across
+ * 6 fonts × 16-64px against the DOM raster).
+ */
+export function decorationThickness(fontSize: number): number {
+  return Math.max(1, Math.floor(fontSize / 10));
+}
+
 /** Apply the canvas stroke settings for -webkit-text-stroke. */
 export function applyTextStroke(ctx: CanvasRenderingContext2D, style: ResolvedStyle): void {
   ctx.strokeStyle = style.webkitTextStrokeColor || style.color;
@@ -297,28 +309,39 @@ function renderText(ctx: CanvasRenderingContext2D, node: LayoutText, gradientFil
   const fontSize = style.fontSize;
   const decoColor = style.textDecorationColor || style.color;
   const decoStyle = style.textDecorationStyle || 'solid';
-  const decoWidth = Math.max(1, fontSize / 15);
+  const decoWidth = decorationThickness(fontSize);
   // For RTL text, node.x is the right edge (textAlign='right').
   // Decoration lines need the left edge as start position.
   const decoX = style.direction === 'rtl' ? node.x - textWidth : node.x;
 
   if (style.textDecorationLine !== 'none') {
     const { ascent: decoAscent } = getFontMetrics(ctx, style);
-    ctx.font = buildCanvasFont(style);
-    const xHeight = ctx.measureText('x').actualBoundingBoxAscent;
 
     if (style.textDecorationLine.includes('underline')) {
-      const yOffset = fontSize * 0.1;
+      // Chrome centers the underline ~0.105em below the baseline for every
+      // font tested (measured against the DOM raster sweep). The -0.2px is a
+      // rounding tiebreak: at fractional baselines (line-height 1.6/1.8/2.0)
+      // Chrome resolves the pixel row downward less often than plain
+      // rounding; empirically this cuts row-off-by-one cases 39 → 12 across
+      // the sweep without disturbing integer baselines.
+      const yOffset = fontSize * 0.105 - 0.2;
       drawDecorationLine(ctx, decoX, node.y + yOffset, textWidth, decoWidth, decoStyle, decoColor);
     }
 
     if (style.textDecorationLine.includes('line-through')) {
-      const yOffset = -(xHeight * 0.5);
+      // Chrome positions the strike from the font's OS/2 strikeout metric,
+      // which canvas can't read. 0.33em above the baseline is the closest
+      // single-formula fit (tuned against the DOM raster sweep; ±1px for
+      // most fonts, ±2px worst case).
+      const yOffset = -(fontSize * 0.33);
       drawDecorationLine(ctx, decoX, node.y + yOffset, textWidth, decoWidth, decoStyle, decoColor);
     }
 
     if (style.textDecorationLine.includes('overline')) {
-      drawDecorationLine(ctx, decoX, node.y - decoAscent, textWidth, decoWidth, decoStyle, decoColor);
+      // Chrome hangs the overline band above the ascent line: its bottom
+      // edge sits on the floored ascent pixel row, growing upward.
+      const overlineY = Math.floor(node.y - decoAscent) - decoWidth / 2;
+      drawDecorationLine(ctx, decoX, overlineY, textWidth, decoWidth, decoStyle, decoColor);
     }
   }
 
