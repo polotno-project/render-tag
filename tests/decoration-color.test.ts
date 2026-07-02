@@ -7,6 +7,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { render } from '../src/index.ts';
+import { expandShorthand } from '../src/css-resolver.ts';
 
 /**
  * Count pixels matching a color predicate across the entire canvas.
@@ -51,5 +52,28 @@ describe('text-decoration color', () => {
 
     const greenPixels = countColoredPixels(canvas, (r, g, b) => g > 100 && r < 80 && b < 120);
     expect(greenPixels).toBeGreaterThan(5);
+  });
+
+  // Named colors in the shorthand were silently dropped. This hits real input
+  // whenever text-decoration-color is set as a longhand: Chromium's CSSOM
+  // serializes it back into the shorthand ("text-decoration: underline red"),
+  // so the longhand form broke too.
+  it('expands named color in shorthand', () => {
+    const decls = expandShorthand('text-decoration', 'underline red');
+    expect(decls).toContainEqual({ property: 'text-decoration-color', value: 'red' });
+  });
+
+  it('does not treat thickness as a color', () => {
+    const decls = expandShorthand('text-decoration', 'underline 2px red');
+    expect(decls).toContainEqual({ property: 'text-decoration-color', value: 'red' });
+    expect(decls.find(d => d.property === 'text-decoration-color' && d.value !== 'red')).toBeUndefined();
+  });
+
+  it('should render underline red via longhand text-decoration-color', () => {
+    const html = `<p style="font-size: 20px; line-height: 3;"><span style="text-decoration: underline; text-decoration-color: red;">Red underline</span></p>`;
+    const { canvas } = render({ html, width: 300, pixelRatio: 1 });
+
+    const redPixels = countColoredPixels(canvas, (r, g, b) => r > 150 && g < 100 && b < 100);
+    expect(redPixels).toBeGreaterThan(10);
   });
 });

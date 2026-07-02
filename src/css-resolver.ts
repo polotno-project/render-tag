@@ -544,7 +544,9 @@ export function expandShorthand(property: string, value: string): CSSDeclaration
     for (const p of parts) {
       if (lineValues.includes(p)) lines.push(p);
       else if (styleValues.includes(p)) result.push({ property: 'text-decoration-style', value: p });
-      else if (p.startsWith('#'))
+      // Remaining tokens are the color (#hex or named) — except thickness
+      // values (2px, .5em, 10%) and thickness keywords, which are skipped.
+      else if (!/^[\d.+-]/.test(p) && p !== 'auto' && p !== 'from-font')
         result.push({ property: 'text-decoration-color', value: p });
     }
     if (colorValue) result.push({ property: 'text-decoration-color', value: colorValue });
