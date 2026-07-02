@@ -294,17 +294,6 @@ function matchesParsedSelector(sel: ParsedSelector, ctx: ElementContext): boolea
 
 // ─── Style Resolution ────────────────────────────────────────────────
 
-/** Properties that inherit from parent to child */
-const INHERITED_PROPERTIES = new Set([
-  'font-family', 'font-size', 'font-weight', 'font-style', 'font-variant', 'font-variant-caps',
-  'color', 'text-align', 'text-align-last', 'text-indent', 'text-transform',
-  'text-decoration-line', 'text-decoration-style', 'text-decoration-color',
-  'letter-spacing', 'word-spacing', 'font-kerning',
-  'line-height', 'white-space', 'word-break', 'overflow-wrap',
-  'direction', 'text-shadow', 'list-style-type',
-  'vertical-align', 'paint-order',
-]);
-
 /** Default values for all ResolvedStyle properties */
 function defaultStyle(): ResolvedStyle {
   return {
@@ -594,6 +583,12 @@ export function expandShorthand(property: string, value: string): CSSDeclaration
   return [{ property, value }];
 }
 
+/** Normalize the (case-insensitive) currentColor keyword to '', the canonical unset value. */
+function normalizeCurrentColor(value: string): string {
+  const v = value.trim();
+  return v.toLowerCase() === 'currentcolor' ? '' : v;
+}
+
 /**
  * Apply a CSS declaration to a ResolvedStyle, resolving units.
  */
@@ -645,8 +640,11 @@ function applyDeclaration(
     case 'text-decoration-color': style.textDecorationColor = value.trim(); break;
     case 'text-shadow': style.textShadow = value.trim(); break;
     case '-webkit-text-stroke-width': style.webkitTextStrokeWidth = parseValue(value, fontSize, containerWidth); break;
-    case '-webkit-text-stroke-color': style.webkitTextStrokeColor = value.trim(); break;
-    case '-webkit-text-fill-color': style.webkitTextFillColor = value.trim(); break;
+    // '' is the canonical currentColor for these two: it must survive
+    // inheritance as a keyword and resolve against each element's own
+    // color at render time, so it is never eagerly resolved here.
+    case '-webkit-text-stroke-color': style.webkitTextStrokeColor = normalizeCurrentColor(value); break;
+    case '-webkit-text-fill-color': style.webkitTextFillColor = normalizeCurrentColor(value); break;
     case 'paint-order': style.paintOrder = value.trim(); break;
     case '-webkit-background-clip':
     case 'background-clip': style.webkitBackgroundClip = value.trim(); break;
@@ -822,6 +820,9 @@ const INHERITABLE_KEYS: [string, keyof ResolvedStyle][] = [
   ['list-style-type', 'listStyleType'],
   ['vertical-align', 'verticalAlign'],
   ['paint-order', 'paintOrder'],
+  ['-webkit-text-stroke-width', 'webkitTextStrokeWidth'],
+  ['-webkit-text-stroke-color', 'webkitTextStrokeColor'],
+  ['-webkit-text-fill-color', 'webkitTextFillColor'],
 ];
 
 /**
@@ -1264,13 +1265,6 @@ export function resolveStylesFromCSS(
     // Auto-set currentColor defaults (browser default behavior)
     if (!setProps.has('text-decoration-color')) {
       style.textDecorationColor = style.color;
-    }
-    if (!setProps.has('-webkit-text-stroke-color')) {
-      if (style.webkitTextStrokeColor === '' || style.webkitTextStrokeColor === 'currentColor') {
-        style.webkitTextStrokeColor = style.color;
-      }
-    } else if (style.webkitTextStrokeColor === 'currentColor') {
-      style.webkitTextStrokeColor = style.color;
     }
     for (const side of ['Top', 'Right', 'Bottom', 'Left'] as const) {
       const colorKey = `border${side}Color` as keyof ResolvedStyle;

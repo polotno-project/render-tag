@@ -25,3 +25,4 @@ Text.ts
 
 # Wrap-debug harness reports (generated)
 tests/wrap-report.*.json
+.vitest-attachments/

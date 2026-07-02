@@ -186,13 +186,13 @@ export function parseLinearGradient(
 }
 
 /** The solid fill color for text: -webkit-text-fill-color if set, else color. */
-function textFillColor(style: ResolvedStyle): string {
+export function textFillColor(style: ResolvedStyle): string {
   return style.webkitTextFillColor && style.webkitTextFillColor !== 'transparent'
     ? style.webkitTextFillColor : style.color;
 }
 
 /** Apply the canvas stroke settings for -webkit-text-stroke. */
-function applyTextStroke(ctx: CanvasRenderingContext2D, style: ResolvedStyle): void {
+export function applyTextStroke(ctx: CanvasRenderingContext2D, style: ResolvedStyle): void {
   ctx.strokeStyle = style.webkitTextStrokeColor || style.color;
   ctx.lineWidth = style.webkitTextStrokeWidth;
   ctx.lineJoin = 'round';

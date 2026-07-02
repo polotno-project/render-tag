@@ -9,7 +9,9 @@
  * whenever inline styles are read from a live DOM.
  */
 import { describe, it, expect } from 'vitest';
-import { expandShorthand } from '../src/css-resolver.ts';
+import { expandShorthand, resolveStylesFromCSS } from '../src/css-resolver.ts';
+import { parseHTML } from '../src/parse.ts';
+import type { StyledNode } from '../src/types.ts';
 
 function color(decls: { property: string; value: string }[]): string | undefined {
   return decls.find(d => d.property === '-webkit-text-stroke-color')?.value;
@@ -60,5 +62,89 @@ describe('expandShorthand("-webkit-text-stroke")', () => {
     const decls = expandShorthand('-webkit-text-stroke', 'rgb(255, 0, 0) 2px');
     expect(width(decls)).toBe('2px');
     expect(color(decls)).toBe('rgb(255, 0, 0)');
+  });
+});
+
+/**
+ * Regression test: -webkit-text-stroke, -webkit-text-stroke-color and
+ * -webkit-text-fill-color are inherited CSS properties, but were missing
+ * from the resolver's inheritance list. A stroke set on a container div
+ * never reached the text inside <p>/<strong>/<span> children, so nothing
+ * was stroked.
+ */
+function resolve(html: string): StyledNode {
+  const { fragment, css } = parseHTML(html);
+  const { tree, cleanup } = resolveStylesFromCSS(fragment, css, 476);
+  cleanup();
+  return tree;
+}
+
+function findText(node: StyledNode, text: string): StyledNode | null {
+  if (node.tagName === '#text' && node.textContent?.includes(text)) return node;
+  for (const child of node.children) {
+    const found = findText(child, text);
+    if (found) return found;
+  }
+  return null;
+}
+
+describe('-webkit-text-stroke inheritance', () => {
+  it('inherits stroke width and color from container into nested elements', () => {
+    const tree = resolve(
+      `<div style="-webkit-text-stroke: 7px black; color: blue;">` +
+        `<p><strong style="color: rgb(126, 14, 9);">Text 1</strong></p>` +
+      `</div>`
+    );
+    const style = findText(tree, 'Text 1')!.style;
+    expect(style.webkitTextStrokeWidth).toBe(7);
+    // Computed stroke color inherits — stays black despite the child's own color
+    expect(style.webkitTextStrokeColor).toBe('black');
+  });
+
+  it('keeps currentColor semantics when stroke color is never set', () => {
+    const tree = resolve(
+      `<div style="-webkit-text-stroke-width: 2px; color: blue;">` +
+        `<span style="color: red;">child</span>` +
+      `</div>`
+    );
+    const style = findText(tree, 'child')!.style;
+    expect(style.webkitTextStrokeWidth).toBe(2);
+    // '' is the canonical currentColor — the renderer falls back to the
+    // element's own color, so the child strokes red, not the parent's blue
+    expect(style.webkitTextStrokeColor).toBe('');
+  });
+
+  it('normalizes explicit currentColor to the canonical unset value', () => {
+    const tree = resolve(
+      `<div style="-webkit-text-stroke: 3px black;">` +
+        `<span style="-webkit-text-stroke-color: currentColor; color: red;">child</span>` +
+      `</div>`
+    );
+    const style = findText(tree, 'child')!.style;
+    expect(style.webkitTextStrokeWidth).toBe(3);
+    // Explicit currentColor overrides the inherited black and resolves to the
+    // element's own color at render time
+    expect(style.webkitTextStrokeColor).toBe('');
+  });
+
+  it('child can override inherited stroke', () => {
+    const tree = resolve(
+      `<div style="-webkit-text-stroke: 3px black;">` +
+        `<span style="-webkit-text-stroke: 1px red;">child</span>` +
+      `</div>`
+    );
+    const style = findText(tree, 'child')!.style;
+    expect(style.webkitTextStrokeWidth).toBe(1);
+    expect(style.webkitTextStrokeColor).toBe('red');
+  });
+
+  it('inherits -webkit-text-fill-color', () => {
+    const tree = resolve(
+      `<div style="-webkit-text-fill-color: green;">` +
+        `<p><span style="color: red;">child</span></p>` +
+      `</div>`
+    );
+    const style = findText(tree, 'child')!.style;
+    expect(style.webkitTextFillColor).toBe('green');
   });
 });

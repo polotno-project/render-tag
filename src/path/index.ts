@@ -38,6 +38,8 @@ import {
   parseTextShadows,
   parseLinearGradient,
   drawDecorationLine,
+  textFillColor,
+  applyTextStroke,
 } from '../render.js';
 import { pathFromString, type PathLike } from './svg-path.js';
 import {
@@ -346,7 +348,7 @@ function drawShadowsAndGlyphs(
         ctx.shadowOffsetY = sh.offsetY;
         ctx.shadowBlur = sh.blur;
         ctx.shadowColor = sh.color;
-        ctx.fillStyle = effectiveFillColor(g.style);
+        ctx.fillStyle = textFillColor(g.style);
         ctx.fillText(g.char, 0, baseY);
         ctx.restore();
       }
@@ -365,12 +367,12 @@ function drawGlyphFillAndStroke(
 ): void {
   const { style } = g;
   // Mirror the main renderer's transparency check: EITHER -webkit-text-fill-color
-  // or color being 'transparent' suppresses the fill. effectiveFillColor alone
+  // or color being 'transparent' suppresses the fill. textFillColor alone
   // would only catch one of the two by falling back through the precedence.
   const fillTransparent =
     style.webkitTextFillColor === 'transparent' ||
     style.color === 'transparent' ||
-    isTransparent(effectiveFillColor(style));
+    isTransparent(textFillColor(style));
   const isStroked = style.webkitTextStrokeWidth > 0;
   const usesGradient =
     style.webkitBackgroundClip === 'text' &&
@@ -390,15 +392,13 @@ function drawGlyphFillAndStroke(
       ctx.fillText(g.char, 0, baseY);
       return;
     }
-    ctx.fillStyle = effectiveFillColor(style);
+    ctx.fillStyle = textFillColor(style);
     ctx.fillText(g.char, 0, baseY);
   };
   const drawStroke = () => {
     if (!isStroked) return;
     ctx.save();
-    ctx.lineJoin = 'round';
-    ctx.lineWidth = style.webkitTextStrokeWidth;
-    ctx.strokeStyle = style.webkitTextStrokeColor || style.color;
+    applyTextStroke(ctx, style);
     ctx.strokeText(g.char, 0, baseY);
     ctx.restore();
   };
@@ -431,7 +431,7 @@ function drawGradientGlyph(
     baseY - g.ascent, g.ascent + g.descent,
   );
   if (!gradient) {
-    ctx.fillStyle = effectiveFillColor(g.style);
+    ctx.fillStyle = textFillColor(g.style);
     ctx.fillText(g.char, 0, baseY);
     return;
   }
@@ -540,10 +540,3 @@ function strokeDecorationAlongGlyphs(
 }
 
 // ─── Style helpers ───────────────────────────────────────────────────
-
-function effectiveFillColor(style: ResolvedStyle): string {
-  if (style.webkitTextFillColor && style.webkitTextFillColor !== 'transparent') {
-    return style.webkitTextFillColor;
-  }
-  return style.color;
-}
