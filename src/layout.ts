@@ -965,6 +965,7 @@ function flowWordsIntoLines(
   whiteSpace: string,
   useBulletProbe = false,
   textIndent = 0,
+  tabMetrics?: { interval: number; halfSpace: number },
 ): PositionedLine[] {
   const lines: PositionedLine[] = [];
   let currentLine: PositionedLine = { words: [], totalWidth: 0, lineHeight: 0 };
@@ -1335,13 +1336,17 @@ function flowWordsIntoLines(
       if (piece.isSpace && currentLine.words.length === 0
           && (!afterHardBreak || !preservesWhitespace)) continue;
 
-      // Tab: snap to next tab stop based on current position
+      // Tab: advance to the next tab stop (stops measured from the content
+      // edge). Chrome rule: when the next stop is closer than half a space
+      // width, skip to the following stop (Blink Font::TabWidth).
       let pieceWidth = piece.width;
       if (piece.isTab) {
-        const tabStop = piece.width; // tabStopInterval stored as width
-        const currentPos = currentLine.totalWidth;
-        const nextStop = Math.ceil((currentPos + 0.1) / tabStop) * tabStop;
-        pieceWidth = nextStop - currentPos;
+        const interval = tabMetrics?.interval || piece.width;
+        const halfSpace = tabMetrics?.halfSpace ?? 0;
+        const currentPos = (lines.length === 0 ? textIndent : 0) + currentLine.totalWidth;
+        let advance = interval - (currentPos % interval);
+        if (advance < halfSpace) advance += interval;
+        pieceWidth = advance;
         piece.width = pieceWidth;
       }
 
@@ -1439,7 +1444,20 @@ function layoutInlineContent(
 
   const words = tokenizeRuns(ctx, runs);
   const textIndent = node.style.textIndent || 0;
-  const lines = flowWordsIntoLines(ctx, words, contentWidth, node.style.whiteSpace, useBulletProbe, textIndent);
+  // Tab stops follow the BLOCK's style, not the inline run the tab sits in:
+  // Chrome sizes the interval as tab-size(8) × the block font's space advance
+  // plus letter- and word-spacing (css-text-3 §tab-size) — verified against
+  // the DOM: a tab inside a bold span still uses the regular-weight space.
+  applyFont(ctx, node.style);
+  const prevLetterSpacing = ctx.letterSpacing;
+  ctx.letterSpacing = '0px';
+  const blockSpaceWidth = cachedMeasureWidth(ctx, ' ');
+  ctx.letterSpacing = prevLetterSpacing;
+  const tabMetrics = {
+    interval: (blockSpaceWidth + (node.style.letterSpacing || 0) + (node.style.wordSpacing || 0)) * 8,
+    halfSpace: blockSpaceWidth / 2,
+  };
+  const lines = flowWordsIntoLines(ctx, words, contentWidth, node.style.whiteSpace, useBulletProbe, textIndent, tabMetrics);
 
   // `-webkit-line-clamp` / `line-clamp`: truncate to N lines and append a
   // CSS-style ellipsis ("…") to the Nth line, back-trimming trailing words

@@ -703,6 +703,44 @@ describe('Layout logic (mocked measureText)', () => {
       expect(calcium!.x).toBe(60);
     });
 
+    // Tab stops (css-text-3 §tab-size, verified against Chrome):
+    // interval = tab-size(8) × (space advance + letter-spacing + word-spacing)
+    // computed from the BLOCK's style; when the next stop is closer than
+    // half a space width (without spacing), the tab skips to the following stop.
+    it('tab advances to the next 8-space tab stop', () => {
+      // "ab" = 20 → interval 8 × 10 = 80 → "cd" starts at 80
+      const tree = block('div', [
+        block('p', [textNode('ab\tcd', { whiteSpace: 'pre-wrap' })], { whiteSpace: 'pre-wrap' }),
+      ]);
+      const cd = collectTexts(doLayout(tree, 400)).find(t => t.text === 'cd');
+      expect(cd!.x).toBe(80);
+    });
+
+    it('tab interval includes letter-spacing', () => {
+      // char = 10 + 5 → interval 8 × 15 = 120; "ab" = 30 → "cd" at 120
+      const tree = block('div', [
+        block('p', [textNode('ab\tcd', { whiteSpace: 'pre-wrap', letterSpacing: 5 })],
+          { whiteSpace: 'pre-wrap', letterSpacing: 5 }),
+      ]);
+      const cd = collectTexts(doLayout(tree, 600)).find(t => t.text === 'cd');
+      expect(cd!.x).toBe(120);
+    });
+
+    it('tab skips to following stop when next stop is closer than half a space', () => {
+      // Block letter-spacing 5 → interval 120; skip threshold = 10/2 = 5.
+      // Prefix: span(ls:1) "aaaa" = 44 + span(ls:5) "bbbbb" = 75 → pos 119.
+      // Distance to stop 120 is 1 < 5 → tab jumps to 240.
+      const tree = block('div', [
+        block('p', [
+          inline('span', [textNode('aaaa', { whiteSpace: 'pre-wrap', letterSpacing: 1 })], { letterSpacing: 1 }),
+          inline('span', [textNode('bbbbb', { whiteSpace: 'pre-wrap', letterSpacing: 5 })], { letterSpacing: 5 }),
+          textNode('\tcd', { whiteSpace: 'pre-wrap', letterSpacing: 5 }),
+        ], { whiteSpace: 'pre-wrap', letterSpacing: 5 }),
+      ]);
+      const cd = collectTexts(doLayout(tree, 600)).find(t => t.text === 'cd');
+      expect(cd!.x).toBe(240);
+    });
+
     it('pre-wrap: trailing space at a soft wrap is trimmed (hangs)', () => {
       // "aa bb cc" at width 60 must wrap to 2 lines, not 3 — the trailing
       // space before the wrap must not become its own empty line.
