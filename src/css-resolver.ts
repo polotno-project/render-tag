@@ -664,6 +664,16 @@ function applyDeclaration(
         style.lineHeight = parseFloat(v) || 0;
       } else if (v.endsWith('em')) {
         style.lineHeight = parseFloat(v) * fontSize;
+      } else if (v.endsWith('%')) {
+        // Percentage — computed against the element's own font size and
+        // inherited as that computed value (no multiplier for children),
+        // same as the em branch. Without this branch "120%" used to fall
+        // into the unitless path as parseFloat("120%") = 120, producing a
+        // 120x line height.
+        const num = parseFloat(v);
+        if (!isNaN(num)) {
+          style.lineHeight = (num / 100) * fontSize;
+        }
       } else {
         // Unitless multiplier — compute for this element's font size
         // and mark as unitless so children re-compute
