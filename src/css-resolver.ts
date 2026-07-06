@@ -317,6 +317,7 @@ function defaultStyle(): ResolvedStyle {
     webkitTextStrokeColor: '',
     webkitTextFillColor: '',
     paintOrder: 'normal',
+    strokeLinejoin: 'round',
     webkitBackgroundClip: '',
     backgroundImage: 'none',
     letterSpacing: 0,
@@ -648,6 +649,7 @@ function applyDeclaration(
     case '-webkit-text-stroke-color': style.webkitTextStrokeColor = normalizeCurrentColor(value); break;
     case '-webkit-text-fill-color': style.webkitTextFillColor = normalizeCurrentColor(value); break;
     case 'paint-order': style.paintOrder = value.trim(); break;
+    case 'stroke-linejoin': style.strokeLinejoin = value.trim(); break;
     case '-webkit-background-clip':
     case 'background-clip': style.webkitBackgroundClip = value.trim(); break;
     case 'background-image': style.backgroundImage = value.trim(); break;
@@ -832,6 +834,7 @@ const INHERITABLE_KEYS: [string, keyof ResolvedStyle][] = [
   ['list-style-type', 'listStyleType'],
   ['vertical-align', 'verticalAlign'],
   ['paint-order', 'paintOrder'],
+  ['stroke-linejoin', 'strokeLinejoin'],
   ['-webkit-text-stroke-width', 'webkitTextStrokeWidth'],
   ['-webkit-text-stroke-color', 'webkitTextStrokeColor'],
   ['-webkit-text-fill-color', 'webkitTextFillColor'],

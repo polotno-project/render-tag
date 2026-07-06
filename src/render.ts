@@ -207,7 +207,8 @@ export function decorationThickness(fontSize: number): number {
 export function applyTextStroke(ctx: CanvasRenderingContext2D, style: ResolvedStyle): void {
   ctx.strokeStyle = style.webkitTextStrokeColor || style.color;
   ctx.lineWidth = style.webkitTextStrokeWidth;
-  ctx.lineJoin = 'round';
+  const join = style.strokeLinejoin;
+  ctx.lineJoin = join === 'miter' || join === 'bevel' ? join : 'round';
 }
 
 /**

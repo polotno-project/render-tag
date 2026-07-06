@@ -143,6 +143,10 @@ export interface ResolvedStyle {
   webkitTextStrokeColor: string;
   webkitTextFillColor: string;
   paintOrder: string;
+  /** Corner join for -webkit-text-stroke: 'round' (default) | 'miter' | 'bevel'.
+   * Not a real CSS property for HTML text-stroke — render-tag reads it so
+   * callers can control stroke corner shape (e.g. varsity/block lettering). */
+  strokeLinejoin: string;
   webkitBackgroundClip: string;
   backgroundImage: string;
   letterSpacing: number;

@@ -148,3 +148,41 @@ describe('-webkit-text-stroke inheritance', () => {
     expect(style.webkitTextFillColor).toBe('green');
   });
 });
+
+/**
+ * stroke-linejoin controls the corner join for -webkit-text-stroke. It is not
+ * a real CSS property for HTML text-stroke (browsers always paint round), so
+ * render-tag reads it itself. Like the stroke width/color, it must inherit
+ * from a container into nested text nodes.
+ */
+describe('stroke-linejoin resolution', () => {
+  it('defaults to round when unset', () => {
+    const tree = resolve(`<div style="-webkit-text-stroke: 5px black;">Text 1</div>`);
+    expect(findText(tree, 'Text 1')!.style.strokeLinejoin).toBe('round');
+  });
+
+  it('parses an explicit miter join', () => {
+    const tree = resolve(
+      `<div style="-webkit-text-stroke: 5px black; stroke-linejoin: miter;">Text 1</div>`
+    );
+    expect(findText(tree, 'Text 1')!.style.strokeLinejoin).toBe('miter');
+  });
+
+  it('inherits the join into nested elements', () => {
+    const tree = resolve(
+      `<div style="-webkit-text-stroke: 7px black; stroke-linejoin: bevel;">` +
+        `<p><strong>Text 1</strong></p>` +
+      `</div>`
+    );
+    expect(findText(tree, 'Text 1')!.style.strokeLinejoin).toBe('bevel');
+  });
+
+  it('lets a child override the inherited join', () => {
+    const tree = resolve(
+      `<div style="-webkit-text-stroke: 3px black; stroke-linejoin: miter;">` +
+        `<span style="stroke-linejoin: round;">child</span>` +
+      `</div>`
+    );
+    expect(findText(tree, 'child')!.style.strokeLinejoin).toBe('round');
+  });
+});
