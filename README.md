@@ -113,6 +113,24 @@ drawTextOnPathLayout({ layout: result, ctx: canvas2.getContext('2d')! });
 
 Not supported: full mixed-script BiDi shaping (pure-RTL via `direction: rtl` works).
 
+## Node.js / server-side
+
+render-tag stays zero-dependency, so nothing works out of the box in Node — inject a DOM parser (linkedom, jsdom, …) and pass a measurement 2D context. Nothing is ever written to `globalThis`.
+
+```ts
+import { layout, drawLayout, setDOMParser } from 'render-tag';
+import { DOMParser } from 'linkedom';
+import { createCanvas } from 'canvas';
+
+setDOMParser(new DOMParser()); // once
+
+const ctx = createCanvas(1, 1).getContext('2d');
+const result = layout({ html, width: 400, ctx }); // ctx is required on Node
+drawLayout({ layout: result, width: 400, ctx: outputCtx });
+```
+
+Without injection, functions throw with guidance. `accuracy: 'balanced'` needs a real browser DOM and throws on Node — use the default `'performance'`. `render-tag/path` works the same way (`layoutTextOnPath` already takes `ctx`; it re-exports `setDOMParser`).
+
 ## What it renders
 
 Paragraphs, headings, divs, spans · bold, italic, underline, strikethrough, overline · colors, background colors, text-shadow, text-stroke, gradient text · font families, sizes, weights (100–900) · line-height, letter-spacing, text-align (left/center/right/justify) · ordered/unordered lists with nesting · flexbox (row/column), basic tables · `-webkit-line-clamp` · `pre-wrap`, `overflow-wrap: break-word`, soft hyphens · RTL, CJK, emoji.

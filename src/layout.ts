@@ -107,6 +107,12 @@ function measureDomLineHeight(font: string, lineHeight: string, useBulletProbe =
   const cached = _lineHeightCache.get(key);
   if (cached !== undefined) return cached;
 
+  if (typeof document === 'undefined' || !document.body) {
+    throw new Error(
+      "render-tag: accuracy 'balanced' requires a browser DOM for line-height probes; use the default 'performance' mode in non-browser environments."
+    );
+  }
+
   let probe: HTMLElement;
   if (useBulletProbe) {
     if (!_ulProbeContainer) {

@@ -1,5 +1,10 @@
 import type { ResolvedStyle, StyledNode } from './types.js';
 
+// Node.TEXT_NODE / Node.ELEMENT_NODE without the ambient `Node` global
+// (unavailable in non-browser environments).
+const ELEMENT_NODE = 1;
+const TEXT_NODE = 3;
+
 // ─── CSS Parser ──────────────────────────────────────────────────────
 
 interface CSSDeclaration {
@@ -1036,6 +1041,16 @@ function getListMarker(el: Element, listStyleType: string): string | undefined {
 }
 
 /**
+ * Inline-style access without `instanceof HTMLElement` — duck-typed so nodes
+ * from non-browser DOMs (linkedom, jsdom) qualify without their constructors
+ * being installed as globals.
+ */
+function inlineStyleOf(el: Element): CSSStyleDeclaration | null {
+  const style = (el as HTMLElement).style;
+  return style && typeof style.cssText === 'string' ? style : null;
+}
+
+/**
  * Parse inline style attribute into declarations.
  */
 function parseInlineStyle(styleAttr: string): CSSDeclaration[] {
@@ -1063,9 +1078,11 @@ export function resolveStylesFromCSS(
 ): { tree: StyledNode; cleanup: () => void } {
   const { rules, fontFaceRules } = parseCSS(css);
 
-  // Inject @font-face rules into the document so fonts can load
+  // Inject @font-face rules into the live document so fonts can load.
+  // Browser-only side effect: in non-browser environments there is no font
+  // loader to trigger, so skip silently (fonts come from the consumer there).
   let fontStyleEl: HTMLStyleElement | null = null;
-  if (fontFaceRules.length > 0) {
+  if (fontFaceRules.length > 0 && typeof document !== 'undefined' && document.head) {
     fontStyleEl = document.createElement('style');
     fontStyleEl.textContent = fontFaceRules.join('\n');
     document.head.appendChild(fontStyleEl);
@@ -1074,8 +1091,10 @@ export function resolveStylesFromCSS(
   // Build indexed rule lookup
   const ruleIndex = buildRuleIndex(rules);
 
-  // Wrap fragment in a container div so resolveElement has a single root Element
-  const container = document.createElement('div');
+  // Wrap fragment in a container div so resolveElement has a single root
+  // Element. Created from the fragment's own document so no ambient DOM is
+  // required (the tree is never inserted into the live document).
+  const container = fragment.ownerDocument!.createElement('div');
   container.appendChild(fragment);
 
   function buildContext(el: Element, parent: ElementContext | null): ElementContext {
@@ -1183,8 +1202,9 @@ export function resolveStylesFromCSS(
     }
 
     // Apply font-size from inline styles
-    if (el instanceof HTMLElement && el.style.cssText) {
-      const inlineDecls = parseInlineStyle(el.style.cssText);
+    const elStyle = inlineStyleOf(el);
+    if (elStyle && elStyle.cssText) {
+      const inlineDecls = parseInlineStyle(elStyle.cssText);
       for (const decl of inlineDecls) {
         if (decl.property === 'font-size') {
           applyDeclaration(style, decl.property, decl.value, parentStyle.fontSize, containerWidth, parentStyle.direction);
@@ -1245,9 +1265,9 @@ export function resolveStylesFromCSS(
     }
 
     // Apply inline styles (highest specificity, skip font-size)
-    const hasInlineWidth = el instanceof HTMLElement && !!el.style.width;
-    if (el instanceof HTMLElement && el.style.cssText) {
-      const inlineDecls = parseInlineStyle(el.style.cssText);
+    const hasInlineWidth = !!elStyle?.width;
+    if (elStyle && elStyle.cssText) {
+      const inlineDecls = parseInlineStyle(elStyle.cssText);
       for (const decl of inlineDecls) {
         if (decl.property === 'font-size') {
           setProps.add('font-size');
@@ -1385,7 +1405,7 @@ export function resolveStylesFromCSS(
     parentStyle: ResolvedStyle,
     parentCtx: ElementContext | null,
   ): StyledNode | null {
-    if (node.nodeType === Node.TEXT_NODE) {
+    if (node.nodeType === TEXT_NODE) {
       const text = node.textContent;
       if (!text) return null;
 
@@ -1394,7 +1414,7 @@ export function resolveStylesFromCSS(
         const prev = node.previousSibling;
         const next = node.nextSibling;
         const isInlineSibling = (n: Node | null) => {
-          if (!n || n.nodeType !== Node.ELEMENT_NODE) return n?.nodeType === Node.TEXT_NODE;
+          if (!n || n.nodeType !== ELEMENT_NODE) return n?.nodeType === TEXT_NODE;
           const tag = (n as Element).tagName.toLowerCase();
           const def = TAG_DEFAULTS[tag];
           const d = def?.display || 'block';
@@ -1437,7 +1457,7 @@ export function resolveStylesFromCSS(
       };
     }
 
-    if (node.nodeType !== Node.ELEMENT_NODE) return null;
+    if (node.nodeType !== ELEMENT_NODE) return null;
 
     const el = node as Element;
     const tag = el.tagName.toLowerCase();

@@ -45,6 +45,12 @@ export interface LayoutConfig {
   /** Height override in CSS pixels (auto-sized from content if omitted) */
   height?: number;
   /**
+   * 2D context used for text measurement. Optional in the browser (a hidden
+   * canvas is created); required in non-browser environments. render-tag
+   * mutates its font/fontKerning state and performs no save/restore.
+   */
+  ctx?: AnyContext;
+  /**
    * Measurement accuracy mode (default: 'performance').
    * - 'performance' — pure canvas API measurements only.
    * - 'balanced' — uses hidden DOM probes for line heights.

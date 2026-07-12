@@ -53,6 +53,8 @@ import {
 } from './glyph-layout.js';
 
 export type { PathLike, GlyphPlacement, AlignMode, TextBaseline };
+export { setDOMParser, type DOMParserLike } from '../dom.js';
+import { createFallbackMeasureCtx } from '../dom.js';
 
 export interface LayoutTextOnPathConfig {
   /** Rich-text HTML (same dialect as render-tag's main API). */
@@ -195,10 +197,9 @@ export function drawTextOnPath(config: DrawTextOnPathConfig): DrawTextOnPathResu
 }
 
 function createMeasureCtx(): CanvasRenderingContext2D {
-  const canvas = typeof OffscreenCanvas !== 'undefined'
-    ? new OffscreenCanvas(1, 1)
-    : document.createElement('canvas');
-  return canvas.getContext('2d')! as CanvasRenderingContext2D;
+  // OffscreenCanvas-first, unlike the block-layout entry — this module's
+  // historical source; keeps its pixel baselines frozen.
+  return createFallbackMeasureCtx(false);
 }
 
 // ─── Pass 1: Backgrounds ──────────────────────────────────────────────

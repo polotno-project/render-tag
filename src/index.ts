@@ -9,6 +9,14 @@ import { buildLayoutTree } from './layout.js';
 import { renderNode } from './render.js';
 
 export type { RenderConfig, RenderResult, LayoutConfig, LayoutResult, DrawConfig, LayoutLine };
+export { setDOMParser, type DOMParserLike } from './dom.js';
+import { createFallbackMeasureCtx } from './dom.js';
+
+// Default measurement context, created lazily and reused across layout()
+// calls — safe because font/letterSpacing state is set before every
+// measurement anyway. Browser-first source keeps measurement identical to
+// previous releases.
+let defaultMeasureCtx: CanvasRenderingContext2D | null = null;
 
 // ─── layout() ────────────────────────────────────────────────────────
 
@@ -34,8 +42,12 @@ export function layout(config: LayoutConfig): LayoutResult {
   const { fragment, css } = parseHTML(html);
   const { tree, cleanup } = resolveStylesFromCSS(fragment, css, width);
 
-  const tmpCanvas = document.createElement('canvas');
-  const measureCtx = tmpCanvas.getContext('2d')!;
+  // Caller-provided ctx is mutated (font, fontKerning) and intentionally NOT
+  // save/restored — save/restore is not free on all contexts (e.g. PDF
+  // proxies emit stream operators for it).
+  const measureCtx =
+    (config.ctx as CanvasRenderingContext2D | undefined) ??
+    (defaultMeasureCtx ??= createFallbackMeasureCtx(true));
   measureCtx.fontKerning = 'normal';
 
   const { root, height: contentHeight, lines } = buildLayoutTree(measureCtx, tree, width, useDomMeasurements, debug);
@@ -71,6 +83,11 @@ export function drawLayout(config: DrawConfig): { canvas: AnyCanvas } {
     renderCtx = config.ctx;
     canvas = config.ctx.canvas;
   } else {
+    if (!config.canvas && typeof document === 'undefined') {
+      throw new Error(
+        'render-tag: drawLayout cannot create a canvas in a non-browser environment — pass ctx or canvas.'
+      );
+    }
     canvas = config.canvas ?? document.createElement('canvas');
     canvas.width = Math.ceil(width * pixelRatio);
     canvas.height = Math.ceil(finalHeight * pixelRatio);
@@ -99,12 +116,15 @@ export function render(config: RenderConfig): RenderResult {
     throw new TypeError('render: ctx and canvas are mutually exclusive — provide one or neither');
   }
 
+  // The output ctx doubles as the measurement ctx (same font resolution for
+  // measuring and drawing — required in non-browser environments).
   const layoutResult = layout({
     html: config.html,
     width: config.width,
     height: config.height,
     accuracy: config.accuracy,
     debug: config.debug,
+    ctx: config.ctx,
   });
 
   const { canvas } = drawLayout({

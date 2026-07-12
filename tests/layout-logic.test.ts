@@ -7,12 +7,12 @@
  */
 import { describe, it, expect } from 'vitest';
 import { buildLayoutTree } from '../src/layout.ts';
+import { mockCtx, CHAR_WIDTH } from './helpers/mock-ctx.ts';
 import type { StyledNode, ResolvedStyle, LayoutBox, LayoutText, LayoutNode } from '../src/types.ts';
 
 // ─── Test helpers ──────────────────────────────────────────────────────
 
-const CHAR_WIDTH = 10;
-const SPACE_WIDTH = 10;
+const SPACE_WIDTH = CHAR_WIDTH;
 
 /** Default style — all zeroes/defaults. Override per-test as needed. */
 function defaultStyle(overrides: Partial<ResolvedStyle> = {}): ResolvedStyle {
@@ -117,51 +117,6 @@ function inline(
     children,
     textContent: null,
   };
-}
-
-/**
- * Create a mock canvas context with predictable measureText.
- * Every character is CHAR_WIDTH pixels wide.
- */
-function mockCtx(): CanvasRenderingContext2D {
-  const ctx = {
-    font: '',
-    fontKerning: 'normal',
-    letterSpacing: '0px',
-    direction: 'ltr' as CanvasDirection,
-    textAlign: 'start' as CanvasTextAlign,
-    textBaseline: 'alphabetic' as CanvasTextBaseline,
-    measureText(text: string) {
-      // Mirror Chrome canvas: letter-spacing adds after every character
-      // (trailing included). Lets tests exercise letter-spacing-aware paths.
-      const ls = parseFloat((ctx as any).letterSpacing) || 0;
-      const width = text.length * CHAR_WIDTH + text.length * ls;
-      return {
-        width,
-        actualBoundingBoxAscent: 12,
-        actualBoundingBoxDescent: 4,
-        fontBoundingBoxAscent: 12,
-        fontBoundingBoxDescent: 4,
-        actualBoundingBoxLeft: 0,
-        actualBoundingBoxRight: width,
-      };
-    },
-    fillText() {},
-    strokeText() {},
-    save() {},
-    restore() {},
-    scale() {},
-    setLineDash() {},
-    beginPath() {},
-    moveTo() {},
-    lineTo() {},
-    stroke() {},
-    fillRect() {},
-    getImageData() { return { data: new Uint8ClampedArray(0), width: 0, height: 0 }; },
-    putImageData() {},
-    createLinearGradient() { return { addColorStop() {} }; },
-  };
-  return ctx as unknown as CanvasRenderingContext2D;
 }
 
 /** Run layout and return the root box. */
