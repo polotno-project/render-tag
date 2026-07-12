@@ -46,7 +46,7 @@
   ],
   "scripts": {
     "dev": "vite --config docs/vite.config.ts",
-    "test": "vitest run tests/render.test.ts tests/wrap-fuzz.test.ts tests/parse-parity.test.ts && npm run test:node",
+    "test": "vitest run tests/render.test.ts tests/wrap-fuzz.test.ts tests/parse-parity.test.ts tests/gradient-clip-descendants.test.ts && npm run test:node",
     "test:node": "vitest run -c vitest.node.config.ts",
     "test:update-baselines": "vitest run tests/generate-baselines.test.ts",
     "test:update-baselines:firefox": "vitest run tests/generate-baselines.test.ts -c vitest.firefox.config.ts",

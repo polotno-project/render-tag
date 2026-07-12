@@ -233,11 +233,16 @@ function renderText(ctx: CanvasRenderingContext2D, node: LayoutText, gradientFil
     ctx.textAlign = 'right';
   }
 
-  const isGradientText = style.webkitBackgroundClip === 'text' &&
+  const hasOwnClipGradient = style.webkitBackgroundClip === 'text' &&
     style.backgroundImage && style.backgroundImage !== 'none';
   const isStrokedText = style.webkitTextStrokeWidth > 0;
   const isFillTransparent = style.webkitTextFillColor === 'transparent' ||
     style.color === 'transparent';
+  // An ancestor's gradientFill only shows when this run's own fill is
+  // transparent — an opaque own color paints over the clipped background
+  // and wins.
+  const isGradientText = hasOwnClipGradient ||
+    (gradientFill != null && isFillTransparent);
 
   // Text shadow (drawn behind the text). Cast the shadow from the shape that
   // is actually painted: the fill when it's visible, and/or the stroke. This
@@ -352,7 +357,7 @@ function renderText(ctx: CanvasRenderingContext2D, node: LayoutText, gradientFil
 /**
  * Render a layout box and its children to canvas.
  */
-function renderBox(ctx: CanvasRenderingContext2D, box: LayoutBox): void {
+function renderBox(ctx: CanvasRenderingContext2D, box: LayoutBox, gradientFill: CanvasGradient | null = null): void {
   const { style } = box;
 
   // Background
@@ -378,8 +383,11 @@ function renderBox(ctx: CanvasRenderingContext2D, box: LayoutBox): void {
     ctx.stroke();
   }
 
-  // Pre-compute gradient for background-clip: text elements
-  let gradientFill: CanvasGradient | null = null;
+  // Pre-compute gradient for background-clip: text elements. The gradient
+  // spans the declaring box and threads through descendant boxes (browsers
+  // clip the ancestor's background to ALL descendant glyphs, so text inside
+  // block children like <p>/<li> keeps it — backgroundImage itself doesn't
+  // inherit); a box declaring its own clipping background overrides it.
   if (style.webkitBackgroundClip === 'text' && style.backgroundImage && style.backgroundImage !== 'none') {
     gradientFill = parseLinearGradient(ctx, style.backgroundImage, box.x, box.width, box.y, box.height);
   }
@@ -397,6 +405,6 @@ export function renderNode(ctx: CanvasRenderingContext2D, node: LayoutNode, grad
   if (node.type === 'text') {
     renderText(ctx, node, gradientFill);
   } else {
-    renderBox(ctx, node);
+    renderBox(ctx, node, gradientFill);
   }
 }
