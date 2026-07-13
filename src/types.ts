@@ -127,6 +127,21 @@ export interface RenderResult {
   lines: LayoutLine[];
 }
 
+/**
+ * One text decoration with the color/style of the element that DECLARED it.
+ * CSS text-decoration is not inherited: the declaring element paints the line
+ * across its in-flow descendants using its own color/style. Descendants carry
+ * ancestors' entries (plus their own) so the painter can reproduce that —
+ * e.g. a parent's red underline stays red across a blue child <s>.
+ */
+export interface DecorationEntry {
+  /** 'underline' | 'line-through' | 'overline' */
+  line: string;
+  color: string;
+  /** 'solid' | 'double' | 'dotted' | 'dashed' | 'wavy' */
+  style: string;
+}
+
 /** Resolved style for a single element — all values in px / concrete strings */
 export interface ResolvedStyle {
   // Text
@@ -144,6 +159,10 @@ export interface ResolvedStyle {
   textDecorationLine: string;
   textDecorationStyle: string;
   textDecorationColor: string;
+  /** Own + ancestor decorations, each with its ORIGIN's color/style (paint
+   * order: ancestors first). `textDecorationLine` stays the union of entry
+   * lines for cheap "has any decoration" checks and run merging. */
+  textDecorations: DecorationEntry[];
   textShadow: string;
   webkitTextStrokeWidth: number;
   webkitTextStrokeColor: string;

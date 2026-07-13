@@ -443,10 +443,36 @@ function drawGradientGlyph(
 
 // ─── Pass 3: Decorations ─────────────────────────────────────────────
 
+/** The effective decoration entry of a glyph's style for one line kind — the
+ * LAST matching entry wins (own decorations are appended after ancestors'). */
+function decorationFor(
+  style: GlyphPlacement['style'],
+  lineKind: string,
+): { color: string; style: string } | null {
+  const entries = style.textDecorations;
+  if (entries && entries.length) {
+    for (let i = entries.length - 1; i >= 0; i--) {
+      if (entries[i].line === lineKind) {
+        return { color: entries[i].color, style: entries[i].style || 'solid' };
+      }
+    }
+    return null;
+  }
+  // Legacy fallback (style objects built without entries)
+  if (!style.textDecorationLine || !style.textDecorationLine.includes(lineKind)) {
+    return null;
+  }
+  return {
+    color: style.textDecorationColor || style.color,
+    style: style.textDecorationStyle || 'solid',
+  };
+}
+
 /**
  * Underline / line-through / overline: stroke a curve that follows the path
  * at the appropriate vertical offset. Groups consecutive glyphs sharing
- * decoration-line + style + color.
+ * decoration-line + style + color. Color/style come from the decoration's
+ * ORIGIN element (per-entry), not the glyph's currentColor.
  */
 function drawDecorations(
   ctx: CanvasRenderingContext2D,
@@ -457,22 +483,25 @@ function drawDecorations(
   for (const lineKind of lines) {
     let i = 0;
     while (i < glyphs.length) {
-      const style = glyphs[i].style;
-      if (!style.textDecorationLine || !style.textDecorationLine.includes(lineKind)) {
+      const deco = decorationFor(glyphs[i].style, lineKind);
+      if (!deco) {
         i++;
         continue;
       }
-      const color = style.textDecorationColor || style.color;
-      const decoStyle = style.textDecorationStyle || 'solid';
+      const { color, style: decoStyle } = deco;
       const colorCanon = canonicalColor(ctx, color);
       let j = i + 1;
-      while (
-        j < glyphs.length &&
-        glyphs[j].style.textDecorationLine &&
-        glyphs[j].style.textDecorationLine.includes(lineKind) &&
-        canonicalColor(ctx, glyphs[j].style.textDecorationColor || glyphs[j].style.color) === colorCanon &&
-        (glyphs[j].style.textDecorationStyle || 'solid') === decoStyle
-      ) j++;
+      while (j < glyphs.length) {
+        const next = decorationFor(glyphs[j].style, lineKind);
+        if (
+          !next ||
+          canonicalColor(ctx, next.color) !== colorCanon ||
+          next.style !== decoStyle
+        ) {
+          break;
+        }
+        j++;
+      }
       strokeDecorationAlongGlyphs(ctx, glyphs.slice(i, j), lineKind, decoStyle, color, tb);
       i = j;
     }

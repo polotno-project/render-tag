@@ -264,6 +264,25 @@ function isShiftedVAlign(va: string): boolean {
   return va !== 'baseline' && va !== 'top' && va !== 'bottom' && va !== '';
 }
 
+/** Same decoration set: entries must match pairwise (line, color, style) so
+ * runs whose decorations differ only in color/style don't merge and paint
+ * with the wrong one. */
+function sameDecorations(a: ResolvedStyle, b: ResolvedStyle): boolean {
+  const da = a.textDecorations, db = b.textDecorations;
+  if (da === db) return true;
+  if (!da || !db || da.length !== db.length) return false;
+  for (let i = 0; i < da.length; i++) {
+    if (
+      da[i].line !== db[i].line ||
+      da[i].color !== db[i].color ||
+      da[i].style !== db[i].style
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 /**
  * Check if two styles have the same text rendering properties.
  */
@@ -274,6 +293,7 @@ function sameTextStyle(a: ResolvedStyle, b: ResolvedStyle): boolean {
     a.fontStyle === b.fontStyle &&
     a.color === b.color &&
     a.textDecorationLine === b.textDecorationLine &&
+    sameDecorations(a, b) &&
     a.backgroundColor === b.backgroundColor;
 }
 
@@ -2285,7 +2305,7 @@ function addListMarker(
     x: markerX,
     y: markerY,
     width: markerWidth,
-    style: { ...markerStyleObj, textDecorationLine: 'none', fontWeight: ms?.fontWeight ?? 400, fontStyle: ms?.fontStyle ?? 'normal', direction: markerDirection },
+    style: { ...markerStyleObj, textDecorationLine: 'none', textDecorations: [], fontWeight: ms?.fontWeight ?? 400, fontStyle: ms?.fontStyle ?? 'normal', direction: markerDirection },
   });
 
   // Also publish the marker through the LayoutLine stream so result.lines

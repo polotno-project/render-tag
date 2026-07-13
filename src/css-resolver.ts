@@ -1,4 +1,4 @@
-import type { ResolvedStyle, StyledNode } from './types.js';
+import type { DecorationEntry, ResolvedStyle, StyledNode } from './types.js';
 
 // Node.TEXT_NODE / Node.ELEMENT_NODE without the ambient `Node` global
 // (unavailable in non-browser environments).
@@ -317,6 +317,7 @@ function defaultStyle(): ResolvedStyle {
     textDecorationLine: 'none',
     textDecorationStyle: 'solid',
     textDecorationColor: 'rgb(0, 0, 0)',
+    textDecorations: [],
     textShadow: 'none',
     webkitTextStrokeWidth: 0,
     webkitTextStrokeColor: '',
@@ -1297,8 +1298,14 @@ export function resolveStylesFromCSS(
     setProps.add('font-size'); // already resolved
     inheritFrom(style, parentStyle, setProps);
 
-    // Auto-set currentColor defaults (browser default behavior)
+    // Auto-set currentColor defaults (browser default behavior).
+    // Decorations: with no explicit text-decoration-color, Chrome paints the
+    // line with -webkit-text-fill-color when that is set (measured: red color +
+    // blue fill-color + <u> → blue underline; transparent fill-color → the
+    // decoration disappears with the glyphs), falling back to `color`.
     if (!setProps.has('text-decoration-color')) {
+      style.textDecorationColor = style.webkitTextFillColor || style.color;
+    } else if (style.textDecorationColor === 'currentColor') {
       style.textDecorationColor = style.color;
     }
     for (const side of ['Top', 'Right', 'Bottom', 'Left'] as const) {
@@ -1311,7 +1318,27 @@ export function resolveStylesFromCSS(
       }
     }
 
-    // Handle text-decoration inheritance (propagates visually, not via normal inheritance)
+    // Handle text-decoration inheritance (propagates visually, not via normal
+    // inheritance). Each decoration keeps the color/style of the element that
+    // DECLARED it (Chrome: a parent's red underline stays red across a blue
+    // child <s>): ancestor entries ride along in `textDecorations`, own
+    // entries are appended after them so they paint on top.
+    // `textDecorationLine` stays the union of lines for cheap checks.
+    const ownEntries: DecorationEntry[] = [];
+    if (style.textDecorationLine && style.textDecorationLine !== 'none') {
+      for (const d of style.textDecorationLine.split(/\s+/)) {
+        if (d && d !== 'none') {
+          ownEntries.push({
+            line: d,
+            color: style.textDecorationColor,
+            style: style.textDecorationStyle,
+          });
+        }
+      }
+    }
+    style.textDecorations = parentStyle.textDecorations.length
+      ? [...parentStyle.textDecorations, ...ownEntries]
+      : ownEntries;
     const decoSet = new Set(style.textDecorationLine.split(/\s+/).filter(d => d && d !== 'none'));
     if (parentStyle.textDecorationLine && parentStyle.textDecorationLine !== 'none') {
       for (const d of parentStyle.textDecorationLine.split(/\s+/)) {
