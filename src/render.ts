@@ -329,17 +329,40 @@ function renderText(ctx: CanvasRenderingContext2D, node: LayoutText, gradientFil
     for (const deco of style.textDecorations) {
       // A transparent decoration inside a background-clip:text element shows
       // the clipped background through the band (Chrome includes decorations
-      // in the clip region), so paint it with the gradient. Transparent with
-      // no gradient paints nothing.
+      // in the clip region), so paint it with the gradient — REGARDLESS of
+      // this run's own glyph fill: a solid-colored span inside a gradient
+      // element still gets the gradient band across it. Transparent with no
+      // gradient ancestor paints nothing.
       let color: string | CanvasGradient = deco.color;
       if (isTransparent(deco.color)) {
-        if (isGradientText && gradientFill) {
+        if (gradientFill) {
           color = gradientFill;
         } else {
           continue;
         }
       }
       const decoStyle = deco.style || 'solid';
+
+      // Chrome strokes decorations with -webkit-text-stroke, same as glyphs
+      // (measured: red text + 3px blue stroke + underline adds only blue
+      // pixels — the stroke swallows the thin band). Approximate the outline
+      // with a thicker stroke-colored underlay; the decoration paint on top
+      // keeps whatever the stroke leaves visible (decoWidth - strokeWidth).
+      const strokeW = style.webkitTextStrokeWidth > 0 ? style.webkitTextStrokeWidth : 0;
+      const strokeColor = style.webkitTextStrokeColor || style.color;
+      const paintBand = (y: number) => {
+        // Transparent stroke (the gradient-stroke technique) paints no
+        // outline — keep the full band rather than shaving its edges away.
+        if (strokeW > 0 && !isTransparent(strokeColor)) {
+          drawDecorationLine(ctx, decoX, y, textWidth, decoWidth + strokeW, decoStyle, strokeColor);
+          const inner = decoWidth - strokeW;
+          if (inner > 0) {
+            drawDecorationLine(ctx, decoX, y, textWidth, inner, decoStyle, color);
+          }
+        } else {
+          drawDecorationLine(ctx, decoX, y, textWidth, decoWidth, decoStyle, color);
+        }
+      };
 
       if (deco.line === 'underline') {
         // Chrome centers the underline ~0.105em below the baseline for every
@@ -349,19 +372,19 @@ function renderText(ctx: CanvasRenderingContext2D, node: LayoutText, gradientFil
         // rounding; empirically this cuts row-off-by-one cases 39 → 12 across
         // the sweep without disturbing integer baselines.
         const yOffset = fontSize * 0.105 - 0.2;
-        drawDecorationLine(ctx, decoX, node.y + yOffset, textWidth, decoWidth, decoStyle, color);
+        paintBand(node.y + yOffset);
       } else if (deco.line === 'line-through') {
         // Chrome positions the strike from the font's OS/2 strikeout metric,
         // which canvas can't read. 0.33em above the baseline is the closest
         // single-formula fit (tuned against the DOM raster sweep; ±1px for
         // most fonts, ±2px worst case).
         const yOffset = -(fontSize * 0.33);
-        drawDecorationLine(ctx, decoX, node.y + yOffset, textWidth, decoWidth, decoStyle, color);
+        paintBand(node.y + yOffset);
       } else if (deco.line === 'overline') {
         // Chrome hangs the overline band above the ascent line: its bottom
         // edge sits on the floored ascent pixel row, growing upward.
         const overlineY = Math.floor(node.y - decoAscent) - decoWidth / 2;
-        drawDecorationLine(ctx, decoX, overlineY, textWidth, decoWidth, decoStyle, color);
+        paintBand(overlineY);
       }
     }
   }

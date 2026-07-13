@@ -101,4 +101,40 @@ describe('decorations inside background-clip: text gradient', () => {
     const { canvas } = render({ html, width: 300, pixelRatio: 1 });
     expect(countColoredPixels(canvas, isRed)).toBeGreaterThan(10);
   });
+
+  it('gradient band continues over a run with an opaque own fill', () => {
+    // Chrome clips the ancestor's background to the decoration band no matter
+    // what the run's own glyph fill is: a solid-colored span inside a
+    // gradient element still gets the (gradient) underline across it. The
+    // painter must not skip transparent decoration entries just because the
+    // run itself isn't gradient-filled.
+    const html = `<div style="font-size: 24px; line-height: 2; ${GRAD}; text-decoration: underline;"><p><span style="color: rgb(0, 200, 0); -webkit-text-fill-color: currentcolor;">GGGG</span></p></div>`;
+    const { canvas } = render({ html, width: 300, pixelRatio: 1 });
+    // glyphs are green; the underline band under them must paint the
+    // gradient (blue), not vanish
+    expect(
+      countColoredPixels(canvas, (r, g, b) => g > 150 && r < 100 && b < 100),
+    ).toBeGreaterThan(50); // glyphs
+    expect(countColoredPixels(canvas, isBlue)).toBeGreaterThan(30); // band
+  });
+});
+
+describe('decorations under -webkit-text-stroke', () => {
+  it('the decoration band is stroked like the glyphs', () => {
+    // Chrome strokes text decorations with -webkit-text-stroke (measured:
+    // red text + 3px blue stroke + underline adds ONLY blue pixels — the
+    // stroke swallows the thin band). The band must gain stroke-colored
+    // edges, not stay purely decoration-colored.
+    const base = `<div style="font-size: 40px; line-height: 2; color: rgb(231, 76, 60); -webkit-text-stroke: 3px rgb(52, 152, 219);">ABCD</div>`;
+    const withDeco = `<div style="font-size: 40px; line-height: 2; color: rgb(231, 76, 60); -webkit-text-stroke: 3px rgb(52, 152, 219); text-decoration: underline;">ABCD</div>`;
+    const bluesBase = countColoredPixels(
+      render({ html: base, width: 320, pixelRatio: 1 }).canvas,
+      isBlue,
+    );
+    const bluesDeco = countColoredPixels(
+      render({ html: withDeco, width: 320, pixelRatio: 1 }).canvas,
+      isBlue,
+    );
+    expect(bluesDeco).toBeGreaterThan(bluesBase + 200);
+  });
 });
