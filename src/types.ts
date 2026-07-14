@@ -166,6 +166,13 @@ export interface ResolvedStyle {
   textShadow: string;
   webkitTextStrokeWidth: number;
   webkitTextStrokeColor: string;
+  /** A gradient to paint the -webkit-text-stroke with (CSS can't put a gradient
+   * on a text stroke). Read from the `--rt-text-stroke-image` custom property (a
+   * real property name would be dropped from inline cssText by the browser).
+   * render-tag builds a CanvasGradient for the stroke, spanning the declaring
+   * element like a background-clip:text fill gradient. 'none' = solid stroke via
+   * webkitTextStrokeColor. */
+  webkitTextStrokeImage: string;
   webkitTextFillColor: string;
   paintOrder: string;
   /** Corner join for -webkit-text-stroke: 'round' (default) | 'miter' | 'bevel'.

@@ -321,6 +321,7 @@ function defaultStyle(): ResolvedStyle {
     textShadow: 'none',
     webkitTextStrokeWidth: 0,
     webkitTextStrokeColor: '',
+    webkitTextStrokeImage: 'none',
     webkitTextFillColor: '',
     paintOrder: 'normal',
     strokeLinejoin: 'round',
@@ -653,6 +654,10 @@ function applyDeclaration(
     // inheritance as a keyword and resolve against each element's own
     // color at render time, so it is never eagerly resolved here.
     case '-webkit-text-stroke-color': style.webkitTextStrokeColor = normalizeCurrentColor(value); break;
+    // A CSS custom property (not a real -webkit- property) so the browser keeps
+    // it in the element's inline cssText — an unknown real property would be
+    // dropped before render-tag reads it.
+    case '--rt-text-stroke-image': style.webkitTextStrokeImage = value.trim(); break;
     case '-webkit-text-fill-color': style.webkitTextFillColor = normalizeCurrentColor(value); break;
     case 'paint-order': style.paintOrder = value.trim(); break;
     case 'stroke-linejoin': style.strokeLinejoin = value.trim(); break;

@@ -203,9 +203,16 @@ export function decorationThickness(fontSize: number): number {
   return Math.max(1, Math.floor(fontSize / 10));
 }
 
-/** Apply the canvas stroke settings for -webkit-text-stroke. */
-export function applyTextStroke(ctx: CanvasRenderingContext2D, style: ResolvedStyle): void {
-  ctx.strokeStyle = style.webkitTextStrokeColor || style.color;
+/** Apply the canvas stroke settings for -webkit-text-stroke. A gradient stroke
+ * (webkitTextStrokeImage, pre-resolved to a CanvasGradient) wins over the solid
+ * stroke color, mirroring how a background-clip:text gradient wins over `color`
+ * for the fill. */
+export function applyTextStroke(
+  ctx: CanvasRenderingContext2D,
+  style: ResolvedStyle,
+  strokeGradient?: CanvasGradient | null,
+): void {
+  ctx.strokeStyle = strokeGradient || style.webkitTextStrokeColor || style.color;
   ctx.lineWidth = style.webkitTextStrokeWidth;
   const join = style.strokeLinejoin;
   ctx.lineJoin = join === 'miter' || join === 'bevel' ? join : 'round';
@@ -214,8 +221,14 @@ export function applyTextStroke(ctx: CanvasRenderingContext2D, style: ResolvedSt
 /**
  * Render a single text node to canvas.
  * @param gradientFill — pre-computed gradient for background-clip:text spanning full element
+ * @param strokeGradient — pre-computed gradient for -webkit-text-stroke-image spanning full element
  */
-function renderText(ctx: CanvasRenderingContext2D, node: LayoutText, gradientFill?: CanvasGradient | null): void {
+function renderText(
+  ctx: CanvasRenderingContext2D,
+  node: LayoutText,
+  gradientFill?: CanvasGradient | null,
+  strokeGradient?: CanvasGradient | null,
+): void {
   const { style } = node;
 
   ctx.save();
@@ -263,7 +276,7 @@ function renderText(ctx: CanvasRenderingContext2D, node: LayoutText, gradientFil
         ctx.fillText(node.text, node.x, node.y);
       }
       if (isStrokedText) {
-        applyTextStroke(ctx, style);
+        applyTextStroke(ctx, style, strokeGradient);
         ctx.strokeText(node.text, node.x, node.y);
       }
       ctx.restore();
@@ -299,7 +312,7 @@ function renderText(ctx: CanvasRenderingContext2D, node: LayoutText, gradientFil
   const drawStroke = () => {
     if (!isStrokedText) return;
     ctx.save();
-    applyTextStroke(ctx, style);
+    applyTextStroke(ctx, style, strokeGradient);
     ctx.strokeText(node.text, node.x, node.y);
     ctx.restore();
   };
@@ -349,11 +362,14 @@ function renderText(ctx: CanvasRenderingContext2D, node: LayoutText, gradientFil
       // with a thicker stroke-colored underlay; the decoration paint on top
       // keeps whatever the stroke leaves visible (decoWidth - strokeWidth).
       const strokeW = style.webkitTextStrokeWidth > 0 ? style.webkitTextStrokeWidth : 0;
-      const strokeColor = style.webkitTextStrokeColor || style.color;
+      const strokeColor: string | CanvasGradient =
+        strokeGradient || style.webkitTextStrokeColor || style.color;
       const paintBand = (y: number) => {
-        // Transparent stroke (the gradient-stroke technique) paints no
-        // outline — keep the full band rather than shaving its edges away.
-        if (strokeW > 0 && !isTransparent(strokeColor)) {
+        // A gradient stroke (CanvasGradient) is never transparent; a solid
+        // stroke color still gets the transparent check below.
+        const strokeIsTransparent =
+          typeof strokeColor === 'string' && isTransparent(strokeColor);
+        if (strokeW > 0 && !strokeIsTransparent) {
           drawDecorationLine(ctx, decoX, y, textWidth, decoWidth + strokeW, decoStyle, strokeColor);
           const inner = decoWidth - strokeW;
           if (inner > 0) {
@@ -395,7 +411,12 @@ function renderText(ctx: CanvasRenderingContext2D, node: LayoutText, gradientFil
 /**
  * Render a layout box and its children to canvas.
  */
-function renderBox(ctx: CanvasRenderingContext2D, box: LayoutBox, gradientFill: CanvasGradient | null = null): void {
+function renderBox(
+  ctx: CanvasRenderingContext2D,
+  box: LayoutBox,
+  gradientFill: CanvasGradient | null = null,
+  strokeGradient: CanvasGradient | null = null,
+): void {
   const { style } = box;
 
   // Background
@@ -430,19 +451,32 @@ function renderBox(ctx: CanvasRenderingContext2D, box: LayoutBox, gradientFill: 
     gradientFill = parseLinearGradient(ctx, style.backgroundImage, box.x, box.width, box.y, box.height);
   }
 
+  // Pre-compute the stroke gradient the same way: it spans the declaring box
+  // and threads through descendants (a box declaring its own overrides it).
+  // -webkit-text-stroke-image isn't inherited as a value; the computed gradient
+  // is threaded down instead — exactly like the background-clip:text fill.
+  if (style.webkitTextStrokeImage && style.webkitTextStrokeImage !== 'none') {
+    strokeGradient = parseLinearGradient(ctx, style.webkitTextStrokeImage, box.x, box.width, box.y, box.height);
+  }
+
   // Children
   for (const child of box.children) {
-    renderNode(ctx, child, gradientFill);
+    renderNode(ctx, child, gradientFill, strokeGradient);
   }
 }
 
 /**
  * Render any layout node.
  */
-export function renderNode(ctx: CanvasRenderingContext2D, node: LayoutNode, gradientFill?: CanvasGradient | null): void {
+export function renderNode(
+  ctx: CanvasRenderingContext2D,
+  node: LayoutNode,
+  gradientFill?: CanvasGradient | null,
+  strokeGradient?: CanvasGradient | null,
+): void {
   if (node.type === 'text') {
-    renderText(ctx, node, gradientFill);
+    renderText(ctx, node, gradientFill, strokeGradient);
   } else {
-    renderBox(ctx, node, gradientFill);
+    renderBox(ctx, node, gradientFill, strokeGradient);
   }
 }

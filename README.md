@@ -133,7 +133,44 @@ Without injection, functions throw with guidance. `accuracy: 'balanced'` needs a
 
 ## What it renders
 
-Paragraphs, headings, divs, spans · bold, italic, underline, strikethrough, overline · colors, background colors, text-shadow, text-stroke, gradient text · font families, sizes, weights (100–900) · line-height, letter-spacing, text-align (left/center/right/justify) · ordered/unordered lists with nesting · flexbox (row/column), basic tables · `-webkit-line-clamp` · `pre-wrap`, `overflow-wrap: break-word`, soft hyphens · RTL, CJK, emoji.
+Paragraphs, headings, divs, spans · bold, italic, underline, strikethrough, overline · colors, background colors, text-shadow, text-stroke (solid **and gradient**), gradient text · font families, sizes, weights (100–900) · line-height, letter-spacing, text-align (left/center/right/justify) · ordered/unordered lists with nesting · flexbox (row/column), basic tables · `-webkit-line-clamp` · `pre-wrap`, `overflow-wrap: break-word`, soft hyphens · RTL, CJK, emoji.
+
+## render-tag-specific inputs
+
+render-tag renders plain HTML/CSS — no custom syntax required. The exception:
+a couple of properties that **have no real CSS equivalent** for canvas text, so
+render-tag reads them off the element's style as an extra channel. They are
+inert in a real browser (a browser ignores or drops them), so the same HTML
+still renders in the DOM — render-tag just paints a little extra.
+
+| Property | Type | Effect |
+|---|---|---|
+| `--rt-text-stroke-image` | CSS custom property, a `linear-gradient(...)` | Paints the `-webkit-text-stroke` outline with a gradient instead of a solid color. |
+| `stroke-linejoin` | `round` (default) \| `miter` \| `bevel` | Corner join for `-webkit-text-stroke` (SVG-style; HTML text-stroke has no join control). |
+
+### Gradient text stroke
+
+CSS can only give a text stroke a **solid** color (`-webkit-text-stroke: 4px #333`),
+and there is no CSS way to paint the outline with a gradient — the DOM
+work-around is a two-layer `background-clip: text` stack. On canvas a gradient
+stroke is trivial (`ctx.strokeStyle = gradient`), so render-tag exposes it
+directly. Set the normal stroke for width + a solid fallback color, then hand
+render-tag the gradient via `--rt-text-stroke-image`:
+
+```html
+<div style="
+  color: #fff;                                     /* fill */
+  -webkit-text-stroke: 4px #000;                   /* width + solid fallback */
+  --rt-text-stroke-image: linear-gradient(0deg, #000 0%, #d400ff 100%);
+  paint-order: stroke fill;                         /* stroke under the fill */
+">Outlined</div>
+```
+
+The gradient spans the declaring element (like a `background-clip: text` fill
+gradient) and threads through block children (`<p>`, `<li>`), so wrapped lines
+and list items share one continuous stroke gradient. A custom property is used
+because a browser strips unknown *real* properties from inline `cssText` before
+render-tag can read them — custom properties survive.
 
 ## Recommended CSS reset
 
