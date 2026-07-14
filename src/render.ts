@@ -228,6 +228,7 @@ function renderText(
   node: LayoutText,
   gradientFill?: CanvasGradient | null,
   strokeGradient?: CanvasGradient | null,
+  clipBgImage: string | null = null,
 ): void {
   const { style } = node;
 
@@ -257,6 +258,29 @@ function renderText(
   const isGradientText = hasOwnClipGradient ||
     (gradientFill != null && isFillTransparent);
 
+  // A run that RE-declares its own background-clip:text gradient wins over the
+  // inherited ancestor clip: Chrome clips the NEAREST declaring element's
+  // background to its glyphs. render-tag copies a parent element's style onto
+  // its text runs, so a clip box's own runs carry that box's backgroundImage
+  // too — those must keep the box-spanning `gradientFill`. We recompute a
+  // per-run gradient ONLY when this run's backgroundImage differs from the one
+  // that produced `gradientFill` (i.e. a genuine sub-span like <span> inside a
+  // gradient-filled element). Its geometry spans this run's own glyph box.
+  const reDeclaresClip =
+    hasOwnClipGradient && style.backgroundImage !== clipBgImage;
+  let ownClipGradient: CanvasGradient | null = null;
+  if (reDeclaresClip) {
+    const { ascent, descent } = getFontMetrics(ctx, style);
+    ownClipGradient = parseLinearGradient(
+      ctx, style.backgroundImage,
+      node.x, node.width,
+      node.y - ascent, ascent + descent,
+    );
+  }
+  // What actually fills this run's glyphs (and any clipped decoration band):
+  // the run's own re-declared gradient if present, else the inherited ancestor.
+  const effectiveGradient = ownClipGradient ?? gradientFill ?? null;
+
   // Text shadow (drawn behind the text). Cast the shadow from the shape that
   // is actually painted: the fill when it's visible, and/or the stroke. This
   // matters for stroked text with a transparent fill (color:transparent +
@@ -272,7 +296,7 @@ function renderText(
       ctx.shadowBlur = shadow.blur;
       ctx.shadowColor = shadow.color;
       if (hasVisibleFill) {
-        ctx.fillStyle = isGradientText && gradientFill ? gradientFill : textFillColor(style);
+        ctx.fillStyle = isGradientText && effectiveGradient ? effectiveGradient : textFillColor(style);
         ctx.fillText(node.text, node.x, node.y);
       }
       if (isStrokedText) {
@@ -286,18 +310,7 @@ function renderText(
   const drawFill = () => {
     if (isGradientText) {
       ctx.save();
-      if (gradientFill) {
-        ctx.fillStyle = gradientFill;
-      } else {
-        // Fallback: per-word gradient (shouldn't normally reach here)
-        const { ascent, descent } = getFontMetrics(ctx, style);
-        const gradient = parseLinearGradient(
-          ctx, style.backgroundImage,
-          node.x, node.width,
-          node.y - ascent, ascent + descent,
-        );
-        ctx.fillStyle = gradient || style.color;
-      }
+      ctx.fillStyle = effectiveGradient || style.color;
       ctx.fillText(node.text, node.x, node.y);
       ctx.restore();
     } else if (!isFillTransparent) {
@@ -348,8 +361,8 @@ function renderText(
       // gradient ancestor paints nothing.
       let color: string | CanvasGradient = deco.color;
       if (isTransparent(deco.color)) {
-        if (gradientFill) {
-          color = gradientFill;
+        if (effectiveGradient) {
+          color = effectiveGradient;
         } else {
           continue;
         }
@@ -416,6 +429,11 @@ function renderBox(
   box: LayoutBox,
   gradientFill: CanvasGradient | null = null,
   strokeGradient: CanvasGradient | null = null,
+  // The backgroundImage string that produced `gradientFill`, threaded so a
+  // descendant run can tell whether it merely carries the ancestor clip box's
+  // style (same string → keep the box-spanning gradientFill) or genuinely
+  // re-declares its own clip (different string → compute its own gradient).
+  clipBgImage: string | null = null,
 ): void {
   const { style } = box;
 
@@ -449,6 +467,7 @@ function renderBox(
   // inherit); a box declaring its own clipping background overrides it.
   if (style.webkitBackgroundClip === 'text' && style.backgroundImage && style.backgroundImage !== 'none') {
     gradientFill = parseLinearGradient(ctx, style.backgroundImage, box.x, box.width, box.y, box.height);
+    clipBgImage = style.backgroundImage;
   }
 
   // Pre-compute the stroke gradient the same way: it spans the declaring box
@@ -461,7 +480,7 @@ function renderBox(
 
   // Children
   for (const child of box.children) {
-    renderNode(ctx, child, gradientFill, strokeGradient);
+    renderNode(ctx, child, gradientFill, strokeGradient, clipBgImage);
   }
 }
 
@@ -473,10 +492,11 @@ export function renderNode(
   node: LayoutNode,
   gradientFill?: CanvasGradient | null,
   strokeGradient?: CanvasGradient | null,
+  clipBgImage: string | null = null,
 ): void {
   if (node.type === 'text') {
-    renderText(ctx, node, gradientFill, strokeGradient);
+    renderText(ctx, node, gradientFill, strokeGradient, clipBgImage);
   } else {
-    renderBox(ctx, node, gradientFill, strokeGradient);
+    renderBox(ctx, node, gradientFill, strokeGradient, clipBgImage);
   }
 }
