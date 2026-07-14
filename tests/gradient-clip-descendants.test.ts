@@ -79,16 +79,21 @@ describe('background-clip: text gradient through block descendants', () => {
 
   it('an INLINE span re-declaring its own clipping gradient overrides the ancestor', () => {
     // Regression: the parent clips a red gradient over the whole word; the
-    // inline <span> re-declares its own green clip. Unlike a block <p> child
+    // inline <span> re-declares its own clip. Unlike a block <p> child
     // (overridden at the box level), an inline span is a text RUN carrying its
     // parent's copied style — it must still paint its OWN gradient, while the
     // surrounding runs keep the ancestor's. (Polotno: a recolored sub-selection
     // inside a gradient-filled text element — previously the span painted the
     // ancestor gradient and its own was lost.)
-    const html = `<div style="font-size: 40px; background-image: linear-gradient(90deg, red, red); ${CLIP}">A<span style="background-image: linear-gradient(90deg, lime, lime); ${CLIP}">B</span>C</div>`;
+    //
+    // The span uses a REAL multi-stop gradient (green→blue) so this also guards
+    // that the span samples ITS OWN gradient (both stops appear) rather than a
+    // solid re-declaration that a plain ancestor-override could fake.
+    const html = `<div style="font-size: 40px; background-image: linear-gradient(90deg, red, red); ${CLIP}">A<span style="background-image: linear-gradient(90deg, lime, blue); ${CLIP}">BBBB</span>C</div>`;
     const { canvas } = render({ html, width: 300, pixelRatio: 1 });
-    expect(countPixels(canvas, isGreen)).toBeGreaterThan(20); // the span "B"
-    expect(countPixels(canvas, isRed)).toBeGreaterThan(20); // "A" and "C"
+    expect(countPixels(canvas, isGreen)).toBeGreaterThan(20); // span "BBBB" green end
+    expect(countPixels(canvas, isBlue)).toBeGreaterThan(20); // span "BBBB" blue end
+    expect(countPixels(canvas, isRed)).toBeGreaterThan(20); // "A" and "C" keep ancestor red
   });
 
   it('a descendant with an opaque color paints that color, not the gradient', () => {

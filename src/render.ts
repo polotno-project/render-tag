@@ -266,6 +266,16 @@ function renderText(
   // per-run gradient ONLY when this run's backgroundImage differs from the one
   // that produced `gradientFill` (i.e. a genuine sub-span like <span> inside a
   // gradient-filled element). Its geometry spans this run's own glyph box.
+  //
+  // Known limitations (acceptable — the common editor case is a solid or
+  // element-spanning gradient, and both degrade gracefully):
+  //  - Identity is the backgroundImage STRING: a sub-span re-declaring a
+  //    byte-identical gradient reads as "inherited" and samples the ancestor's
+  //    box instead of its own. Only matters for a real (multi-stop) gradient.
+  //  - Geometry is per-RUN, not per inline-box: a re-declared span that wraps
+  //    across words/lines resamples each run (horizontal gradient restarts per
+  //    word, vertical per line) rather than spanning the whole span box. The
+  //    box path (renderBox) is unaffected — it spans the full declaring box.
   const reDeclaresClip =
     hasOwnClipGradient && style.backgroundImage !== clipBgImage;
   let ownClipGradient: CanvasGradient | null = null;
