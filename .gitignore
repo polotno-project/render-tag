@@ -25,4 +25,7 @@ Text.ts
 
 # Wrap-debug harness reports (generated)
 tests/wrap-report.*.json
+# List-marker parity harness reports (generated)
+tests/list-marker-report.*.html
+tests/list-marker-table.*.txt
 .vitest-attachments/

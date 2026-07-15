@@ -137,6 +137,17 @@ li::marker { content: none; font-size: 0; line-height: 0; }
 ```
 This is safe because render-tag draws list markers itself via canvas.
 
+**Bullet disc size is Chrome-tuned (deliberate, Chrome-first).** Bullet symbols
+(disc/circle/square) are drawn by scaling the font's glyph so its ink diameter
+equals `ascent/3` — Chrome's synthetic-disc size (Blink's ⅔·ascent marker box,
+half-filled). The canvas draws ONE disc size for every browser (that's the point
+— identical output everywhere), so it's tuned to Chrome. Firefox and WebKit paint
+their native discs slightly SMALLER, so their `baselines.{firefox,webkit}.json`
+scores rose ~0.3px avg (max ~1.5px on large display fonts) when this landed —
+those updates are an intentional Chrome-first residual, NOT an improvement, and
+are the one sanctioned exception to "update baselines only after verifying
+improvement." The Chrome baseline improved (bullets: ~8px→<1.3px vs native).
+
 ## Commands
 - `npm run dev` — demo page with side-by-side comparison
 - `npm test` — vitest in Chromium

@@ -2263,21 +2263,41 @@ function addListMarker(
   let markerX: number;
   let markerY = baselineY;
   let markerDirection = 'ltr';
+  // Style/width the marker glyph is actually DRAWN with. Numbers draw at the
+  // li font (unchanged); bullets scale up (see below), so keep these separate.
+  let markerDrawStyle: ResolvedStyle = markerStyleObj;
+  let markerDrawWidth = markerWidth;
   const contentStartX = box.x + style.borderLeftWidth + style.paddingLeft;
   const boxRightEdge = box.x + box.width;
   if (isBullet) {
     const { ascent } = getFontMetrics(ctx, markerStyleObj);
     const m = ctx.measureText(node.listMarker);
-    const gap = explicitGap !== undefined ? explicitGap : 7 + ascent / 3;
+    // Blink's marker unit: the disc DIAMETER, the variable part of the gap, and
+    // the vertical centering all key off this one value (a 2/3·ascent marker
+    // box with a half-filling disc → ascent/3). Named once so tuning one keeps
+    // the trio in sync.
+    const markerUnit = ascent / 3;
+    const gap = explicitGap !== undefined ? explicitGap : 7 + markerUnit;
+    // Chrome paints bullet symbols (disc/circle/square) as a SYNTHETIC shape of
+    // that diameter, NOT the font's smaller '•'/'○'/'■' glyph (Roboto's '•' ink
+    // is ~0.22em vs Chrome's ~0.31em disc). Match it by scaling the glyph so its
+    // ink height equals markerUnit. Keeping the marker a text node means fill /
+    // stroke / shadow / gradient still apply exactly as before.
+    const inkH = (m.actualBoundingBoxAscent ?? 0) + (m.actualBoundingBoxDescent ?? 0);
+    const scale = inkH > 0 ? markerUnit / inkH : 1;
+    const inkRight = (m.actualBoundingBoxRight ?? markerWidth) * scale;
+    const inkLeft = (m.actualBoundingBoxLeft ?? 0) * scale;
+    const glyphInkCenter =
+      (((m.actualBoundingBoxAscent ?? 0) - (m.actualBoundingBoxDescent ?? 0)) / 2) * scale;
     if (isRTL) {
       // actualBoundingBoxLeft is positive when ink extends left of origin
-      markerX = boxRightEdge + gap + (m.actualBoundingBoxLeft ?? 0);
+      markerX = boxRightEdge + gap + inkLeft;
     } else {
-      markerX = contentStartX - gap - (m.actualBoundingBoxRight ?? markerWidth);
+      markerX = contentStartX - gap - inkRight;
     }
-    const glyphInkCenter =
-      ((m.actualBoundingBoxAscent ?? 0) - (m.actualBoundingBoxDescent ?? 0)) / 2;
-    markerY = baselineY - ascent / 3 + glyphInkCenter;
+    markerY = baselineY - markerUnit + glyphInkCenter;
+    markerDrawStyle = { ...markerStyleObj, fontSize: markerStyleObj.fontSize * scale };
+    markerDrawWidth = markerWidth * scale;
   } else {
     const gap = explicitGap !== undefined
       ? explicitGap
@@ -2304,8 +2324,8 @@ function addListMarker(
     text: node.listMarker,
     x: markerX,
     y: markerY,
-    width: markerWidth,
-    style: { ...markerStyleObj, textDecorationLine: 'none', textDecorations: [], fontWeight: ms?.fontWeight ?? 400, fontStyle: ms?.fontStyle ?? 'normal', direction: markerDirection },
+    width: markerDrawWidth,
+    style: { ...markerDrawStyle, textDecorationLine: 'none', textDecorations: [], fontWeight: ms?.fontWeight ?? 400, fontStyle: ms?.fontStyle ?? 'normal', direction: markerDirection },
   });
 
   // Also publish the marker through the LayoutLine stream so result.lines
@@ -2313,14 +2333,17 @@ function addListMarker(
   // inline content is laid out, so they don't go through layoutInlineContent.
   // The buildLayoutTree sort+merge step picks up the marker by its baseline.
   // RTL numbered markers store their right edge in markerX (textAlign trick).
-  const markerLeftX = markerDirection === 'rtl' ? markerX - markerWidth : markerX;
+  // bounds.width is the (scaled) glyph ADVANCE, not its ink extent — same
+  // convention as numbered markers; the ink right edge itself is pinned to
+  // contentStart - gap above.
+  const markerLeftX = markerDirection === 'rtl' ? markerX - markerDrawWidth : markerX;
   _lines.push({
     y: Math.round(baselineY),
     text: node.listMarker,
     bounds: {
       x: markerLeftX,
       y: box.y + style.borderTopWidth + style.paddingTop,
-      width: markerWidth,
+      width: markerDrawWidth,
       height: lineHeight,
     },
   });

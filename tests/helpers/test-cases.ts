@@ -805,6 +805,21 @@ console.log(msg);</pre>
     },
 
     // =========================================================================
+    // Display-size native list markers — locks bullet-disc + number parity vs
+    // Chrome's native ::marker at the large sizes where the synthetic-disc
+    // size difference is most visible (canonical <ul>/<ol>, native markers).
+    // =========================================================================
+    {
+      name: 'Large display list markers',
+      width: 700,
+      height: 500,
+      css: withOpenSans(
+        `body { ${font} font-size: 64px; line-height: 1.2; } ul, ol { padding-inline-start: 2.1em; margin: 0; }`,
+      ),
+      html: `<ul><li>Header</li><li>Second</li></ul><ol><li>One</li><li>Two</li></ol>`,
+    },
+
+    // =========================================================================
     // 31. List items with rich formatting
     // =========================================================================
     {

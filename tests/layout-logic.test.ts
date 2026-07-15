@@ -820,12 +820,16 @@ describe('Layout logic (mocked measureText)', () => {
     });
 
     // ─── Chrome-matching marker positions ──────────────────────────────
-    // Bullet glyphs (•/○/■) mimic Chrome's painted symbols: ink right edge
-    // at contentStart - (7 + ascent/3), ink center ascent/3 above baseline.
-    // Mock metrics: ascent = 12 → bullet gap = 7 + 4 = 11.
+    // Bullet glyphs (•/○/■) mimic Chrome's PAINTED symbols. Chrome draws a
+    // synthetic disc ~ascent/3 in diameter (bigger than the font's small '•'
+    // glyph), so render-tag SCALES the glyph up to that diameter. Invariants
+    // held across the scale: ink right edge at contentStart - (7 + ascent/3),
+    // ink center ascent/3 above the line baseline.
+    // Mock metrics: ascent = 12 → gap = 7 + 4 = 11; glyph ink height =
+    // aAscent(12)+aDescent(4)=16, target = ascent/3 = 4 → scale = 0.25.
     // Text markers ("1."): gap = one space advance (Chrome suffix ". ").
 
-    it('bullet: ink ends 7px + ascent/3 before content', () => {
+    it('bullet: glyph scaled so its ink diameter == ascent/3 (Chrome disc)', () => {
       const li: StyledNode = {
         element: null,
         tagName: 'li',
@@ -837,15 +841,33 @@ describe('Layout logic (mocked measureText)', () => {
       const tree = block('div', [block('ul', [li])]);
       const root = doLayout(tree, 200);
       const marker = collectTexts(root).find(t => t.text === '•')!;
-      // mock ink right edge = advance = 10 → x = 30 - 11 - 10 = 9
-      expect(marker.x).toBeCloseTo(9, 5);
+      // scale = (ascent/3) / inkHeight = 4/16 = 0.25 → drawn at 16*0.25 = 4px.
+      expect(marker.style.fontSize).toBeCloseTo(4, 5);
     });
 
-    it('bullet: glyph ink center lands ascent/3 above baseline', () => {
-      // Custom ctx where the bullet glyph's ink sits higher than Chrome's
-      // symbol position: actual bounds ascent 12 / descent 0 → ink center 6
-      // above draw baseline. Desired center = ascent/3 = 4 above the line
-      // baseline → marker baseline shifts down by 2.
+    it('bullet: ink RIGHT edge ends 7px + ascent/3 before content', () => {
+      const li: StyledNode = {
+        element: null,
+        tagName: 'li',
+        style: defaultStyle({ display: 'list-item', paddingLeft: 30, fontSize: 16 }),
+        children: [textNode('Item')],
+        textContent: null,
+        listMarker: '•',
+      };
+      const tree = block('div', [block('ul', [li])]);
+      const root = doLayout(tree, 200);
+      const marker = collectTexts(root).find(t => t.text === '•')!;
+      // Gap to the ink right edge is preserved through the scale: mock ink
+      // right == advance, so ink right edge = marker.x + marker.width and must
+      // land at contentStart(30) - gap(11) = 19. (origin itself = 16.5.)
+      expect(marker.x + marker.width).toBeCloseTo(19, 5);
+    });
+
+    it('bullet: glyph ink center lands ascent/3 above the line baseline', () => {
+      // Custom ctx: bullet ink ascent 12 / descent 0 → ink height 12, so
+      // scale = (ascent/3)/12 = 1/3. The DRAWN glyph's ink center
+      // (marker.y - scaledInkAscent/2) must sit ascent/3 = 4 above the line
+      // baseline regardless of the scale.
       const ctx = mockCtx();
       const base = ctx.measureText.bind(ctx);
       (ctx as any).measureText = (text: string) => {
@@ -868,7 +890,9 @@ describe('Layout logic (mocked measureText)', () => {
       const texts = collectTexts(root);
       const marker = texts.find(t => t.text === '•')!;
       const item = texts.find(t => t.text === 'Item')!;
-      expect(marker.y - item.y).toBeCloseTo(2, 5);
+      const scale = (12 / 3) / 12; // (ascent/3) / inkHeight
+      const inkCenterY = marker.y - (12 * scale) / 2;
+      expect(inkCenterY).toBeCloseTo(item.y - 12 / 3, 5);
     });
 
     it('numbered: gap is one space advance, baseline unchanged', () => {
@@ -903,8 +927,8 @@ describe('Layout logic (mocked measureText)', () => {
       const tree = block('div', [block('ul', [li])]);
       const root = doLayout(tree, 200);
       const marker = collectTexts(root).find(t => t.text === '•')!;
-      // marker.x = 30 - 10 - 20 = 0
-      expect(marker.x).toBeCloseTo(0, 5);
+      // Explicit gap 20 to the ink right edge: marker.x + marker.width = 30 - 20 = 10
+      expect(marker.x + marker.width).toBeCloseTo(10, 5);
     });
 
     it('LTR: markerStyle.paddingRight = 0 zeroes the gap (set vs absent)', () => {
@@ -920,8 +944,8 @@ describe('Layout logic (mocked measureText)', () => {
       const tree = block('div', [block('ul', [li])]);
       const root = doLayout(tree, 200);
       const marker = collectTexts(root).find(t => t.text === '•')!;
-      // marker.x = 30 - 10 - 0 = 20 (flush against content)
-      expect(marker.x).toBeCloseTo(20, 5);
+      // gap 0: ink right edge flush against content → marker.x + marker.width = 30
+      expect(marker.x + marker.width).toBeCloseTo(30, 5);
     });
 
     it('RTL: markerStyle.paddingLeft widens the RTL gap', () => {
@@ -948,19 +972,71 @@ describe('Layout logic (mocked measureText)', () => {
       expect(marker.x).toBeCloseTo(expectedX, 5);
     });
 
-    it('marker font-size override flows into pushed marker text node', () => {
+    it('RTL bullet: scaled ink LEFT edge sits at boxRightEdge + gap', () => {
+      // Custom '•' with a non-zero left bearing so scaling of inkLeft actually
+      // matters (the default mock reports actualBoundingBoxLeft = 0). scale =
+      // (ascent/3)/inkH = 4/(12+4) = 0.25; default gap = 7 + 4 = 11.
+      const ctx = mockCtx();
+      const base = ctx.measureText.bind(ctx);
+      (ctx as any).measureText = (text: string) => {
+        const m = base(text);
+        if (text === '•') {
+          return { ...m, actualBoundingBoxLeft: 4, actualBoundingBoxRight: 6, actualBoundingBoxAscent: 12, actualBoundingBoxDescent: 4 };
+        }
+        return m;
+      };
       const li: StyledNode = {
         element: null,
         tagName: 'li',
-        style: defaultStyle({ display: 'list-item', paddingLeft: 30, fontSize: 16 }),
-        children: [textNode('Item')],
+        style: defaultStyle({ display: 'list-item', paddingRight: 30, fontSize: 16, direction: 'rtl' }),
+        children: [textNode('عنصر', { direction: 'rtl' })],
         textContent: null,
         listMarker: '•',
+      };
+      const tree = block('div', [block('ul', [li], { direction: 'rtl' })], { direction: 'rtl' });
+      const { root } = buildLayoutTree(ctx, tree, 200, false);
+      const marker = collectTexts(root).find(t => t.text === '•')!;
+      const liBox = (root.children[0] as LayoutBox).children[0] as LayoutBox;
+      // ink left edge (facing the text) = origin - scaled left bearing (4*0.25=1)
+      // must land at boxRightEdge + gap, invariant to the scale.
+      expect(marker.x - 4 * 0.25).toBeCloseTo(liBox.x + liBox.width + 11, 5);
+    });
+
+    it('circle and square symbols scale to the Chrome disc like disc', () => {
+      // isBullet covers disc/circle/square (BULLET_MARKERS); all three are the
+      // font glyph scaled so ink height == ascent/3 (mock scale 4/16 = 0.25).
+      for (const [type, glyph] of [['circle', '○'], ['square', '■']] as const) {
+        const li: StyledNode = {
+          element: null,
+          tagName: 'li',
+          style: defaultStyle({ display: 'list-item', paddingLeft: 30, fontSize: 16, listStyleType: type }),
+          children: [textNode('Item')],
+          textContent: null,
+          listMarker: glyph,
+        };
+        const tree = block('div', [block('ul', [li])]);
+        const root = doLayout(tree, 200);
+        const marker = collectTexts(root).find(t => t.text === glyph)!;
+        expect(marker.style.fontSize).toBeCloseTo(4, 5);
+      }
+    });
+
+    it('marker font-size override flows into pushed marker text node', () => {
+      // Number markers draw at the li/marker font unscaled (only bullet symbols
+      // get the Chrome-disc scale), so the ::marker font-size flows straight
+      // through — a clean check that the override reaches the pushed node.
+      const li: StyledNode = {
+        element: null,
+        tagName: 'li',
+        style: defaultStyle({ display: 'list-item', paddingLeft: 30, fontSize: 16, listStyleType: 'decimal' }),
+        children: [textNode('Item')],
+        textContent: null,
+        listMarker: '1.',
         markerStyle: { fontSize: 8 },
       };
       const tree = block('div', [block('ul', [li])]);
       const root = doLayout(tree, 200);
-      const marker = collectTexts(root).find(t => t.text === '•')!;
+      const marker = collectTexts(root).find(t => t.text === '1.')!;
       expect(marker.style.fontSize).toBe(8);
     });
   });
