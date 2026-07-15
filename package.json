@@ -1,6 +1,6 @@
 {
   "name": "render-tag",
-  "version": "0.1.23",
+  "version": "0.1.24",
   "type": "module",
   "description": "Render HTML rich text onto canvas using pure 2D API",
   "main": "./lib/index.js",
@@ -46,7 +46,7 @@
   ],
   "scripts": {
     "dev": "vite --config docs/vite.config.ts",
-    "test": "vitest run tests/render.test.ts tests/wrap-fuzz.test.ts tests/parse-parity.test.ts tests/gradient-clip-descendants.test.ts tests/gradient-stroke.test.ts && npm run test:node",
+    "test": "vitest run tests/render.test.ts tests/wrap-fuzz.test.ts tests/parse-parity.test.ts tests/gradient-clip-descendants.test.ts tests/gradient-clip-inline-nested.test.ts tests/gradient-stroke.test.ts tests/gradient-stroke-inline.test.ts tests/solid-clip-text.test.ts tests/path/gradient-clip-parity.test.ts && npm run test:node",
     "test:node": "vitest run -c vitest.node.config.ts",
     "test:update-baselines": "vitest run tests/generate-baselines.test.ts",
     "test:update-baselines:firefox": "vitest run tests/generate-baselines.test.ts -c vitest.firefox.config.ts",
