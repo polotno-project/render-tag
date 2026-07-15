@@ -14,6 +14,35 @@ HTML string + CSS → parseHTML (DOMParser) → resolveStylesFromCSS (pure CSS p
 - **`accuracy` option** (default: `'performance'`) — `'balanced'` enables hidden DOM probes for line heights. `'performance'` uses pure canvas API only.
 - **`render()` is synchronous** — no async, no font loading. Caller must load fonts first.
 
+### Text paint propagation (the recurring gradient/stroke/decoration bug class)
+
+Some paints reach descendant text via **painting rules, not CSS inheritance**:
+`background-clip:text` backgrounds (gradient AND solid color), `--rt-text-stroke-image`,
+and text-decoration bands. `resolveStylesFromCSS` correctly does NOT inherit
+`background-image`/`background-clip`/`--rt-text-stroke-image` — but `#text` nodes copy
+their parent ELEMENT's full style, so a paint declared on an element "works" for its
+direct text and silently vanishes one nested inline deeper (`<s clip><u>text</u></s>`).
+Every historical gradient/underline/stroke invisibility bug came from re-deriving
+propagation from a run's own style somewhere in a renderer.
+
+The mechanism (keep new paint features on it):
+- **Declarer stamping** — walk ancestors-or-self, stamp the nearest declaring element's
+  style (object identity) onto runs/glyphs: `collectTextRuns` (`clipStyle`/
+  `strokeImageStyle`) for block layout, `flattenSegments` for text-on-path.
+- **Fragment geometry** — the paint spans the DECLARING element's fragment, not each
+  word: `assignInlineFragmentBoxes` (per-line fragment box → `LayoutText.clip`/
+  `.strokeImage`) in layout; `assignFragmentRanges` (natural-offset range) on path.
+  Block declarers span their border box, threaded down `renderBox` at render time.
+- **Precedence** (both renderers must agree): nearest declarer wins; an inherited clip
+  paint shows only when the run's own fill is transparent; a transparent decoration
+  over clip-painted text paints the band with the clip paint (never skip it);
+  `background-clip:text` suppresses the box-background fillRect.
+
+Parity tests: `gradient-clip-inline-nested`, `gradient-clip-descendants`,
+`gradient-stroke{,-inline}`, `solid-clip-text`, `path/gradient-clip-parity`.
+When touching this area, run all of them plus `decoration-propagation` and
+`webkit-text-stroke`.
+
 ## Testing workflow
 
 ### Running tests

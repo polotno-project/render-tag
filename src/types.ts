@@ -275,6 +275,19 @@ export interface LayoutText {
   y: number; // baseline y
   width: number;
   style: ResolvedStyle;
+  /**
+   * background-clip:text background from the nearest declaring INLINE element
+   * (e.g. <span>/<s>) — a gradient `image` and/or solid `color`, with a box
+   * spanning the declaring element's fragment on this line. Threaded here
+   * because those properties don't inherit and inline elements are flattened
+   * into runs, not boxes (block declarers thread through renderBox instead).
+   */
+  clip?: { image?: string; color?: string; x: number; y: number; width: number; height: number };
+  /**
+   * --rt-text-stroke-image gradient from the nearest declaring INLINE element,
+   * with the same fragment-box geometry as `clip`.
+   */
+  strokeImage?: { image: string; x: number; y: number; width: number; height: number };
 }
 
 /** A positioned box (element) */

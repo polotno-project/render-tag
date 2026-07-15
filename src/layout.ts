@@ -306,6 +306,15 @@ function hasVisibleBoxStyles(style: ResolvedStyle): boolean {
   return false;
 }
 
+/** True for an element declaring `background-clip:text` with a visible
+ * background (gradient image or solid color) — the fill/decorations of every
+ * glyph it covers must sample that background instead of painting it as a box. */
+export function hasTextClip(style: ResolvedStyle): boolean {
+  return style.webkitBackgroundClip === 'text' &&
+    ((!!style.backgroundImage && style.backgroundImage !== 'none') ||
+      !isTransparent(style.backgroundColor));
+}
+
 // ─── Inline text run types ─────────────────────────────────────────────
 
 interface TextRun {
@@ -317,6 +326,10 @@ interface TextRun {
   boxOpen?: ResolvedStyle;
   /** Marks the end of an inline box */
   boxClose?: ResolvedStyle;
+  /** Nearest inline ancestor-or-self declaring background-clip:text + background */
+  clipStyle?: ResolvedStyle;
+  /** Nearest inline ancestor-or-self declaring --rt-text-stroke-image */
+  strokeImageStyle?: ResolvedStyle;
 }
 
 interface Word {
@@ -339,6 +352,10 @@ interface Word {
   boxOpen?: ResolvedStyle;
   /** Marks the end of an inline box (adds right padding/border) */
   boxClose?: ResolvedStyle;
+  /** Nearest inline ancestor-or-self declaring background-clip:text + background */
+  clipStyle?: ResolvedStyle;
+  /** Nearest inline ancestor-or-self declaring --rt-text-stroke-image */
+  strokeImageStyle?: ResolvedStyle;
 }
 
 interface PositionedLine {
@@ -450,15 +467,27 @@ function applyEllipsisToLine(
 function collectTextRuns(node: StyledNode): TextRun[] {
   const runs: TextRun[] = [];
 
-  function walk(n: StyledNode, boxStyle?: ResolvedStyle) {
+  function walk(
+    n: StyledNode,
+    boxStyle?: ResolvedStyle,
+    clipStyle?: ResolvedStyle,
+    strokeImageStyle?: ResolvedStyle,
+  ) {
     if (n.tagName === '#text' && n.textContent) {
-      runs.push({ text: n.textContent, style: n.style, boxStyle });
+      runs.push({ text: n.textContent, style: n.style, boxStyle, clipStyle, strokeImageStyle });
       return;
     }
     const isInlineBlock = n.style.display === 'inline-block';
     // Inline-block always needs box treatment (padding/margin affect layout)
     const isBox = isInlineBlock || (isInline(n) && hasVisibleBoxStyles(n.style));
     const newBoxStyle = isBox ? n.style : boxStyle;
+    // Track the nearest inline element declaring a background-clip:text
+    // background or a --rt-text-stroke-image, so those paints reach descendant
+    // runs that don't carry the (non-inheriting) properties themselves.
+    const newClipStyle = isInline(n) && hasTextClip(n.style) ? n.style : clipStyle;
+    const newStrokeImageStyle =
+      isInline(n) && n.style.webkitTextStrokeImage && n.style.webkitTextStrokeImage !== 'none'
+        ? n.style : strokeImageStyle;
     const hasHorizSpacing = isBox && (n.style.paddingLeft > 0 || n.style.paddingRight > 0 ||
       n.style.borderLeftWidth > 0 || n.style.borderRightWidth > 0);
 
@@ -471,6 +500,8 @@ function collectTextRuns(node: StyledNode): TextRun[] {
         text: allText,
         style: n.style,
         boxStyle: newBoxStyle,
+        clipStyle: newClipStyle,
+        strokeImageStyle: newStrokeImageStyle,
         // Store the full box info for atomic inline-block handling
         boxOpen: n.style,  // signals this is a boxed element
         boxClose: n.style,
@@ -491,7 +522,7 @@ function collectTextRuns(node: StyledNode): TextRun[] {
     }
 
     for (const child of n.children) {
-      walk(child, isBox ? newBoxStyle : boxStyle);
+      walk(child, isBox ? newBoxStyle : boxStyle, newClipStyle, newStrokeImageStyle);
     }
 
     if (hasHorizSpacing) {
@@ -604,6 +635,8 @@ function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRu
           isSpace: true,
           isTab: true,
           boxStyle: run.boxStyle,
+          clipStyle: run.clipStyle,
+          strokeImageStyle: run.strokeImageStyle,
         });
         continue;
       }
@@ -614,6 +647,8 @@ function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRu
         style: run.style,
         isSpace,
         boxStyle: run.boxStyle,
+        clipStyle: run.clipStyle,
+        strokeImageStyle: run.strokeImageStyle,
       });
     }
   } else {
@@ -652,6 +687,8 @@ function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRu
           style: run.style,
           isSpace: true,
           boxStyle: run.boxStyle,
+          clipStyle: run.clipStyle,
+          strokeImageStyle: run.strokeImageStyle,
         });
         continue;
       }
@@ -671,6 +708,8 @@ function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRu
               style: run.style,
               isSpace: false,
               boxStyle: run.boxStyle,
+              clipStyle: run.clipStyle,
+              strokeImageStyle: run.strokeImageStyle,
             });
           }
           continue;
@@ -695,6 +734,8 @@ function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRu
         style: run.style,
         isSpace: false,
         boxStyle: run.boxStyle,
+        clipStyle: run.clipStyle,
+        strokeImageStyle: run.strokeImageStyle,
       });
     }
 
@@ -742,6 +783,8 @@ function tokenizeRuns(ctx: CanvasRenderingContext2D, runs: TextRun[]): Word[] {
         boxStyle: run.boxStyle,
         boxOpen: run.boxOpen,
         boxClose: run.boxClose,
+        clipStyle: run.clipStyle,
+        strokeImageStyle: run.strokeImageStyle,
       });
       continue;
     }
@@ -1460,6 +1503,12 @@ function layoutInlineContent(
   clamp?: LineClampState,
 ): { nodes: LayoutNode[]; height: number } {
   const results: LayoutNode[] = [];
+  // Text nodes covered by an inline element declaring background-clip:text
+  // (clipRuns) or --rt-text-stroke-image (strokeImageRuns), mapped to that
+  // declaring element's style. A post-pass turns each per-line run of
+  // same-declarer nodes into a fragment-spanning paint box.
+  const clipRuns = new Map<LayoutText, ResolvedStyle>();
+  const strokeImageRuns = new Map<LayoutText, ResolvedStyle>();
   if (clamp && (clamp.exhausted || clamp.remaining <= 0)) {
     // An ancestor's clamp already used its line budget — drop this content.
     clamp.exhausted = true;
@@ -1719,7 +1768,8 @@ function layoutInlineContent(
       // Padding markers between groups create spacing.
       interface StyledGroup {
         text: string; style: ResolvedStyle; width: number;
-        boxStyle?: ResolvedStyle; x: number;
+        boxStyle?: ResolvedStyle; clipStyle?: ResolvedStyle;
+        strokeImageStyle?: ResolvedStyle; x: number;
         padBefore: number; // padding before this group (from boxOpen/boxClose markers)
       }
       const groups: StyledGroup[] = [];
@@ -1748,7 +1798,7 @@ function layoutInlineContent(
           currentGroup.width += word.width;
         } else {
           if (currentGroup) groups.push(currentGroup);
-          currentGroup = { text: word.text, style: word.style, width: word.width, boxStyle: word.boxStyle, x: 0, padBefore: pendingPad };
+          currentGroup = { text: word.text, style: word.style, width: word.width, boxStyle: word.boxStyle, clipStyle: word.clipStyle, strokeImageStyle: word.strokeImageStyle, x: 0, padBefore: pendingPad };
           pendingPad = 0;
         }
       }
@@ -1779,14 +1829,17 @@ function layoutInlineContent(
 
       // Emit text groups
       for (const group of groups) {
-        results.push({
+        const node: LayoutText = {
           type: 'text',
           text: group.text,
           x: group.x + group.width, // x = right edge for RTL textAlign
           y: lineBaselineY,
           width: group.width,
           style: { ...group.style, direction: 'rtl' },
-        });
+        };
+        results.push(node);
+        if (group.clipStyle) clipRuns.set(node, group.clipStyle);
+        if (group.strokeImageStyle) strokeImageRuns.set(node, group.strokeImageStyle);
       }
     } else {
       // LTR with mixed BiDi scripts: emit the entire line as one fillText call
@@ -1807,14 +1860,17 @@ function layoutInlineContent(
         // right-aligns the whole line at the left edge (x=curX), drawing it
         // off-screen. The canvas BiDi engine still reorders the embedded
         // Arabic/Hebrew runs within the LTR line.
-        results.push({
+        const node: LayoutText = {
           type: 'text',
           text: lineText,
           x: curX,
           y: lineBaselineY,
           width: measuredWidth,
           style: { ...textWords[0].style, direction: 'ltr' },
-        });
+        };
+        results.push(node);
+        if (textWords[0].clipStyle) clipRuns.set(node, textWords[0].clipStyle);
+        if (textWords[0].strokeImageStyle) strokeImageRuns.set(node, textWords[0].strokeImageStyle);
       } else {
         // Mixed styles: word by word
         for (const word of line.words) {
@@ -1827,14 +1883,17 @@ function layoutInlineContent(
           if (word.boxOpen && word.boxClose) {
             const s = word.style;
             const textX = curX + s.marginLeft + s.borderLeftWidth + s.paddingLeft;
-            results.push({
+            const node: LayoutText = {
               type: 'text',
               text: word.text,
               x: textX,
               y: lineBaselineY,
               width: cachedMeasureWidth(ctx, word.text),
               style: word.style,
-            });
+            };
+            results.push(node);
+            if (word.clipStyle) clipRuns.set(node, word.clipStyle);
+            if (word.strokeImageStyle) strokeImageRuns.set(node, word.strokeImageStyle);
             curX += word.width;
             continue;
           }
@@ -1849,14 +1908,17 @@ function layoutInlineContent(
           }
           const effectiveWidth = word.width + (word.isSpace ? justifyExtraPerSpace : 0);
 
-          results.push({
+          const node: LayoutText = {
             type: 'text',
             text: word.text,
             x: curX,
             y: baselineY,
             width: effectiveWidth,
             style: word.style,
-          });
+          };
+          results.push(node);
+          if (word.clipStyle) clipRuns.set(node, word.clipStyle);
+          if (word.strokeImageStyle) strokeImageRuns.set(node, word.strokeImageStyle);
 
           curX += effectiveWidth;
         }
@@ -1886,7 +1948,73 @@ function layoutInlineContent(
     curY += effectiveLineHeight;
   }
 
+  assignInlineFragmentBoxes(ctx, results, clipRuns, (node, s, box) => {
+    node.clip = {
+      image: s.backgroundImage && s.backgroundImage !== 'none' ? s.backgroundImage : undefined,
+      color: !isTransparent(s.backgroundColor) ? s.backgroundColor : undefined,
+      ...box,
+    };
+  });
+  assignInlineFragmentBoxes(ctx, results, strokeImageRuns, (node, s, box) => {
+    node.strokeImage = { image: s.webkitTextStrokeImage, ...box };
+  });
+
   return { nodes: results, height: curY - y };
+}
+
+/**
+ * Give each text run covered by an inline paint declarer (background-clip:text
+ * background, --rt-text-stroke-image) a paint box spanning the declaring
+ * element's fragment on its line.
+ *
+ * Browsers paint the declaring element's background over its inline fragment
+ * (the run of glyphs it covers on one line) and clip it to the text; with
+ * `background-size:100% 100%` the gradient fills that fragment box. Consecutive
+ * text nodes sharing the same declaring element (same style object) on the
+ * same baseline form one fragment; a wrap to the next line starts a new one
+ * (box-decoration-break:clone semantics — Chrome's default `slice` continues
+ * the gradient across line fragments; accepted approximation), and unlike a
+ * per-run gradient it never restarts per word.
+ */
+function assignInlineFragmentBoxes(
+  ctx: CanvasRenderingContext2D,
+  results: LayoutNode[],
+  runs: Map<LayoutText, ResolvedStyle>,
+  assign: (
+    node: LayoutText,
+    declarer: ResolvedStyle,
+    box: { x: number; y: number; width: number; height: number },
+  ) => void,
+): void {
+  if (runs.size === 0) return;
+  const edges = (n: LayoutText) =>
+    n.style.direction === 'rtl'
+      ? { left: n.x - n.width, right: n.x }  // RTL x is the right edge
+      : { left: n.x, right: n.x + n.width };
+  for (let i = 0; i < results.length;) {
+    const first = results[i];
+    const declarer = first.type === 'text' ? runs.get(first) : undefined;
+    if (!declarer) { i++; continue; }
+    let j = i;
+    let left = Infinity, right = -Infinity;
+    while (j < results.length) {
+      const n = results[j];
+      if (n.type !== 'text' || runs.get(n) !== declarer || n.y !== first.y) break;
+      const e = edges(n);
+      if (e.left < left) left = e.left;
+      if (e.right > right) right = e.right;
+      j++;
+    }
+    const { ascent, descent } = getFontMetrics(ctx, declarer);
+    const box = {
+      x: left,
+      y: first.y - ascent,
+      width: right - left,
+      height: ascent + descent,
+    };
+    for (let k = i; k < j; k++) assign(results[k] as LayoutText, declarer, box);
+    i = j;
+  }
 }
 
 // ─── Block layout ──────────────────────────────────────────────────────

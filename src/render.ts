@@ -1,5 +1,5 @@
 import type { LayoutNode, LayoutBox, LayoutText, ResolvedStyle } from './types.js';
-import { buildCanvasFont, isTransparent, getFontMetrics } from './layout.js';
+import { buildCanvasFont, isTransparent, getFontMetrics, hasTextClip } from './layout.js';
 import { paintOrderHasStrokeFirst } from './css-resolver.js';
 
 /**
@@ -226,9 +226,8 @@ export function applyTextStroke(
 function renderText(
   ctx: CanvasRenderingContext2D,
   node: LayoutText,
-  gradientFill?: CanvasGradient | null,
+  gradientFill?: CanvasGradient | string | null,
   strokeGradient?: CanvasGradient | null,
-  clipBgImage: string | null = null,
 ): void {
   const { style } = node;
 
@@ -247,49 +246,48 @@ function renderText(
     ctx.textAlign = 'right';
   }
 
-  const hasOwnClipGradient = style.webkitBackgroundClip === 'text' &&
-    style.backgroundImage && style.backgroundImage !== 'none';
+  const hasOwnClip = hasTextClip(style);
   const isStrokedText = style.webkitTextStrokeWidth > 0;
   const isFillTransparent = style.webkitTextFillColor === 'transparent' ||
     style.color === 'transparent';
-  // An ancestor's gradientFill only shows when this run's own fill is
-  // transparent — an opaque own color paints over the clipped background
-  // and wins.
-  const isGradientText = hasOwnClipGradient ||
-    (gradientFill != null && isFillTransparent);
 
-  // A run that RE-declares its own background-clip:text gradient wins over the
-  // inherited ancestor clip: Chrome clips the NEAREST declaring element's
-  // background to its glyphs. render-tag copies a parent element's style onto
-  // its text runs, so a clip box's own runs carry that box's backgroundImage
-  // too — those must keep the box-spanning `gradientFill`. We recompute a
-  // per-run gradient ONLY when this run's backgroundImage differs from the one
-  // that produced `gradientFill` (i.e. a genuine sub-span like <span> inside a
-  // gradient-filled element). Its geometry spans this run's own glyph box.
-  //
-  // Known limitations (acceptable — the common editor case is a solid or
-  // element-spanning gradient, and both degrade gracefully):
-  //  - Identity is the backgroundImage STRING: a sub-span re-declaring a
-  //    byte-identical gradient reads as "inherited" and samples the ancestor's
-  //    box instead of its own. Only matters for a real (multi-stop) gradient.
-  //  - Geometry is per-RUN, not per inline-box: a re-declared span that wraps
-  //    across words/lines resamples each run (horizontal gradient restarts per
-  //    word, vertical per line) rather than spanning the whole span box. The
-  //    box path (renderBox) is unaffected — it spans the full declaring box.
-  const reDeclaresClip =
-    hasOwnClipGradient && style.backgroundImage !== clipBgImage;
-  let ownClipGradient: CanvasGradient | null = null;
-  if (reDeclaresClip) {
-    const { ascent, descent } = getFontMetrics(ctx, style);
-    ownClipGradient = parseLinearGradient(
-      ctx, style.backgroundImage,
-      node.x, node.width,
-      node.y - ascent, ascent + descent,
-    );
-  }
+  // The background-clip:text paint from a declaring INLINE ancestor (e.g.
+  // <span>/<s>) whose non-inheriting background this run's own style doesn't
+  // carry: a gradient and/or solid color. Layout resolves the geometry — a box
+  // spanning the declaring element's fragment on this line (see
+  // assignInlineFragmentBoxes) — and this paint wins over any ancestor block
+  // `gradientFill`, because Chrome clips the NEAREST declaring element's
+  // background to the glyphs.
+  const inlineClipPaint: CanvasGradient | string | null = node.clip
+    ? (node.clip.image
+        ? parseLinearGradient(
+            ctx, node.clip.image,
+            node.clip.x, node.clip.width,
+            node.clip.y, node.clip.height,
+          )
+        : null) ?? node.clip.color ?? null
+    : null;
+
+  // An ancestor's clip paint only shows when this run's own fill is
+  // transparent — an opaque own color paints over the clipped background and
+  // wins.
+  const isGradientText = hasOwnClip ||
+    ((gradientFill != null || inlineClipPaint != null) && isFillTransparent);
+
   // What actually fills this run's glyphs (and any clipped decoration band):
-  // the run's own re-declared gradient if present, else the inherited ancestor.
-  const effectiveGradient = ownClipGradient ?? gradientFill ?? null;
+  // the nearest inline declarer's paint if present, else the ancestor block's.
+  const effectiveGradient = inlineClipPaint ?? gradientFill ?? null;
+
+  // Same for the stroke gradient: an inline --rt-text-stroke-image declarer's
+  // fragment gradient wins over an ancestor block's threaded one.
+  const inlineStrokeGradient = node.strokeImage
+    ? parseLinearGradient(
+        ctx, node.strokeImage.image,
+        node.strokeImage.x, node.strokeImage.width,
+        node.strokeImage.y, node.strokeImage.height,
+      )
+    : null;
+  const effectiveStrokeGradient = inlineStrokeGradient ?? strokeGradient ?? null;
 
   // Text shadow (drawn behind the text). Cast the shadow from the shape that
   // is actually painted: the fill when it's visible, and/or the stroke. This
@@ -310,7 +308,7 @@ function renderText(
         ctx.fillText(node.text, node.x, node.y);
       }
       if (isStrokedText) {
-        applyTextStroke(ctx, style, strokeGradient);
+        applyTextStroke(ctx, style, effectiveStrokeGradient);
         ctx.strokeText(node.text, node.x, node.y);
       }
       ctx.restore();
@@ -335,7 +333,7 @@ function renderText(
   const drawStroke = () => {
     if (!isStrokedText) return;
     ctx.save();
-    applyTextStroke(ctx, style, strokeGradient);
+    applyTextStroke(ctx, style, effectiveStrokeGradient);
     ctx.strokeText(node.text, node.x, node.y);
     ctx.restore();
   };
@@ -386,7 +384,7 @@ function renderText(
       // keeps whatever the stroke leaves visible (decoWidth - strokeWidth).
       const strokeW = style.webkitTextStrokeWidth > 0 ? style.webkitTextStrokeWidth : 0;
       const strokeColor: string | CanvasGradient =
-        strokeGradient || style.webkitTextStrokeColor || style.color;
+        effectiveStrokeGradient || style.webkitTextStrokeColor || style.color;
       const paintBand = (y: number) => {
         // A gradient stroke (CanvasGradient) is never transparent; a solid
         // stroke color still gets the transparent check below.
@@ -437,18 +435,14 @@ function renderText(
 function renderBox(
   ctx: CanvasRenderingContext2D,
   box: LayoutBox,
-  gradientFill: CanvasGradient | null = null,
+  gradientFill: CanvasGradient | string | null = null,
   strokeGradient: CanvasGradient | null = null,
-  // The backgroundImage string that produced `gradientFill`, threaded so a
-  // descendant run can tell whether it merely carries the ancestor clip box's
-  // style (same string → keep the box-spanning gradientFill) or genuinely
-  // re-declares its own clip (different string → compute its own gradient).
-  clipBgImage: string | null = null,
 ): void {
   const { style } = box;
 
-  // Background
-  if (!isTransparent(style.backgroundColor)) {
+  // Background. With background-clip:text the background is NOT painted as a
+  // box — it's clipped to descendant glyphs (threaded below as the text fill).
+  if (!isTransparent(style.backgroundColor) && style.webkitBackgroundClip !== 'text') {
     ctx.fillStyle = style.backgroundColor;
     ctx.fillRect(box.x, box.y, box.width, box.height);
   }
@@ -470,14 +464,20 @@ function renderBox(
     ctx.stroke();
   }
 
-  // Pre-compute gradient for background-clip: text elements. The gradient
-  // spans the declaring box and threads through descendant boxes (browsers
-  // clip the ancestor's background to ALL descendant glyphs, so text inside
-  // block children like <p>/<li> keeps it — backgroundImage itself doesn't
-  // inherit); a box declaring its own clipping background overrides it.
-  if (style.webkitBackgroundClip === 'text' && style.backgroundImage && style.backgroundImage !== 'none') {
-    gradientFill = parseLinearGradient(ctx, style.backgroundImage, box.x, box.width, box.y, box.height);
-    clipBgImage = style.backgroundImage;
+  // Pre-compute the paint for background-clip: text elements — a gradient
+  // (background-image) or a solid color (background-color). It spans the
+  // declaring box and threads through descendant boxes (browsers clip the
+  // ancestor's background to ALL descendant glyphs, so text inside block
+  // children like <p>/<li> keeps it — the background properties themselves
+  // don't inherit); a box declaring its own clipping background overrides it.
+  // (Inline declarers are resolved in layout via node.clip, not here.)
+  if (hasTextClip(style)) {
+    const grad = style.backgroundImage && style.backgroundImage !== 'none'
+      ? parseLinearGradient(ctx, style.backgroundImage, box.x, box.width, box.y, box.height)
+      : null;
+    const solid = !isTransparent(style.backgroundColor) ? style.backgroundColor : null;
+    // An unparseable image with no solid color keeps the ancestor's paint.
+    gradientFill = grad ?? solid ?? gradientFill;
   }
 
   // Pre-compute the stroke gradient the same way: it spans the declaring box
@@ -490,7 +490,7 @@ function renderBox(
 
   // Children
   for (const child of box.children) {
-    renderNode(ctx, child, gradientFill, strokeGradient, clipBgImage);
+    renderNode(ctx, child, gradientFill, strokeGradient);
   }
 }
 
@@ -500,13 +500,12 @@ function renderBox(
 export function renderNode(
   ctx: CanvasRenderingContext2D,
   node: LayoutNode,
-  gradientFill?: CanvasGradient | null,
+  gradientFill?: CanvasGradient | string | null,
   strokeGradient?: CanvasGradient | null,
-  clipBgImage: string | null = null,
 ): void {
   if (node.type === 'text') {
-    renderText(ctx, node, gradientFill, strokeGradient, clipBgImage);
+    renderText(ctx, node, gradientFill, strokeGradient);
   } else {
-    renderBox(ctx, node, gradientFill, strokeGradient, clipBgImage);
+    renderBox(ctx, node, gradientFill, strokeGradient);
   }
 }

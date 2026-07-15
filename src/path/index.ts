@@ -33,7 +33,7 @@
 import type { ResolvedStyle } from '../types.js';
 import { parseHTML } from '../parse.js';
 import { resolveStylesFromCSS, paintOrderHasStrokeFirst } from '../css-resolver.js';
-import { applyFont, isTransparent } from '../layout.js';
+import { applyFont, isTransparent, hasTextClip } from '../layout.js';
 import {
   parseTextShadows,
   parseLinearGradient,
@@ -175,7 +175,7 @@ export function drawTextOnPathLayout(config: DrawTextOnPathLayoutConfig): void {
   try {
     drawBackgrounds(ctx, layout.glyphs, tb);
     drawShadowsAndGlyphs(ctx, layout.glyphs, layout.textWidth, tb);
-    drawDecorations(ctx, layout.glyphs, tb);
+    drawDecorations(ctx, layout.glyphs, layout.textWidth, tb);
   } finally {
     ctx.restore();
   }
@@ -245,14 +245,19 @@ function drawBackgrounds(
   glyphs: GlyphPlacement[],
   tb: TextBaseline,
 ): void {
+  // With background-clip:text the background is NOT painted as a polygon —
+  // it's clipped to the glyphs (painted as the glyph fill), same as renderBox.
+  const paintsBox = (g: GlyphPlacement) =>
+    !isTransparent(g.style.backgroundColor) && g.style.webkitBackgroundClip !== 'text';
   let i = 0;
   while (i < glyphs.length) {
+    if (!paintsBox(glyphs[i])) { i++; continue; }
     const bg = glyphs[i].style.backgroundColor;
-    if (!bg || isTransparent(bg)) { i++; continue; }
     const canon = canonicalColor(ctx, bg);
     let j = i + 1;
     while (
       j < glyphs.length &&
+      paintsBox(glyphs[j]) &&
       canonicalColor(ctx, glyphs[j].style.backgroundColor) === canon
     ) j++;
     fillGlyphPolygon(ctx, glyphs.slice(i, j), bg, tb);
@@ -311,6 +316,81 @@ function fillGlyphPolygon(
 
 // ─── Pass 2: Shadows + glyph fill/stroke ─────────────────────────────
 
+/** True when the glyph's own fill paints nothing (both transparency channels). */
+function isFillTransparent(style: ResolvedStyle): boolean {
+  // Mirror the main renderer's transparency check: EITHER -webkit-text-fill-color
+  // or color being 'transparent' suppresses the fill. textFillColor alone
+  // would only catch one of the two by falling back through the precedence.
+  return style.webkitTextFillColor === 'transparent' ||
+    style.color === 'transparent' ||
+    isTransparent(textFillColor(style));
+}
+
+/**
+ * The background-clip:text paint for one glyph, in the glyph's local rotated
+ * frame: a gradient sliced from the DECLARING element's fragment range (so
+ * neighbouring glyphs stitch into one continuous color curve along the path,
+ * and a sub-span's gradient spans the sub-span — not the whole text), else the
+ * declarer's solid background-color. Null when the glyph has no clip paint.
+ */
+function clipPaintFor(
+  ctx: CanvasRenderingContext2D,
+  g: GlyphPlacement,
+  textWidth: number,
+  baseY: number,
+): string | CanvasGradient | null {
+  const src = g.clipStyle ?? (hasTextClip(g.style) ? g.style : undefined);
+  if (!src) return null;
+  const range = g.clipRange ?? { start: 0, width: textWidth };
+  const gradient = src.backgroundImage && src.backgroundImage !== 'none'
+    ? parseLinearGradient(
+        ctx, src.backgroundImage,
+        range.start - g.pathOffset, range.width,
+        baseY - g.ascent, g.ascent + g.descent,
+      )
+    : null;
+  return gradient ?? (!isTransparent(src.backgroundColor) ? src.backgroundColor : null);
+}
+
+/** The gradient stroke paint (--rt-text-stroke-image) for one glyph, sliced
+ * from the declaring element's fragment range in the glyph's local frame. */
+function strokePaintFor(
+  ctx: CanvasRenderingContext2D,
+  g: GlyphPlacement,
+  textWidth: number,
+  baseY: number,
+): CanvasGradient | null {
+  const src = g.strokeImageStyle;
+  if (!src) return null;
+  const range = g.strokeImageRange ?? { start: 0, width: textWidth };
+  return parseLinearGradient(
+    ctx, src.webkitTextStrokeImage,
+    range.start - g.pathOffset, range.width,
+    baseY - g.ascent, g.ascent + g.descent,
+  );
+}
+
+/**
+ * What actually fills this glyph, mirroring the main renderer's precedence:
+ * the nearest clip declarer's paint when the glyph's own style declares the
+ * clip (a text run copies its parent element's style) or when its own fill is
+ * transparent (an opaque own color wins over an ancestor's clipped
+ * background); else the solid fill; null = nothing fills.
+ */
+function effectiveFillPaint(
+  ctx: CanvasRenderingContext2D,
+  g: GlyphPlacement,
+  textWidth: number,
+  baseY: number,
+): string | CanvasGradient | null {
+  const usesClipPaint = hasTextClip(g.style) ||
+    (g.clipStyle != null && isFillTransparent(g.style));
+  if (usesClipPaint) {
+    return clipPaintFor(ctx, g, textWidth, baseY);
+  }
+  return isFillTransparent(g.style) ? null : textFillColor(g.style);
+}
+
 /**
  * Iterate glyphs once. For each: draw the configured text-shadow stack (if
  * any), then fill (possibly through a sliced gradient) and stroke per
@@ -339,8 +419,14 @@ function drawShadowsAndGlyphs(
     ctx.letterSpacing = `${g.style.letterSpacing || 0}px` as any;
     const baseY = baselineLocalY(tb, g.ascent, g.descent);
 
-    // Shadow pass — drawn underneath the glyph fill. Multi-shadow stacks
-    // paint last-listed-first so the first declared shadow is on top.
+    const fill = effectiveFillPaint(ctx, g, textWidth, baseY);
+    const strokeGradient = strokePaintFor(ctx, g, textWidth, baseY);
+    const isStroked = g.style.webkitTextStrokeWidth > 0;
+
+    // Shadow pass — drawn underneath the glyph paint. Cast the shadow from
+    // what is actually painted: the effective fill (solid or gradient) when
+    // visible, and/or the stroke — matching the main renderer. Multi-shadow
+    // stacks paint last-listed-first so the first declared shadow is on top.
     const shadows = parseTextShadows(g.style.textShadow);
     if (shadows.length > 0) {
       for (let i = shadows.length - 1; i >= 0; i--) {
@@ -350,13 +436,19 @@ function drawShadowsAndGlyphs(
         ctx.shadowOffsetY = sh.offsetY;
         ctx.shadowBlur = sh.blur;
         ctx.shadowColor = sh.color;
-        ctx.fillStyle = textFillColor(g.style);
-        ctx.fillText(g.char, 0, baseY);
+        if (fill) {
+          ctx.fillStyle = fill;
+          ctx.fillText(g.char, 0, baseY);
+        }
+        if (isStroked) {
+          applyTextStroke(ctx, g.style, strokeGradient);
+          ctx.strokeText(g.char, 0, baseY);
+        }
         ctx.restore();
       }
     }
 
-    drawGlyphFillAndStroke(ctx, g, textWidth, baseY);
+    drawGlyphFillAndStroke(ctx, g, baseY, fill, strokeGradient);
     ctx.restore();
   }
 }
@@ -364,81 +456,31 @@ function drawShadowsAndGlyphs(
 function drawGlyphFillAndStroke(
   ctx: CanvasRenderingContext2D,
   g: GlyphPlacement,
-  textWidth: number,
   baseY: number,
+  fill: string | CanvasGradient | null,
+  strokeGradient: CanvasGradient | null,
 ): void {
   const { style } = g;
-  // Mirror the main renderer's transparency check: EITHER -webkit-text-fill-color
-  // or color being 'transparent' suppresses the fill. textFillColor alone
-  // would only catch one of the two by falling back through the precedence.
-  const fillTransparent =
-    style.webkitTextFillColor === 'transparent' ||
-    style.color === 'transparent' ||
-    isTransparent(textFillColor(style));
   const isStroked = style.webkitTextStrokeWidth > 0;
-  const usesGradient =
-    style.webkitBackgroundClip === 'text' &&
-    style.backgroundImage && style.backgroundImage !== 'none';
   // Use the canonical helper instead of an ad-hoc regex — paint-order tokens
   // are positional ("fill stroke" = fill first), not a flag bag.
   const paintStrokeFirst = paintOrderHasStrokeFirst(style.paintOrder || '');
 
   const drawFill = () => {
-    if (usesGradient) {
-      drawGradientGlyph(ctx, g, textWidth, baseY);
-      return;
-    }
-    if (fillTransparent) {
-      if (isStroked) return;
-      ctx.fillStyle = 'transparent';
-      ctx.fillText(g.char, 0, baseY);
-      return;
-    }
-    ctx.fillStyle = textFillColor(style);
+    if (!fill) return;
+    ctx.fillStyle = fill;
     ctx.fillText(g.char, 0, baseY);
   };
   const drawStroke = () => {
     if (!isStroked) return;
     ctx.save();
-    applyTextStroke(ctx, style);
+    applyTextStroke(ctx, style, strokeGradient);
     ctx.strokeText(g.char, 0, baseY);
     ctx.restore();
   };
 
   if (paintStrokeFirst) { drawStroke(); drawFill(); }
   else { drawFill(); drawStroke(); }
-}
-
-/**
- * Render one glyph with a gradient fill that flows along the path. The
- * gradient is created once per glyph spanning the FULL text width in the
- * glyph's local rotated frame, offset so the glyph's slice lines up with
- * the global gradient. Neighbouring glyphs stitch into one continuous color
- * curve when viewed along the path.
- */
-function drawGradientGlyph(
-  ctx: CanvasRenderingContext2D,
-  g: GlyphPlacement,
-  textWidth: number,
-  baseY: number,
-): void {
-  // The gradient is laid out from (-pathOffset, *) to (textWidth-pathOffset, *)
-  // in this glyph's local frame, so global gradient at fraction t/textWidth
-  // matches what neighbouring glyphs render. The vertical band tracks the
-  // glyph's full extent around the baseline anchor.
-  const gradient = parseLinearGradient(
-    ctx,
-    g.style.backgroundImage,
-    -g.pathOffset, textWidth,
-    baseY - g.ascent, g.ascent + g.descent,
-  );
-  if (!gradient) {
-    ctx.fillStyle = textFillColor(g.style);
-    ctx.fillText(g.char, 0, baseY);
-    return;
-  }
-  ctx.fillStyle = gradient;
-  ctx.fillText(g.char, 0, baseY);
 }
 
 // ─── Pass 3: Decorations ─────────────────────────────────────────────
@@ -468,15 +510,27 @@ function decorationFor(
   };
 }
 
+/** The clip-paint declarer of a glyph (for transparent decorations), if any. */
+function clipSourceOf(g: GlyphPlacement): ResolvedStyle | undefined {
+  return g.clipStyle ?? (hasTextClip(g.style) ? g.style : undefined);
+}
+
 /**
  * Underline / line-through / overline: stroke a curve that follows the path
  * at the appropriate vertical offset. Groups consecutive glyphs sharing
  * decoration-line + style + color. Color/style come from the decoration's
  * ORIGIN element (per-entry), not the glyph's currentColor.
+ *
+ * A TRANSPARENT decoration over background-clip:text glyphs shows the clipped
+ * background through the band (Chrome includes decorations in the clip
+ * region), so it paints with the declarer's gradient/color instead of
+ * vanishing — matching the main renderer. Transparent with no clip declarer
+ * paints nothing.
  */
 function drawDecorations(
   ctx: CanvasRenderingContext2D,
   glyphs: GlyphPlacement[],
+  textWidth: number,
   tb: TextBaseline,
 ): void {
   const lines = ['underline', 'line-through', 'overline'] as const;
@@ -489,6 +543,31 @@ function drawDecorations(
         continue;
       }
       const { color, style: decoStyle } = deco;
+
+      if (isTransparent(color)) {
+        const src = clipSourceOf(glyphs[i]);
+        if (!src) {
+          i++;
+          continue;
+        }
+        // Group by the same clip declarer so the band spans its fragment.
+        let j = i + 1;
+        while (j < glyphs.length) {
+          const next = decorationFor(glyphs[j].style, lineKind);
+          if (
+            !next || !isTransparent(next.color) ||
+            next.style !== decoStyle ||
+            clipSourceOf(glyphs[j]) !== src
+          ) {
+            break;
+          }
+          j++;
+        }
+        drawClipPaintDecoration(ctx, glyphs.slice(i, j), lineKind, decoStyle, textWidth, tb);
+        i = j;
+        continue;
+      }
+
       const colorCanon = canonicalColor(ctx, color);
       let j = i + 1;
       while (j < glyphs.length) {
@@ -508,6 +587,47 @@ function drawDecorations(
   }
 }
 
+/** Local-frame y of a decoration band for one glyph under a textBaseline. */
+function decorationLocalY(
+  g: GlyphPlacement,
+  lineKind: 'underline' | 'line-through' | 'overline',
+  tb: TextBaseline,
+): number {
+  const baseY = baselineLocalY(tb, g.ascent, g.descent);
+  if (lineKind === 'underline') return baseY + g.descent * 0.5;
+  if (lineKind === 'line-through') return baseY - g.ascent * 0.3;
+  return baseY - g.ascent * 0.9; // overline
+}
+
+/**
+ * Paint a transparent decoration band with the clip declarer's paint. Drawn
+ * per glyph in the glyph's local rotated frame: each glyph's gradient slice is
+ * anchored to its own pathOffset (same math as the glyph fill), so adjacent
+ * bands stitch into one continuous color curve along the path.
+ */
+function drawClipPaintDecoration(
+  ctx: CanvasRenderingContext2D,
+  group: GlyphPlacement[],
+  lineKind: 'underline' | 'line-through' | 'overline',
+  decoStyle: string,
+  textWidth: number,
+  tb: TextBaseline,
+): void {
+  if (group.length === 0) return;
+  const lineWidth = decorationThickness(group[0].style.fontSize);
+  for (const g of group) {
+    ctx.save();
+    ctx.translate(g.x, g.y);
+    ctx.rotate(g.rotation);
+    const baseY = baselineLocalY(tb, g.ascent, g.descent);
+    const paint = clipPaintFor(ctx, g, textWidth, baseY);
+    if (paint) {
+      drawDecorationLine(ctx, 0, decorationLocalY(g, lineKind, tb), g.width, lineWidth, decoStyle, paint);
+    }
+    ctx.restore();
+  }
+}
+
 function strokeDecorationAlongGlyphs(
   ctx: CanvasRenderingContext2D,
   group: GlyphPlacement[],
@@ -522,12 +642,7 @@ function strokeDecorationAlongGlyphs(
   // Per-glyph local y for this decoration kind. The decoration position is
   // baseline-relative, so we shift by the baseline's local-y under the
   // current textBaseline to land in the right spot on the canvas.
-  const localY = (g: GlyphPlacement): number => {
-    const baseY = baselineLocalY(tb, g.ascent, g.descent);
-    if (lineKind === 'underline') return baseY + g.descent * 0.5;
-    if (lineKind === 'line-through') return baseY - g.ascent * 0.3;
-    return baseY - g.ascent * 0.9; // overline
-  };
+  const localY = (g: GlyphPlacement): number => decorationLocalY(g, lineKind, tb);
 
   if (decoStyle === 'double' || decoStyle === 'wavy') {
     // For double/wavy we draw each glyph segment independently using the

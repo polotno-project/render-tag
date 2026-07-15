@@ -11,7 +11,7 @@
  */
 
 import type { ResolvedStyle, StyledNode } from '../types.js';
-import { applyFont, getFontMetrics } from '../layout.js';
+import { applyFont, getFontMetrics, hasTextClip } from '../layout.js';
 import { stringToArray } from './grapheme.js';
 import type { PathLike, Point } from './svg-path.js';
 
@@ -20,6 +20,12 @@ export interface Segment {
   style: ResolvedStyle;
   /** True when this segment should be laid out right-to-left. */
   rtl: boolean;
+  /** Nearest ancestor-or-self element declaring background-clip:text + background.
+   * Threaded because background-image/clip don't inherit, so text in a nested
+   * inline child wouldn't carry them (mirrors the main renderer). */
+  clipStyle?: ResolvedStyle;
+  /** Nearest ancestor-or-self element declaring --rt-text-stroke-image. */
+  strokeImageStyle?: ResolvedStyle;
 }
 
 export interface GlyphPlacement {
@@ -46,6 +52,16 @@ export interface GlyphPlacement {
   pathOffset: number;
   /** True when this placement is a shaped run, not a single grapheme. */
   shaped: boolean;
+  /** Nearest declaring element for background-clip:text (see Segment). */
+  clipStyle?: ResolvedStyle;
+  /** Nearest declaring element for --rt-text-stroke-image (see Segment). */
+  strokeImageStyle?: ResolvedStyle;
+  /** Natural-offset range [start, start+width) of the clip declarer's glyphs —
+   * the fragment the clip gradient spans (mirrors the main renderer's
+   * fragment box; a whole-text declarer spans the whole text). */
+  clipRange?: { start: number; width: number };
+  /** Same fragment range for the stroke-image declarer. */
+  strokeImageRange?: { start: number; width: number };
 }
 
 export type AlignMode = 'left' | 'center' | 'right' | 'justify';
@@ -125,13 +141,25 @@ export function baselineLocalY(
  */
 export function flattenSegments(root: StyledNode): Segment[] {
   const out: Segment[] = [];
-  function walk(node: StyledNode, inheritedRtl: boolean) {
+  function walk(
+    node: StyledNode,
+    inheritedRtl: boolean,
+    clipStyle?: ResolvedStyle,
+    strokeImageStyle?: ResolvedStyle,
+  ) {
     const rtl = node.style.direction === 'rtl' || inheritedRtl;
     if (node.tagName === '#text' && node.textContent) {
-      out.push({ text: node.textContent, style: node.style, rtl });
+      out.push({ text: node.textContent, style: node.style, rtl, clipStyle, strokeImageStyle });
       return;
     }
-    for (const child of node.children) walk(child, rtl);
+    // Track the nearest element declaring a background-clip:text background or
+    // a --rt-text-stroke-image — those paints propagate to descendant glyphs
+    // even though the properties don't inherit.
+    const newClip = hasTextClip(node.style) ? node.style : clipStyle;
+    const newStroke =
+      node.style.webkitTextStrokeImage && node.style.webkitTextStrokeImage !== 'none'
+        ? node.style : strokeImageStyle;
+    for (const child of node.children) walk(child, rtl, newClip, newStroke);
   }
   walk(root, false);
   return out;
@@ -203,6 +231,8 @@ interface PreGlyph {
   ascent: number;
   descent: number;
   shaped: boolean;
+  clipStyle?: ResolvedStyle;
+  strokeImageStyle?: ResolvedStyle;
 }
 
 /**
@@ -266,6 +296,8 @@ function preGlyphsForSegment(
       ascent,
       descent,
       shaped: r.shaped,
+      clipStyle: seg.clipStyle,
+      strokeImageStyle: seg.strokeImageStyle,
     });
   }
   return out;
@@ -376,11 +408,16 @@ export function layoutGlyphsOnPath(input: LayoutInput): LayoutOutput {
       descent: g.descent,
       pathOffset: naturalOffset,
       shaped: g.shaped,
+      clipStyle: g.clipStyle,
+      strokeImageStyle: g.strokeImageStyle,
     });
 
     offset = endLen + (g.style.letterSpacing || 0);
     naturalOffset += g.width + (g.style.letterSpacing || 0);
   }
+
+  assignFragmentRanges(glyphs, g => g.clipStyle, (g, r) => { g.clipRange = r; });
+  assignFragmentRanges(glyphs, g => g.strokeImageStyle, (g, r) => { g.strokeImageRange = r; });
 
   const bounds = computeBounds(glyphs, textBaseline);
   return {
@@ -391,6 +428,31 @@ export function layoutGlyphsOnPath(input: LayoutInput): LayoutOutput {
     bounds,
     textBaseline,
   };
+}
+
+/**
+ * Compute the natural-offset range spanned by each contiguous group of glyphs
+ * sharing the same paint declarer (identity of the declaring element's style),
+ * and assign it to every glyph in the group. This is the path equivalent of
+ * the main renderer's fragment box: the declarer's gradient spans its own
+ * glyphs, not the whole text.
+ */
+function assignFragmentRanges(
+  glyphs: GlyphPlacement[],
+  keyOf: (g: GlyphPlacement) => ResolvedStyle | undefined,
+  assign: (g: GlyphPlacement, range: { start: number; width: number }) => void,
+): void {
+  for (let i = 0; i < glyphs.length;) {
+    const declarer = keyOf(glyphs[i]);
+    if (!declarer) { i++; continue; }
+    let j = i;
+    while (j < glyphs.length && keyOf(glyphs[j]) === declarer) j++;
+    const start = glyphs[i].pathOffset;
+    const last = glyphs[j - 1];
+    const range = { start, width: last.pathOffset + last.width - start };
+    for (let k = i; k < j; k++) assign(glyphs[k], range);
+    i = j;
+  }
 }
 
 /**
