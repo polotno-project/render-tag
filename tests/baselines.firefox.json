@@ -12,11 +12,11 @@
     "wrap": true
   },
   "Rich blog post": {
-    "score": 4.96,
+    "score": 3.92,
     "wrap": true
   },
   "Styled table": {
-    "score": 56.84,
+    "score": 56.85,
     "wrap": true
   },
   "Multi-column layout": {
@@ -88,7 +88,7 @@
     "wrap": true
   },
   "Pure RTL Arabic text": {
-    "score": 27.17,
+    "score": 26.91,
     "wrap": true
   },
   "Mixed LTR and RTL (English + Arabic)": {
@@ -156,6 +156,10 @@
     "wrap": true
   },
   "Large display list markers": {
+    "score": 0,
+    "wrap": true
+  },
+  "List item with smaller inline font (block strut)": {
     "score": 0,
     "wrap": true
   },
@@ -368,11 +372,11 @@
     "wrap": true
   },
   "Rich blog post@Open Sans": {
-    "score": 4.96,
+    "score": 3.92,
     "wrap": true
   },
   "Styled table@Open Sans": {
-    "score": 56.84,
+    "score": 56.85,
     "wrap": true
   },
   "Multi-column layout@Open Sans": {
@@ -512,6 +516,10 @@
     "wrap": true
   },
   "Large display list markers@Open Sans": {
+    "score": 0,
+    "wrap": true
+  },
+  "List item with smaller inline font (block strut)@Open Sans": {
     "score": 0,
     "wrap": true
   },
@@ -716,7 +724,7 @@
     "wrap": true
   },
   "Rich blog post@Roboto": {
-    "score": 4.96,
+    "score": 3.92,
     "wrap": true
   },
   "Styled table@Roboto": {
@@ -860,6 +868,10 @@
     "wrap": true
   },
   "Large display list markers@Roboto": {
+    "score": 0,
+    "wrap": true
+  },
+  "List item with smaller inline font (block strut)@Roboto": {
     "score": 0,
     "wrap": true
   },
@@ -1064,7 +1076,7 @@
     "wrap": true
   },
   "Rich blog post@Playfair Display": {
-    "score": 4.96,
+    "score": 3.92,
     "wrap": true
   },
   "Styled table@Playfair Display": {
@@ -1208,6 +1220,10 @@
     "wrap": true
   },
   "Large display list markers@Playfair Display": {
+    "score": 0,
+    "wrap": true
+  },
+  "List item with smaller inline font (block strut)@Playfair Display": {
     "score": 0,
     "wrap": true
   },
@@ -1412,11 +1428,11 @@
     "wrap": true
   },
   "Rich blog post@Merriweather": {
-    "score": 4.96,
+    "score": 3.92,
     "wrap": true
   },
   "Styled table@Merriweather": {
-    "score": 57.39,
+    "score": 57.4,
     "wrap": true
   },
   "Multi-column layout@Merriweather": {
@@ -1556,6 +1572,10 @@
     "wrap": true
   },
   "Large display list markers@Merriweather": {
+    "score": 0,
+    "wrap": true
+  },
+  "List item with smaller inline font (block strut)@Merriweather": {
     "score": 0,
     "wrap": true
   },
@@ -1760,7 +1780,7 @@
     "wrap": true
   },
   "Rich blog post@Lobster": {
-    "score": 4.96,
+    "score": 3.92,
     "wrap": true
   },
   "Styled table@Lobster": {
@@ -1907,6 +1927,10 @@
     "score": 0,
     "wrap": true
   },
+  "List item with smaller inline font (block strut)@Lobster": {
+    "score": 0,
+    "wrap": true
+  },
   "List items with rich formatting@Lobster": {
     "score": 18.98,
     "wrap": true
@@ -2044,7 +2068,7 @@
     "wrap": false
   },
   "Mixed app text comprehensive@Lobster": {
-    "score": 11.16,
+    "score": 10.86,
     "wrap": true
   },
   "Lists with alignment variations@Lobster": {

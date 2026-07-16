@@ -12,11 +12,11 @@
     "wrap": true
   },
   "Rich blog post": {
-    "score": 3.74,
+    "score": 2.77,
     "wrap": true
   },
   "Styled table": {
-    "score": 57.42,
+    "score": 57.43,
     "wrap": true
   },
   "Multi-column layout": {
@@ -157,6 +157,10 @@
   },
   "Large display list markers": {
     "score": 4.41,
+    "wrap": true
+  },
+  "List item with smaller inline font (block strut)": {
+    "score": 0.19,
     "wrap": true
   },
   "List items with rich formatting": {
@@ -368,11 +372,11 @@
     "wrap": true
   },
   "Rich blog post@Open Sans": {
-    "score": 3.74,
+    "score": 2.77,
     "wrap": true
   },
   "Styled table@Open Sans": {
-    "score": 57.42,
+    "score": 57.43,
     "wrap": true
   },
   "Multi-column layout@Open Sans": {
@@ -513,6 +517,10 @@
   },
   "Large display list markers@Open Sans": {
     "score": 4.41,
+    "wrap": true
+  },
+  "List item with smaller inline font (block strut)@Open Sans": {
+    "score": 0.19,
     "wrap": true
   },
   "List items with rich formatting@Open Sans": {
@@ -716,7 +724,7 @@
     "wrap": true
   },
   "Rich blog post@Roboto": {
-    "score": 3.74,
+    "score": 2.77,
     "wrap": true
   },
   "Styled table@Roboto": {
@@ -861,6 +869,10 @@
   },
   "Large display list markers@Roboto": {
     "score": 3.87,
+    "wrap": true
+  },
+  "List item with smaller inline font (block strut)@Roboto": {
+    "score": 2.16,
     "wrap": true
   },
   "List items with rich formatting@Roboto": {
@@ -1064,11 +1076,11 @@
     "wrap": true
   },
   "Rich blog post@Playfair Display": {
-    "score": 3.74,
+    "score": 2.77,
     "wrap": true
   },
   "Styled table@Playfair Display": {
-    "score": 57.02,
+    "score": 57.01,
     "wrap": true
   },
   "Multi-column layout@Playfair Display": {
@@ -1209,6 +1221,10 @@
   },
   "Large display list markers@Playfair Display": {
     "score": 4.68,
+    "wrap": true
+  },
+  "List item with smaller inline font (block strut)@Playfair Display": {
+    "score": 0.36,
     "wrap": true
   },
   "List items with rich formatting@Playfair Display": {
@@ -1412,7 +1428,7 @@
     "wrap": true
   },
   "Rich blog post@Merriweather": {
-    "score": 3.74,
+    "score": 2.77,
     "wrap": true
   },
   "Styled table@Merriweather": {
@@ -1557,6 +1573,10 @@
   },
   "Large display list markers@Merriweather": {
     "score": 1.24,
+    "wrap": true
+  },
+  "List item with smaller inline font (block strut)@Merriweather": {
+    "score": 2.69,
     "wrap": true
   },
   "List items with rich formatting@Merriweather": {
@@ -1760,7 +1780,7 @@
     "wrap": true
   },
   "Rich blog post@Lobster": {
-    "score": 3.74,
+    "score": 2.77,
     "wrap": true
   },
   "Styled table@Lobster": {
@@ -1905,6 +1925,10 @@
   },
   "Large display list markers@Lobster": {
     "score": 0.83,
+    "wrap": true
+  },
+  "List item with smaller inline font (block strut)@Lobster": {
+    "score": 0.1,
     "wrap": true
   },
   "List items with rich formatting@Lobster": {

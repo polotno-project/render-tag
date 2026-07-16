@@ -314,7 +314,7 @@
         }
       },
       {
-        "y": 497,
+        "y": 498,
         "text": "CSSLayoutFrontendWeb Development",
         "bounds": {
           "x": 0,
@@ -338,8 +338,8 @@
         }
       },
       {
-        "y": 57,
-        "text": "Alice Johnson Engineering Lead Active Excellent",
+        "y": 58,
+        "text": "Alice Johnson Engineering Lead Excellent Active",
         "bounds": {
           "x": 12,
           "y": 44,
@@ -348,8 +348,8 @@
         }
       },
       {
-        "y": 92,
-        "text": "Bob Smith Senior Developer Active Good",
+        "y": 93,
+        "text": "Bob Smith Senior Developer Good Active",
         "bounds": {
           "x": 12,
           "y": 79,
@@ -358,8 +358,8 @@
         }
       },
       {
-        "y": 127,
-        "text": "Carol White Designer On Leave Outstanding",
+        "y": 128,
+        "text": "Carol White Designer Outstanding On Leave",
         "bounds": {
           "x": 12,
           "y": 114,
@@ -368,8 +368,8 @@
         }
       },
       {
-        "y": 162,
-        "text": "David Brown Junior Developer Active Improving",
+        "y": 163,
+        "text": "David Brown Junior Developer Improving Active",
         "bounds": {
           "x": 12,
           "y": 149,
@@ -378,8 +378,8 @@
         }
       },
       {
-        "y": 197,
-        "text": "Eve Davis Product Manager Inactive N/A",
+        "y": 198,
+        "text": "Eve Davis Product Manager N/A Inactive",
         "bounds": {
           "x": 12,
           "y": 184,
@@ -2685,6 +2685,30 @@
           "y": 230.39999999999998,
           "width": 117.40625,
           "height": 76.80000000000001
+        }
+      }
+    ]
+  },
+  "List item with smaller inline font (block strut)": {
+    "lines": [
+      {
+        "y": 72,
+        "text": "Header",
+        "bounds": {
+          "x": 159.6,
+          "y": 0,
+          "width": 249.263671875,
+          "height": 91.2
+        }
+      },
+      {
+        "y": 255,
+        "text": "Small",
+        "bounds": {
+          "x": 159.6,
+          "y": 182.4,
+          "width": 105.0205078125,
+          "height": 91.20000000000002
         }
       }
     ]
@@ -6800,7 +6824,7 @@
         }
       },
       {
-        "y": 497,
+        "y": 498,
         "text": "CSSLayoutFrontendWeb Development",
         "bounds": {
           "x": 0,
@@ -6824,8 +6848,8 @@
         }
       },
       {
-        "y": 57,
-        "text": "Alice Johnson Engineering Lead Active Excellent",
+        "y": 58,
+        "text": "Alice Johnson Engineering Lead Excellent Active",
         "bounds": {
           "x": 12,
           "y": 44,
@@ -6834,8 +6858,8 @@
         }
       },
       {
-        "y": 92,
-        "text": "Bob Smith Senior Developer Active Good",
+        "y": 93,
+        "text": "Bob Smith Senior Developer Good Active",
         "bounds": {
           "x": 12,
           "y": 79,
@@ -6844,8 +6868,8 @@
         }
       },
       {
-        "y": 127,
-        "text": "Carol White Designer On Leave Outstanding",
+        "y": 128,
+        "text": "Carol White Designer Outstanding On Leave",
         "bounds": {
           "x": 12,
           "y": 114,
@@ -6854,8 +6878,8 @@
         }
       },
       {
-        "y": 162,
-        "text": "David Brown Junior Developer Active Improving",
+        "y": 163,
+        "text": "David Brown Junior Developer Improving Active",
         "bounds": {
           "x": 12,
           "y": 149,
@@ -6864,8 +6888,8 @@
         }
       },
       {
-        "y": 197,
-        "text": "Eve Davis Product Manager Inactive N/A",
+        "y": 198,
+        "text": "Eve Davis Product Manager N/A Inactive",
         "bounds": {
           "x": 12,
           "y": 184,
@@ -9171,6 +9195,30 @@
           "y": 230.39999999999998,
           "width": 117.40625,
           "height": 76.80000000000001
+        }
+      }
+    ]
+  },
+  "List item with smaller inline font (block strut)@Open Sans": {
+    "lines": [
+      {
+        "y": 72,
+        "text": "Header",
+        "bounds": {
+          "x": 159.6,
+          "y": 0,
+          "width": 249.263671875,
+          "height": 91.2
+        }
+      },
+      {
+        "y": 255,
+        "text": "Small",
+        "bounds": {
+          "x": 159.6,
+          "y": 182.4,
+          "width": 105.0205078125,
+          "height": 91.20000000000002
         }
       }
     ]
@@ -12978,7 +13026,7 @@
         }
       },
       {
-        "y": 497,
+        "y": 498,
         "text": "CSSLayoutFrontendWeb Development",
         "bounds": {
           "x": 0,
@@ -13002,8 +13050,8 @@
         }
       },
       {
-        "y": 57,
-        "text": "Alice Johnson Engineering Lead Active Excellent",
+        "y": 58,
+        "text": "Alice Johnson Engineering Lead Excellent Active",
         "bounds": {
           "x": 12,
           "y": 44,
@@ -13012,8 +13060,8 @@
         }
       },
       {
-        "y": 92,
-        "text": "Bob Smith Senior Developer Active Good",
+        "y": 93,
+        "text": "Bob Smith Senior Developer Good Active",
         "bounds": {
           "x": 12,
           "y": 79,
@@ -13022,8 +13070,8 @@
         }
       },
       {
-        "y": 127,
-        "text": "Carol White Designer On Leave Outstanding",
+        "y": 128,
+        "text": "Carol White Designer Outstanding On Leave",
         "bounds": {
           "x": 12,
           "y": 114,
@@ -13032,8 +13080,8 @@
         }
       },
       {
-        "y": 162,
-        "text": "David Brown Junior Developer Active Improving",
+        "y": 163,
+        "text": "David Brown Junior Developer Improving Active",
         "bounds": {
           "x": 12,
           "y": 149,
@@ -13042,8 +13090,8 @@
         }
       },
       {
-        "y": 197,
-        "text": "Eve Davis Product Manager Inactive N/A",
+        "y": 198,
+        "text": "Eve Davis Product Manager N/A Inactive",
         "bounds": {
           "x": 12,
           "y": 184,
@@ -15349,6 +15397,30 @@
           "y": 230.39999999999998,
           "width": 117.40625,
           "height": 76.80000000000001
+        }
+      }
+    ]
+  },
+  "List item with smaller inline font (block strut)@Roboto": {
+    "lines": [
+      {
+        "y": 72,
+        "text": "Header",
+        "bounds": {
+          "x": 159.6,
+          "y": 0,
+          "width": 249.263671875,
+          "height": 91.2
+        }
+      },
+      {
+        "y": 255,
+        "text": "Small",
+        "bounds": {
+          "x": 159.6,
+          "y": 182.4,
+          "width": 105.0205078125,
+          "height": 91.20000000000002
         }
       }
     ]
@@ -19156,7 +19228,7 @@
         }
       },
       {
-        "y": 497,
+        "y": 498,
         "text": "CSSLayoutFrontendWeb Development",
         "bounds": {
           "x": 0,
@@ -19180,8 +19252,8 @@
         }
       },
       {
-        "y": 58,
-        "text": "Alice Johnson Engineering Lead Active Excellent",
+        "y": 59,
+        "text": "Alice Johnson Engineering Lead Excellent Active",
         "bounds": {
           "x": 12,
           "y": 45,
@@ -19190,8 +19262,8 @@
         }
       },
       {
-        "y": 93,
-        "text": "Bob Smith Senior Developer Active Good",
+        "y": 94,
+        "text": "Bob Smith Senior Developer Good Active",
         "bounds": {
           "x": 12,
           "y": 80,
@@ -19200,8 +19272,8 @@
         }
       },
       {
-        "y": 128,
-        "text": "Carol White Designer On Leave Outstanding",
+        "y": 129,
+        "text": "Carol White Designer Outstanding On Leave",
         "bounds": {
           "x": 12,
           "y": 115,
@@ -19210,8 +19282,8 @@
         }
       },
       {
-        "y": 163,
-        "text": "David Brown Junior Developer Active Improving",
+        "y": 164,
+        "text": "David Brown Junior Developer Improving Active",
         "bounds": {
           "x": 12,
           "y": 150,
@@ -19220,8 +19292,8 @@
         }
       },
       {
-        "y": 198,
-        "text": "Eve Davis Product Manager Inactive N/A",
+        "y": 199,
+        "text": "Eve Davis Product Manager N/A Inactive",
         "bounds": {
           "x": 12,
           "y": 185,
@@ -21437,6 +21509,30 @@
           "y": 230.39999999999998,
           "width": 112.84375,
           "height": 76.80000000000001
+        }
+      }
+    ]
+  },
+  "List item with smaller inline font (block strut)@Playfair Display": {
+    "lines": [
+      {
+        "y": 70,
+        "text": "Header",
+        "bounds": {
+          "x": 159.6,
+          "y": 0,
+          "width": 219.390625,
+          "height": 91.2
+        }
+      },
+      {
+        "y": 253,
+        "text": "Small",
+        "bounds": {
+          "x": 159.6,
+          "y": 182.4,
+          "width": 98.0068359375,
+          "height": 91.20000000000002
         }
       }
     ]
@@ -25154,7 +25250,7 @@
         }
       },
       {
-        "y": 497,
+        "y": 498,
         "text": "CSSLayoutFrontendWeb Development",
         "bounds": {
           "x": 0,
@@ -25178,8 +25274,8 @@
         }
       },
       {
-        "y": 58,
-        "text": "Alice Johnson Engineering Lead Active Excellent",
+        "y": 59,
+        "text": "Alice Johnson Engineering Lead Excellent Active",
         "bounds": {
           "x": 12,
           "y": 45,
@@ -25188,8 +25284,8 @@
         }
       },
       {
-        "y": 93,
-        "text": "Bob Smith Senior Developer Active Good",
+        "y": 94,
+        "text": "Bob Smith Senior Developer Good Active",
         "bounds": {
           "x": 12,
           "y": 80,
@@ -25198,8 +25294,8 @@
         }
       },
       {
-        "y": 128,
-        "text": "Carol White Designer On Leave Outstanding",
+        "y": 129,
+        "text": "Carol White Designer Outstanding On Leave",
         "bounds": {
           "x": 12,
           "y": 115,
@@ -25208,8 +25304,8 @@
         }
       },
       {
-        "y": 163,
-        "text": "David Brown Junior Developer Active Improving",
+        "y": 164,
+        "text": "David Brown Junior Developer Improving Active",
         "bounds": {
           "x": 12,
           "y": 150,
@@ -25218,8 +25314,8 @@
         }
       },
       {
-        "y": 198,
-        "text": "Eve Davis Product Manager Inactive N/A",
+        "y": 199,
+        "text": "Eve Davis Product Manager N/A Inactive",
         "bounds": {
           "x": 12,
           "y": 185,
@@ -27435,6 +27531,30 @@
           "y": 230.39999999999998,
           "width": 112.84375,
           "height": 76.80000000000001
+        }
+      }
+    ]
+  },
+  "List item with smaller inline font (block strut)@Merriweather": {
+    "lines": [
+      {
+        "y": 70,
+        "text": "Header",
+        "bounds": {
+          "x": 159.6,
+          "y": 0,
+          "width": 219.390625,
+          "height": 91.2
+        }
+      },
+      {
+        "y": 253,
+        "text": "Small",
+        "bounds": {
+          "x": 159.6,
+          "y": 182.4,
+          "width": 98.0068359375,
+          "height": 91.20000000000002
         }
       }
     ]
@@ -31152,7 +31272,7 @@
         }
       },
       {
-        "y": 497,
+        "y": 498,
         "text": "CSSLayoutFrontendWeb Development",
         "bounds": {
           "x": 0,
@@ -31177,7 +31297,7 @@
       },
       {
         "y": 67,
-        "text": "Active Alice Johnson Engineering Lead Excellent",
+        "text": "Alice Johnson Engineering Lead Active Excellent",
         "bounds": {
           "x": 12,
           "y": 51,
@@ -31187,7 +31307,7 @@
       },
       {
         "y": 107,
-        "text": "Active Bob Smith Senior Developer Good",
+        "text": "Bob Smith Senior Developer Active Good",
         "bounds": {
           "x": 12,
           "y": 91,
@@ -31197,7 +31317,7 @@
       },
       {
         "y": 147,
-        "text": "On Leave Carol White Designer Outstanding",
+        "text": "Carol White Designer On Leave Outstanding",
         "bounds": {
           "x": 12,
           "y": 131,
@@ -31207,7 +31327,7 @@
       },
       {
         "y": 187,
-        "text": "Active David Brown Junior Developer Improving",
+        "text": "David Brown Junior Developer Active Improving",
         "bounds": {
           "x": 12,
           "y": 171,
@@ -31217,7 +31337,7 @@
       },
       {
         "y": 227,
-        "text": "Inactive Eve Davis Product Manager N/A",
+        "text": "Eve Davis Product Manager Inactive N/A",
         "bounds": {
           "x": 12,
           "y": 211,
@@ -33433,6 +33553,30 @@
           "y": 230.39999999999998,
           "width": 113.21875,
           "height": 76.80000000000001
+        }
+      }
+    ]
+  },
+  "List item with smaller inline font (block strut)@Lobster": {
+    "lines": [
+      {
+        "y": 71,
+        "text": "Header",
+        "bounds": {
+          "x": 159.6,
+          "y": 0,
+          "width": 230.486328125,
+          "height": 91.2
+        }
+      },
+      {
+        "y": 253,
+        "text": "Small",
+        "bounds": {
+          "x": 159.6,
+          "y": 182.4,
+          "width": 99.4833984375,
+          "height": 91.20000000000002
         }
       }
     ]

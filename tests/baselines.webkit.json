@@ -12,11 +12,11 @@
     "wrap": true
   },
   "Rich blog post": {
-    "score": 3.75,
+    "score": 2.75,
     "wrap": true
   },
   "Styled table": {
-    "score": 57.32,
+    "score": 57.34,
     "wrap": true
   },
   "Multi-column layout": {
@@ -157,6 +157,10 @@
   },
   "Large display list markers": {
     "score": 18.8,
+    "wrap": true
+  },
+  "List item with smaller inline font (block strut)": {
+    "score": 0.39,
     "wrap": true
   },
   "List items with rich formatting": {
@@ -368,11 +372,11 @@
     "wrap": true
   },
   "Rich blog post@Open Sans": {
-    "score": 3.75,
+    "score": 2.75,
     "wrap": true
   },
   "Styled table@Open Sans": {
-    "score": 57.32,
+    "score": 57.34,
     "wrap": true
   },
   "Multi-column layout@Open Sans": {
@@ -513,6 +517,10 @@
   },
   "Large display list markers@Open Sans": {
     "score": 18.8,
+    "wrap": true
+  },
+  "List item with smaller inline font (block strut)@Open Sans": {
+    "score": 0.39,
     "wrap": true
   },
   "List items with rich formatting@Open Sans": {
@@ -716,11 +724,11 @@
     "wrap": true
   },
   "Rich blog post@Roboto": {
-    "score": 3.75,
+    "score": 2.75,
     "wrap": true
   },
   "Styled table@Roboto": {
-    "score": 57.24,
+    "score": 57.25,
     "wrap": true
   },
   "Multi-column layout@Roboto": {
@@ -861,6 +869,10 @@
   },
   "Large display list markers@Roboto": {
     "score": 17.43,
+    "wrap": true
+  },
+  "List item with smaller inline font (block strut)@Roboto": {
+    "score": 5.37,
     "wrap": true
   },
   "List items with rich formatting@Roboto": {
@@ -1064,11 +1076,11 @@
     "wrap": true
   },
   "Rich blog post@Playfair Display": {
-    "score": 3.75,
+    "score": 2.75,
     "wrap": true
   },
   "Styled table@Playfair Display": {
-    "score": 56.9,
+    "score": 56.91,
     "wrap": true
   },
   "Multi-column layout@Playfair Display": {
@@ -1209,6 +1221,10 @@
   },
   "Large display list markers@Playfair Display": {
     "score": 18,
+    "wrap": true
+  },
+  "List item with smaller inline font (block strut)@Playfair Display": {
+    "score": 0.35,
     "wrap": true
   },
   "List items with rich formatting@Playfair Display": {
@@ -1412,11 +1428,11 @@
     "wrap": true
   },
   "Rich blog post@Merriweather": {
-    "score": 3.75,
+    "score": 2.75,
     "wrap": true
   },
   "Styled table@Merriweather": {
-    "score": 56.58,
+    "score": 56.59,
     "wrap": true
   },
   "Multi-column layout@Merriweather": {
@@ -1557,6 +1573,10 @@
   },
   "Large display list markers@Merriweather": {
     "score": 12.38,
+    "wrap": true
+  },
+  "List item with smaller inline font (block strut)@Merriweather": {
+    "score": 6.58,
     "wrap": true
   },
   "List items with rich formatting@Merriweather": {
@@ -1760,11 +1780,11 @@
     "wrap": true
   },
   "Rich blog post@Lobster": {
-    "score": 3.75,
+    "score": 2.75,
     "wrap": true
   },
   "Styled table@Lobster": {
-    "score": 57.56,
+    "score": 57.55,
     "wrap": true
   },
   "Multi-column layout@Lobster": {
@@ -1905,6 +1925,10 @@
   },
   "Large display list markers@Lobster": {
     "score": 9.34,
+    "wrap": true
+  },
+  "List item with smaller inline font (block strut)@Lobster": {
+    "score": 0.36,
     "wrap": true
   },
   "List items with rich formatting@Lobster": {

@@ -1035,9 +1035,18 @@ function flowWordsIntoLines(
   useBulletProbe = false,
   textIndent = 0,
   tabMetrics?: { interval: number; halfSpace: number },
+  strutLineHeight = 0,
 ): PositionedLine[] {
   const lines: PositionedLine[] = [];
-  let currentLine: PositionedLine = { words: [], totalWidth: 0, lineHeight: 0 };
+  // Every line box starts at the block's own "strut" height (its font +
+  // line-height), so a line whose only content is a SMALLER inline font is
+  // still at least the block's line-height tall — matching CSS. See callers.
+  const newLine = (): PositionedLine => ({
+    words: [],
+    totalWidth: 0,
+    lineHeight: strutLineHeight,
+  });
+  let currentLine: PositionedLine = newLine();
   const noWrap = whiteSpace === 'nowrap' || whiteSpace === 'pre';
   // text-indent reduces the first line's width budget; subsequent lines use full width.
   const effWidth = () => contentWidth - (lines.length === 0 ? textIndent : 0);
@@ -1089,7 +1098,7 @@ function flowWordsIntoLines(
       }
       lines.push(currentLine);
     }
-    currentLine = { words: [], totalWidth: 0, lineHeight: 0 };
+    currentLine = newLine();
   }
 
   let afterHardBreak = true; // start of content is like after a hard break
@@ -1107,10 +1116,10 @@ function flowWordsIntoLines(
 
     if (word.text === '\n') {
       if (currentLine.words.length === 0) {
-        currentLine.lineHeight = wordLineHeight;
+        currentLine.lineHeight = Math.max(currentLine.lineHeight, wordLineHeight);
         currentLine.endedByHardBreak = true;
         lines.push(currentLine);
-        currentLine = { words: [], totalWidth: 0, lineHeight: 0 };
+        currentLine = newLine();
       } else {
         currentLine.endedByHardBreak = true;
         pushLine();
@@ -1532,7 +1541,10 @@ function layoutInlineContent(
     interval: (blockSpaceWidth + (node.style.letterSpacing || 0) + (node.style.wordSpacing || 0)) * 8,
     halfSpace: blockSpaceWidth / 2,
   };
-  const lines = flowWordsIntoLines(ctx, words, contentWidth, node.style.whiteSpace, useBulletProbe, textIndent, tabMetrics);
+  // The block's own font + line-height set the strut: the minimum height of
+  // every line box, even a line holding only smaller inline content.
+  const strutLineHeight = getLineHeight(ctx, node.style, useBulletProbe);
+  const lines = flowWordsIntoLines(ctx, words, contentWidth, node.style.whiteSpace, useBulletProbe, textIndent, tabMetrics, strutLineHeight);
 
   // `-webkit-line-clamp` / `line-clamp`: truncate to N lines and append a
   // CSS-style ellipsis ("…") to the Nth line, back-trimming trailing words
@@ -1573,6 +1585,13 @@ function layoutInlineContent(
   } else {
     textAlignLast = resolveDir(textAlignLast);
   }
+
+  // The block strut also participates in the line's baseline, not just its
+  // height: inline content aligns to the block-font baseline, so a line whose
+  // only content is a SMALLER inline font sits on the strut baseline (lower in
+  // the box), not centered in it. Seed each line's ascent/descent with the
+  // block font's metrics so the baseline lands where the DOM puts it.
+  const strutMetrics = getFontMetrics(ctx, node.style);
 
   let curY = y;
 
@@ -1639,9 +1658,11 @@ function layoutInlineContent(
 
     // Compute a single shared baseline for the entire line.
     // Exclude sub/sup words — they sit above/below the baseline and
-    // shouldn't influence where the baseline is positioned.
-    let maxAscent = 0;
-    let maxDescent = 0;
+    // shouldn't influence where the baseline is positioned. Seeded with the
+    // block strut (block font) so smaller-only lines align to the block
+    // baseline rather than centering in the taller strut line box.
+    let maxAscent = strutMetrics.ascent;
+    let maxDescent = strutMetrics.descent;
     for (const word of line.words) {
       if (word.text === '') continue;
       // Off-baseline content (sub/sup/middle/lengths/...) does not establish

@@ -149,6 +149,13 @@ configs.
 - `ctx.fontKerning = 'normal'` — always set for consistency
 - `ctx.letterSpacing` — use native property, not manual per-character rendering
 - Cross-font boundaries still accumulate errors — inherent canvas API limitation
+- **Block strut**: every line box has a minimum height AND a baseline from the
+  block's OWN font (its font-size × line-height), even when all inline content
+  on the line is smaller. `layoutInlineContent` seeds both `flowWordsIntoLines`
+  (line height) and the per-line `maxAscent`/`maxDescent` (baseline) from
+  `node.style` — so `<li style="font-size:76px"><span style="font-size:42px">…`
+  stands 76px tall with the small text on the 76px baseline, matching the DOM.
+  Don't reset those seeds to 0 in a refactor.
 
 ### Firefox cross-browser differences
 Firefox renders `<ul><li>` elements ~1.5px taller than Chrome due to the

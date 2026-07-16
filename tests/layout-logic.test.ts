@@ -7,6 +7,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { buildLayoutTree } from '../src/layout.ts';
+import { layout } from '../src/index.ts';
 import { mockCtx, CHAR_WIDTH } from './helpers/mock-ctx.ts';
 import type { StyledNode, ResolvedStyle, LayoutBox, LayoutText, LayoutNode } from '../src/types.ts';
 
@@ -769,6 +770,75 @@ describe('Layout logic (mocked measureText)', () => {
       const childBoxes = flexBox.children.filter(c => c.type === 'box') as LayoutBox[];
       expect(childBoxes[0].width).toBe(50);  // 1/4 of 200
       expect(childBoxes[1].width).toBe(150); // 3/4 of 200
+    });
+  });
+
+  // ─── Block strut ───────────────────────────────────────────────────
+
+  describe('Block strut (line box minimum = block font)', () => {
+    // CSS plants a "strut" in every block: an invisible zero-width inline box
+    // carrying the block's OWN font + line-height at the start of each line
+    // box. So a line whose only content is a SMALLER inline font is still at
+    // least the block's own line-height tall. render-tag used to size the
+    // line box from the inline content alone, under-measuring lists like
+    // <li style="font-size:76px"><span style="font-size:42px">x</span></li>
+    // (the line came out 50px instead of the block's 91px), which shrank the
+    // reported element height and let edit-mode DOM spill past the box.
+    it('sizes a line box to the block strut when inline content is smaller', () => {
+      const ctx = mockCtx();
+      const tree = block('div', [
+        block(
+          'li',
+          [
+            inline('span', [textNode('x', { fontSize: 42, lineHeight: 50 })], {
+              fontSize: 42,
+              lineHeight: 50,
+            }),
+          ],
+          { display: 'list-item', fontSize: 76, lineHeight: 91 },
+        ),
+      ]);
+      const { height } = buildLayoutTree(ctx, tree, 600, false);
+      expect(height).toBeCloseTo(91, 0); // strut, not the span's 50
+    });
+
+    it('keeps taller inline content that exceeds the block strut', () => {
+      const ctx = mockCtx();
+      const tree = block('div', [
+        block(
+          'p',
+          [
+            inline('span', [textNode('x', { fontSize: 76, lineHeight: 91 })], {
+              fontSize: 76,
+              lineHeight: 91,
+            }),
+          ],
+          { fontSize: 42, lineHeight: 50 },
+        ),
+      ]);
+      const { height } = buildLayoutTree(ctx, tree, 600, false);
+      expect(height).toBeCloseTo(91, 0); // content wins over the 50px strut
+    });
+
+    // The strut is a BASELINE participant, not only a height floor: a smaller
+    // inline sits on the block-font baseline (lower in the taller line box),
+    // not centered in it. This needs real font metrics (they must scale with
+    // font-size — the mock ctx returns a fixed ascent/descent), so it runs the
+    // full layout() with a system font. Guards the maxAscent/maxDescent strut
+    // seed; without it the small glyph rides ~12px too high.
+    it('aligns smaller-only inline text to the block-font baseline (real fonts)', () => {
+      const baselineOf = (html: string): number => {
+        const res = layout({
+          html: `<div style="font-family:Arial;font-size:76px;line-height:1.2">${html}</div>`,
+          width: 600,
+        });
+        // LayoutText.y is the baseline.
+        return collectTexts(res.layoutRoot).find((t) => t.text === 'x')!.y;
+      };
+      // A 42px span and a full-size 76px glyph share the same strut baseline.
+      const small = baselineOf('<span style="font-size:42px">x</span>');
+      const full = baselineOf('x');
+      expect(Math.abs(small - full)).toBeLessThan(1.5);
     });
   });
 

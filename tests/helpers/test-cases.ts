@@ -820,6 +820,22 @@ console.log(msg);</pre>
     },
 
     // =========================================================================
+    // Block strut — a list item whose only content is a SMALLER inline font
+    // still stands as tall as the block's own font (its strut). Mirrors the
+    // editor bug where a 76px list with a 42px item under-measured its height
+    // and the last line spilled out of the box in edit mode.
+    // =========================================================================
+    {
+      name: 'List item with smaller inline font (block strut)',
+      width: 700,
+      height: 400,
+      css: withOpenSans(
+        `body { ${font} font-size: 76px; line-height: 1.2; } ul { padding-inline-start: 2.1em; margin: 0; } p { margin: 0; }`,
+      ),
+      html: `<ul><li>Header</li></ul><p><br></p><ul><li><span style="font-size: 42px;">Small</span></li></ul>`,
+    },
+
+    // =========================================================================
     // 31. List items with rich formatting
     // =========================================================================
     {
