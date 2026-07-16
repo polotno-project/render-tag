@@ -1082,6 +1082,10 @@ function flowWordsIntoLines(
           width: hyphenWidth,
           style: lastWord.style,
           isSpace: false,
+          // The visible hyphen continues the broken word, so it inherits the
+          // word's clip/stroke-image declarer (else it paints transparent).
+          clipStyle: lastWord.clipStyle,
+          strokeImageStyle: lastWord.strokeImageStyle,
         });
         currentLine.totalWidth += hyphenWidth;
       }
@@ -1155,9 +1159,24 @@ function flowWordsIntoLines(
         let combined = 0;
         for (let j = wordIndex; j <= end; j++) combined += words[j].width;
         // Flatten the chain into styled characters (per-run style retained).
-        const cells: { ch: string; style: ResolvedStyle }[] = [];
+        // Carry the run's clip/stroke-image declarer too, else a break-word
+        // split drops it and a gradient/stroke fragment paints nothing (the
+        // inherited transparent fill has no clip box to reveal).
+        type Cell = {
+          ch: string;
+          style: ResolvedStyle;
+          clipStyle?: ResolvedStyle;
+          strokeImageStyle?: ResolvedStyle;
+        };
+        const cells: Cell[] = [];
         for (let j = wordIndex; j <= end; j++)
-          for (const ch of [...words[j].text]) cells.push({ ch, style: words[j].style });
+          for (const ch of [...words[j].text])
+            cells.push({
+              ch,
+              style: words[j].style,
+              clipStyle: words[j].clipStyle,
+              strokeImageStyle: words[j].strokeImageStyle,
+            });
         const combinedText = cells.map((c) => c.ch).join('');
         // Hyphen break opportunities (same rule as the single-word hyphen path).
         const segTexts = combinedText.split(/(?<=-)(?!\d)|(?<=[^\d]-)/).filter((s) => s.length);
@@ -1170,7 +1189,7 @@ function flowWordsIntoLines(
         const enter = !fitsLine && (hyphenMode || (breakWord && combined > effWidth()));
         if (enter) {
           // Atomic units for breaking: hyphen segments, else the whole chain.
-          const segs: { ch: string; style: ResolvedStyle }[][] = [];
+          const segs: Cell[][] = [];
           let ci = 0;
           for (const st of segTexts) {
             const len = [...st].length;
@@ -1181,10 +1200,14 @@ function flowWordsIntoLines(
           // runs into pieces. When `chars` is set, wrap at the line edge between
           // characters (break-word); otherwise place atomically (it may overflow
           // its own line, e.g. a hyphen prefix wider than the container).
-          const placeCells = (cs: { ch: string; style: ResolvedStyle }[], chars: boolean) => {
+          const placeCells = (cs: Cell[], chars: boolean) => {
             let i = 0;
             while (i < cs.length) {
               const st = cs[i].style;
+              // clip/stroke declarer is 1:1 with the style run (same source
+              // word), so capturing it at the run start covers every push below.
+              const clipStyle = cs[i].clipStyle;
+              const strokeImageStyle = cs[i].strokeImageStyle;
               applyFont(ctx, st);
               ctx.letterSpacing = formatLetterSpacing(st.letterSpacing);
               const lh = getLineHeight(ctx, st, useBulletProbe);
@@ -1197,7 +1220,7 @@ function flowWordsIntoLines(
                 if (chars && currentLine.totalWidth + candW > effWidth() &&
                     (currentLine.words.length > 0 || cur)) {
                   if (cur) {
-                    currentLine.words.push({ text: cur, width: curW, style: st, isSpace: false });
+                    currentLine.words.push({ text: cur, width: curW, style: st, isSpace: false, clipStyle, strokeImageStyle });
                     currentLine.totalWidth += curW;
                     currentLine.lineHeight = Math.max(currentLine.lineHeight, lh);
                   }
@@ -1212,14 +1235,14 @@ function flowWordsIntoLines(
                 i++;
               }
               if (cur) {
-                currentLine.words.push({ text: cur, width: curW, style: st, isSpace: false });
+                currentLine.words.push({ text: cur, width: curW, style: st, isSpace: false, clipStyle, strokeImageStyle });
                 currentLine.totalWidth += curW;
                 currentLine.lineHeight = Math.max(currentLine.lineHeight, lh);
                 afterHardBreak = false;
               }
             }
           };
-          const measureSeg = (cs: { ch: string; style: ResolvedStyle }[]) => {
+          const measureSeg = (cs: Cell[]) => {
             let w = 0;
             let i = 0;
             while (i < cs.length) {

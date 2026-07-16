@@ -52,6 +52,24 @@ describe('background-clip: text gradient declared on an inline element, text in 
     expect(countPixels(canvas, isGreenish)).toBeGreaterThan(20);
   });
 
+  it('still paints when overflow-wrap:break-word splits the clipped fragment across lines', () => {
+    // The reported bug: at a wide width (one line) the gradient shows, but a
+    // narrower box wraps "Header" mid-word (overflow-wrap:break-word, as the
+    // editor sets), splitting the clipped <s><u>ader</u></s> fragment across
+    // lines. The break-word char-flattening rebuilt words WITHOUT the clip
+    // declarer, so the inherited transparent fill had no clip box and the
+    // whole fragment painted nothing (red=green=0).
+    const wrapped =
+      '<div style="font-size:76px;font-family:Arial;white-space:pre-wrap;overflow-wrap:break-word">' +
+      BUG_HTML +
+      '</div>';
+    for (const width of [341, 250, 180]) {
+      const { canvas } = render({ html: wrapped, width, pixelRatio: 1 });
+      expect(countPixels(canvas, isReddish)).toBeGreaterThan(20);
+      expect(countPixels(canvas, isGreenish)).toBeGreaterThan(20);
+    }
+  });
+
   it('minimal <span>-in-<span> nesting paints the gradient too', () => {
     const html =
       '<div style="font-size: 40px; background-image: linear-gradient(90deg, red, blue); ' +

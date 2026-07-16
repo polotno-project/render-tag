@@ -70,4 +70,26 @@ describe('gradient text stroke (-webkit-text-stroke-image)', () => {
     expect(countPixels(canvas, isWhite)).toBeGreaterThan(50);
     expect(countPixels(canvas, isMagenta)).toBeGreaterThan(20);
   });
+
+  it('keeps the stroke gradient when break-word splits the fragment mid-word', () => {
+    // Same fix as the background-clip:text break-word case: the stroke-image
+    // declarer must survive the mid-word char-flatten. Declared on an inline
+    // <s> holding part of a word that overflow-wrap:break-word splits across
+    // lines — without the fix the split pieces revert to the solid black
+    // -webkit-text-stroke and the gradient's magenta end vanishes.
+    const grad =
+      '--rt-text-stroke-image: linear-gradient(0deg, black 0%, rgb(212, 0, 255) 100%)';
+    const wrap =
+      'font-size:76px;font-family:Arial;white-space:pre-wrap;overflow-wrap:break-word;color:rgb(255,255,255)';
+    for (const width of [220, 150]) {
+      const { canvas } = render({
+        html:
+          `<div style="${wrap}">He` +
+          `<s style="${grad}; -webkit-text-stroke:6px black; paint-order: stroke fill">ader</s></div>`,
+        width,
+        pixelRatio: 1,
+      });
+      expect(countPixels(canvas, isMagenta)).toBeGreaterThan(20);
+    }
+  });
 });
