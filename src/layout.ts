@@ -823,14 +823,19 @@ function tokenizeRuns(ctx: CanvasRenderingContext2D, runs: TextRun[]): Word[] {
         !prev || prev.isSpace || !prev.text.trim() ||
         prev.boxOpen || prev.boxClose
       ) return;
-      // CJK and segmenter-driven scripts (Thai/Khmer/…) have break
+      // CJK, emoji and segmenter-driven scripts (Thai/Khmer/…) have break
       // opportunities between characters regardless of element boundaries, so
       // an element edge between them is NOT a no-break point. Only glue when
       // both sides are ordinary (Latin-like) text with no intrinsic break.
-      const firstChar = [...first.text][0];
-      const prevChar = [...prev.text][prev.text.length - 1];
+      // Take the boundary characters as GRAPHEME clusters — indexing by code
+      // unit reads past the end of a surrogate pair, and indexing by code point
+      // splits VS16 emoji (❤️ = U+2764 U+FE0F) so the cluster reads as non-emoji.
+      const firstChar = graphemes(first.text)[0];
+      const prevClusters = graphemes(prev.text);
+      const prevChar = prevClusters[prevClusters.length - 1];
       if (
         isCJK(firstChar) || isCJK(prevChar) ||
+        isEmojiCluster(firstChar) || isEmojiCluster(prevChar) ||
         needsSegmenter(first.text) || needsSegmenter(prev.text)
       ) return;
       first.noBreakBefore = true;
@@ -884,6 +889,15 @@ function getGraphemeSegmenter(): Intl.Segmenter | null {
     return _graphemeSegmenter;
   }
   return null;
+}
+
+/**
+ * Split into grapheme clusters — falls back to code points when
+ * Intl.Segmenter is unavailable.
+ */
+function graphemes(text: string): string[] {
+  const seg = getGraphemeSegmenter();
+  return seg ? [...seg.segment(text)].map((s) => s.segment) : [...text];
 }
 
 const EMOJI_PICTOGRAPHIC = /\p{Extended_Pictographic}/u;
@@ -963,10 +977,7 @@ function breakWordIfNeeded(
   ctx.letterSpacing = formatLetterSpacing(word.style.letterSpacing);
   // When the word contains emoji, iterate by GRAPHEME cluster so multi-codepoint
   // emoji (ZWJ families, skin tones, flags) are never split mid-cluster.
-  const seg = hasEmoji ? getGraphemeSegmenter() : null;
-  const chars = seg
-    ? [...seg.segment(word.text)].map((s) => s.segment)
-    : [...word.text];
+  const chars = hasEmoji ? graphemes(word.text) : [...word.text];
   const pieces: Word[] = [];
 
   let current = '';

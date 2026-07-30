@@ -431,6 +431,65 @@ describe('Layout logic (mocked measureText)', () => {
       const root = doLayout(tree, 130);
       expect(getLines(root)).toEqual(['Music', 'Experience']);
     });
+
+    it('handles a non-BMP char in the preceding run at the boundary', () => {
+      // <em>🎭</em>! — the glue check inspects the last character of the
+      // previous run, and the emoji is a surrogate pair: indexing the
+      // code-point array by the code-unit length reads past the end.
+      const tree = block('div', [
+        block('p', [
+          inline('em', [textNode('🎭')]),
+          textNode('!'),
+        ]),
+      ]);
+      const root = doLayout(tree, 200);
+      expect(getLines(root)).toEqual(['🎭!']);
+    });
+
+    it('handles a non-BMP char anywhere in the preceding run at the boundary', () => {
+      // Same bug, emoji not last: any surrogate pair in the previous run makes
+      // its code-unit length exceed its code-point count.
+      const tree = block('div', [
+        block('p', [
+          inline('em', [textNode('italic 🎭')]),
+          textNode('!'),
+        ]),
+      ]);
+      const root = doLayout(tree, 200);
+      expect(getLines(root)).toEqual(['italic 🎭!']);
+    });
+
+    it('keeps the emoji break opportunity across a span boundary', () => {
+      // Emoji are UAX #14 class ID — a break after one is allowed regardless of
+      // element boundaries, exactly like CJK. char=10 (emoji = 2 units = 20px),
+      // container 40: <em>🎭</em>xxxx must break as "🎭" / "xxxx", matching the
+      // single-run "🎭xxxx". Gluing it would overflow the box by 20px.
+      const tree = block('div', [
+        block('p', [
+          inline('em', [textNode('🎭')]),
+          textNode('xxxx'),
+        ]),
+      ]);
+      const root = doLayout(tree, 40);
+      expect(getLines(root)).toEqual(['🎭', 'xxxx']);
+    });
+
+    it('keeps the emoji break opportunity for a VS16 cluster across a span boundary', () => {
+      // ❤️ is U+2764 + U+FE0F — a BMP base plus a variation selector, so the
+      // boundary character must be read as a GRAPHEME cluster: the last code
+      // point alone (U+FE0F) is not emoji, which would glue and overflow.
+      // char=10, ❤️ = 2 units = 20px, container 40 — same output as the
+      // single-run "❤️xxxx".
+      const glued = block('div', [
+        block('p', [
+          inline('em', [textNode('❤️')]),
+          textNode('xxxx'),
+        ]),
+      ]);
+      const single = block('div', [block('p', [textNode('❤️xxxx')])]);
+      expect(getLines(doLayout(glued, 40))).toEqual(getLines(doLayout(single, 40)));
+      expect(getLines(doLayout(glued, 40))).toEqual(['❤️', 'xxxx']);
+    });
   });
 
   describe('URL break opportunities', () => {
