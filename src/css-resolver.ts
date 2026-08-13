@@ -1337,6 +1337,9 @@ export function resolveStylesFromCSS(
             line: d,
             color: style.textDecorationColor,
             style: style.textDecorationStyle,
+            // This element is the decorating box for every descendant the
+            // entry rides down to.
+            declarer: style,
           });
         }
       }

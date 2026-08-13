@@ -28,7 +28,11 @@ propagation from a run's own style somewhere in a renderer.
 The mechanism (keep new paint features on it):
 - **Declarer stamping** — walk ancestors-or-self, stamp the nearest declaring element's
   style (object identity) onto runs/glyphs: `collectTextRuns` (`clipStyle`/
-  `strokeImageStyle`) for block layout, `flattenSegments` for text-on-path.
+  `strokeImageStyle`) for block layout, `flattenSegments` for text-on-path. A
+  `DecorationEntry` carries the same stamp as `declarer`, made once in
+  `resolveStylesFromCSS` and shared by reference down the tree — it decides the
+  band's thickness and the underline's position, so two runs may only merge
+  while `sameDecorationBand` holds (layout.ts).
 - **Fragment geometry** — the paint spans the DECLARING element's fragment, not each
   word: `assignInlineFragmentBoxes` (per-line fragment box → `LayoutText.clip`/
   `.strokeImage`) in layout; `assignFragmentRanges` (natural-offset range) on path.

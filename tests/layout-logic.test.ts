@@ -6,10 +6,10 @@
  * uses a fixed character width so tests are predictable and fast.
  */
 import { describe, it, expect } from 'vitest';
-import { buildLayoutTree } from '../src/layout.ts';
+import { buildLayoutTree, sameDecorationBand } from '../src/layout.ts';
 import { layout } from '../src/index.ts';
 import { mockCtx, CHAR_WIDTH } from './helpers/mock-ctx.ts';
-import type { StyledNode, ResolvedStyle, LayoutBox, LayoutText, LayoutNode } from '../src/types.ts';
+import type { StyledNode, ResolvedStyle, LayoutBox, LayoutText, LayoutNode, DecorationEntry } from '../src/types.ts';
 
 // ─── Test helpers ──────────────────────────────────────────────────────
 
@@ -1761,5 +1761,43 @@ describe('Layout logic (mocked measureText)', () => {
         expect(lines.join('')).not.toContain('hidden');
       });
     });
+  });
+});
+
+describe('sameDecorationBand (run merging)', () => {
+  // The layout joins adjacent runs that share a text style into one shaping
+  // group, and the group carries ONE decoration entry. Two runs may only share
+  // a group while the band they draw is the same, which is decided by the
+  // DECORATING box — the element that declared the decoration, not the run.
+  // The pixel proof lives in tests/decorating-box-geometry.test.ts; this pins
+  // the rule directly, which is cheaper to run and to read.
+  const entry = (declarer: Partial<ResolvedStyle>): DecorationEntry => ({
+    line: 'underline',
+    color: 'red',
+    style: 'solid',
+    declarer: defaultStyle(declarer),
+  });
+
+  it('two declarers that would draw the same band still merge', () => {
+    // Keeps a shaping group whole across siblings declaring the same thing.
+    expect(sameDecorationBand(entry({ fontSize: 30 }), entry({ fontSize: 30 }))).toBe(true);
+  });
+
+  it('a different declarer size splits the band', () => {
+    expect(sameDecorationBand(entry({ fontSize: 30 }), entry({ fontSize: 80 }))).toBe(false);
+  });
+
+  it('a different declarer font splits the band', () => {
+    // The path renderer reads the declarer's descent, which the family moves.
+    expect(
+      sameDecorationBand(entry({ fontFamily: 'A' }), entry({ fontFamily: 'B' })),
+    ).toBe(false);
+  });
+
+  it('a vertical-aligned declarer splits the band', () => {
+    // It decides which baseline the underline hangs off.
+    expect(
+      sameDecorationBand(entry({ verticalAlign: 'baseline' }), entry({ verticalAlign: 'super' })),
+    ).toBe(false);
   });
 });

@@ -773,3 +773,87 @@ describe('drawTextOnPath (integration)', () => {
     expect(calls).toBeGreaterThan(0);
   });
 });
+
+describe('decoration geometry on a path follows the DECORATING box', () => {
+  // The path renderer has to make the same call as the block renderer
+  // (`renderText` in src/render.ts): a parent-declared underline keeps the
+  // declarer's thickness and offset across a bigger child instead of stepping
+  // down to it. Red band on black glyphs, on a straight horizontal path, so
+  // the band's rows can be read straight off the raster.
+  const band = (ctx: CanvasRenderingContext2D, w: number, h: number, x0: number, x1: number) => {
+    const d = ctx.getImageData(0, 0, w, h).data;
+    const rows: number[] = [];
+    for (let y = 0; y < h; y++) {
+      let n = 0;
+      for (let x = x0; x < x1; x++) {
+        const i = (y * w + x) * 4;
+        if (d[i + 3] > 128 && d[i] > 150 && d[i] - d[i + 1] > 80 && d[i] - d[i + 2] > 80) n++;
+      }
+      if (n > 1) rows.push(y);
+    }
+    return rows.length
+      ? { center: (rows[0] + rows[rows.length - 1]) / 2, thickness: rows.length }
+      : null;
+  };
+
+  it('draws one band at the declarer size across a bigger child', () => {
+    const { ctx } = makeCanvas(600, 200);
+    // The BIG child comes first on purpose: the band is one group of glyphs,
+    // and reading its metrics off the first glyph instead of the declarer
+    // would give the 60px thickness here — which is the bug. With the small
+    // run first the two sources agree and the case proves nothing.
+    drawTextOnPath({
+      html:
+        '<span style="font-size: 20px; font-family: sans-serif; color: black; ' +
+        'text-decoration: underline; text-decoration-color: red">' +
+        '<span style="font-size: 60px">CD</span>AB</span>',
+      path: 'M10,120 L590,120',
+      ctx,
+      align: 'left',
+    });
+
+    const big = band(ctx, 600, 200, 12, 90);
+    const small = band(ctx, 600, 200, 120, 150);
+    expect(big, 'band over the big run').not.toBeNull();
+    expect(small, 'band over the small run').not.toBeNull();
+
+    // Calibrate against the same declaration with no child, so the assertion
+    // is "the 20px band", not a raster constant that anti-aliasing decides.
+    const ref = makeCanvas(600, 200);
+    drawTextOnPath({
+      html:
+        '<span style="font-size: 20px; font-family: sans-serif; color: black; ' +
+        'text-decoration: underline; text-decoration-color: red">AB</span>',
+      path: 'M10,120 L590,120',
+      ctx: ref.ctx,
+      align: 'left',
+    });
+    const declarerBand = band(ref.ctx, 600, 200, 12, 30)!;
+
+    // ±1 row: the same nominal band rasterizes to one row or two depending on
+    // the fractional y it lands on. The bug this catches is not subtle — it
+    // paints the 60px child's 6-row band instead of the declarer's.
+    expect(Math.abs(big!.thickness - declarerBand.thickness), 'over the big child').toBeLessThanOrEqual(1);
+    expect(Math.abs(small!.thickness - declarerBand.thickness), 'over the small run').toBeLessThanOrEqual(1);
+    expect(Math.abs(big!.center - small!.center), 'one flat row').toBeLessThanOrEqual(1);
+  });
+
+  it('steps when each span declares its own', () => {
+    // The anti-overshoot direction: two declarers, two bands.
+    const { ctx } = makeCanvas(600, 200);
+    drawTextOnPath({
+      html:
+        '<span style="font-size: 20px; font-family: sans-serif; color: black; ' +
+        'text-decoration: underline; text-decoration-color: red">AB</span>' +
+        '<span style="font-size: 60px; font-family: sans-serif; color: black; ' +
+        'text-decoration: underline; text-decoration-color: red">CD</span>',
+      path: 'M10,120 L590,120',
+      ctx,
+      align: 'left',
+    });
+
+    const small = band(ctx, 600, 200, 12, 30);
+    const big = band(ctx, 600, 200, 60, 120);
+    expect(big!.thickness).toBeGreaterThan(small!.thickness);
+  });
+});

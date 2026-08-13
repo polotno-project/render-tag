@@ -1,4 +1,4 @@
-import type { StyledNode, LayoutNode, LayoutBox, LayoutText, ResolvedStyle, LayoutLine } from './types.js';
+import type { StyledNode, LayoutNode, LayoutBox, LayoutText, ResolvedStyle, LayoutLine, DecorationEntry } from './types.js';
 
 // Module-level flag controlling DOM measurement usage.
 // Set by buildLayoutTree() based on the useDomMeasurements option.
@@ -260,13 +260,38 @@ function verticalAlignShift(
 }
 
 /** True when a vertical-align value moves content off the baseline. */
-function isShiftedVAlign(va: string): boolean {
+export function isShiftedVAlign(va: string): boolean {
   return va !== 'baseline' && va !== 'top' && va !== 'bottom' && va !== '';
 }
 
-/** Same decoration set: entries must match pairwise (line, color, style) so
- * runs whose decorations differ only in color/style don't merge and paint
- * with the wrong one. */
+/**
+ * Two entries put the band in the same place, at the same thickness — the
+ * geometry half only, so each caller keeps comparing color its own way (raw
+ * here, canonicalized in the path renderer, where `red` and `#ff0000` must
+ * still share one dash phase).
+ *
+ * Identity settles the normal case: entries ride down the tree by reference,
+ * so every run under one declarer holds the same object. Two SEPARATE
+ * declarers still count as equal when they would draw the same band, which
+ * keeps a shaping group whole across siblings that declare the same thing.
+ */
+export function sameDecorationBand(a: DecorationEntry, b: DecorationEntry): boolean {
+  if (a === b) return true;
+  const da = a.declarer, db = b.declarer;
+  return (
+    da.fontSize === db.fontSize &&
+    da.fontFamily === db.fontFamily &&
+    da.fontWeight === db.fontWeight &&
+    da.fontStyle === db.fontStyle &&
+    da.fontVariantCaps === db.fontVariantCaps &&
+    // The declarer's own vertical-align decides which baseline an underline
+    // hangs off, so two declarers that differ there draw two bands.
+    da.verticalAlign === db.verticalAlign
+  );
+}
+
+/** Same decoration set: entries must match pairwise, so runs whose decorations
+ * would paint differently don't merge and take the first one's band. */
 function sameDecorations(a: ResolvedStyle, b: ResolvedStyle): boolean {
   const da = a.textDecorations, db = b.textDecorations;
   if (da === db) return true;
@@ -275,7 +300,8 @@ function sameDecorations(a: ResolvedStyle, b: ResolvedStyle): boolean {
     if (
       da[i].line !== db[i].line ||
       da[i].color !== db[i].color ||
-      da[i].style !== db[i].style
+      da[i].style !== db[i].style ||
+      !sameDecorationBand(da[i], db[i])
     ) {
       return false;
     }
@@ -1970,6 +1996,9 @@ function layoutInlineContent(
             y: baselineY,
             width: effectiveWidth,
             style: word.style,
+            // Only when vertical-align moved this run off the line — an
+            // underline from an unshifted declarer still hangs off the line.
+            ...(baselineY !== lineBaselineY ? { lineBaselineY } : {}),
           };
           results.push(node);
           if (word.clipStyle) clipRuns.set(node, word.clipStyle);

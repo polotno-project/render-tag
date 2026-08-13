@@ -140,6 +140,16 @@ export interface DecorationEntry {
   color: string;
   /** 'solid' | 'double' | 'dotted' | 'dashed' | 'wavy' */
   style: string;
+  /**
+   * The DECORATING box: the style of the element that declared this entry,
+   * stamped by identity, like the clip and stroke declarers (see CLAUDE.md).
+   * The band's thickness is its, and so is the underline's position — its font
+   * size and its baseline, which is the line's unless the declarer is itself
+   * vertical-aligned. `renderText` in render.ts records what Chrome does with
+   * each line kind. Entries ride down the tree by reference, so every run
+   * under one declarer holds the same entry object.
+   */
+  declarer: ResolvedStyle;
 }
 
 /** Resolved style for a single element — all values in px / concrete strings */
@@ -275,6 +285,12 @@ export interface LayoutText {
   y: number; // baseline y
   width: number;
   style: ResolvedStyle;
+  /**
+   * The line's own baseline, present only when `y` was moved off it by
+   * `vertical-align`. An underline declared ABOVE the shifted element hangs
+   * off this, not off `y` — Chrome keeps one flat band across a `super` child.
+   */
+  lineBaselineY?: number;
   /**
    * background-clip:text background from the nearest declaring INLINE element
    * (e.g. <span>/<s>) — a gradient `image` and/or solid `color`, with a box

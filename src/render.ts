@@ -1,5 +1,5 @@
 import type { LayoutNode, LayoutBox, LayoutText, ResolvedStyle } from './types.js';
-import { buildCanvasFont, isTransparent, getFontMetrics, hasTextClip } from './layout.js';
+import { buildCanvasFont, isTransparent, getFontMetrics, hasTextClip, isShiftedVAlign } from './layout.js';
 import { paintOrderHasStrokeFirst } from './css-resolver.js';
 
 /**
@@ -350,17 +350,31 @@ function renderText(
   // Each entry paints with its ORIGIN element's color/style (ancestors first,
   // so a child's own decoration lands on top), matching Chrome's non-inherited
   // decoration propagation.
+  //
+  // Geometry splits, measured against Chrome for `30px ABC + 80px Tale` under
+  // one declaration (see tests/decorating-box-geometry.test.ts):
+  //  - THICKNESS is the decorating box's for all three lines — the band over
+  //    the 80px child stays 3px, the 30px declarer's.
+  //  - The UNDERLINE also takes its position from the decorating box: one flat
+  //    band at rows 225-227 across both runs. It hangs off the alphabetic
+  //    baseline, which every fragment on the line shares.
+  //  - The OVERLINE and the LINE-THROUGH do NOT: Chrome steps them per
+  //    fragment (193-195 vs 148-150, and 213-215 vs 168-170), because each
+  //    hangs off the crossed fragment's own ascent, not a shared line.
+  //
+  // `vertical-align` splits the same way: an underline declared ABOVE a
+  // `super` child stays flat across it (measured: one band, x 0-228), while
+  // the overline and the strike step up with the child. So the underline
+  // hangs off the DECLARER's baseline — the line's own, unless the declarer
+  // is the shifted element itself, which then carries the band up with it.
   const textWidth = node.width;
-  const fontSize = style.fontSize;
-  const decoWidth = decorationThickness(fontSize);
   // For RTL text, node.x is the right edge (textAlign='right').
   // Decoration lines need the left edge as start position.
   const decoX = style.direction === 'rtl' ? node.x - textWidth : node.x;
 
   if (style.textDecorations.length > 0) {
-    const { ascent: decoAscent } = getFontMetrics(ctx, style);
-
     for (const deco of style.textDecorations) {
+      const decoWidth = decorationThickness(deco.declarer.fontSize);
       // A transparent decoration inside a background-clip:text element shows
       // the clipped background through the band (Chrome includes decorations
       // in the clip region), so paint it with the gradient — REGARDLESS of
@@ -402,24 +416,31 @@ function renderText(
       };
 
       if (deco.line === 'underline') {
+        // The line's own baseline when this run was moved off it by
+        // vertical-align and the DECLARER stayed behind; `node.lineBaselineY`
+        // is set only on a shifted run.
+        const baseline =
+          node.lineBaselineY !== undefined && !isShiftedVAlign(deco.declarer.verticalAlign)
+            ? node.lineBaselineY
+            : node.y;
         // Chrome centers the underline ~0.105em below the baseline for every
         // font tested (measured against the DOM raster sweep). The -0.2px is a
         // rounding tiebreak: at fractional baselines (line-height 1.6/1.8/2.0)
         // Chrome resolves the pixel row downward less often than plain
         // rounding; empirically this cuts row-off-by-one cases 39 → 12 across
         // the sweep without disturbing integer baselines.
-        const yOffset = fontSize * 0.105 - 0.2;
-        paintBand(node.y + yOffset);
+        paintBand(baseline + deco.declarer.fontSize * 0.105 - 0.2);
       } else if (deco.line === 'line-through') {
         // Chrome positions the strike from the font's OS/2 strikeout metric,
         // which canvas can't read. 0.33em above the baseline is the closest
         // single-formula fit (tuned against the DOM raster sweep; ±1px for
         // most fonts, ±2px worst case).
-        const yOffset = -(fontSize * 0.33);
-        paintBand(node.y + yOffset);
+        paintBand(node.y - style.fontSize * 0.33);
       } else if (deco.line === 'overline') {
         // Chrome hangs the overline band above the ascent line: its bottom
-        // edge sits on the floored ascent pixel row, growing upward.
+        // edge sits on the floored ascent pixel row, growing upward. The
+        // ascent is the crossed run's, not the declarer's.
+        const { ascent: decoAscent } = getFontMetrics(ctx, style);
         const overlineY = Math.floor(node.y - decoAscent) - decoWidth / 2;
         paintBand(overlineY);
       }
