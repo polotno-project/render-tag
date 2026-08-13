@@ -38,7 +38,8 @@ import {
   parseTextShadows,
   parseLinearGradient,
   drawDecorationLine,
-  decorationThickness,
+  bandWidthFor,
+  explicitUnderlineDelta,
   textFillColor,
   applyTextStroke,
 } from '../render.js';
@@ -594,16 +595,22 @@ function drawDecorations(
  * Local-frame y of a decoration band for one glyph under a textBaseline.
  * `declarerDescent` is the decorating box's, which only the underline uses —
  * the overline and the line-through hang off the crossed glyph's own ascent
- * (the split `renderText` in ../render.ts documents).
+ * (the split `renderText` in ../render.ts documents). Explicit underline
+ * geometry comes from the shared `explicitUnderlineDelta`.
  */
 function decorationLocalY(
   g: GlyphPlacement,
+  deco: DecorationEntry,
   declarerDescent: number,
+  lineWidth: number,
   lineKind: 'underline' | 'line-through' | 'overline',
   tb: TextBaseline,
 ): number {
   const baseY = baselineLocalY(tb, g.ascent, g.descent);
-  if (lineKind === 'underline') return baseY + declarerDescent * 0.5;
+  if (lineKind === 'underline') {
+    const explicitDelta = explicitUnderlineDelta(deco, lineWidth);
+    return baseY + (explicitDelta !== null ? explicitDelta : declarerDescent * 0.5);
+  }
   if (lineKind === 'line-through') return baseY - g.ascent * 0.3;
   return baseY - g.ascent * 0.9; // overline
 }
@@ -624,7 +631,8 @@ function drawClipPaintDecoration(
 ): void {
   if (group.length === 0) return;
   const decoStyle = deco.style || 'solid';
-  const lineWidth = decorationThickness(deco.declarer.fontSize);
+  const lineWidth = bandWidthFor(deco);
+  if (lineWidth <= 0) return;
   const declarerDescent = getFontMetrics(ctx, deco.declarer).descent;
   for (const g of group) {
     ctx.save();
@@ -633,7 +641,7 @@ function drawClipPaintDecoration(
     const baseY = baselineLocalY(tb, g.ascent, g.descent);
     const paint = clipPaintFor(ctx, g, textWidth, baseY);
     if (paint) {
-      drawDecorationLine(ctx, 0, decorationLocalY(g, declarerDescent, lineKind, tb), g.width, lineWidth, decoStyle, paint);
+      drawDecorationLine(ctx, 0, decorationLocalY(g, deco, declarerDescent, lineWidth, lineKind, tb), g.width, lineWidth, decoStyle, paint);
     }
     ctx.restore();
   }
@@ -649,13 +657,14 @@ function strokeDecorationAlongGlyphs(
 ): void {
   if (group.length === 0) return;
   const decoStyle = deco.style || 'solid';
-  const lineWidth = decorationThickness(deco.declarer.fontSize);
+  const lineWidth = bandWidthFor(deco);
+  if (lineWidth <= 0) return;
   const declarerDescent = getFontMetrics(ctx, deco.declarer).descent;
 
   // Per-glyph local y for this decoration kind. The decoration position is
   // baseline-relative, so we shift by the baseline's local-y under the
   // current textBaseline to land in the right spot on the canvas.
-  const localY = (g: GlyphPlacement): number => decorationLocalY(g, declarerDescent, lineKind, tb);
+  const localY = (g: GlyphPlacement): number => decorationLocalY(g, deco, declarerDescent, lineWidth, lineKind, tb);
 
   if (decoStyle === 'double' || decoStyle === 'wavy') {
     // For double/wavy we draw each glyph segment independently using the

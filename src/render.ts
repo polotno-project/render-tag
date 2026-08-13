@@ -1,4 +1,4 @@
-import type { LayoutNode, LayoutBox, LayoutText, ResolvedStyle } from './types.js';
+import type { DecorationEntry, LayoutNode, LayoutBox, LayoutText, ResolvedStyle } from './types.js';
 import { buildCanvasFont, isTransparent, getFontMetrics, hasTextClip, isShiftedVAlign } from './layout.js';
 import { paintOrderHasStrokeFirst } from './css-resolver.js';
 
@@ -203,6 +203,36 @@ export function decorationThickness(fontSize: number): number {
   return Math.max(1, Math.floor(fontSize / 10));
 }
 
+/**
+ * The band width for one decoration entry: the declarer's explicit
+ * text-decoration-thickness when set (Chrome draws round(T) rows; a declared
+ * 0 hides the band — callers skip on 0), else the auto thickness from the
+ * declarer's font size. Shared by both renderers.
+ */
+export function bandWidthFor(deco: DecorationEntry): number {
+  const t = deco.declarer.textDecorationThickness;
+  if (t === null) return decorationThickness(deco.declarer.fontSize);
+  return t <= 0 ? 0 : Math.max(1, Math.round(t));
+}
+
+/**
+ * Band-center delta below the baseline for EXPLICIT underline geometry, or
+ * null for auto (each renderer keeps its own auto formula). Chrome-measured:
+ * an explicit offset puts the band TOP at baseline + offset; auto offset
+ * with an explicit thickness T puts it at baseline + ceil(T/2) — measured
+ * exactly for T ∈ {1, 3, 4, 5, 8, 10}.
+ */
+export function explicitUnderlineDelta(
+  deco: DecorationEntry,
+  lineWidth: number,
+): number | null {
+  const offset = deco.declarer.textUnderlineOffset;
+  if (offset !== null) return offset + lineWidth / 2;
+  if (deco.declarer.textDecorationThickness !== null)
+    return Math.ceil(lineWidth / 2) + lineWidth / 2;
+  return null;
+}
+
 /** Apply the canvas stroke settings for -webkit-text-stroke. A gradient stroke
  * (webkitTextStrokeImage, pre-resolved to a CanvasGradient) wins over the solid
  * stroke color, mirroring how a background-clip:text gradient wins over `color`
@@ -374,7 +404,8 @@ function renderText(
 
   if (style.textDecorations.length > 0) {
     for (const deco of style.textDecorations) {
-      const decoWidth = decorationThickness(deco.declarer.fontSize);
+      const decoWidth = bandWidthFor(deco);
+      if (decoWidth <= 0) continue; // declared text-decoration-thickness: 0
       // A transparent decoration inside a background-clip:text element shows
       // the clipped background through the band (Chrome includes decorations
       // in the clip region), so paint it with the gradient — REGARDLESS of
@@ -423,13 +454,18 @@ function renderText(
           node.lineBaselineY !== undefined && !isShiftedVAlign(deco.declarer.verticalAlign)
             ? node.lineBaselineY
             : node.y;
-        // Chrome centers the underline ~0.105em below the baseline for every
-        // font tested (measured against the DOM raster sweep). The -0.2px is a
-        // rounding tiebreak: at fractional baselines (line-height 1.6/1.8/2.0)
-        // Chrome resolves the pixel row downward less often than plain
-        // rounding; empirically this cuts row-off-by-one cases 39 → 12 across
-        // the sweep without disturbing integer baselines.
-        paintBand(baseline + deco.declarer.fontSize * 0.105 - 0.2);
+        const explicitDelta = explicitUnderlineDelta(deco, decoWidth);
+        if (explicitDelta !== null) {
+          paintBand(baseline + explicitDelta);
+        } else {
+          // Chrome centers the underline ~0.105em below the baseline for every
+          // font tested (measured against the DOM raster sweep). The -0.2px is a
+          // rounding tiebreak: at fractional baselines (line-height 1.6/1.8/2.0)
+          // Chrome resolves the pixel row downward less often than plain
+          // rounding; empirically this cuts row-off-by-one cases 39 → 12 across
+          // the sweep without disturbing integer baselines.
+          paintBand(baseline + deco.declarer.fontSize * 0.105 - 0.2);
+        }
       } else if (deco.line === 'line-through') {
         // Chrome positions the strike from the font's OS/2 strikeout metric,
         // which canvas can't read. 0.33em above the baseline is the closest

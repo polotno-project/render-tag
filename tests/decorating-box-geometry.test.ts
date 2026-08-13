@@ -19,43 +19,15 @@
 import { describe, it, expect } from 'vitest';
 import { compareRenders } from './helpers/compare.ts';
 import { loadMultiFontCss } from './helpers/test-cases.ts';
-
-interface Column {
-  center: number;
-  thickness: number;
-}
-
-/** The red band's center and thickness per pixel column; null where absent. */
-function profile(canvas: HTMLCanvasElement): (Column | null)[] {
-  const ctx = canvas.getContext('2d')!;
-  const { width, height } = canvas;
-  const data = ctx.getImageData(0, 0, width, height).data;
-  const columns: (Column | null)[] = [];
-  for (let x = 0; x < width; x++) {
-    const rows: number[] = [];
-    for (let y = 0; y < height; y++) {
-      const i = (y * width + x) * 4;
-      const [r, g, b, a] = [data[i], data[i + 1], data[i + 2], data[i + 3]];
-      if (a > 128 && r > 150 && r - g > 80 && r - b > 80) rows.push(y);
-    }
-    columns.push(
-      rows.length
-        ? { center: (rows[0] + rows[rows.length - 1]) / 2, thickness: rows.length }
-        : null,
-    );
-  }
-  return columns;
-}
-
-/** Columns where both renders drew a band — the comparable ones. */
-function shared(lib: (Column | null)[], dom: (Column | null)[]): number[] {
-  const xs: number[] = [];
-  for (let x = 0; x < Math.min(lib.length, dom.length); x++) {
-    if (lib[x] && dom[x]) xs.push(x);
-  }
-  expect(xs.length, 'no comparable band columns').toBeGreaterThan(20);
-  return xs;
-}
+import {
+  type Column,
+  profile,
+  baselineRow,
+  maxCenterDrift,
+  bandY,
+  spread,
+  thicknesses,
+} from './helpers/band-profile.ts';
 
 const SMALL = 30;
 const BIG = 80;
@@ -63,25 +35,6 @@ const BIG = 80;
 // around a `y` or a `g` and punch holes through the profile.
 const TEXT_SMALL = 'ABC';
 const TEXT_BIG = 'Tale';
-
-/**
- * The shared alphabetic baseline: the lowest glyph-ink row. Every fragment on
- * the line sits on it and the sample text has no descenders. Band centers are
- * reported relative to it, which cancels the sub-pixel line-layout difference
- * between the canvas and the DOM — pre-existing, and not what this file tests.
- */
-function baselineRow(canvas: HTMLCanvasElement): number {
-  const ctx = canvas.getContext('2d')!;
-  const { width, height } = canvas;
-  const data = ctx.getImageData(0, 0, width, height).data;
-  for (let y = height - 1; y >= 0; y--) {
-    for (let x = 0; x < width; x++) {
-      const i = (y * width + x) * 4;
-      if (data[i + 3] > 128 && data[i] < 100 && data[i + 1] < 100 && data[i + 2] < 100) return y;
-    }
-  }
-  throw new Error('no glyphs rendered');
-}
 
 async function render(inner: string, attrs = '') {
   const fontCss = await loadMultiFontCss();
@@ -92,33 +45,9 @@ async function render(inner: string, attrs = '') {
   const r = await compareRenders(html, fontCss, BIG * 12, BIG * 4, 0.1, 1);
   const relative = (canvas: HTMLCanvasElement) => {
     const base = baselineRow(canvas);
-    return profile(canvas).map((c) => (c ? { ...c, center: c.center - base } : null));
+    return profile(canvas).map((c: Column | null) => (c ? { ...c, center: c.center - base } : null));
   };
   return { lib: relative(r.libCanvas), dom: relative(r.domCanvas) };
-}
-
-/** Widest gap between the canvas band and the DOM band, over shared columns. */
-function maxCenterDrift(lib: (Column | null)[], dom: (Column | null)[]): number {
-  return Math.max(...shared(lib, dom).map((x) => Math.abs(lib[x]!.center - dom[x]!.center)));
-}
-
-/** Mean band center, for comparing one render against another. */
-function bandY(p: (Column | null)[]): number {
-  const centers = p.filter((c): c is Column => c !== null).map((c) => c.center);
-  return centers.reduce((a, b) => a + b, 0) / centers.length;
-}
-
-/** How far the band moves across its own run — 0 for a flat band. */
-function spread(p: (Column | null)[]): number {
-  const centers = p.filter((c): c is Column => c !== null).map((c) => c.center);
-  return Math.max(...centers) - Math.min(...centers);
-}
-
-/** Every thickness the band takes, low to high. */
-function thicknesses(p: (Column | null)[]): number[] {
-  return [...new Set(p.filter((c): c is Column => c !== null).map((c) => c.thickness))].sort(
-    (a, b) => a - b,
-  );
 }
 
 const parentDeclares = (line: string) =>

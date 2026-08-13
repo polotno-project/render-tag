@@ -286,7 +286,11 @@ export function sameDecorationBand(a: DecorationEntry, b: DecorationEntry): bool
     da.fontVariantCaps === db.fontVariantCaps &&
     // The declarer's own vertical-align decides which baseline an underline
     // hangs off, so two declarers that differ there draw two bands.
-    da.verticalAlign === db.verticalAlign
+    da.verticalAlign === db.verticalAlign &&
+    // Explicit offset/thickness are band geometry too — two declarers that
+    // differ there must not merge into one band.
+    da.textUnderlineOffset === db.textUnderlineOffset &&
+    da.textDecorationThickness === db.textDecorationThickness
   );
 }
 

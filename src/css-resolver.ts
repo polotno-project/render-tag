@@ -318,6 +318,8 @@ function defaultStyle(): ResolvedStyle {
     textDecorationStyle: 'solid',
     textDecorationColor: 'rgb(0, 0, 0)',
     textDecorations: [],
+    textUnderlineOffset: null,
+    textDecorationThickness: null,
     textShadow: 'none',
     webkitTextStrokeWidth: 0,
     webkitTextStrokeColor: '',
@@ -534,8 +536,14 @@ export function expandShorthand(property: string, value: string): CSSDeclaration
 
   if (property === 'text-decoration') {
     const v = value.trim();
+    // Thickness is a longhand of this shorthand (css-text-decor-4): the
+    // shorthand resets it to `auto` when no thickness token is present. The
+    // reset is emitted FIRST so an explicit token parsed below overrides it.
     if (v === 'inherit' || v === 'none') {
-      return [{ property: 'text-decoration-line', value: 'none' }];
+      return [
+        { property: 'text-decoration-line', value: 'none' },
+        { property: 'text-decoration-thickness', value: 'auto' },
+      ];
     }
     // Extract color functions (rgb(...), hsl(...)) before splitting on whitespace,
     // because they contain spaces internally (e.g. "rgb(231, 76, 60)").
@@ -547,15 +555,18 @@ export function expandShorthand(property: string, value: string): CSSDeclaration
     const parts = withoutColorFn.split(/\s+/).filter(Boolean);
     const lineValues = ['underline', 'overline', 'line-through'];
     const styleValues = ['solid', 'double', 'dotted', 'dashed', 'wavy'];
-    const result: CSSDeclaration[] = [];
+    const result: CSSDeclaration[] = [
+      { property: 'text-decoration-thickness', value: 'auto' },
+    ];
     const lines: string[] = [];
     for (const p of parts) {
       if (lineValues.includes(p)) lines.push(p);
       else if (styleValues.includes(p)) result.push({ property: 'text-decoration-style', value: p });
-      // Remaining tokens are the color (#hex or named) — except thickness
-      // values (2px, .5em, 10%) and thickness keywords, which are skipped.
-      else if (!/^[\d.+-]/.test(p) && p !== 'auto' && p !== 'from-font')
-        result.push({ property: 'text-decoration-color', value: p });
+      // Thickness values (2px, .5em, 10%) and its keywords go to the longhand.
+      else if (/^[\d.+-]/.test(p) || p === 'auto' || p === 'from-font')
+        result.push({ property: 'text-decoration-thickness', value: p });
+      // Remaining tokens are the color (#hex or named).
+      else result.push({ property: 'text-decoration-color', value: p });
     }
     if (colorValue) result.push({ property: 'text-decoration-color', value: colorValue });
     if (lines.length > 0) result.unshift({ property: 'text-decoration-line', value: lines.join(' ') });
@@ -648,6 +659,44 @@ function applyDeclaration(
     case 'text-decoration': break;
     case 'text-decoration-style': style.textDecorationStyle = value.trim(); break;
     case 'text-decoration-color': style.textDecorationColor = value.trim(); break;
+    case 'text-underline-offset': {
+      // px value or null for `auto`; the `_underlineOffsetPct` shadow lets
+      // inheritFrom re-resolve a % per child (see the field doc in types.ts).
+      // `= undefined` rather than `delete`: same semantics for the only
+      // consumer (`!== undefined`), keeps the object's hidden class.
+      const v = value.trim();
+      if (v === 'auto') {
+        (style as any)._underlineOffsetPct = undefined;
+        style.textUnderlineOffset = null;
+      } else if (isNaN(parseFloat(v))) {
+        // Invalid declaration — ignored, like the browser (parseValue would
+        // coerce it to 0 and pin the band at the baseline).
+      } else if (v.endsWith('%')) {
+        const num = parseFloat(v);
+        style.textUnderlineOffset = (num / 100) * fontSize;
+        (style as any)._underlineOffsetPct = num;
+      } else {
+        (style as any)._underlineOffsetPct = undefined;
+        style.textUnderlineOffset = parseValue(v, fontSize, containerWidth);
+      }
+      break;
+    }
+    case 'text-decoration-thickness': {
+      // px value or null for `auto`/`from-font` (see the field doc in
+      // types.ts). A % resolves against the element's own font size.
+      const v = value.trim();
+      if (v === 'auto' || v === 'from-font') {
+        style.textDecorationThickness = null;
+      } else if (isNaN(parseFloat(v))) {
+        // Invalid declaration — ignored, like the browser (parseValue would
+        // coerce it to 0 and hide the band).
+      } else if (v.endsWith('%')) {
+        style.textDecorationThickness = (parseFloat(v) / 100) * fontSize;
+      } else {
+        style.textDecorationThickness = parseValue(v, fontSize, containerWidth);
+      }
+      break;
+    }
     case 'text-shadow': style.textShadow = value.trim(); break;
     case '-webkit-text-stroke-width': style.webkitTextStrokeWidth = parseValue(value, fontSize, containerWidth); break;
     // '' is the canonical currentColor for these two: it must survive
@@ -844,6 +893,7 @@ const INHERITABLE_KEYS: [string, keyof ResolvedStyle][] = [
   ['font-kerning', 'fontKerning'],
   ['list-style-type', 'listStyleType'],
   ['vertical-align', 'verticalAlign'],
+  ['text-underline-offset', 'textUnderlineOffset'],
   ['paint-order', 'paintOrder'],
   ['stroke-linejoin', 'strokeLinejoin'],
   ['-webkit-text-stroke-width', 'webkitTextStrokeWidth'],
@@ -866,6 +916,16 @@ function inheritFrom(child: ResolvedStyle, parent: ResolvedStyle, setProps: Set<
           (child as any)._lineHeightMultiplier = multiplier;
         } else {
           child.lineHeight = parent.lineHeight;
+        }
+      } else if (key === 'textUnderlineOffset') {
+        // Percentage offset: re-resolve against the child's own font size
+        // (Chrome-measured), same pattern as the line-height multiplier.
+        const pct = (parent as any)._underlineOffsetPct;
+        if (pct !== undefined) {
+          child.textUnderlineOffset = (pct / 100) * child.fontSize;
+          (child as any)._underlineOffsetPct = pct;
+        } else {
+          child.textUnderlineOffset = parent.textUnderlineOffset;
         }
       } else {
         (child as any)[key] = (parent as any)[key];

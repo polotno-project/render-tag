@@ -44,8 +44,8 @@ The mechanism (keep new paint features on it):
 
 Parity tests: `gradient-clip-inline-nested`, `gradient-clip-descendants`,
 `gradient-stroke{,-inline}`, `solid-clip-text`, `path/gradient-clip-parity`.
-When touching this area, run all of them plus `decoration-propagation` and
-`webkit-text-stroke`.
+When touching this area, run all of them plus `decoration-propagation`,
+`decoration-offset-thickness` and `webkit-text-stroke`.
 
 ## Testing workflow
 

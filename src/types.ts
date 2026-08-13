@@ -173,6 +173,17 @@ export interface ResolvedStyle {
    * order: ancestors first). `textDecorationLine` stays the union of entry
    * lines for cheap "has any decoration" checks and run merging. */
   textDecorations: DecorationEntry[];
+  /** text-underline-offset in px; null = `auto` (the UA default position).
+   * Inherited. A percentage re-resolves against each inheriting element's own
+   * font size (Chrome-measured; same split as unitless line-height, via the
+   * `_underlineOffsetPct` shadow), an em value inherits as computed px. Read
+   * off the DECLARER at paint time; underline only. */
+  textUnderlineOffset: number | null;
+  /** text-decoration-thickness in px; null = `auto`. `from-font` also maps to
+   * null — it needs the font's post table, which canvas cannot read (a
+   * documented divergence). Not inherited; rides to descendants inside the
+   * DecorationEntry via `declarer`. Applies to all three line kinds. */
+  textDecorationThickness: number | null;
   textShadow: string;
   webkitTextStrokeWidth: number;
   webkitTextStrokeColor: string;
