@@ -1478,9 +1478,29 @@ describe('Layout logic (mocked measureText)', () => {
       expect(yDelta('50%')).toBeCloseTo(-10, 5);
     });
 
-    it('sub lowers, super raises (fractions of parent font size 16)', () => {
-      expect(yDelta('sub')).toBeCloseTo(16 * 0.26, 5);
-      expect(yDelta('super')).toBeCloseTo(-16 * 0.4, 5);
+    // Chrome-measured values rather than the formula restated, so a wrong
+    // implementation can't agree with its own expectation.
+    it('sub lowers, super raises (parent font size 16)', () => {
+      expect(yDelta('sub')).toBeCloseTo(4.1875, 5);
+      expect(yDelta('super')).toBeCloseTo(-6.328125, 5);
+    });
+
+    // The pixel corpus only covers sub/sup at 16px, so pin a display size too.
+    // 16.4px covers the LayoutUnit rounding, which whole-pixel sizes hide:
+    // there, size * 64 is already an integer and can't round wrong.
+    it('super/sub scale with the parent font size', () => {
+      const sizedDelta = (va: string, size: number) => {
+        const tree = block('div', [block('p', [
+          textNode('base', { fontSize: size, lineHeight: size * 1.2 }),
+          textNode('X', { fontSize: size * 0.6, lineHeight: size * 1.2, verticalAlign: va }),
+        ])]);
+        const texts = collectTexts(doLayout(tree, 2000));
+        return texts.find(t => t.text === 'X')!.y - texts.find(t => t.text === 'base')!.y;
+      };
+      expect(sizedDelta('super', 76)).toBeCloseTo(-26.328125, 5);
+      expect(sizedDelta('sub', 76)).toBeCloseTo(16.1875, 5);
+      expect(sizedDelta('super', 16.4)).toBeCloseTo(-6.46875, 5);
+      expect(sizedDelta('sub', 16.4)).toBeCloseTo(4.28125, 5);
     });
 
     it('baseline leaves the word on the baseline', () => {

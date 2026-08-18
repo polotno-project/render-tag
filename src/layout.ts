@@ -226,13 +226,21 @@ export function getFontMetrics(ctx: CanvasRenderingContext2D, style: ResolvedSty
 }
 
 /**
+ * Blink does this arithmetic on LayoutUnit: the size snaps to the 1/64px grid,
+ * then the division truncates. Both steps decide the result.
+ */
+function layoutUnitDiv(px: number, divisor: number): number {
+  return Math.trunc(Math.round(px * 64) / divisor) / 64;
+}
+
+/**
  * Baseline shift (canvas pixels, positive = downward) for a vertical-align
  * value, applied on top of the line baseline. Returns 0 for 'baseline' and for
  * the line-box-relative keywords 'top'/'bottom' — those need a second layout
  * pass (the box position depends on the final line box it helps size), so they
  * fall back to baseline rather than being approximated wrongly.
  *
- *  - super/sub        legacy fixed fractions of the parent font size
+ *  - super/sub        fractions of the parent font size, plus 1px
  *  - text-top/-bottom align the box's ascent/descent edge with the line's
  *  - middle           box midpoint at parent baseline + half the x-height
  *  - <length>/<%>     raise (positive value) by the length / % of line-height
@@ -244,8 +252,10 @@ function verticalAlignShift(
   lineHeight: number,
 ): number {
   switch (va) {
-    case 'super': return -parentFontSize * 0.4;
-    case 'sub': return parentFontSize * 0.26;
+    // Blink (inline_box_state.cc) derives these from the parent font-size
+    // alone, with no font metric involved.
+    case 'super': return -(layoutUnitDiv(parentFontSize, 3) + 1);
+    case 'sub': return layoutUnitDiv(parentFontSize, 5) + 1;
     case 'text-top': return -(maxAscent - wAscent);
     case 'text-bottom': return maxDescent - wDescent;
     case 'middle': return -(parentFontSize * 0.25) - (wDescent - wAscent) / 2;
