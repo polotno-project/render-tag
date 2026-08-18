@@ -244,8 +244,12 @@ function verticalAlignShift(
   lineHeight: number,
 ): number {
   switch (va) {
-    case 'super': return -parentFontSize * 0.4;
-    case 'sub': return parentFontSize * 0.26;
+    // Blink's heuristic, measured against Chrome across 10-100px: the shift is
+    // a fraction of the PARENT font-size plus 1px, and ignores font metrics and
+    // the shifted element's own size entirely. The old 0.4em/0.26em fit 16px
+    // and drifted ~6px by 100px.
+    case 'super': return -(parentFontSize / 3 + 1);
+    case 'sub': return parentFontSize / 5 + 1;
     case 'text-top': return -(maxAscent - wAscent);
     case 'text-bottom': return maxDescent - wDescent;
     case 'middle': return -(parentFontSize * 0.25) - (wDescent - wAscent) / 2;

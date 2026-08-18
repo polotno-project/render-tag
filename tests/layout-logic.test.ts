@@ -1478,9 +1478,28 @@ describe('Layout logic (mocked measureText)', () => {
       expect(yDelta('50%')).toBeCloseTo(-10, 5);
     });
 
-    it('sub lowers, super raises (fractions of parent font size 16)', () => {
-      expect(yDelta('sub')).toBeCloseTo(16 * 0.26, 5);
-      expect(yDelta('super')).toBeCloseTo(-16 * 0.4, 5);
+    // Chrome's shift is parentFontSize/3+1 (super) and /5+1 (sub) — parent
+    // font-size only, no font metrics, no dependence on the shifted element's
+    // own size. Measured against Chrome from 10px to 100px.
+    it('sub lowers, super raises (Chrome heuristic on parent font size 16)', () => {
+      expect(yDelta('sub')).toBeCloseTo(16 / 5 + 1, 5);
+      expect(yDelta('super')).toBeCloseTo(-(16 / 3 + 1), 5);
+    });
+
+    // The pixel corpus only exercises sub/sup at 16px, where the old 0.4em/
+    // 0.26em constants happened to land within 0.07px of Chrome. They drifted
+    // ~4px by 76px, so pin a display size too.
+    it('super/sub scale with the parent font size', () => {
+      const sizedDelta = (va: string, size: number) => {
+        const tree = block('div', [block('p', [
+          textNode('base', { fontSize: size, lineHeight: size * 1.2 }),
+          textNode('X', { fontSize: size * 0.6, lineHeight: size * 1.2, verticalAlign: va }),
+        ])]);
+        const texts = collectTexts(doLayout(tree, 2000));
+        return texts.find(t => t.text === 'X')!.y - texts.find(t => t.text === 'base')!.y;
+      };
+      expect(sizedDelta('super', 76)).toBeCloseTo(-(76 / 3 + 1), 5);
+      expect(sizedDelta('sub', 76)).toBeCloseTo(76 / 5 + 1, 5);
     });
 
     it('baseline leaves the word on the baseline', () => {
