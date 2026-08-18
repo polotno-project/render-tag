@@ -1491,6 +1491,37 @@ describe('Layout logic (mocked measureText)', () => {
       expect(yDelta('top')).toBeCloseTo(0, 5);
       expect(yDelta('bottom')).toBeCloseTo(0, 5);
     });
+
+    // A span's background/border band belongs to its glyphs and travels with
+    // them. Two colors keep the boxes from merging into one run; one font size
+    // across both spans makes their heights comparable.
+    const shiftDeltas = (va: string) => {
+      const tree = block('div', [block('p', [
+        inline('span', [textNode('base')], { backgroundColor: '#ffd400' }),
+        inline('span', [textNode('X', { verticalAlign: va })],
+          { backgroundColor: '#00d4ff', verticalAlign: va }),
+      ])]);
+      const root = doLayout(tree, 400);
+      const [plainBox, raisedBox] = collectInlineBoxes(root);
+      const texts = collectTexts(root);
+      const plainText = texts.find(t => t.text === 'base')!;
+      const raisedText = texts.find(t => t.text === 'X')!;
+      return {
+        box: raisedBox.y - plainBox.y,
+        text: raisedText.y - plainText.y,
+        heightDelta: raisedBox.height - plainBox.height,
+      };
+    };
+
+    // text-top/text-bottom/middle are omitted: mock metrics are uniform, so
+    // they shift by 0 here and the test would pass vacuously.
+    it.each(['super', 'sub', '5px', '50%'])(
+      'background box moves with its glyphs (vertical-align: %s)', (va) => {
+        const { box, text, heightDelta } = shiftDeltas(va);
+        expect(text).not.toBeCloseTo(0, 5); // guard: the glyphs really moved
+        expect(box).toBeCloseTo(text, 5);
+        expect(heightDelta).toBeCloseTo(0, 5);
+      });
   });
 
   // ─── CJK breaking ─────────────────────────────────────────────────

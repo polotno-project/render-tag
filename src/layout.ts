@@ -1790,9 +1790,19 @@ function layoutInlineContent(
       const boxHeight = boxAscent + boxDescent + padTop + padBottom;
       let boxY: number;
       if (style.display === 'inline-block') {
+        // Atomic: positioned from the line top, not hung off the baseline.
         boxY = curY + style.marginTop;
       } else {
-        boxY = lineBaselineY - boxAscent - padTop;
+        // A span's band belongs to its glyphs, so it hangs off the same
+        // shifted baseline the text emit derives below.
+        let baseline = lineBaselineY;
+        const va = style.verticalAlign;
+        if (isShiftedVAlign(va)) {
+          const pfs = parentFontSize || style.fontSize;
+          baseline += verticalAlignShift(
+            va, boxAscent, boxDescent, pfs, maxAscent, maxDescent, lineHeight);
+        }
+        boxY = baseline - boxAscent - padTop;
       }
       results.push({
         type: 'box', style, x: bx, y: boxY, width: bw, height: boxHeight,
