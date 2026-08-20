@@ -6,11 +6,11 @@
  * uses a fixed character width so tests are predictable and fast.
  */
 import { describe, it, expect } from 'vitest';
-import { buildLayoutTree, sameDecorationBand, FLOORS_LINE_BASELINE } from '../src/layout.ts';
+import { buildLayoutTree, sameDecorationBand, BLINK_SUPER_SUB } from '../src/layout.ts';
 import { layout } from '../src/index.ts';
 import { mockCtx, CHAR_WIDTH } from './helpers/mock-ctx.ts';
-import type { StyledNode, ResolvedStyle, LayoutBox, LayoutText, LayoutNode, DecorationEntry } from '../src/types.ts';
-import { collectTexts } from './helpers/layout-tree.ts';
+import type { StyledNode, ResolvedStyle, LayoutBox, LayoutText, DecorationEntry } from '../src/types.ts';
+import { collectInlineBoxes, collectTexts } from './helpers/layout-tree.ts';
 
 // ─── Test helpers ──────────────────────────────────────────────────────
 
@@ -126,17 +126,6 @@ function doLayout(tree: StyledNode, width: number): LayoutBox {
   const ctx = mockCtx();
   const { root } = buildLayoutTree(ctx, tree, width, false); // useDomMeasurements=false
   return root;
-}
-
-/** Collect all inline boxes (LayoutBox with tagName 'span') from layout tree. */
-function collectInlineBoxes(node: LayoutNode): LayoutBox[] {
-  if (node.type === 'text') return [];
-  const result: LayoutBox[] = [];
-  if (node.tagName === 'span') result.push(node);
-  for (const child of node.children) {
-    result.push(...collectInlineBoxes(child));
-  }
-  return result;
 }
 
 /** Group text nodes into lines by Y position. */
@@ -1159,6 +1148,42 @@ describe('Layout logic (mocked measureText)', () => {
       const marker = collectTexts(root).find(t => t.text === '1.')!;
       expect(marker.style.fontSize).toBe(8);
     });
+
+    it('measures the marker at the ::marker font, not the li font', () => {
+      // `getFontMetrics` used to leave `ctx.font` on the face it measured, so
+      // on a COLD cache the marker was measured on the li's face instead of
+      // its own. The per-call family name is what forces that cache miss; the
+      // mock is fixed-width, so scale it by the ACTIVE font here — the width
+      // is then the only witness to which font was current.
+      const markerWidthFor = (markerFontSize: number) => {
+        const ctx = mockCtx();
+        const base = ctx.measureText.bind(ctx);
+        (ctx as any).measureText = (text: string) => {
+          const m = base(text);
+          const px = parseFloat(ctx.font) || 16;
+          return { ...m, width: (m.width * px) / 16 };
+        };
+        const li: StyledNode = {
+          element: null,
+          tagName: 'li',
+          style: defaultStyle({
+            display: 'list-item', paddingLeft: 30, fontSize: 16,
+            fontFamily: `LiProbe${markerFontSize}`, listStyleType: 'decimal',
+          }),
+          // EMPTY: an li with text lays that text out first, which warms the
+          // metrics cache for the li font and hides the clobber entirely.
+          children: [],
+          textContent: null,
+          listMarker: '1.',
+          markerStyle: { fontSize: markerFontSize },
+        };
+        const { root } = buildLayoutTree(ctx, block('div', [block('ul', [li])]), 200, false);
+        return collectTexts(root).find(t => t.text === '1.')!.width;
+      };
+      // 40px is 2.5x the li's 16px. Measured on the li's face both overrides
+      // come out identical, which is what the ratio catches.
+      expect(markerWidthFor(40) / markerWidthFor(16)).toBeCloseTo(2.5, 5);
+    });
   });
 
   // ─── RTL inline boxes and decorations ────────────────────────────────
@@ -1474,8 +1499,10 @@ describe('Layout logic (mocked measureText)', () => {
       // Blink and WebKit shift by fontSize/3 + 1 and fontSize/5 + 1, Gecko by
       // 0.34em and 0.2em. These are not tunable constants — they are what the
       // browser does, and the parity suites check them against it.
-      const superShift = FLOORS_LINE_BASELINE ? 16 / 3 + 1 : 16 * 0.34;
-      const subShift = FLOORS_LINE_BASELINE ? 16 / 5 + 1 : 16 * 0.2;
+      // BLINK_SUPER_SUB, never FLOORS_LINE_BASELINE: the two disagree exactly
+      // in Safari, where the baseline is exact but the shift is Blink's.
+      const superShift = BLINK_SUPER_SUB ? 16 / 3 + 1 : 16 * 0.34;
+      const subShift = BLINK_SUPER_SUB ? 16 / 5 + 1 : 16 * 0.2;
       expect(yDelta('sub')).toBeCloseTo(subShift, 5);
       expect(yDelta('super')).toBeCloseTo(-superShift, 5);
     });

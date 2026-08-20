@@ -191,7 +191,6 @@ const UA = typeof navigator === 'undefined' ? '' : navigator.userAgent;
 const IS_GECKO = /\bGecko\/\d/.test(UA);
 const IS_SAFARI =
   /AppleWebKit/.test(UA) && !/Chrome\/\d/.test(UA) && !/\bjsdom\//.test(UA);
-const IS_BLINK = !IS_GECKO && !IS_SAFARI;
 
 /**
  * True where the engine floors a line's baseline onto a whole CSS pixel.
@@ -200,37 +199,27 @@ const IS_BLINK = !IS_GECKO && !IS_SAFARI;
  * exact half-leading out — measured over the whole 530-case corpus, giving
  * Safari the Blink branch cost 214 wins against 223 losses (avg 7.50% ->
  * 9.21%) where the exact value wins 48 against 3 (7.50% -> 6.52%).
- *
- * Public API: the parity suites expect per engine, and every renderer that has
- * to place a baseline beside a render-tag canvas (@polotno/svg-export) must
- * round the same way this does.
  */
-export const FLOORS_LINE_BASELINE = IS_BLINK;
+export const FLOORS_LINE_BASELINE = !IS_GECKO && !IS_SAFARI;
 
 /**
  * `super` and `sub` are engine constants, not CSS. Blink and WebKit share
  * theirs (`fontSize/3 + 1`, `fontSize/5 + 1`); Gecko raises by 0.34em and
- * lowers by 0.20em. This is a separate question from the baseline rounding
- * above — Safari rounds like nobody and shifts like Blink.
+ * lowers by 0.20em. A SEPARATE question from the rounding above — Safari
+ * rounds like nobody and shifts like Blink — so never gate one on the other.
  */
-const BLINK_SUPER_SUB = !IS_GECKO;
+export const BLINK_SUPER_SUB = !IS_GECKO;
 
 /**
- * Baseline offset from the top of a line box, the way the engine places it.
+ * Baseline offset from the top of a line box, the way the engine places it:
+ * the half-leading `(lineHeight - (ascent + descent)) / 2` below the line top,
+ * plus the ascent, rounded as `FLOORS_LINE_BASELINE` says.
  *
- * The CSS half-leading is `(lineHeight - (ascent + descent)) / 2`, and the
- * baseline sits that far below the line top, plus the ascent. Blink FLOORS that
- * sum to a whole CSS pixel (`FontHeight::AddLeading`), so its DOM text stands up
- * to 1px HIGHER than the exact value. Gecko lays the exact value out in app
- * units. WebKit floors on 80 of 90 measured size × line-height combinations and
- * has no exact rule we can state, so it takes the Blink branch — the one that
- * fits it best, not one it matches everywhere.
- *
- * So the rounding is the engine's, not a style choice: each browser's canvas
- * lands on the baseline that browser's own DOM would use, which is what keeps a
- * canvas render and a contenteditable overlay of the same text on one line.
+ * Public API, because this is the ONE rule every renderer that places a
+ * baseline beside a render-tag canvas has to share (@polotno/svg-export, the
+ * editor's list marker). Call it rather than restate it, or the two drift.
  */
-function lineBaselineOffset(lineHeight: number, ascent: number, descent: number): number {
+export function lineBaselineOffset(lineHeight: number, ascent: number, descent: number): number {
   const exact = (lineHeight - (ascent + descent)) / 2 + ascent;
   return FLOORS_LINE_BASELINE ? Math.floor(exact) : exact;
 }
@@ -300,8 +289,15 @@ export function getFontMetrics(ctx: CanvasRenderingContext2D, style: ResolvedSty
   const font = buildCanvasFont(style);
   const cached = _fontMetricsCache.get(font);
   if (cached) return cached;
+  // Restore what the caller had set: this measures with its OWN font, and a
+  // measurement must not move the ctx. Leaving it moved made the function
+  // behave differently on a cache miss than on a hit, so a caller that set a
+  // font and then measured through this was correct only while the cache was
+  // warm — `addListMarker` measured its marker on the li's face on a cold one.
+  const prev = ctx.font;
   ctx.font = font;
   const m = ctx.measureText('M');
+  ctx.font = prev;
   const ascent = m.fontBoundingBoxAscent ?? m.actualBoundingBoxAscent;
   const descent = m.fontBoundingBoxDescent ?? m.actualBoundingBoxDescent;
   const result = { ascent, descent };
@@ -1877,6 +1873,12 @@ function layoutInlineContent(
     const strutBox = leadedBox(ctx, node.style, useBulletProbe);
     let lineAscent = strutBox.ascent;
     let lineDescent = strutBox.descent;
+    // A shift moves the box, not the line's baseline: positive is downward, so
+    // it lifts the box's demand on the ascent side and adds to the descent one.
+    const grow = (b: { ascent: number; descent: number }, shift: number) => {
+      if (b.ascent - shift > lineAscent) lineAscent = b.ascent - shift;
+      if (b.descent + shift > lineDescent) lineDescent = b.descent + shift;
+    };
     for (const word of line.words) {
       if (word.text === '') continue;
       // A wrapper element with no text of its own — `<span lh:3><span>x</span>`
@@ -1888,15 +1890,11 @@ function layoutInlineContent(
       // the DOM has 40). With the shift it is idempotent — a wrapper with
       // direct text contributes the identical box through its own run.
       if (word.parentStyle) {
-        const parentBox = leadedBox(ctx, word.parentStyle, useBulletProbe);
-        const parentShift = verticalAlignShift(
-          word.parentStyle.verticalAlign, ctx, word.parentStyle, blockStyle, useBulletProbe);
-        if (parentBox.ascent - parentShift > lineAscent) {
-          lineAscent = parentBox.ascent - parentShift;
-        }
-        if (parentBox.descent + parentShift > lineDescent) {
-          lineDescent = parentBox.descent + parentShift;
-        }
+        grow(
+          leadedBox(ctx, word.parentStyle, useBulletProbe),
+          verticalAlignShift(
+            word.parentStyle.verticalAlign, ctx, word.parentStyle, blockStyle, useBulletProbe),
+        );
       }
       const box = leadedBox(ctx, word.style, useBulletProbe);
       // An inline-block joins the line as an ATOMIC box: its own content
@@ -1910,15 +1908,9 @@ function layoutInlineContent(
         box.ascent += extra.top;
         box.descent += extra.bottom;
       }
-      // A shift moves the box, not the line's baseline: positive is downward,
-      // so it lifts the box's demand on the ascent side and adds to the descent
-      // side. The parent-size fallback is the one the emit pass uses, so a line
-      // whose only content is shifted still sizes around it.
-      const shift = atomic ? 0 : verticalAlignShift(
+      grow(box, atomic ? 0 : verticalAlignShift(
         word.style.verticalAlign, ctx, word.style,
-        word.parentStyle ?? blockStyle, useBulletProbe);
-      if (box.ascent - shift > lineAscent) lineAscent = box.ascent - shift;
-      if (box.descent + shift > lineDescent) lineDescent = box.descent + shift;
+        word.parentStyle ?? blockStyle, useBulletProbe));
     }
     const lineBoxHeight = lineAscent + lineDescent;
     const lineBaselineY = curY + lineAscent;
@@ -2173,9 +2165,10 @@ function layoutInlineContent(
       text: line.words.map(w => w.text).join(''),
       bounds: {
         x: lineLeftX,
-        // The line box starts at curY: shifted content grew the box through
-        // `lineAscent`/`lineDescent` above, so nothing on the line reaches
-        // outside it.
+        // The line box starts at curY — this is the CSS line box, which
+        // `lineAscent`/`lineDescent` grew to cover every box on the line. Ink
+        // can still overflow it (an ascender under `line-height: 1`), exactly
+        // as it does in the DOM; a caller that clips must allow for that.
         y: curY,
         width: lineWidth,
         height: lineBoxHeight,

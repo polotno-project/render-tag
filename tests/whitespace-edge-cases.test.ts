@@ -15,7 +15,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { layout } from '../src/index.ts';
-import type { LayoutNode, LayoutText } from '../src/types.ts';
+import type { LayoutText } from '../src/types.ts';
 import { collectTexts } from './helpers/layout-tree.ts';
 
 const FONT = 'Arial, sans-serif';

@@ -16,7 +16,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { layout } from '../src/index.ts';
-import type { LayoutNode, LayoutText } from '../src/types.ts';
+import type { LayoutText } from '../src/types.ts';
 import { compareRenders } from './helpers/compare.ts';
 import { collectTexts } from './helpers/layout-tree.ts';
 

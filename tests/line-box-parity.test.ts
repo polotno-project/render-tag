@@ -16,8 +16,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { layout } from '../src/index.ts';
-import { collectTexts } from './helpers/layout-tree.ts';
-import type { LayoutBox, LayoutNode } from '../src/types.ts';
+import { collectInlineBoxes, collectTexts } from './helpers/layout-tree.ts';
 
 const FONT_A = 'sans-serif';
 const FONT_B = 'serif';
@@ -283,16 +282,9 @@ describe('an inline-block box matches the browser rect', () => {
     const dom = { y: domRect.top - blockTop, height: domRect.height };
     wrap.remove();
 
-    let box: LayoutBox | undefined;
-    const walk = (node: LayoutNode) => {
-      if (node.type === 'text') return;
-      const candidate = node as LayoutBox;
-      if (candidate.tagName === 'span' && candidate.style.display === 'inline-block') {
-        box = candidate;
-      }
-      candidate.children?.forEach(walk);
-    };
-    walk(layout({ html, width: WIDTH }).layoutRoot);
+    const box = collectInlineBoxes(layout({ html, width: WIDTH }).layoutRoot)
+      .filter((b) => b.style.display === 'inline-block')
+      .pop();
 
     expect(box, 'no inline-block box was emitted').toBeDefined();
     expect(Math.abs(box!.y - dom.y)).toBeLessThanOrEqual(0.5);

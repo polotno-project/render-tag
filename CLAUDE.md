@@ -190,7 +190,7 @@ leading over the line's max metrics — that was the old rule, and it was wrong 
 every mixed line.
 
 Three of the numbers involved are the ENGINE's, not ours, and each was measured
-off the DOM rather than guessed (`FLOORS_LINE_BASELINE` picks by user agent):
+off the DOM rather than guessed (the branch is picked by user agent):
 
 | | Blink | WebKit | Gecko |
 | --- | --- | --- | --- |
@@ -200,13 +200,16 @@ off the DOM rather than guessed (`FLOORS_LINE_BASELINE` picks by user agent):
 
 The two questions are separate, and WebKit answers them differently: it rounds
 like nobody and shifts like Blink, so `FLOORS_LINE_BASELINE` and
-`BLINK_SUPER_SUB` are two flags, not one. Only Blink floors — over the whole
-530-case corpus, giving Safari the floor cost 214 wins against 223 losses
-(7.50% -> 9.21%) where the exact value wins 48 against 3 (7.50% -> 6.52%).
+`BLINK_SUPER_SUB` are two flags, not one. Never gate one on the other — a test
+that did asserted Gecko's shift against Blink's everywhere but Chrome.
 
 The super/sub rules fit 8-56px across sans-serif/serif/monospace to within
 0.06px, and no engine reads the font's own metrics — the family does not move
-the number.
+the number. `layout.ts` carries the corpus measurement behind each branch.
+
+`lineBaselineOffset` is the PUBLIC export, not the flag: every renderer that
+places a baseline beside a render-tag canvas (`@polotno/svg-export`, the
+editor's list marker) calls it, so the rule has one home.
 
 Safari still cannot assert DOM parity: its canvas metrics disagree with its own
 layout metrics (30px/1 lands at 25.59375 in the DOM against 25.5 from the
