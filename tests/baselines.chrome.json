@@ -68,7 +68,7 @@
     "wrap": true
   },
   "Subscript and superscript": {
-    "score": 10.73,
+    "score": 2.56,
     "wrap": true
   },
   "Vertical-align keywords and lengths": {
@@ -428,7 +428,7 @@
     "wrap": true
   },
   "Subscript and superscript@Open Sans": {
-    "score": 10.73,
+    "score": 2.56,
     "wrap": true
   },
   "Vertical-align keywords and lengths@Open Sans": {
@@ -780,7 +780,7 @@
     "wrap": true
   },
   "Subscript and superscript@Roboto": {
-    "score": 3.84,
+    "score": 1.18,
     "wrap": true
   },
   "Vertical-align keywords and lengths@Roboto": {
@@ -980,7 +980,7 @@
     "wrap": true
   },
   "Multi-script single paragraph@Roboto": {
-    "score": 9.57,
+    "score": 0.19,
     "wrap": true
   },
   "URL text wrapping@Roboto": {
@@ -1684,7 +1684,7 @@
     "wrap": true
   },
   "Multi-script single paragraph@Merriweather": {
-    "score": 7.45,
+    "score": 0.64,
     "wrap": true
   },
   "URL text wrapping@Merriweather": {

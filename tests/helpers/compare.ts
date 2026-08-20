@@ -618,11 +618,13 @@ export async function compareRenders(
 
   // Text the declared families do not cover (CJK, emoji, Arabic in a Latin-only
   // face) is painted from a SYSTEM fallback that no @font-face wait covers.
-  // Safari resolves those lazily, so the DOM reference and the canvas could
-  // catch a different face and 7 of 530 cases scored differently run to run.
-  // One throwaway DOM render warms every fallback the case needs before the
+  // Both engines resolve those lazily, and the DOM reference and the canvas
+  // each warm their own: without this, Safari scored 7 of 530 cases
+  // differently run to run, and Firefox flipped one RTL case between 0% and
+  // 9.35%. One throwaway render down EACH path warms the fallbacks before the
   // pair that is measured.
   await renderToDOM(html, css, width, height, pixelRatio);
+  renderToCanvas(html, css, width, height, pixelRatio);
 
   const t0 = performance.now();
   const domCanvas = await renderToDOM(html, css, width, height, pixelRatio);

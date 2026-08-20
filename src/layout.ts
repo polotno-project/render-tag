@@ -174,17 +174,24 @@ function getLineHeight(ctx: CanvasRenderingContext2D, style: ResolvedStyle, useB
 
 /**
  * Which engine's line rules to follow. Only the UA string can say, because
- * `accuracy: 'performance'` promises not to touch the DOM: Gecko is the one
- * engine that still sends a real `Gecko/<date>` product token (Blink and
- * WebKit carry only the "like Gecko" comment, which has no slash), and Blink
- * is the one that says `Chrome/` — matched with NO word boundary, because
- * headless Chrome says `HeadlessChrome/`. Safari sends neither token, which is
- * how it is told apart. With no navigator (Node, workers) we take the Blink
- * branch, for the same target.
+ * `accuracy: 'performance'` promises not to touch the DOM.
+ *
+ * Blink is the DEFAULT, and the other two are what we detect: a server-side
+ * render (no navigator, or jsdom) targets headless Chrome, so anything we
+ * cannot positively identify has to round the way Chrome does.
+ *
+ * - Gecko is the one engine that still sends a real `Gecko/<date>` product
+ *   token; Blink and WebKit carry only the "like Gecko" comment, no slash.
+ * - Safari is WebKit that says neither `Chrome/` nor `jsdom/`. jsdom borrows
+ *   WebKit's UA and would otherwise be mistaken for it.
+ * - `Chrome/` is matched with NO word boundary, because headless Chrome sends
+ *   `HeadlessChrome/`.
  */
 const UA = typeof navigator === 'undefined' ? '' : navigator.userAgent;
-const IS_BLINK = UA === '' || /Chrome\/\d/.test(UA);
 const IS_GECKO = /\bGecko\/\d/.test(UA);
+const IS_SAFARI =
+  /AppleWebKit/.test(UA) && !/Chrome\/\d/.test(UA) && !/\bjsdom\//.test(UA);
+const IS_BLINK = !IS_GECKO && !IS_SAFARI;
 
 /**
  * True where the engine floors a line's baseline onto a whole CSS pixel.

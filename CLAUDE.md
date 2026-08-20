@@ -73,8 +73,12 @@ face — is painted from a SYSTEM fallback that no `@font-face` wait can reach.
 Safari resolves those lazily, so the reference and the canvas could catch a
 different face: two consecutive generator runs disagreed on 7 of 530 cases, and
 the gate's 0.01 threshold turned that into an intermittent red. `compareRenders`
-now does one throwaway DOM render to warm the fallbacks before the pair it
-measures, which took the run-to-run difference to 0 of 530.
+now does one throwaway render down EACH path — reference and canvas — to warm
+the fallbacks before the pair it measures. That took Safari's run-to-run
+difference to 0 of 530 and pinned Firefox's RTL case, but roughly 1 WebKit run
+in 8 still trips the gate on a single case. Vendoring the fallback coverage is
+the durable fix; until then, a lone unreproducible WebKit case is the flake, not
+a regression — confirm by running the file again.
 
 ### Running tests
 ```bash
