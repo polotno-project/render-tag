@@ -581,6 +581,7 @@ export async function compareRenders(
 
       // Wait for each font variant using canvas-based detection
       const waitPromises: Promise<void>[] = [];
+      const faces: { name: string; weight: string; style: string }[] = [];
       const fontFaceRegex = /@font-face\s*\{([^}]*)\}/g;
       let ffMatch;
       while ((ffMatch = fontFaceRegex.exec(allCSS)) !== null) {
@@ -592,12 +593,36 @@ export async function compareRenders(
           const name = familyMatch[1].trim();
           const weight = weightMatch ? weightMatch[1].trim() : '400';
           const fStyle = styleMatch ? styleMatch[1].trim() : 'normal';
+          faces.push({ name, weight, style: fStyle });
           waitPromises.push(waitForFont(name, weight, fStyle));
         }
       }
       await Promise.all(waitPromises);
+
+      // `waitForFont` gives up quietly after its poll timeout, which used to
+      // leave the canvas drawing a fallback face against a reference that had
+      // the real one. A family that never resolves invalidates every pixel of
+      // the comparison, so say so instead of scoring it.
+      const unresolved = faces
+        .filter((f) => !isFontAvailable(f.name, f.weight, f.style))
+        .map((f) => `${f.name} ${f.weight} ${f.style}`);
+      if (unresolved.length > 0) {
+        throw new Error(
+          `compareRenders: @font-face never became available: ` +
+          `${unresolved.join(', ')}. The comparison would score a fallback ` +
+          `face against the real one.`,
+        );
+      }
     }
   }
+
+  // Text the declared families do not cover (CJK, emoji, Arabic in a Latin-only
+  // face) is painted from a SYSTEM fallback that no @font-face wait covers.
+  // Safari resolves those lazily, so the DOM reference and the canvas could
+  // catch a different face and 7 of 530 cases scored differently run to run.
+  // One throwaway DOM render warms every fallback the case needs before the
+  // pair that is measured.
+  await renderToDOM(html, css, width, height, pixelRatio);
 
   const t0 = performance.now();
   const domCanvas = await renderToDOM(html, css, width, height, pixelRatio);

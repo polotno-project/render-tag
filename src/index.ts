@@ -10,6 +10,7 @@ import { renderNode } from './render.js';
 
 export type { RenderConfig, RenderResult, LayoutConfig, LayoutResult, DrawConfig, LayoutLine };
 export { setDOMParser, type DOMParserLike } from './dom.js';
+export { FLOORS_LINE_BASELINE } from './layout.js';
 import { createFallbackMeasureCtx } from './dom.js';
 
 // Default measurement context, created lazily and reused across layout()

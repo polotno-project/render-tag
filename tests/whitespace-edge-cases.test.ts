@@ -16,17 +16,11 @@
 import { describe, it, expect } from 'vitest';
 import { layout } from '../src/index.ts';
 import type { LayoutNode, LayoutText } from '../src/types.ts';
+import { collectTexts } from './helpers/layout-tree.ts';
 
 const FONT = 'Arial, sans-serif';
 const TOL = 2.5;
 const NBSP = ' ';
-
-function collectTexts(node: LayoutNode): LayoutText[] {
-  if (node.type === 'text') return [node];
-  const result: LayoutText[] = [];
-  for (const child of node.children) result.push(...collectTexts(child));
-  return result;
-}
 
 /** Group render-tag layout texts by Y. */
 function rtLines(html: string, width: number): { y: number; text: string; x: number }[] {

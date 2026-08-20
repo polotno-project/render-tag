@@ -4,7 +4,7 @@
     "wrap": true
   },
   "Formatted text (bold, italic, colors)": {
-    "score": 15.66,
+    "score": 9.3,
     "wrap": true
   },
   "Multi-heading article": {
@@ -12,11 +12,11 @@
     "wrap": true
   },
   "Rich blog post": {
-    "score": 3.92,
+    "score": 0.63,
     "wrap": true
   },
   "Styled table": {
-    "score": 56.85,
+    "score": 56.84,
     "wrap": true
   },
   "Multi-column layout": {
@@ -68,11 +68,11 @@
     "wrap": true
   },
   "Subscript and superscript": {
-    "score": 21.36,
+    "score": 11.92,
     "wrap": true
   },
   "Vertical-align keywords and lengths": {
-    "score": 46.46,
+    "score": 0.49,
     "wrap": true
   },
   "Mixed font-sizes same line": {
@@ -164,7 +164,7 @@
     "wrap": true
   },
   "List items with rich formatting": {
-    "score": 9.8,
+    "score": 0,
     "wrap": true
   },
   "Empty list items mixed with content": {
@@ -180,7 +180,7 @@
     "wrap": true
   },
   "Monospace vs proportional text": {
-    "score": 4.66,
+    "score": 0,
     "wrap": true
   },
   "Extreme font sizes 8px and 48px": {
@@ -220,7 +220,7 @@
     "wrap": true
   },
   "Mixed Google Fonts inline": {
-    "score": 24.22,
+    "score": 0,
     "wrap": true
   },
   "Dense mixed inline styles": {
@@ -264,7 +264,7 @@
     "wrap": true
   },
   "RTL with inline code": {
-    "score": 13.53,
+    "score": 0.15,
     "wrap": true
   },
   "Multi-script single paragraph": {
@@ -300,7 +300,7 @@
     "wrap": true
   },
   "Mixed app text comprehensive": {
-    "score": 25.45,
+    "score": 1.28,
     "wrap": true
   },
   "Lists with alignment variations": {
@@ -352,11 +352,11 @@
     "wrap": true
   },
   "Polotno HTML": {
-    "score": 18.31,
+    "score": 17.92,
     "wrap": true
   },
   "Polotno Lists": {
-    "score": 3.46,
+    "score": 3.44,
     "wrap": true
   },
   "Simple paragraph@Open Sans": {
@@ -364,7 +364,7 @@
     "wrap": true
   },
   "Formatted text (bold, italic, colors)@Open Sans": {
-    "score": 15.66,
+    "score": 9.3,
     "wrap": true
   },
   "Multi-heading article@Open Sans": {
@@ -372,11 +372,11 @@
     "wrap": true
   },
   "Rich blog post@Open Sans": {
-    "score": 3.92,
+    "score": 0.63,
     "wrap": true
   },
   "Styled table@Open Sans": {
-    "score": 56.85,
+    "score": 56.84,
     "wrap": true
   },
   "Multi-column layout@Open Sans": {
@@ -428,11 +428,11 @@
     "wrap": true
   },
   "Subscript and superscript@Open Sans": {
-    "score": 21.36,
+    "score": 11.92,
     "wrap": true
   },
   "Vertical-align keywords and lengths@Open Sans": {
-    "score": 46.46,
+    "score": 0.49,
     "wrap": true
   },
   "Mixed font-sizes same line@Open Sans": {
@@ -524,7 +524,7 @@
     "wrap": true
   },
   "List items with rich formatting@Open Sans": {
-    "score": 9.8,
+    "score": 0,
     "wrap": true
   },
   "Empty list items mixed with content@Open Sans": {
@@ -540,7 +540,7 @@
     "wrap": true
   },
   "Monospace vs proportional text@Open Sans": {
-    "score": 4.66,
+    "score": 0,
     "wrap": true
   },
   "Extreme font sizes 8px and 48px@Open Sans": {
@@ -580,7 +580,7 @@
     "wrap": true
   },
   "Mixed Google Fonts inline@Open Sans": {
-    "score": 21.54,
+    "score": 0,
     "wrap": true
   },
   "Dense mixed inline styles@Open Sans": {
@@ -624,7 +624,7 @@
     "wrap": true
   },
   "RTL with inline code@Open Sans": {
-    "score": 13.53,
+    "score": 0.15,
     "wrap": true
   },
   "Multi-script single paragraph@Open Sans": {
@@ -660,7 +660,7 @@
     "wrap": true
   },
   "Mixed app text comprehensive@Open Sans": {
-    "score": 25.45,
+    "score": 1.28,
     "wrap": true
   },
   "Lists with alignment variations@Open Sans": {
@@ -716,7 +716,7 @@
     "wrap": true
   },
   "Formatted text (bold, italic, colors)@Roboto": {
-    "score": 17.27,
+    "score": 9.28,
     "wrap": true
   },
   "Multi-heading article@Roboto": {
@@ -724,7 +724,7 @@
     "wrap": true
   },
   "Rich blog post@Roboto": {
-    "score": 3.92,
+    "score": 0.63,
     "wrap": true
   },
   "Styled table@Roboto": {
@@ -780,11 +780,11 @@
     "wrap": true
   },
   "Subscript and superscript@Roboto": {
-    "score": 5.75,
+    "score": 2.59,
     "wrap": true
   },
   "Vertical-align keywords and lengths@Roboto": {
-    "score": 48.17,
+    "score": 0.4,
     "wrap": true
   },
   "Mixed font-sizes same line@Roboto": {
@@ -892,7 +892,7 @@
     "wrap": true
   },
   "Monospace vs proportional text@Roboto": {
-    "score": 4.65,
+    "score": 0,
     "wrap": true
   },
   "Extreme font sizes 8px and 48px@Roboto": {
@@ -932,7 +932,7 @@
     "wrap": true
   },
   "Mixed Google Fonts inline@Roboto": {
-    "score": 17.99,
+    "score": 0,
     "wrap": true
   },
   "Dense mixed inline styles@Roboto": {
@@ -1068,7 +1068,7 @@
     "wrap": true
   },
   "Formatted text (bold, italic, colors)@Playfair Display": {
-    "score": 17.07,
+    "score": 11.18,
     "wrap": true
   },
   "Multi-heading article@Playfair Display": {
@@ -1076,11 +1076,11 @@
     "wrap": true
   },
   "Rich blog post@Playfair Display": {
-    "score": 3.92,
+    "score": 0.63,
     "wrap": true
   },
   "Styled table@Playfair Display": {
-    "score": 61.13,
+    "score": 57.85,
     "wrap": true
   },
   "Multi-column layout@Playfair Display": {
@@ -1132,11 +1132,11 @@
     "wrap": true
   },
   "Subscript and superscript@Playfair Display": {
-    "score": 7.64,
+    "score": 0.39,
     "wrap": true
   },
   "Vertical-align keywords and lengths@Playfair Display": {
-    "score": 43.38,
+    "score": 1.06,
     "wrap": true
   },
   "Mixed font-sizes same line@Playfair Display": {
@@ -1228,7 +1228,7 @@
     "wrap": true
   },
   "List items with rich formatting@Playfair Display": {
-    "score": 15.09,
+    "score": 2.41,
     "wrap": true
   },
   "Empty list items mixed with content@Playfair Display": {
@@ -1244,7 +1244,7 @@
     "wrap": true
   },
   "Monospace vs proportional text@Playfair Display": {
-    "score": 7.61,
+    "score": 0.05,
     "wrap": true
   },
   "Extreme font sizes 8px and 48px@Playfair Display": {
@@ -1284,7 +1284,7 @@
     "wrap": true
   },
   "Mixed Google Fonts inline@Playfair Display": {
-    "score": 17.71,
+    "score": 0.4,
     "wrap": true
   },
   "Dense mixed inline styles@Playfair Display": {
@@ -1328,7 +1328,7 @@
     "wrap": true
   },
   "RTL with inline code@Playfair Display": {
-    "score": 13.55,
+    "score": 0.13,
     "wrap": true
   },
   "Multi-script single paragraph@Playfair Display": {
@@ -1364,7 +1364,7 @@
     "wrap": true
   },
   "Mixed app text comprehensive@Playfair Display": {
-    "score": 25.23,
+    "score": 1.89,
     "wrap": true
   },
   "Lists with alignment variations@Playfair Display": {
@@ -1420,7 +1420,7 @@
     "wrap": true
   },
   "Formatted text (bold, italic, colors)@Merriweather": {
-    "score": 18.63,
+    "score": 10.25,
     "wrap": true
   },
   "Multi-heading article@Merriweather": {
@@ -1428,11 +1428,11 @@
     "wrap": true
   },
   "Rich blog post@Merriweather": {
-    "score": 3.92,
+    "score": 0.63,
     "wrap": true
   },
   "Styled table@Merriweather": {
-    "score": 57.4,
+    "score": 57.39,
     "wrap": true
   },
   "Multi-column layout@Merriweather": {
@@ -1484,11 +1484,11 @@
     "wrap": true
   },
   "Subscript and superscript@Merriweather": {
-    "score": 4.88,
+    "score": 0.22,
     "wrap": true
   },
   "Vertical-align keywords and lengths@Merriweather": {
-    "score": 50.03,
+    "score": 1.16,
     "wrap": true
   },
   "Mixed font-sizes same line@Merriweather": {
@@ -1596,7 +1596,7 @@
     "wrap": true
   },
   "Monospace vs proportional text@Merriweather": {
-    "score": 4.58,
+    "score": 0,
     "wrap": true
   },
   "Extreme font sizes 8px and 48px@Merriweather": {
@@ -1636,7 +1636,7 @@
     "wrap": true
   },
   "Mixed Google Fonts inline@Merriweather": {
-    "score": 18.05,
+    "score": 0.02,
     "wrap": true
   },
   "Dense mixed inline styles@Merriweather": {
@@ -1692,7 +1692,7 @@
     "wrap": false
   },
   "Numbers and currency in RTL@Merriweather": {
-    "score": 9.35,
+    "score": 0,
     "wrap": true
   },
   "Word joiner and zero-width space@Merriweather": {
@@ -1716,7 +1716,7 @@
     "wrap": true
   },
   "Mixed app text comprehensive@Merriweather": {
-    "score": 18.27,
+    "score": 1.45,
     "wrap": true
   },
   "Lists with alignment variations@Merriweather": {
@@ -1772,7 +1772,7 @@
     "wrap": true
   },
   "Formatted text (bold, italic, colors)@Lobster": {
-    "score": 23.6,
+    "score": 17.08,
     "wrap": true
   },
   "Multi-heading article@Lobster": {
@@ -1780,7 +1780,7 @@
     "wrap": true
   },
   "Rich blog post@Lobster": {
-    "score": 3.92,
+    "score": 0.63,
     "wrap": true
   },
   "Styled table@Lobster": {
@@ -1836,11 +1836,11 @@
     "wrap": true
   },
   "Subscript and superscript@Lobster": {
-    "score": 3.47,
+    "score": 0.16,
     "wrap": true
   },
   "Vertical-align keywords and lengths@Lobster": {
-    "score": 54.85,
+    "score": 0,
     "wrap": true
   },
   "Mixed font-sizes same line@Lobster": {
@@ -1932,7 +1932,7 @@
     "wrap": true
   },
   "List items with rich formatting@Lobster": {
-    "score": 18.98,
+    "score": 17.82,
     "wrap": true
   },
   "Empty list items mixed with content@Lobster": {
@@ -1948,7 +1948,7 @@
     "wrap": true
   },
   "Monospace vs proportional text@Lobster": {
-    "score": 4.59,
+    "score": 0,
     "wrap": true
   },
   "Extreme font sizes 8px and 48px@Lobster": {
@@ -1988,7 +1988,7 @@
     "wrap": true
   },
   "Mixed Google Fonts inline@Lobster": {
-    "score": 17.59,
+    "score": 0,
     "wrap": true
   },
   "Dense mixed inline styles@Lobster": {
@@ -2032,7 +2032,7 @@
     "wrap": true
   },
   "RTL with inline code@Lobster": {
-    "score": 6.48,
+    "score": 0.13,
     "wrap": true
   },
   "Multi-script single paragraph@Lobster": {
@@ -2068,7 +2068,7 @@
     "wrap": false
   },
   "Mixed app text comprehensive@Lobster": {
-    "score": 10.86,
+    "score": 7.79,
     "wrap": true
   },
   "Lists with alignment variations@Lobster": {

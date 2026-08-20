@@ -6,10 +6,11 @@
  * uses a fixed character width so tests are predictable and fast.
  */
 import { describe, it, expect } from 'vitest';
-import { buildLayoutTree, sameDecorationBand } from '../src/layout.ts';
+import { buildLayoutTree, sameDecorationBand, FLOORS_LINE_BASELINE } from '../src/layout.ts';
 import { layout } from '../src/index.ts';
 import { mockCtx, CHAR_WIDTH } from './helpers/mock-ctx.ts';
 import type { StyledNode, ResolvedStyle, LayoutBox, LayoutText, LayoutNode, DecorationEntry } from '../src/types.ts';
+import { collectTexts } from './helpers/layout-tree.ts';
 
 // ─── Test helpers ──────────────────────────────────────────────────────
 
@@ -125,16 +126,6 @@ function doLayout(tree: StyledNode, width: number): LayoutBox {
   const ctx = mockCtx();
   const { root } = buildLayoutTree(ctx, tree, width, false); // useDomMeasurements=false
   return root;
-}
-
-/** Collect all text nodes from a layout tree, in order. */
-function collectTexts(node: LayoutNode): LayoutText[] {
-  if (node.type === 'text') return [node];
-  const result: LayoutText[] = [];
-  for (const child of node.children) {
-    result.push(...collectTexts(child));
-  }
-  return result;
 }
 
 /** Collect all inline boxes (LayoutBox with tagName 'span') from layout tree. */
@@ -1478,9 +1469,15 @@ describe('Layout logic (mocked measureText)', () => {
       expect(yDelta('50%')).toBeCloseTo(-10, 5);
     });
 
-    it('sub lowers, super raises (fractions of parent font size 16)', () => {
-      expect(yDelta('sub')).toBeCloseTo(16 * 0.26, 5);
-      expect(yDelta('super')).toBeCloseTo(-16 * 0.4, 5);
+    it("sub lowers, super raises by the engine's own rule (font size 16)", () => {
+      // Measured off the DOM, 8-56px across three families (see CLAUDE.md):
+      // Blink and WebKit shift by fontSize/3 + 1 and fontSize/5 + 1, Gecko by
+      // 0.34em and 0.2em. These are not tunable constants — they are what the
+      // browser does, and the parity suites check them against it.
+      const superShift = FLOORS_LINE_BASELINE ? 16 / 3 + 1 : 16 * 0.34;
+      const subShift = FLOORS_LINE_BASELINE ? 16 / 5 + 1 : 16 * 0.2;
+      expect(yDelta('sub')).toBeCloseTo(subShift, 5);
+      expect(yDelta('super')).toBeCloseTo(-superShift, 5);
     });
 
     it('baseline leaves the word on the baseline', () => {

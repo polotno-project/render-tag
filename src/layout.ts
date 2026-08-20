@@ -173,12 +173,89 @@ function getLineHeight(ctx: CanvasRenderingContext2D, style: ResolvedStyle, useB
 }
 
 /**
- * Compute the baseline Y offset within a line.
- * Uses the Konva approach: center (ascent - descent) within lineHeight.
+ * Which engine's line rules to follow. Only the UA string can say, because
+ * `accuracy: 'performance'` promises not to touch the DOM: Gecko is the one
+ * engine that still sends a real `Gecko/<date>` product token (Blink and
+ * WebKit carry only the "like Gecko" comment, which has no slash), and Blink
+ * is the one that says `Chrome/` — matched with NO word boundary, because
+ * headless Chrome says `HeadlessChrome/`. Safari sends neither token, which is
+ * how it is told apart. With no navigator (Node, workers) we take the Blink
+ * branch, for the same target.
  */
-function computeBaselineY(ctx: CanvasRenderingContext2D, style: ResolvedStyle, lineHeight: number): number {
+const UA = typeof navigator === 'undefined' ? '' : navigator.userAgent;
+const IS_BLINK = UA === '' || /Chrome\/\d/.test(UA);
+const IS_GECKO = /\bGecko\/\d/.test(UA);
+
+/**
+ * True where the engine floors a line's baseline onto a whole CSS pixel.
+ *
+ * Blink alone does (`FontHeight::AddLeading`). Gecko and WebKit both lay the
+ * exact half-leading out — measured over the whole 530-case corpus, giving
+ * Safari the Blink branch cost 214 wins against 223 losses (avg 7.50% ->
+ * 9.21%) where the exact value wins 48 against 3 (7.50% -> 6.52%).
+ *
+ * Public API: the parity suites expect per engine, and every renderer that has
+ * to place a baseline beside a render-tag canvas (@polotno/svg-export) must
+ * round the same way this does.
+ */
+export const FLOORS_LINE_BASELINE = IS_BLINK;
+
+/**
+ * `super` and `sub` are engine constants, not CSS. Blink and WebKit share
+ * theirs (`fontSize/3 + 1`, `fontSize/5 + 1`); Gecko raises by 0.34em and
+ * lowers by 0.20em. This is a separate question from the baseline rounding
+ * above — Safari rounds like nobody and shifts like Blink.
+ */
+const BLINK_SUPER_SUB = !IS_GECKO;
+
+/**
+ * Baseline offset from the top of a line box, the way the engine places it.
+ *
+ * The CSS half-leading is `(lineHeight - (ascent + descent)) / 2`, and the
+ * baseline sits that far below the line top, plus the ascent. Blink FLOORS that
+ * sum to a whole CSS pixel (`FontHeight::AddLeading`), so its DOM text stands up
+ * to 1px HIGHER than the exact value. Gecko lays the exact value out in app
+ * units. WebKit floors on 80 of 90 measured size × line-height combinations and
+ * has no exact rule we can state, so it takes the Blink branch — the one that
+ * fits it best, not one it matches everywhere.
+ *
+ * So the rounding is the engine's, not a style choice: each browser's canvas
+ * lands on the baseline that browser's own DOM would use, which is what keeps a
+ * canvas render and a contenteditable overlay of the same text on one line.
+ */
+function lineBaselineOffset(lineHeight: number, ascent: number, descent: number): number {
+  const exact = (lineHeight - (ascent + descent)) / 2 + ascent;
+  return FLOORS_LINE_BASELINE ? Math.floor(exact) : exact;
+}
+
+/**
+ * The vertical space an inline-block's margin box adds around its content, over
+ * and above the font's own leading. Written once because the wrap pass grows
+ * the line by the same six values.
+ */
+function inlineBlockExtra(bs: ResolvedStyle): { top: number; bottom: number } {
+  return {
+    top: bs.marginTop + bs.borderTopWidth + bs.paddingTop,
+    bottom: bs.paddingBottom + bs.borderBottomWidth + bs.marginBottom,
+  };
+}
+
+/**
+ * One box's half of a line: how far it reaches above its own baseline and how
+ * far below, over its OWN line-height. This is the inline box CSS 2.1 §10.8
+ * talks about — the font's content area plus its half-leading — not the bare
+ * font metrics. `vertical-align: text-top` and `text-bottom` align THIS box's
+ * edges, and the line box is the union of these over everything on the line.
+ */
+function leadedBox(
+  ctx: CanvasRenderingContext2D,
+  style: ResolvedStyle,
+  useBulletProbe = false,
+): { ascent: number; descent: number } {
   const { ascent, descent } = getFontMetrics(ctx, style);
-  return (ascent - descent) / 2 + lineHeight / 2;
+  const lineHeight = getLineHeight(ctx, style, useBulletProbe);
+  const boxAscent = lineBaselineOffset(lineHeight, ascent, descent);
+  return { ascent: boxAscent, descent: lineHeight - boxAscent };
 }
 
 function applyTextTransform(text: string, transform: string): string {
@@ -232,29 +309,51 @@ export function getFontMetrics(ctx: CanvasRenderingContext2D, style: ResolvedSty
  * pass (the box position depends on the final line box it helps size), so they
  * fall back to baseline rather than being approximated wrongly.
  *
- *  - super/sub        legacy fixed fractions of the parent font size
- *  - text-top/-bottom align the box's ascent/descent edge with the line's
+ *  - super/sub        the engine's own rule, measured off the DOM across
+ *                     8-56px × sans-serif/serif/monospace and fitting every
+ *                     point to within 0.06px (LayoutUnit's 1/64). Neither
+ *                     engine reads the font's metrics — the family does not
+ *                     move the number.
+ *  - text-top/-bottom the box's LEADED edge against the parent's CONTENT-area
+ *                     edge (bare ascent/descent, no leading). Taking the box's
+ *                     bare metrics instead costs 25px on a line holding both.
  *  - middle           box midpoint at parent baseline + half the x-height
  *  - <length>/<%>     raise (positive value) by the length / % of line-height
  */
 function verticalAlignShift(
   va: string,
-  wAscent: number, wDescent: number,
-  parentFontSize: number, maxAscent: number, maxDescent: number,
-  lineHeight: number,
+  ctx: CanvasRenderingContext2D, style: ResolvedStyle, parentStyle: ResolvedStyle,
+  useBulletProbe: boolean,
 ): number {
   switch (va) {
-    case 'super': return -parentFontSize * 0.4;
-    case 'sub': return parentFontSize * 0.26;
-    case 'text-top': return -(maxAscent - wAscent);
-    case 'text-bottom': return maxDescent - wDescent;
-    case 'middle': return -(parentFontSize * 0.25) - (wDescent - wAscent) / 2;
+    case 'super':
+      return BLINK_SUPER_SUB
+        ? -(parentStyle.fontSize / 3 + 1) : -parentStyle.fontSize * 0.34;
+    case 'sub':
+      return BLINK_SUPER_SUB
+        ? parentStyle.fontSize / 5 + 1 : parentStyle.fontSize * 0.2;
+    // Against the PARENT's content area (CSS 2.1 §10.8.1) — its bare
+    // ascent/descent, no leading. Measured against Chrome, taking the line's
+    // tallest box instead of the real parent put this 14px out.
+    case 'text-top':
+      return leadedBox(ctx, style, useBulletProbe).ascent - getFontMetrics(ctx, parentStyle).ascent;
+    case 'text-bottom':
+      return getFontMetrics(ctx, parentStyle).descent - leadedBox(ctx, style, useBulletProbe).descent;
+    case 'middle': {
+      const { ascent, descent } = getFontMetrics(ctx, style);
+      return -(parentStyle.fontSize * 0.25) - (descent - ascent) / 2;
+    }
     default: {
-      // baseline / top / bottom / '' all parseFloat to NaN → 0 (callers gate
-      // on isShiftedVAlign, so those never actually reach here).
+      // baseline / top / bottom / '' all parseFloat to NaN → 0, which is what
+      // an unshifted run wants — the line-box pass calls this for every word.
       const n = parseFloat(va);
       if (!Number.isFinite(n)) return 0;
-      return va.endsWith('%') ? -(n / 100) * lineHeight : -n;
+      // A percentage resolves against the ELEMENT's own line-height (CSS 2.1
+      // §10.8.1), not the line's. Measured against Chrome: the line's put the
+      // box 10px out on a line whose tallest run was not this one.
+      return va.endsWith('%')
+        ? -(n / 100) * getLineHeight(ctx, style, useBulletProbe)
+        : -n;
     }
   }
 }
@@ -350,6 +449,13 @@ export function hasTextClip(style: ResolvedStyle): boolean {
 interface TextRun {
   text: string;
   style: ResolvedStyle;
+  /**
+   * The style of the PARENT of the element this run's style came from — what
+   * `vertical-align` measures its shift against (CSS 2.1 §10.8.1). Not the
+   * tallest run on the line, which is what a line-level maximum would give:
+   * a 40px sibling put a sup 8px out of place.
+   */
+  parentStyle?: ResolvedStyle;
   /** If this run came from an inline element with visible box styles */
   boxStyle?: ResolvedStyle;
   /** Marks the start of an inline box */
@@ -366,6 +472,8 @@ interface Word {
   text: string;
   width: number;
   style: ResolvedStyle;
+  /** See `TextRun.parentStyle`. */
+  parentStyle?: ResolvedStyle;
   isSpace: boolean;
   /** Tab character — width computed dynamically based on position */
   isTab?: boolean;
@@ -437,6 +545,9 @@ function applyEllipsisToLine(
   if (styleIdx < 0) return;
   const lastStyle = line.words[styleIdx].style;
   const boxStyle = line.words[styleIdx].boxStyle;
+  // The ellipsis takes the trimmed run's style, so it has to take the parent
+  // that style's vertical-align measures against too.
+  const parentStyle = line.words[styleIdx].parentStyle;
   applyFont(ctx, lastStyle);
   // ALWAYS assign (don't gate on truthy) — otherwise a previous segment's
   // non-zero letter-spacing leaks into the ellipsis measurement.
@@ -480,6 +591,7 @@ function applyEllipsisToLine(
     text: '…',
     width: ellipsisWidth,
     style: lastStyle,
+    parentStyle,
     isSpace: false,
     boxStyle,
   };
@@ -502,9 +614,16 @@ function collectTextRuns(node: StyledNode): TextRun[] {
     boxStyle?: ResolvedStyle,
     clipStyle?: ResolvedStyle,
     strokeImageStyle?: ResolvedStyle,
+    parentStyle?: ResolvedStyle,
   ) {
     if (n.tagName === '#text' && n.textContent) {
-      runs.push({ text: n.textContent, style: n.style, boxStyle, clipStyle, strokeImageStyle });
+      // A #text node carries its parent ELEMENT's style, so the element that
+      // owns any vertical-align here is that parent — and what the shift
+      // measures against is ITS parent, which is the `parentStyle` handed to
+      // this element's walk.
+      runs.push({
+        text: n.textContent, style: n.style, parentStyle, boxStyle, clipStyle, strokeImageStyle,
+      });
       return;
     }
     const isInlineBlock = n.style.display === 'inline-block';
@@ -529,6 +648,7 @@ function collectTextRuns(node: StyledNode): TextRun[] {
       runs.push({
         text: allText,
         style: n.style,
+        parentStyle,
         boxStyle: newBoxStyle,
         clipStyle: newClipStyle,
         strokeImageStyle: newStrokeImageStyle,
@@ -552,7 +672,13 @@ function collectTextRuns(node: StyledNode): TextRun[] {
     }
 
     for (const child of n.children) {
-      walk(child, isBox ? newBoxStyle : boxStyle, newClipStyle, newStrokeImageStyle);
+      walk(
+        child, isBox ? newBoxStyle : boxStyle, newClipStyle, newStrokeImageStyle,
+        // An element child measures against this element; a text child's
+        // vertical-align belongs to this element, so it measures against what
+        // this element measures against.
+        child.tagName === '#text' ? parentStyle : n.style,
+      );
     }
 
     if (hasHorizSpacing) {
@@ -575,8 +701,9 @@ function collectTextRuns(node: StyledNode): TextRun[] {
     }
   }
 
+  // The block itself is the parent every top-level run measures against.
   for (const child of node.children) {
-    walk(child);
+    walk(child, undefined, undefined, undefined, node.style);
   }
   return runs;
 }
@@ -662,6 +789,7 @@ function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRu
           text: '\t',
           width: tabStopInterval, // placeholder — recalculated in flowWordsIntoLines
           style: run.style,
+          parentStyle: run.parentStyle,
           isSpace: true,
           isTab: true,
           boxStyle: run.boxStyle,
@@ -675,6 +803,7 @@ function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRu
         text: w,
         width: cachedMeasureWidth(ctx, w),
         style: run.style,
+        parentStyle: run.parentStyle,
         isSpace,
         boxStyle: run.boxStyle,
         clipStyle: run.clipStyle,
@@ -715,6 +844,7 @@ function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRu
           text: ' ',
           width: spaceWidth,
           style: run.style,
+          parentStyle: run.parentStyle,
           isSpace: true,
           boxStyle: run.boxStyle,
           clipStyle: run.clipStyle,
@@ -736,6 +866,7 @@ function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRu
               text: s,
               width: cumWidth - prevCum,
               style: run.style,
+              parentStyle: run.parentStyle,
               isSpace: false,
               boxStyle: run.boxStyle,
               clipStyle: run.clipStyle,
@@ -762,6 +893,7 @@ function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRu
         text: w,
         width,
         style: run.style,
+        parentStyle: run.parentStyle,
         isSpace: false,
         boxStyle: run.boxStyle,
         clipStyle: run.clipStyle,
@@ -809,6 +941,7 @@ function tokenizeRuns(ctx: CanvasRenderingContext2D, runs: TextRun[]): Word[] {
         text,
         width: totalWidth,
         style: run.style,
+        parentStyle: run.parentStyle,
         isSpace: false,
         boxStyle: run.boxStyle,
         boxOpen: run.boxOpen,
@@ -1122,6 +1255,7 @@ function flowWordsIntoLines(
           text: '-',
           width: hyphenWidth,
           style: lastWord.style,
+          parentStyle: lastWord.parentStyle,
           isSpace: false,
           // The visible hyphen continues the broken word, so it inherits the
           // word's clip/stroke-image declarer (else it paints transparent).
@@ -1153,10 +1287,11 @@ function flowWordsIntoLines(
     let wordLineHeight = getLineHeight(ctx, word.style, useBulletProbe);
     // Inline-block elements expand line height with their vertical padding+margin
     if (word.boxStyle && word.boxStyle.display === 'inline-block') {
-      const bs = word.boxStyle;
-      wordLineHeight = Math.max(wordLineHeight,
-        wordLineHeight + bs.paddingTop + bs.paddingBottom + bs.marginTop + bs.marginBottom
-        + bs.borderTopWidth + bs.borderBottomWidth);
+      // Clamped at 0: negative margins shrink the margin box, but the original
+      // `Math.max(h, h + extra)` never let them shrink the LINE, and nothing
+      // here is measuring a case that says they should.
+      const extra = inlineBlockExtra(word.boxStyle);
+      wordLineHeight += Math.max(0, extra.top + extra.bottom);
     }
 
     if (word.text === '\n') {
@@ -1203,9 +1338,13 @@ function flowWordsIntoLines(
         // Carry the run's clip/stroke-image declarer too, else a break-word
         // split drops it and a gradient/stroke fragment paints nothing (the
         // inherited transparent fill has no clip box to reveal).
+        // `parentStyle` rides along for the same reason: dropping it made a
+        // split `vertical-align` run measure its shift against the block
+        // instead of its real parent, 8px out on a narrow break-word line.
         type Cell = {
           ch: string;
           style: ResolvedStyle;
+          parentStyle?: ResolvedStyle;
           clipStyle?: ResolvedStyle;
           strokeImageStyle?: ResolvedStyle;
         };
@@ -1215,6 +1354,7 @@ function flowWordsIntoLines(
             cells.push({
               ch,
               style: words[j].style,
+              parentStyle: words[j].parentStyle,
               clipStyle: words[j].clipStyle,
               strokeImageStyle: words[j].strokeImageStyle,
             });
@@ -1249,6 +1389,7 @@ function flowWordsIntoLines(
               // word), so capturing it at the run start covers every push below.
               const clipStyle = cs[i].clipStyle;
               const strokeImageStyle = cs[i].strokeImageStyle;
+              const parentStyle = cs[i].parentStyle;
               applyFont(ctx, st);
               ctx.letterSpacing = formatLetterSpacing(st.letterSpacing);
               const lh = getLineHeight(ctx, st, useBulletProbe);
@@ -1261,7 +1402,7 @@ function flowWordsIntoLines(
                 if (chars && currentLine.totalWidth + candW > effWidth() &&
                     (currentLine.words.length > 0 || cur)) {
                   if (cur) {
-                    currentLine.words.push({ text: cur, width: curW, style: st, isSpace: false, clipStyle, strokeImageStyle });
+                    currentLine.words.push({ text: cur, width: curW, style: st, isSpace: false, parentStyle, clipStyle, strokeImageStyle });
                     currentLine.totalWidth += curW;
                     currentLine.lineHeight = Math.max(currentLine.lineHeight, lh);
                   }
@@ -1276,7 +1417,7 @@ function flowWordsIntoLines(
                 i++;
               }
               if (cur) {
-                currentLine.words.push({ text: cur, width: curW, style: st, isSpace: false, clipStyle, strokeImageStyle });
+                currentLine.words.push({ text: cur, width: curW, style: st, isSpace: false, parentStyle, clipStyle, strokeImageStyle });
                 currentLine.totalWidth += curW;
                 currentLine.lineHeight = Math.max(currentLine.lineHeight, lh);
                 afterHardBreak = false;
@@ -1655,7 +1796,9 @@ function layoutInlineContent(
   // only content is a SMALLER inline font sits on the strut baseline (lower in
   // the box), not centered in it. Seed each line's ascent/descent with the
   // block font's metrics so the baseline lands where the DOM puts it.
-  const strutMetrics = getFontMetrics(ctx, node.style);
+  // The block is the parent of any run with no inline ancestor, and the emit
+  // loop shadows `node` with the LayoutText it builds.
+  const blockStyle = node.style;
 
   let curY = y;
 
@@ -1666,7 +1809,6 @@ function layoutInlineContent(
       continue;
     }
 
-    const lineHeight = line.lineHeight;
     const isLastLine = lineIdx === lines.length - 1;
     const isFirstLine = lineIdx === 0;
 
@@ -1720,80 +1862,80 @@ function layoutInlineContent(
     // Inline background boxes and text are emitted after baseline computation
     // (below) so that emitInlineBox can use line-level metrics for alignment.
 
-    // Compute a single shared baseline for the entire line.
-    // Exclude sub/sup words — they sit above/below the baseline and
-    // shouldn't influence where the baseline is positioned. Seeded with the
-    // block strut (block font) so smaller-only lines align to the block
-    // baseline rather than centering in the taller strut line box.
-    let maxAscent = strutMetrics.ascent;
-    let maxDescent = strutMetrics.descent;
+    // The line box is the union of every box on it — strut, run, shifted run,
+    // inline-block — each carrying its own leading over its own line-height:
+    //   lineAscent = max(ascent - shift), lineDescent = max(descent + shift).
+    // One font, one line-height and no shift collapse that back to the plain
+    // half-leading every single-style line already had.
+    const strutBox = leadedBox(ctx, node.style, useBulletProbe);
+    let lineAscent = strutBox.ascent;
+    let lineDescent = strutBox.descent;
     for (const word of line.words) {
       if (word.text === '') continue;
-      // Off-baseline content (sub/sup/middle/lengths/...) does not establish
-      // the line's baseline position — only baseline-aligned content does.
-      if (isShiftedVAlign(word.style.verticalAlign)) continue;
-      const { ascent: a, descent: d } = getFontMetrics(ctx, word.style);
-      if (a > maxAscent) maxAscent = a;
-      if (d > maxDescent) maxDescent = d;
-    }
-    // If only off-baseline words on the line, use the first word's metrics
-    if (maxAscent === 0) {
-      for (const word of line.words) {
-        if (word.text === '') continue;
-        const { ascent, descent } = getFontMetrics(ctx, word.style);
-        maxAscent = ascent;
-        maxDescent = descent;
-        break;
+      // A wrapper element with no text of its own — `<span lh:3><span>x</span>`
+      // — never becomes a Word, but it is still a box on the line and still
+      // brings its own line-height. Its run children carry it as `parentStyle`,
+      // so take it from there, AT ITS OWN SHIFT: added unshifted, a wrapper
+      // that carries a vertical-align and direct text enters the union twice
+      // at two different places, and the line spans both (measured 60px where
+      // the DOM has 40). With the shift it is idempotent — a wrapper with
+      // direct text contributes the identical box through its own run.
+      if (word.parentStyle) {
+        const parentBox = leadedBox(ctx, word.parentStyle, useBulletProbe);
+        const parentShift = verticalAlignShift(
+          word.parentStyle.verticalAlign, ctx, word.parentStyle, blockStyle, useBulletProbe);
+        if (parentBox.ascent - parentShift > lineAscent) {
+          lineAscent = parentBox.ascent - parentShift;
+        }
+        if (parentBox.descent + parentShift > lineDescent) {
+          lineDescent = parentBox.descent + parentShift;
+        }
       }
+      const box = leadedBox(ctx, word.style, useBulletProbe);
+      // An inline-block joins the line as an ATOMIC box: its own content
+      // baseline with its margin box stacked around it. It takes the extra
+      // space, but no shift — the emit pass puts its content on the line
+      // baseline and does not honour vertical-align on it, so shifting the box
+      // here would grow the line one way while the paint went the other.
+      const atomic = word.boxStyle?.display === 'inline-block' ? word.boxStyle : null;
+      if (atomic) {
+        const extra = inlineBlockExtra(atomic);
+        box.ascent += extra.top;
+        box.descent += extra.bottom;
+      }
+      // A shift moves the box, not the line's baseline: positive is downward,
+      // so it lifts the box's demand on the ascent side and adds to the descent
+      // side. The parent-size fallback is the one the emit pass uses, so a line
+      // whose only content is shifted still sizes around it.
+      const shift = atomic ? 0 : verticalAlignShift(
+        word.style.verticalAlign, ctx, word.style,
+        word.parentStyle ?? blockStyle, useBulletProbe);
+      if (box.ascent - shift > lineAscent) lineAscent = box.ascent - shift;
+      if (box.descent + shift > lineDescent) lineDescent = box.descent + shift;
     }
-    // Center the text block (ascent + descent) within the lineHeight
-    const textBlockHeight = maxAscent + maxDescent;
-    let lineBaselineY = curY + (lineHeight - textBlockHeight) / 2 + maxAscent;
-
-    // Parent font size for vertical-align positioning (used in expansion + text
-    // emit) — the largest baseline-aligned font on the line.
-    const lineNormalWords = line.words.filter(w =>
-      w.text !== '' && !isShiftedVAlign(w.style.verticalAlign));
-    const parentFontSize = lineNormalWords.length > 0
-      ? Math.max(...lineNormalWords.map(w => w.style.fontSize)) : 0;
-
-    // Expand line height if vertically-shifted content extends beyond the line
-    // box. Browsers grow the line box to fit all content, but keep the normal
-    // text baseline position unchanged.
-    let lineTop = curY;
-    let lineBottom = curY + lineHeight;
-    for (const word of line.words) {
-      if (word.text === '') continue;
-      const va = word.style.verticalAlign;
-      if (!isShiftedVAlign(va)) continue;
-      if (parentFontSize === 0) break;
-
-      const { ascent: wAscent, descent: wDescent } = getFontMetrics(ctx, word.style);
-      const shiftedBaseline = lineBaselineY +
-        verticalAlignShift(va, wAscent, wDescent, parentFontSize, maxAscent, maxDescent, lineHeight);
-
-      const wordTop = shiftedBaseline - wAscent;
-      const wordBottom = shiftedBaseline + wDescent;
-      if (wordTop < lineTop) lineTop = wordTop;
-      if (wordBottom > lineBottom) lineBottom = wordBottom;
-    }
-    const effectiveLineHeight = lineBottom - lineTop;
+    const lineBoxHeight = lineAscent + lineDescent;
+    const lineBaselineY = curY + lineAscent;
 
     // Emit inline background box using line-level baseline for vertical alignment.
     // Uses the line's ascent/descent (not the box's own font) so box aligns with text.
     const emitInlineBox = (style: ResolvedStyle, bx: number, bw: number) => {
-      // Use the box's OWN font for height (not the line's largest font),
-      // but align vertically to the line's baseline.
-      const { ascent: boxAscent, descent: boxDescent } = getFontMetrics(ctx, style);
+      // The box's OWN font decides its height, not the line's largest. An
+      // inline-block's content box is its LINE-HEIGHT, though, not the bare
+      // font metrics — measured against Chrome, bare metrics put it at
+      // y=6 h=29 where the DOM has y=4 h=33.2.
+      const { ascent: boxAscent, descent: boxDescent } =
+        style.display === 'inline-block'
+          ? leadedBox(ctx, style, useBulletProbe)
+          : getFontMetrics(ctx, style);
       const padTop = style.paddingTop + style.borderTopWidth;
       const padBottom = style.paddingBottom + style.borderBottomWidth;
       const boxHeight = boxAscent + boxDescent + padTop + padBottom;
-      let boxY: number;
-      if (style.display === 'inline-block') {
-        boxY = curY + style.marginTop;
-      } else {
-        boxY = lineBaselineY - boxAscent - padTop;
-      }
+      // Every inline box hangs off the line's baseline, an inline-block too:
+      // its content is emitted on that baseline, so a box pinned to the line
+      // TOP instead detached from its own glyphs as soon as something taller
+      // shared the line — measured, a background at y 4..33 around text whose
+      // baseline was 46.
+      const boxY = lineBaselineY - boxAscent - padTop;
       results.push({
         type: 'box', style, x: bx, y: boxY, width: bw, height: boxHeight,
         tagName: 'span', children: [],
@@ -1987,9 +2129,8 @@ function layoutInlineContent(
           let baselineY = lineBaselineY;
           const va = word.style.verticalAlign;
           if (isShiftedVAlign(va)) {
-            const pfs = parentFontSize || word.style.fontSize;
-            const { ascent: wA, descent: wD } = getFontMetrics(ctx, word.style);
-            baselineY += verticalAlignShift(va, wA, wD, pfs, maxAscent, maxDescent, lineHeight);
+            baselineY += verticalAlignShift(
+              va, ctx, word.style, word.parentStyle ?? blockStyle, useBulletProbe);
           }
           const effectiveWidth = word.width + (word.isSpace ? justifyExtraPerSpace : 0);
 
@@ -2025,15 +2166,16 @@ function layoutInlineContent(
       text: line.words.map(w => w.text).join(''),
       bounds: {
         x: lineLeftX,
-        // Use the actual visual top (may be < curY when a super pushes the
-        // line box upward) so the rect covers ascenders/super content.
-        y: lineTop,
+        // The line box starts at curY: shifted content grew the box through
+        // `lineAscent`/`lineDescent` above, so nothing on the line reaches
+        // outside it.
+        y: curY,
         width: lineWidth,
-        height: effectiveLineHeight,
+        height: lineBoxHeight,
       },
     });
 
-    curY += effectiveLineHeight;
+    curY += lineBoxHeight;
   }
 
   assignInlineFragmentBoxes(ctx, results, clipRuns, (node, s, box) => {
@@ -2458,9 +2600,10 @@ function addListMarker(
   const markerStyleObj: ResolvedStyle = ms ? { ...style, ...ms } : style;
 
   ctx.font = buildCanvasFont(markerStyleObj);
-  const lineHeight = getLineHeight(ctx, style);
-  const baselineY = box.y + style.borderTopWidth + style.paddingTop +
-    computeBaselineY(ctx, style, lineHeight);
+  // ascent + descent is the li's line-height by construction, so one call
+  // gives both the marker's baseline and the box it reports.
+  const strut = leadedBox(ctx, style);
+  const baselineY = box.y + style.borderTopWidth + style.paddingTop + strut.ascent;
 
   const markerWidth = cachedMeasureWidth(ctx, node.listMarker);
   const isRTL = style.direction === 'rtl';
@@ -2560,7 +2703,7 @@ function addListMarker(
       x: markerLeftX,
       y: box.y + style.borderTopWidth + style.paddingTop,
       width: markerDrawWidth,
-      height: lineHeight,
+      height: strut.ascent + strut.descent,
     },
   });
 }

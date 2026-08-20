@@ -18,16 +18,10 @@ import { describe, it, expect } from 'vitest';
 import { layout } from '../src/index.ts';
 import type { LayoutNode, LayoutText } from '../src/types.ts';
 import { compareRenders } from './helpers/compare.ts';
+import { collectTexts } from './helpers/layout-tree.ts';
 
 const FONT = 'Arial, sans-serif';
 const TOL = 2.5;
-
-function collectTexts(node: LayoutNode): LayoutText[] {
-  if (node.type === 'text') return [node];
-  const out: LayoutText[] = [];
-  for (const c of node.children) out.push(...collectTexts(c));
-  return out;
-}
 
 function measureDomFirstChar(
   html: string,

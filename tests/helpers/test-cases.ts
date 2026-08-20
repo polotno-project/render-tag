@@ -19,14 +19,34 @@ const MULTI_FONT_CSS_URL =
 let _openSansCss: string | undefined;
 let _multiFontCss: string | undefined;
 
-async function getOpenSansCss(): Promise<string> {
-  if (_openSansCss) return _openSansCss;
+/**
+ * The corpus is measured against webfonts, so a run that cannot fetch them is
+ * not a run with a slightly different font — it is a run whose every score is
+ * meaningless. This used to swap in `src: local('Open Sans')`, which resolves
+ * to whatever the machine happens to have (usually nothing), and the suite
+ * carried on recording numbers for a fallback face. Fail instead.
+ */
+async function fetchFontCss(url: string, what: string): Promise<string> {
+  let css: string;
   try {
-    const resp = await fetch(OPEN_SANS_CSS_URL);
-    _openSansCss = await resp.text();
-  } catch {
-    _openSansCss = `@font-face { font-family: 'Open Sans'; font-weight: 400; src: local('Open Sans'); }`;
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    css = await resp.text();
+  } catch (err) {
+    throw new Error(
+      `Cannot fetch the ${what} CSS (${url}): ${err}. The corpus scores are ` +
+      `only meaningful with these faces loaded — fix the network, or vendor ` +
+      `the font files, before running or regenerating baselines.`,
+    );
   }
+  if (!css.includes('@font-face')) {
+    throw new Error(`The ${what} CSS carries no @font-face rule: ${css.slice(0, 200)}`);
+  }
+  return css;
+}
+
+async function getOpenSansCss(): Promise<string> {
+  if (!_openSansCss) _openSansCss = await fetchFontCss(OPEN_SANS_CSS_URL, 'Open Sans');
   return _openSansCss;
 }
 
@@ -44,15 +64,7 @@ export async function loadMultiFontCss(): Promise<string> {
 }
 
 async function getMultiFontCss(): Promise<string> {
-  if (_multiFontCss) return _multiFontCss;
-  try {
-    const resp = await fetch(MULTI_FONT_CSS_URL);
-    _multiFontCss = await resp.text();
-  } catch {
-    _multiFontCss = ['Playfair Display', 'Inconsolata', 'Lobster', 'Merriweather', 'Roboto']
-      .map(f => `@font-face { font-family: '${f}'; font-weight: 400; src: local('${f}'); }`)
-      .join('\n');
-  }
+  if (!_multiFontCss) _multiFontCss = await fetchFontCss(MULTI_FONT_CSS_URL, 'multi-font matrix');
   return _multiFontCss;
 }
 

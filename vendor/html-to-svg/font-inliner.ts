@@ -116,13 +116,13 @@ function extractFontUrls(css: string, codepoints?: Set<number>): string[] {
 
 /**
  * Fetch a single font URL and return it as a base64 data URI.
- * On failure, returns the original URL unchanged (graceful degradation).
+ * Throws on failure — see the catch below for why this copy does not degrade.
  */
 async function fetchFontAsDataUri(url: string): Promise<string> {
   try {
     const response = await fetch(url);
     if (!response.ok) {
-      return url;
+      throw new Error(`HTTP ${response.status}`);
     }
 
     const mime = response.headers.get('Content-Type') || 'font/woff2';
@@ -136,8 +136,18 @@ async function fetchFontAsDataUri(url: string): Promise<string> {
     const base64 = btoa(binary);
 
     return `data:${mime};base64,${base64}`;
-  } catch {
-    return url;
+  } catch (err) {
+    // DIVERGES FROM UPSTREAM ON PURPOSE. Upstream returns the bare URL so a
+    // production render degrades instead of failing. Here the render IS the
+    // test oracle: an un-inlined URL cannot load inside an SVG data: image, so
+    // the reference silently paints a fallback face while the canvas paints the
+    // real one, and every score in that run is noise. Under Google Fonts
+    // throttling that turned one case from 5.9% to 27.7% between sessions and
+    // poisoned the recorded baselines. Fail loudly instead.
+    throw new Error(
+      `html-to-svg: cannot inline the font at ${url} (${err}). The reference ` +
+      `render would fall back to a system face and every score would be noise.`,
+    );
   }
 }
 
@@ -148,7 +158,13 @@ async function fetchFontAsDataUri(url: string): Promise<string> {
 function getCachedDataUri(url: string): Promise<string> {
   let cached = fontCache.get(url);
   if (!cached) {
-    cached = fetchFontAsDataUri(url);
+    // Drop a rejected promise: now that a failed fetch throws, caching the
+    // rejection would fail every later render with one stale error and never
+    // retry — one throttled response would condemn the whole run.
+    cached = fetchFontAsDataUri(url).catch((err) => {
+      fontCache.delete(url);
+      throw err;
+    });
     fontCache.set(url, cached);
   }
   return cached;

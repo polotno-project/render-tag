@@ -49,6 +49,33 @@ When touching this area, run all of them plus `decoration-propagation`,
 
 ## Testing workflow
 
+### The corpus needs its webfonts, and now says so
+
+Every score compares a canvas render against `vendor/html-to-svg`, and both
+sides need the same face. A missing face is not "a slightly different font" — it
+scores a fallback against the real thing, which moved one case between 5.9% and
+27.7% across sessions and silently poisoned recorded baselines. Three paths used
+to swallow that; all three now throw:
+
+- `tests/helpers/test-cases.ts` fetches the Google Fonts CSS (no more falling
+  back to `src: local(...)`),
+- `tests/helpers/compare.ts` checks that each injected family actually resolves,
+- `vendor/html-to-svg/font-inliner.ts` refuses to leave a font URL un-inlined —
+  a deliberate divergence from upstream, marked in the file, because an
+  un-inlined URL cannot load inside an SVG `data:` image.
+
+So the suite needs fonts.googleapis.com and fonts.gstatic.com. Under throttling
+it now fails loudly instead of recording noise. Vendoring the woff2 files would
+remove the dependency and is the durable fix.
+
+Text the declared families do not cover — CJK, emoji, Arabic in a Latin-only
+face — is painted from a SYSTEM fallback that no `@font-face` wait can reach.
+Safari resolves those lazily, so the reference and the canvas could catch a
+different face: two consecutive generator runs disagreed on 7 of 530 cases, and
+the gate's 0.01 threshold turned that into an intermittent red. `compareRenders`
+now does one throwaway DOM render to warm the fallbacks before the pair it
+measures, which took the run-to-run difference to 0 of 530.
+
 ### Running tests
 ```bash
 npm test                                      # baseline pixel/wrap tests (vitest + Chromium)
@@ -147,6 +174,54 @@ configs.
 - First child margin-top collapses through parent: **only for `li`/`ul`/`ol`/`dd`/`dt`** (not general divs — html-to-svg reference prevents this)
 - Last child margin-bottom: included in parent height when parent has padding/border (can't collapse through)
 - Last child margin-bottom: passed as `marginBottomOut` when it CAN collapse through
+
+### Line boxes and the baseline (`lineBaselineOffset`, `layoutInlineContent`)
+A line box is the union of EVERY box on the line — the block strut, each run,
+each `vertical-align`-shifted run, each inline-block. Each box brings its own
+line-height and its own half-leading; the line takes `max(ascent - shift)` and
+`max(descent + shift)`. So a line carrying a second font, a second size or a
+shifted box stands taller than the largest line-height on it, and its baseline
+sits deeper than the strut alone would put it. Do not collapse this back to one
+leading over the line's max metrics — that was the old rule, and it was wrong on
+every mixed line.
+
+Three of the numbers involved are the ENGINE's, not ours, and each was measured
+off the DOM rather than guessed (`FLOORS_LINE_BASELINE` picks by user agent):
+
+| | Blink | WebKit | Gecko |
+| --- | --- | --- | --- |
+| half-leading + ascent | floored to a whole px | exact | exact |
+| `vertical-align: super` | `fontSize / 3 + 1` | `fontSize / 3 + 1` | `0.34 × fontSize` |
+| `vertical-align: sub` | `fontSize / 5 + 1` | `fontSize / 5 + 1` | `0.2 × fontSize` |
+
+The two questions are separate, and WebKit answers them differently: it rounds
+like nobody and shifts like Blink, so `FLOORS_LINE_BASELINE` and
+`BLINK_SUPER_SUB` are two flags, not one. Only Blink floors — over the whole
+530-case corpus, giving Safari the floor cost 214 wins against 223 losses
+(7.50% -> 9.21%) where the exact value wins 48 against 3 (7.50% -> 6.52%).
+
+The super/sub rules fit 8-56px across sans-serif/serif/monospace to within
+0.06px, and no engine reads the font's own metrics — the family does not move
+the number.
+
+Safari still cannot assert DOM parity: its canvas metrics disagree with its own
+layout metrics (30px/1 lands at 25.59375 in the DOM against 25.5 from the
+canvas), so no rule stated in canvas terms can reach it. The exact value is the
+closest branch, not a match, which is why the baseline parity suite asserts
+against the DOM only in Chrome and Firefox.
+
+Detecting the engine is UA-only (`accuracy: 'performance'` promises no DOM
+probe): Gecko is the one that sends a real `Gecko/<date>` token, Blink the one
+that says `Chrome/` — matched with NO word boundary, because headless Chrome
+says `HeadlessChrome/`. Safari sends neither.
+
+`vertical-align: text-top` / `text-bottom` align the box's LEADED edge with the
+parent's CONTENT-area edge (bare ascent/descent, no leading). Mixing those two
+up is worth 25px on a line carrying both.
+
+Parity tests: `tests/line-baseline-parity.test.ts` (baseline vs the DOM) and
+`tests/line-box-parity.test.ts` (line box height vs the DOM), both in `npm test`,
+both asserting against the browser's own numbers rather than a constant.
 
 ### Text measurement
 - Use cumulative `measureText` within a font run to avoid rounding accumulation
