@@ -1,4 +1,5 @@
-import { compareRenders, compareWrapping, extractDomLines } from '../tests/helpers/compare.ts';
+import { compareWrapping, extractDomLines } from '../tests/helpers/compare.ts';
+import { compareSvgRenders } from '../tests/helpers/svg-compare.ts';
 import { loadBasicCases, polotnoCase, polotnoListsCase, FONT_VARIANTS, loadMultiFontCss } from '../tests/helpers/test-cases.ts';
 import type { BenchmarkCase } from '../tests/helpers/test-cases.ts';
 import { layout } from '../src/index.ts';
@@ -231,7 +232,7 @@ let allCases: BenchmarkCase[] = [];
 
 async function showDetail(tc: BenchmarkCase, fontFamily: string, container: HTMLElement) {
   const variant = withFont(tc, fontFamily);
-  const result = await compareRenders(variant.html, variant.css, variant.width, variant.height, 0.1, PIXEL_RATIO);
+  const result = await compareSvgRenders(variant.html, variant.css, variant.width, variant.height, 0.1, PIXEL_RATIO);
   const pct = result.contentMismatchPercentage;
   const wrap = await compareWrapping(variant.html, variant.css, variant.width, variant.height, result.canvasLines);
   const filled = (result.contentPixels / result.totalPixels * 100).toFixed(0);
@@ -662,7 +663,7 @@ async function main() {
       const tc = allCases[ti];
       const variant = withFont(tc, fonts[fi].family);
       try {
-        const result = await compareRenders(variant.html, variant.css, variant.width, variant.height, 0.1, PIXEL_RATIO);
+        const result = await compareSvgRenders(variant.html, variant.css, variant.width, variant.height, 0.1, PIXEL_RATIO);
         const wrap = await compareWrapping(variant.html, variant.css, variant.width, variant.height, result.canvasLines);
         const wrappingFail = !wrap.wrappingMatch;
         grid[ti][fi] = { mismatch: result.contentMismatchPercentage, wrappingFail };

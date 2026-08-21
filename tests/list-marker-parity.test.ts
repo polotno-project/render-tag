@@ -5,8 +5,8 @@
  * (native ::marker) for canonical <ul>/<ol> HTML, across fonts and sizes —
  * the same canvas-vs-DOM screenshot discipline used for underline/strikethrough.
  *
- * Method: compareRenders renders the SAME html+css through both the foreignObject
- * DOM (ground truth, native markers) and render-tag's canvas. To judge the MARKER
+ * Method: compareRenders renders the SAME html+css through both an independent
+ * native browser page (ground truth, native markers) and render-tag's canvas. To judge the MARKER
  * (not the line), we split each render at the list gutter and measure ink bboxes:
  *   - text bbox  (x >= gutter): "Header" — its shift = line-placement error
  *                                (line-height/baseline; a SEPARATE concern).
@@ -19,15 +19,11 @@
  */
 import { describe, it } from 'vitest';
 import { commands } from 'vitest/browser';
-import { compareRenders } from './helpers/compare.ts';
+import { compareNativeRenders as compareRenders } from './helpers/native-compare.ts';
 import { loadMultiFontCss } from './helpers/test-cases.ts';
 
 const PR = 2;
-
-const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
-const isFirefox = ua.includes('Firefox');
-const isWebKit = ua.includes('AppleWebKit') && !ua.includes('Chrome');
-const browserName = isFirefox ? 'firefox' : isWebKit ? 'webkit' : 'chrome';
+import { browserName } from './helpers/browser-name.ts';
 
 // Canonical native-marker reset — mirrors @polotno/core wrapHtmlForRenderTag.
 const RESET = `<style>
@@ -173,8 +169,9 @@ describe('list-marker parity (canvas vs native DOM)', () => {
       <h1>List-marker parity: render-tag vs native Chrome DOM (${browserName})</h1>
       <p>Sorted worst-first by |marker Δ| <b>relative to its line</b> (line shift factored out).</p>
       ${sorted.map(cell).join('')}`;
-    const abs = await commands.saveWrapReport(`./tests/list-marker-report.${browserName}.html`, report);
-    await commands.saveWrapReport(`./tests/list-marker-table.${browserName}.txt`, table);
-    console.log('Report written:', abs);
+    const reportPath = `./tests/list-marker-report.${browserName}.html`;
+    await commands.writeFile(reportPath, report);
+    await commands.writeFile(`./tests/list-marker-table.${browserName}.txt`, table);
+    console.log('Report written:', reportPath);
   });
 });

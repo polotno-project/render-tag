@@ -8,10 +8,7 @@ import {
 import type { BenchmarkCase } from './helpers/test-cases.ts';
 
 // ─── Browser detection ──────────────────────────────────────────────────
-const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
-const isFirefox = ua.includes('Firefox');
-const isWebKit = ua.includes('AppleWebKit') && !ua.includes('Chrome');
-const browserName = isFirefox ? 'firefox' : isWebKit ? 'webkit' : 'chrome';
+import { browserName } from './helpers/browser-name.ts';
 
 // ─── Config ──────────────────────────────────────────────────────────────
 // This runs in the browser context, where process.env is NOT populated — so
@@ -213,11 +210,9 @@ describe('Wrap debug matrix', () => {
       null,
       2,
     );
-    const { commands } = await import('@vitest/browser/context');
-    const out = await (commands as any).saveWrapReport(
-      `tests/wrap-report.${browserName}.json`,
-      report,
-    );
+    const { commands } = await import('vitest/browser');
+    const out = `tests/wrap-report.${browserName}.json`;
+    await commands.writeFile(out, report);
     console.log(`Report written to ${out}`);
 
     // This is a DEBUG harness — it never fails the run, just reports.

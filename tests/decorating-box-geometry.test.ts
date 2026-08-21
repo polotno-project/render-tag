@@ -17,7 +17,7 @@
  * step with the text metrics, and a step is caught wherever it falls.
  */
 import { describe, it, expect } from 'vitest';
-import { compareRenders } from './helpers/compare.ts';
+import { compareNativeRenders as compareRenders } from './helpers/native-compare.ts';
 import { loadMultiFontCss } from './helpers/test-cases.ts';
 import {
   type Column,

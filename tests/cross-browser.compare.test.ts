@@ -6,14 +6,17 @@
  *   npm run test:cross-browser:webkit
  */
 import { describe, it, expect } from 'vitest';
-import { renderToCanvas } from './helpers/compare.ts';
+import { commands } from 'vitest/browser';
+import { prepareComparisonFonts, renderToCanvas } from './helpers/compare.ts';
+import {
+  compareLineMembership,
+  normalizeLineText,
+} from './helpers/wrap-comparison.ts';
 import { loadBasicCases, polotnoCase, polotnoListsCase, FONT_VARIANTS, loadMultiFontCss } from './helpers/test-cases.ts';
+import { gateResidualBaseline } from './helpers/baselines.ts';
 import reference from './cross-browser-reference.json';
-
-const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
-const isFirefox = ua.includes('Firefox');
-const isWebKit = ua.includes('AppleWebKit') && !ua.includes('Chrome');
-const browserName = isFirefox ? 'firefox' : isWebKit ? 'webkit' : 'chrome';
+import residualBaseline from './cross-browser-baseline.json';
+import { browserName } from './helpers/browser-name.ts';
 
 interface ReferenceLine {
   y: number;
@@ -30,20 +33,20 @@ function baselineKey(caseName: string, fontName?: string): string {
   return fontName ? `${caseName}@${fontName}` : caseName;
 }
 
-/** Normalize text for comparison: collapse whitespace, strip list markers. */
-function normalize(s: string): string {
-  let n = s.replace(/\s+/g, '');
-  n = n.replace(/[•○■▪▸▹◦]/g, '');
-  n = n.replace(/(?:^|\b)(\d+)\./g, '');
-  n = n.replace(/-$/, '');
-  return n.split('').sort().join('');
-}
-
 interface CaseResult {
   key: string;
   status: 'match' | 'line-count-mismatch' | 'text-mismatch' | 'y-drift' | 'no-reference';
   detail?: string;
   maxYDrift?: number;
+}
+
+function signatureHash(value: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index++) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
 }
 
 function compareLinesAgainstReference(
@@ -53,8 +56,9 @@ function compareLinesAgainstReference(
   const ref = refMap[key];
   if (!ref) return { key, status: 'no-reference' };
 
-  const chromeLines = ref.lines.filter(l => normalize(l.text).length > 0);
-  const browserLines = currentLines.filter(l => normalize(l.text).length > 0);
+  const chromeLines = ref.lines.filter(l => normalizeLineText(l.text).length > 0);
+  const browserLines = currentLines.filter(l => normalizeLineText(l.text).length > 0);
+  const membership = compareLineMembership(browserLines, chromeLines);
 
   // Line count mismatch
   if (chromeLines.length !== browserLines.length) {
@@ -64,23 +68,12 @@ function compareLinesAgainstReference(
 
   // Compare text content per line
   let maxYDrift = 0;
-  const textMismatches: string[] = [];
+  const textMismatches = membership.differentLines.map(({ lineIndex, canvas, dom }) =>
+    `line ${lineIndex}: chrome="${dom.substring(0, 40)}" ` +
+    `${browserName}="${canvas.substring(0, 40)}"`,
+  );
 
   for (let i = 0; i < chromeLines.length; i++) {
-    const chromeNorm = normalize(chromeLines[i].text);
-    const browserNorm = normalize(browserLines[i].text);
-
-    // Check cumulative character drift (same logic as compareWrapping)
-    if (chromeNorm !== browserNorm) {
-      const drift = Math.abs(chromeNorm.length - browserNorm.length);
-      const lineLen = Math.max(chromeNorm.length, browserNorm.length, 1);
-      if (drift > Math.max(lineLen * 0.1, 2)) {
-        const chromePreview = chromeLines[i].text.substring(0, 40);
-        const browserPreview = browserLines[i].text.substring(0, 40);
-        textMismatches.push(`line ${i}: chrome="${chromePreview}" ${browserName}="${browserPreview}"`);
-      }
-    }
-
     // Track Y position drift
     const yDiff = Math.abs(chromeLines[i].y - browserLines[i].y);
     if (yDiff > maxYDrift) maxYDrift = yDiff;
@@ -90,7 +83,7 @@ function compareLinesAgainstReference(
     return { key, status: 'text-mismatch', detail: textMismatches.join('\n    '), maxYDrift };
   }
 
-  if (maxYDrift > 5) {
+  if (maxYDrift > 0) {
     return { key, status: 'y-drift', maxYDrift };
   }
 
@@ -106,6 +99,7 @@ describe(`Cross-browser consistency: ${browserName} vs chrome`, () => {
     const defaultCases = [...allCases, polotnoCase, polotnoListsCase];
     for (const tc of defaultCases) {
       const key = baselineKey(tc.name);
+      await prepareComparisonFonts(tc.html, tc.css);
       const { lines } = renderToCanvas(tc.html, tc.css, tc.width, tc.height);
       const result = compareLinesAgainstReference(key, lines);
       results.push(result);
@@ -117,6 +111,7 @@ describe(`Cross-browser consistency: ${browserName} vs chrome`, () => {
       for (const tc of allCases) {
         const css = multiFontCss + '\n' + tc.css + `\nbody { font-family: ${font.family} !important; }`;
         const key = baselineKey(tc.name, font.name);
+        await prepareComparisonFonts(tc.html, css);
         const { lines } = renderToCanvas(tc.html, css, tc.width, tc.height);
         const result = compareLinesAgainstReference(key, lines);
         results.push(result);
@@ -177,7 +172,31 @@ describe(`Cross-browser consistency: ${browserName} vs chrome`, () => {
       console.log(`WARNING: ${noRef.length} cases have no Chrome reference. Run: npm run test:cross-browser:record`);
     }
 
-    // Don't fail — this is a diagnostic report
-    expect(true).toBe(true);
+    const signatures = results
+      // Y positions are already checked against each engine's native DOM by
+      // the pixel baselines. This lane gates cross-engine line membership;
+      // engine-specific baseline branches intentionally move some baselines.
+      .filter((result) =>
+        result.status !== 'match' && result.status !== 'y-drift',
+      )
+      .map((result) =>
+        `${result.key}|${result.status}|` +
+        signatureHash(`${result.detail || ''}|y=${result.maxYDrift ?? 0}`),
+      )
+      .sort();
+    const expected = await gateResidualBaseline({
+      file: './tests/cross-browser-baseline.json',
+      browserName,
+      signatures,
+      recorded: residualBaseline as Record<string, string[]>,
+      updateMode: import.meta.env.MODE === 'update-cross-browser',
+      writeFile: commands.writeFile,
+    });
+    if (expected === null) return;
+    expect(
+      signatures,
+      'Cross-browser residuals changed. Fix the cause or deliberately update ' +
+      'tests/cross-browser-baseline.json.',
+    ).toEqual(expected);
   }, 300000);
 });

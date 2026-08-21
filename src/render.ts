@@ -469,8 +469,8 @@ function renderText(
       } else if (deco.line === 'line-through') {
         // Chrome positions the strike from the font's OS/2 strikeout metric,
         // which canvas can't read. 0.33em above the baseline is the closest
-        // single-formula fit (tuned against the DOM raster sweep; ±1px for
-        // most fonts, ±2px worst case).
+        // single-formula fit (tuned against the native DOM raster sweep; ±1px
+        // for most fonts, 3px worst case for Lobster at 64px).
         paintBand(node.y - style.fontSize * 0.33);
       } else if (deco.line === 'overline') {
         // Chrome hangs the overline band above the ascent line: its bottom

@@ -4,7 +4,7 @@ export { extractStyleTags } from './css-extractor.js';
 export { htmlToImage, clearImageCache } from './render-cache.js';
 
 import { LRUCache } from './lru-cache.js';
-import { inlineFontsInCss, normalizeFontWeights } from './font-inliner.js';
+import { inlineFontsInCss } from './font-inliner.js';
 import { htmlToXhtml } from './xhtml.js';
 import { buildSvg } from './svg-builder.js';
 import { extractStyleTags } from './css-extractor.js';
@@ -63,9 +63,8 @@ async function htmlToSvgUncached({ html, css = '', width, height, pixelRatio = 1
 
   const codepoints = collectCodepoints(extracted.html);
   const inlinedCss = await inlineFontsInCss(combinedCss, codepoints);
-  const normalizedCss = normalizeFontWeights(inlinedCss);
   const xhtml = htmlToXhtml(extracted.html);
-  return buildSvg({ xhtml, css: normalizedCss, width, height, pixelRatio });
+  return buildSvg({ xhtml, css: inlinedCss, width, height, pixelRatio });
 }
 
 /**

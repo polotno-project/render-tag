@@ -23,11 +23,7 @@ import baseline from './wrap-fuzz-baseline.json';
  *
  * Run alone: npx vitest run tests/wrap-fuzz.test.ts. Tune NUM_CASES / SEED.
  */
-
-const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
-const isFirefox = ua.includes('Firefox');
-const isWebKit = ua.includes('AppleWebKit') && !ua.includes('Chrome');
-const browserName = isFirefox ? 'firefox' : isWebKit ? 'webkit' : 'chrome';
+import { browserName } from './helpers/browser-name.ts';
 
 // ─── Config ────────────────────────────────────────────────────────────────
 const NUM_CASES = 600;
@@ -221,8 +217,9 @@ describe('Wrap fuzz (generative differential)', () => {
       bySig: Object.fromEntries(sorted.map(([s, r]) => [s, r])),
       findings,
     }, null, 2);
-    const { commands } = await import('@vitest/browser/context');
-    const out = await (commands as any).saveWrapReport(`tests/wrap-report.fuzz-${browserName}.json`, report);
+    const { commands } = await import('vitest/browser');
+    const out = `tests/wrap-report.fuzz-${browserName}.json`;
+    await commands.writeFile(out, report);
     console.log(`\nReport written to ${out}`);
 
     // ─── Regression gate ───────────────────────────────────────────────────

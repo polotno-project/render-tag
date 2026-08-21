@@ -1,122 +1,74 @@
 import pixelmatch from 'pixelmatch';
-import { htmlToImage } from 'html-to-svg';
 import { render } from '../../src/index.ts';
+import {
+  compareLineMembership,
+  type LayoutComparisonResult,
+} from './wrap-comparison.ts';
 
-// ─── Canvas-based font loading detection ────────────────────────────────
+export type { LayoutComparisonResult } from './wrap-comparison.ts';
 
-const FONT_PROBE_TEXT = 'BESbswy 0123456789 Il1Ww';
-const FALLBACK_FONTS = ['sans-serif', 'serif', 'monospace'] as const;
-const FONT_POLL_INTERVAL = 50;
-const FONT_POLL_TIMEOUT = 5000;
+// Font faces are document-scoped. Keep each unique rule registered for the
+// browser test session so a pixel comparison and its following DOM wrap check
+// cannot observe different font sets.
+const registeredFontFaces = new Set<string>();
 
-let _measureCanvas: HTMLCanvasElement | null = null;
-function getMeasureCanvas(): CanvasRenderingContext2D {
-  if (!_measureCanvas) _measureCanvas = document.createElement('canvas');
-  return _measureCanvas.getContext('2d')!;
-}
+async function ensureFontsLoaded(css: string): Promise<void> {
+  const blocks = css.match(/@font-face\s*\{[^}]*\}/g) || [];
+  const newBlocks = blocks.filter((block) => !registeredFontFaces.has(block));
+  if (newBlocks.length === 0) return;
 
-function measureFontWidth(
-  fontFamily: string,
-  fallback: string,
-  weight: string,
-  style: string,
-): number {
-  const ctx = getMeasureCanvas();
-  ctx.font = `${style} ${weight} 40px '${fontFamily}', ${fallback}`;
-  return ctx.measureText(FONT_PROBE_TEXT).width;
-}
+  const existingFaces = new Set(document.fonts);
+  const style = document.createElement('style');
+  style.dataset.renderTagComparisonFonts = '';
+  style.textContent = newBlocks.join('\n');
+  document.head.appendChild(style);
 
-function measureFallbackWidth(
-  fallback: string,
-  weight: string,
-  style: string,
-): number {
-  const ctx = getMeasureCanvas();
-  ctx.font = `${style} ${weight} 40px ${fallback}`;
-  return ctx.measureText(FONT_PROBE_TEXT).width;
-}
+  // Force CSSOM registration before taking the FontFaceSet snapshot.
+  void style.sheet?.cssRules.length;
+  const addedFaces = [...document.fonts].filter((face) => !existingFaces.has(face));
 
-function isFontAvailable(
-  fontFamily: string,
-  weight = '400',
-  style = 'normal',
-): boolean {
-  return FALLBACK_FONTS.some((fallback) => {
-    const withFont = measureFontWidth(fontFamily, fallback, weight, style);
-    const withoutFont = measureFallbackWidth(fallback, weight, style);
-    return Math.abs(withFont - withoutFont) > 0.01;
-  });
-}
-
-async function waitForFont(
-  fontFamily: string,
-  weight = '400',
-  style = 'normal',
-): Promise<void> {
-  if (isFontAvailable(fontFamily, weight, style)) return;
-
-  // Try document.fonts.load first (fast path)
   try {
-    await document.fonts.load(`${style} ${weight} 16px '${fontFamily}'`);
-    if (isFontAvailable(fontFamily, weight, style)) return;
-  } catch {}
-
-  // Poll canvas metrics until font appears or timeout
-  const maxAttempts = FONT_POLL_TIMEOUT / FONT_POLL_INTERVAL;
-  for (let i = 0; i < maxAttempts; i++) {
-    await new Promise((r) => setTimeout(r, FONT_POLL_INTERVAL));
-    if (isFontAvailable(fontFamily, weight, style)) return;
+    await Promise.all(addedFaces.map((face) => face.load()));
+  } catch (error) {
+    style.remove();
+    throw new Error(`prepareComparisonFonts: a declared @font-face failed to load: ${error}`);
   }
+
+  const failed = addedFaces
+    .filter((face) => face.status !== 'loaded')
+    .map((face) => `${face.family} ${face.weight} ${face.style}`);
+  if (failed.length > 0) {
+    style.remove();
+    throw new Error(
+      `prepareComparisonFonts: @font-face never became available: ${failed.join(', ')}`,
+    );
+  }
+
+  for (const block of newBlocks) registeredFontFaces.add(block);
 }
 
-export interface ComparisonResult {
+export function prepareComparisonFonts(html: string, css: string): Promise<void> {
+  const inlineCss = (html.match(/<style[^>]*>([\s\S]*?)<\/style>/gi) || [])
+    .map((style) => style.replace(/<\/?style[^>]*>/gi, ''))
+    .join('\n');
+  return ensureFontsLoaded(`${css || ''}\n${inlineCss}`);
+}
+
+export interface PixelComparisonResult {
   mismatchedPixels: number;
   totalPixels: number;
   contentPixels: number;
   mismatchPercentage: number;
   contentMismatchPercentage: number;
-  domCanvas: HTMLCanvasElement;
-  libCanvas: HTMLCanvasElement;
-  diffCanvas: HTMLCanvasElement;
-  referenceTime: number;
-  canvasLibTime: number;
-  /** Text lines from the canvas layout (for wrapping comparison) */
-  canvasLines: { y: number; text: string }[];
+  /** Rendered on first access — diagnostic callers only. */
+  readonly diffCanvas: HTMLCanvasElement;
 }
 
-/**
- * Render HTML+CSS using html-to-svg (foreignObject-based, pixel-perfect with browser).
- */
-export async function renderToDOM(
-  html: string,
-  css: string,
-  width: number,
-  height: number,
-  pixelRatio = 1,
-): Promise<HTMLCanvasElement> {
-  const pixelWidth = Math.ceil(width * pixelRatio);
-  const pixelHeight = Math.ceil(height * pixelRatio);
-
-  // overflow:hidden creates a BFC, preventing first-child margin collapse.
-  // This ensures consistent rendering across Chrome and Firefox foreignObject.
-  const fullHTML = `<div style="margin:0;padding:0;overflow:hidden">${html}</div>`;
-  const fullCSS = `html, body { margin: 0; padding: 0; }\n${css || ''}`;
-
-  const img = await htmlToImage({
-    html: fullHTML,
-    css: fullCSS,
-    width,
-    height,
-    pixelRatio,
-  });
-
-  const canvas = document.createElement('canvas');
-  canvas.width = pixelWidth;
-  canvas.height = pixelHeight;
-  const ctx = canvas.getContext('2d')!;
-  ctx.drawImage(img, 0, 0, pixelWidth, pixelHeight);
-
-  return canvas;
+export interface ComparisonResult extends PixelComparisonResult {
+  domCanvas: HTMLCanvasElement;
+  libCanvas: HTMLCanvasElement;
+  /** Text lines from the canvas layout (for wrapping comparison) */
+  canvasLines: { y: number; text: string }[];
 }
 
 /**
@@ -167,9 +119,7 @@ export function extractDomLines(
   container.appendChild(content);
   document.body.appendChild(container);
 
-  // Caller must ensure fonts are loaded before calling.
-  // In the demo, all fonts are preloaded upfront.
-  // In tests, compareRenders handles font loading before rendering.
+  // Caller must ensure fonts are loaded first (prepareComparisonFonts).
 
   const cTop = content.getBoundingClientRect().top;
 
@@ -212,12 +162,10 @@ export function extractDomLines(
       // Strip invisible characters (soft hyphens, zero-width spaces) from display text
       const stripInvisible = (s: string) => s.replace(/[\u00AD\u200B]/g, '');
 
-      const hasShy = w.includes('\u00AD') || w.includes('\u200B');
-
       // For words with soft hyphens / zero-width spaces, getClientRects() may
       // return only 1 rect even when the word visually wraps. In that case,
       // scan character-by-character to detect line breaks by Y position.
-      const hasSoftBreaks = w.includes('\u00AD') || w.includes('\u200B');
+      const hasShy = w.includes('\u00AD') || w.includes('\u200B');
 
       if (hasShy) {
         // Char-by-char scan: group by Y position to find line breaks.
@@ -411,16 +359,10 @@ export function extractDomLines(
   });
 }
 
-export interface LayoutComparisonResult {
-  wrappingMatch: boolean;
-  canvasLineCount: number;
-  domLineCount: number;
-  differentLines: { lineIndex: number; canvas: string; dom: string }[];
-}
-
 /**
  * Compare text wrapping between our canvas layout and the DOM.
- * Normalizes whitespace — only flags when different words appear on different lines.
+ * Ignores paint-only order/marker differences, but requires every source glyph
+ * to stay on the same line. There is no character-drift allowance.
  *
  * @param canvasLines - Pre-computed canvas lines from render().lines.
  *   If not provided, runs render internally (may differ from displayed canvas
@@ -438,279 +380,155 @@ export function compareWrapping(
     render({ html: css ? `<style>${css}</style>${html}` : html, width, height })
       .lines;
   const rawDomLines = extractDomLines(html, css, width);
-
-  // Normalize: strip whitespace and list markers, sort characters.
-  // We only care that the same characters appear on the same line,
-  // not their order (RTL) or spacing differences.
-  // Strip whitespace, then remove list markers (bullet chars and "N." patterns).
-  // Use global replace since multi-column layouts put multiple list items on one line.
-  const normalize = (s: string) => {
-    let n = s.replace(/\s+/g, '');
-    // Remove bullet markers
-    n = n.replace(/[•○■▪▸▹◦]/g, '');
-    // Remove ordered list markers like "1." "2." "10." — but only when
-    // they appear as standalone markers (followed by text, not mid-number)
-    n = n.replace(/(?:^|\b)(\d+)\./g, '');
-    // Remove trailing hyphens — canvas adds visible '-' at soft-hyphen breaks
-    n = n.replace(/-$/, '');
-    return n.split('').sort().join('');
-  };
-
-  // Filter out empty lines (e.g. list markers without content)
-  const canvasLines = rawCanvasLines.filter(
-    (l) => normalize(l.text).length > 0,
-  );
-  const domLines = rawDomLines.filter((l) => normalize(l.text).length > 0);
-
-  // Different line count = definite wrapping failure
-  if (canvasLines.length !== domLines.length) {
-    const differentLines: LayoutComparisonResult['differentLines'] = [];
-    const maxLines = Math.max(canvasLines.length, domLines.length);
-    for (let i = 0; i < maxLines; i++) {
-      const cText = canvasLines[i]?.text || '';
-      const dText = domLines[i]?.text || '';
-      if (normalize(cText) !== normalize(dText)) {
-        differentLines.push({ lineIndex: i, canvas: cText, dom: dText });
-      }
-    }
-    return {
-      wrappingMatch: false,
-      canvasLineCount: canvasLines.length,
-      domLineCount: domLines.length,
-      differentLines,
-    };
-  }
-
-  // Same line count — check if break points shifted significantly.
-  // Compare cumulative character count at each line boundary.
-  // A few chars shifting at a break point is normal measureText imprecision.
-  // Only flag when >10% of a line's content moves between lines.
-  const differentLines: LayoutComparisonResult['differentLines'] = [];
-  let canvasCum = 0;
-  let domCum = 0;
-  for (let i = 0; i < canvasLines.length; i++) {
-    const cLen = normalize(canvasLines[i].text).length;
-    const dLen = normalize(domLines[i].text).length;
-    canvasCum += cLen;
-    domCum += dLen;
-    const drift = Math.abs(canvasCum - domCum);
-    const lineLen = Math.max(cLen, dLen, 1);
-    // Allow at least 2 chars drift — soft-hyphen and sub-pixel measurement
-    // differences can shift 1-2 characters between lines at break points.
-    if (drift > Math.max(lineLen * 0.1, 2)) {
-      differentLines.push({
-        lineIndex: i,
-        canvas: canvasLines[i].text,
-        dom: domLines[i].text,
-      });
-    }
-  }
-
-  return {
-    wrappingMatch: differentLines.length === 0,
-    canvasLineCount: canvasLines.length,
-    domLineCount: domLines.length,
-    differentLines,
-  };
+  return compareLineMembership(rawCanvasLines, rawDomLines);
 }
 
-/**
- * Pad an ImageData to target dimensions (filling with white).
- */
-function padImageData(
-  imageData: ImageData,
-  targetWidth: number,
-  targetHeight: number,
+function pixelsOnWhite(
+  canvas: HTMLCanvasElement,
+  width: number,
+  height: number,
 ): ImageData {
-  if (imageData.width === targetWidth && imageData.height === targetHeight) {
-    return imageData;
+  // Normalize through ImageData before drawing. Directly drawing a decoded PNG
+  // is color-managed differently in Firefox and changes byte-level baselines.
+  const sourcePixels = canvas.getContext('2d')!.getImageData(
+    0,
+    0,
+    canvas.width,
+    canvas.height,
+  );
+  const padded = new ImageData(width, height);
+  padded.data.fill(255);
+  for (let y = 0; y < Math.min(canvas.height, height); y++) {
+    const sourceStart = y * canvas.width * 4;
+    padded.data.set(
+      sourcePixels.data.subarray(sourceStart, sourceStart + Math.min(canvas.width, width) * 4),
+      y * width * 4,
+    );
+  }
+  const normalized = document.createElement('canvas');
+  normalized.width = width;
+  normalized.height = height;
+  normalized.getContext('2d')!.putImageData(padded, 0, 0);
+
+  const composited = document.createElement('canvas');
+  composited.width = width;
+  composited.height = height;
+  const context = composited.getContext('2d')!;
+  context.fillStyle = '#fff';
+  context.fillRect(0, 0, width, height);
+  context.drawImage(normalized, 0, 0);
+  return context.getImageData(0, 0, width, height);
+}
+
+/** Compare two canvases after putting transparent and missing pixels on white. */
+export function compareCanvasPixels(
+  reference: HTMLCanvasElement,
+  actual: HTMLCanvasElement,
+  threshold = 0.1,
+): PixelComparisonResult {
+  const width = Math.max(reference.width, actual.width);
+  const height = Math.max(reference.height, actual.height);
+  const referencePixels = pixelsOnWhite(reference, width, height);
+  const actualPixels = pixelsOnWhite(actual, width, height);
+  // No output buffer: pixelmatch writes a pixel for every UNCHANGED pixel too,
+  // which costs more than the comparison itself. The count is identical either
+  // way, so the diff image is rendered lazily for the few diagnostic callers.
+  const mismatchedPixels = pixelmatch(
+    referencePixels.data,
+    actualPixels.data,
+    null,
+    width,
+    height,
+    { threshold },
+  );
+  let contentPixels = 0;
+  for (let offset = 0; offset < referencePixels.data.length; offset += 4) {
+    const referenceIsWhite =
+      referencePixels.data[offset] === 255 &&
+      referencePixels.data[offset + 1] === 255 &&
+      referencePixels.data[offset + 2] === 255;
+    const actualIsWhite =
+      actualPixels.data[offset] === 255 &&
+      actualPixels.data[offset + 1] === 255 &&
+      actualPixels.data[offset + 2] === 255;
+    if (!referenceIsWhite || !actualIsWhite) contentPixels++;
   }
 
-  const padded = new ImageData(targetWidth, targetHeight);
-  // Fill with white
-  for (let i = 0; i < padded.data.length; i += 4) {
-    padded.data[i] = 255; // R
-    padded.data[i + 1] = 255; // G
-    padded.data[i + 2] = 255; // B
-    padded.data[i + 3] = 255; // A
-  }
-
-  // Copy original data
-  for (let y = 0; y < imageData.height && y < targetHeight; y++) {
-    for (let x = 0; x < imageData.width && x < targetWidth; x++) {
-      const srcIdx = (y * imageData.width + x) * 4;
-      const dstIdx = (y * targetWidth + x) * 4;
-      padded.data[dstIdx] = imageData.data[srcIdx];
-      padded.data[dstIdx + 1] = imageData.data[srcIdx + 1];
-      padded.data[dstIdx + 2] = imageData.data[srcIdx + 2];
-      padded.data[dstIdx + 3] = imageData.data[srcIdx + 3];
-    }
-  }
-
-  return padded;
+  const totalPixels = width * height;
+  return {
+    mismatchedPixels,
+    totalPixels,
+    contentPixels,
+    mismatchPercentage: (mismatchedPixels / totalPixels) * 100,
+    contentMismatchPercentage:
+      (mismatchedPixels / Math.max(contentPixels, 1)) * 100,
+    get diffCanvas() {
+      const diff = new ImageData(width, height);
+      pixelmatch(
+        referencePixels.data,
+        actualPixels.data,
+        diff.data,
+        width,
+        height,
+        { threshold },
+      );
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      canvas.getContext('2d')!.putImageData(diff, 0, 0);
+      return canvas;
+    },
+  };
 }
 
 /**
- * Compare rasterizeHTML rendering with our canvas rendering using pixelmatch.
+ * Compare a supplied reference renderer with render-tag using pixelmatch.
  */
-export async function compareRenders(
+export type ReferenceRenderer = (
+  html: string,
+  css: string,
+  width: number,
+  height: number,
+  pixelRatio?: number,
+) => Promise<HTMLCanvasElement>;
+
+export async function compareRendersWithReference(
   html: string,
   css: string,
   width: number,
   height: number,
   threshold = 0.1,
   pixelRatio = 1,
+  renderReference: ReferenceRenderer,
+  referenceWarmsInternally = false,
 ): Promise<ComparisonResult> {
-  // Pre-load any @font-face fonts before rendering.
-  // Check both the css parameter and inline <style> tags in html.
-  const allCSS =
-    (css || '') +
-    '\n' +
-    (html.match(/<style[^>]*>([\s\S]*?)<\/style>/gi) || [])
-      .map((s) => s.replace(/<\/?style[^>]*>/gi, ''))
-      .join('\n');
+  await prepareComparisonFonts(html, css);
 
-  let fontStyle: HTMLStyleElement | null = null;
-  if (allCSS.includes('@font-face')) {
-    const fontFaceBlocks = allCSS.match(/@font-face\s*\{[^}]*\}/g) || [];
-    if (fontFaceBlocks.length > 0) {
-      // Inject @font-face rules
-      fontStyle = document.createElement('style');
-      fontStyle.textContent = fontFaceBlocks.join('\n');
-      document.head.appendChild(fontStyle);
-
-      // Wait for each font variant using canvas-based detection
-      const waitPromises: Promise<void>[] = [];
-      const faces: { name: string; weight: string; style: string }[] = [];
-      const fontFaceRegex = /@font-face\s*\{([^}]*)\}/g;
-      let ffMatch;
-      while ((ffMatch = fontFaceRegex.exec(allCSS)) !== null) {
-        const block = ffMatch[1];
-        const familyMatch = block.match(/font-family:\s*['"]?([^;'"]+)/);
-        const weightMatch = block.match(/font-weight:\s*([^;]+)/);
-        const styleMatch = block.match(/font-style:\s*([^;]+)/);
-        if (familyMatch) {
-          const name = familyMatch[1].trim();
-          const weight = weightMatch ? weightMatch[1].trim() : '400';
-          const fStyle = styleMatch ? styleMatch[1].trim() : 'normal';
-          faces.push({ name, weight, style: fStyle });
-          waitPromises.push(waitForFont(name, weight, fStyle));
-        }
-      }
-      await Promise.all(waitPromises);
-
-      // `waitForFont` gives up quietly after its poll timeout, which used to
-      // leave the canvas drawing a fallback face against a reference that had
-      // the real one. A family that never resolves invalidates every pixel of
-      // the comparison, so say so instead of scoring it.
-      const unresolved = faces
-        .filter((f) => !isFontAvailable(f.name, f.weight, f.style))
-        .map((f) => `${f.name} ${f.weight} ${f.style}`);
-      if (unresolved.length > 0) {
-        throw new Error(
-          `compareRenders: @font-face never became available: ` +
-          `${unresolved.join(', ')}. The comparison would score a fallback ` +
-          `face against the real one.`,
-        );
-      }
-    }
+  // A reference renderer can resolve glyph paint lazily. One throwaway render
+  // down each path keeps the measurement independent of which path happened
+  // to paint first. Native screenshot commands warm internally.
+  if (!referenceWarmsInternally) {
+    await renderReference(html, css, width, height, pixelRatio);
   }
-
-  // Text the declared families do not cover (CJK, emoji, Arabic in a Latin-only
-  // face) is painted from a SYSTEM fallback that no @font-face wait covers.
-  // Both engines resolve those lazily, and the DOM reference and the canvas
-  // each warm their own: without this, Safari scored 7 of 530 cases
-  // differently run to run, and Firefox flipped one RTL case between 0% and
-  // 9.35%. One throwaway render down EACH path warms the fallbacks before the
-  // pair that is measured.
-  await renderToDOM(html, css, width, height, pixelRatio);
   renderToCanvas(html, css, width, height, pixelRatio);
 
-  const t0 = performance.now();
-  const domCanvas = await renderToDOM(html, css, width, height, pixelRatio);
-  const t1 = performance.now();
-  const libResult = renderToCanvas(html, css, width, height, pixelRatio);
-  const libCanvas = libResult.canvas;
-  const canvasLines = libResult.lines;
-  const t2 = performance.now();
-
-  // Clean up font style after both renders are done
-  if (fontStyle) fontStyle.remove();
-  const referenceTime = t1 - t0;
-  const canvasLibTime = t2 - t1;
-
-  // Get image data from both
-  const domCtx = domCanvas.getContext('2d')!;
-  const libCtx = libCanvas.getContext('2d')!;
-
-  // Use the larger dimensions
-  const w = Math.max(domCanvas.width, libCanvas.width);
-  const h = Math.max(domCanvas.height, libCanvas.height);
-
-  const domData = padImageData(
-    domCtx.getImageData(0, 0, domCanvas.width, domCanvas.height),
-    w,
-    h,
-  );
-  const libData = padImageData(
-    libCtx.getImageData(0, 0, libCanvas.width, libCanvas.height),
-    w,
-    h,
+  const domCanvas = await renderReference(html, css, width, height, pixelRatio);
+  const { canvas: libCanvas, lines: canvasLines } = renderToCanvas(
+    html,
+    css,
+    width,
+    height,
+    pixelRatio,
   );
 
-  const t3 = performance.now();
-  const diffData = new ImageData(w, h);
-  const mismatchedPixels = pixelmatch(
-    domData.data,
-    libData.data,
-    diffData.data,
-    w,
-    h,
-    { threshold },
+  // Object.defineProperties, not a spread: spreading would evaluate the lazy
+  // diffCanvas getter and re-introduce the per-case cost it exists to avoid.
+  return Object.defineProperties(
+    compareCanvasPixels(domCanvas, libCanvas, threshold) as ComparisonResult,
+    {
+      domCanvas: { value: domCanvas, enumerable: true },
+      libCanvas: { value: libCanvas, enumerable: true },
+      canvasLines: { value: canvasLines, enumerable: true },
+    },
   );
-  // Count content pixels: non-white in either image
-  let contentPixels = 0;
-  for (let i = 0; i < w * h; i++) {
-    const idx = i * 4;
-    const domIsWhite =
-      domData.data[idx] === 255 &&
-      domData.data[idx + 1] === 255 &&
-      domData.data[idx + 2] === 255 &&
-      domData.data[idx + 3] === 255;
-    const libIsWhite =
-      libData.data[idx] === 255 &&
-      libData.data[idx + 1] === 255 &&
-      libData.data[idx + 2] === 255 &&
-      libData.data[idx + 3] === 255;
-    // Also treat fully transparent as empty
-    const domIsEmpty = domIsWhite || domData.data[idx + 3] === 0;
-    const libIsEmpty = libIsWhite || libData.data[idx + 3] === 0;
-    if (!domIsEmpty || !libIsEmpty) {
-      contentPixels++;
-    }
-  }
-
-  // Create diff canvas
-  const diffCanvas = document.createElement('canvas');
-  diffCanvas.width = w;
-  diffCanvas.height = h;
-  diffCanvas.getContext('2d')!.putImageData(diffData, 0, 0);
-
-  const totalPixels = w * h;
-  // Use content pixels for mismatch %, with a floor to avoid division by zero
-  const effectiveContent = Math.max(contentPixels, 1);
-
-  return {
-    mismatchedPixels,
-    totalPixels,
-    contentPixels,
-    mismatchPercentage: (mismatchedPixels / totalPixels) * 100,
-    contentMismatchPercentage: (mismatchedPixels / effectiveContent) * 100,
-    domCanvas,
-    libCanvas,
-    diffCanvas,
-    referenceTime,
-    canvasLibTime,
-    canvasLines,
-  };
 }

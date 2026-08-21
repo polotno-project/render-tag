@@ -1,25 +1,21 @@
 import { describe, it, expect } from 'vitest';
-import { compareRenders, compareWrapping } from './helpers/compare.ts';
+import { compareWrapping } from './helpers/compare.ts';
+import { compareNativeRenders as compareRenders } from './helpers/native-compare.ts';
 import { loadBasicCases, polotnoCase, polotnoListsCase, negativeListMarginsCase, FONT_VARIANTS, loadMultiFontCss } from './helpers/test-cases.ts';
 import type { BenchmarkCase } from './helpers/test-cases.ts';
+import {
+  classifyBaselineResult,
+  validateBaselineCoverage,
+  type BaselineEntry,
+} from './helpers/baselines.ts';
 import chromeBaselines from './baselines.chrome.json';
 import firefoxBaselines from './baselines.firefox.json';
 import webkitBaselines from './baselines.webkit.json';
-
-// Detect browser engine
-const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
-const isFirefox = ua.includes('Firefox');
-const isWebKit = ua.includes('AppleWebKit') && !ua.includes('Chrome');
-const browserName = isFirefox ? 'firefox' : isWebKit ? 'webkit' : 'chrome';
+import { browserName, isFirefox } from './helpers/browser-name.ts';
 
 // Each browser has its own baseline file — no cross-browser tolerance needed.
 const SCORE_TOLERANCE = 0.01;
 const PIXEL_RATIO = 2;
-
-interface BaselineEntry {
-  score: number;
-  wrap: boolean;
-}
 
 const baselineFiles: Record<string, Record<string, BaselineEntry>> = {
   chrome: chromeBaselines as Record<string, BaselineEntry>,
@@ -33,8 +29,6 @@ const SKIP_WRAPPING = new Set([
   'Very narrow container',
   ...(isFirefox ? ['Long unbroken word overflow-wrap'] : []),
 ]);
-
-type ComparisonResult = Awaited<ReturnType<typeof compareRenders>>;
 
 function formatResult(name: string, score: number, wrap: boolean, baseline?: BaselineEntry): string {
   const scoreDelta = baseline ? (score - baseline.score) : 0;
@@ -51,43 +45,17 @@ function formatResult(name: string, score: number, wrap: boolean, baseline?: Bas
 async function runCase(
   tc: BenchmarkCase,
   css: string,
-): Promise<{ score: number; wrap: boolean; result: ComparisonResult }> {
+): Promise<{ score: number; wrap: boolean }> {
   const result = await compareRenders(tc.html, css, tc.width, tc.height, 0.1, PIXEL_RATIO);
   const wrap = SKIP_WRAPPING.has(tc.name)
     ? { wrappingMatch: true } // skipped = treat as passing
-    : compareWrapping(tc.html, css, tc.width, tc.height);
-  return { score: result.contentMismatchPercentage, wrap: wrap.wrappingMatch, result };
+    : compareWrapping(tc.html, css, tc.width, tc.height, result.canvasLines);
+  return { score: result.contentMismatchPercentage, wrap: wrap.wrappingMatch };
 }
 
 /** Baseline key for a case, optionally with a font suffix. */
 function baselineKey(caseName: string, fontName?: string): string {
   return fontName ? `${caseName}@${fontName}` : caseName;
-}
-
-/**
- * Compare a result against its baseline.
- * Pushes detail strings into the provided arrays.
- */
-function classifyResult(
-  key: string,
-  score: number,
-  wrap: boolean,
-  baseline: BaselineEntry | undefined,
-  regressions: string[],
-  improvements: string[],
-): void {
-  if (!baseline) return;
-
-  if (score - baseline.score > SCORE_TOLERANCE) {
-    regressions.push(`${key}: score ${score.toFixed(2)}% (was ${baseline.score}%, +${(score - baseline.score).toFixed(1)})`);
-  } else if (score - baseline.score < -SCORE_TOLERANCE) {
-    improvements.push(`${key}: score ${score.toFixed(2)}% (was ${baseline.score}%, ${(score - baseline.score).toFixed(1)})`);
-  }
-  if (baseline.wrap && !wrap) {
-    regressions.push(`${key}: wrapping regressed (was passing)`);
-  } else if (!baseline.wrap && wrap) {
-    improvements.push(`${key}: wrapping improved (now passing)`);
-  }
 }
 
 describe('HTML Canvas Renderer', () => {
@@ -97,6 +65,19 @@ describe('HTML Canvas Renderer', () => {
   it('loads all test cases', async () => {
     allCases = await loadBasicCases();
     expect(allCases.length).toBeGreaterThan(0);
+    const expectedKeys = [
+      ...allCases.map((testCase) => baselineKey(testCase.name)),
+      baselineKey(polotnoCase.name),
+      baselineKey(polotnoListsCase.name),
+      baselineKey(negativeListMarginsCase.name),
+      ...FONT_VARIANTS.flatMap((font) =>
+        allCases.map((testCase) => baselineKey(testCase.name, font.name)),
+      ),
+    ];
+    expect(validateBaselineCoverage(expectedKeys, baselineMap)).toEqual({
+      missing: [],
+      unexpected: [],
+    });
     console.log(`Loaded ${allCases.length} test cases | browser: ${browserName} | baselines: ${Object.keys(baselineMap).length}`);
   });
 
@@ -104,8 +85,7 @@ describe('HTML Canvas Renderer', () => {
     it('all cases (score + wrapping)', async () => {
       if (!allCases) allCases = await loadBasicCases();
       const cases = [...allCases, polotnoCase, polotnoListsCase, negativeListMarginsCase];
-      const regressions: string[] = [];
-      const improvements: string[] = [];
+      const baselineIssues: string[] = [];
 
       for (const tc of cases) {
         const key = baselineKey(tc.name);
@@ -113,16 +93,22 @@ describe('HTML Canvas Renderer', () => {
         const { score, wrap } = await runCase(tc, tc.css);
 
         console.log(formatResult(key, score, wrap, baseline));
-        classifyResult(key, score, wrap, baseline, regressions, improvements);
+        baselineIssues.push(
+          ...classifyBaselineResult(
+            key,
+            score,
+            wrap,
+            baseline,
+            SCORE_TOLERANCE,
+          ),
+        );
       }
 
-
-      console.log(`\n=== ${cases.length} cases | ${improvements.length} improved | ${regressions.length} regressed ===`);
-      if (improvements.length > 0) console.log('Improved:\n  ' + improvements.join('\n  '));
-      if (regressions.length > 0) console.log('Regressions:\n  ' + regressions.join('\n  '));
-
-      expect(regressions.length, `${regressions.length} regressions:\n  ${regressions.join('\n  ')}`).toBe(0);
-    });
+      expect(
+        baselineIssues,
+        `Baseline contract changed:\n  ${baselineIssues.join('\n  ')}`,
+      ).toEqual([]);
+    }, 300000);
   });
 
   describe('::marker pseudo-element', () => {
@@ -255,8 +241,7 @@ describe('HTML Canvas Renderer', () => {
       if (!allCases) allCases = await loadBasicCases();
       const multiFontCss = await loadMultiFontCss();
       const fonts = FONT_VARIANTS;
-      const regressions: string[] = [];
-      const improvements: string[] = [];
+      const baselineIssues: string[] = [];
 
       for (const font of fonts) {
         let totalScore = 0;
@@ -271,19 +256,25 @@ describe('HTML Canvas Renderer', () => {
           console.log(formatResult(key, score, wrap, baseline));
           totalScore += score;
           count++;
-          classifyResult(key, score, wrap, baseline, regressions, improvements);
+          baselineIssues.push(
+            ...classifyBaselineResult(
+              key,
+              score,
+              wrap,
+              baseline,
+              SCORE_TOLERANCE,
+            ),
+          );
         }
 
         console.log(`[${font.name}] avg: ${(totalScore / count).toFixed(1)}%`);
       }
 
-
-      console.log(`\n=== Multi-font | ${improvements.length} improved | ${regressions.length} regressed ===`);
-      if (improvements.length > 0) console.log('Improved:\n  ' + improvements.join('\n  '));
-      if (regressions.length > 0) console.log('Regressions:\n  ' + regressions.join('\n  '));
-
-      expect(regressions.length, `${regressions.length} regressions:\n  ${regressions.join('\n  ')}`).toBe(0);
-    });
+      expect(
+        baselineIssues,
+        `Baseline contract changed:\n  ${baselineIssues.join('\n  ')}`,
+      ).toEqual([]);
+    }, 300000);
   });
 
   describe('Visual debug: bullet item with leading nbsp', () => {

@@ -6,57 +6,121 @@ export interface BenchmarkCase {
   html: string;
 }
 
-const GOOGLE_FONT_CSS_URL =
-  'https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,100;0,300;0,400;0,500;0,700;0,900;1,100;1,300;1,400;1,500;1,700;1,900&display=swap';
-
-const OPEN_SANS_CSS_URL =
-  'https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,300;0,400;0,600;0,700;1,400&display=swap';
-
-// Multi-font Google Fonts URL — includes fonts with unusual metrics
-const MULTI_FONT_CSS_URL =
-  'https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400&family=Inconsolata:wght@400;700&family=Lobster&family=Merriweather:ital,wght@0,400;0,700;1,400&family=Roboto:ital,wght@0,400;0,700;1,400&display=swap';
+import openSansNormalCssUrl from '@fontsource-variable/open-sans/wght.css?url';
+import openSansItalicCssUrl from '@fontsource-variable/open-sans/wght-italic.css?url';
+import robotoNormalCssUrl from '@fontsource-variable/roboto/wght.css?url';
+import robotoItalicCssUrl from '@fontsource-variable/roboto/wght-italic.css?url';
+import playfairNormalCssUrl from '@fontsource-variable/playfair-display/wght.css?url';
+import playfairItalicCssUrl from '@fontsource-variable/playfair-display/wght-italic.css?url';
+import merriweatherNormalCssUrl from '@fontsource-variable/merriweather/wght.css?url';
+import merriweatherItalicCssUrl from '@fontsource-variable/merriweather/wght-italic.css?url';
+import inconsolataCssUrl from '@fontsource-variable/inconsolata/wght.css?url';
+import lobsterCssUrl from '@fontsource/lobster/400.css?url';
+import arabicCssUrl from '@fontsource-variable/noto-sans-arabic/wght.css?url';
+import devanagariCssUrl from '@fontsource-variable/noto-sans-devanagari/wght.css?url';
+import myanmarCssUrl from '@fontsource-variable/noto-sans-myanmar/wght.css?url';
+import khmerCssUrl from '@fontsource-variable/noto-sans-khmer/wght.css?url';
+import thaiCssUrl from '@fontsource-variable/noto-sans-thai/wght.css?url';
+import japaneseCssUrl from '@fontsource-variable/noto-sans-jp/wght.css?url';
+import simplifiedChineseCssUrl from '@fontsource-variable/noto-sans-sc/wght.css?url';
+import koreanCssUrl from '@fontsource-variable/noto-sans-kr/wght.css?url';
+import emojiCssUrl from '@fontsource/noto-color-emoji/400.css?url';
+import arimoNormalUrl from '@fontsource-variable/arimo/files/arimo-latin-wght-normal.woff2?url';
+import arimoItalicUrl from '@fontsource-variable/arimo/files/arimo-latin-wght-italic.woff2?url';
 
 let _openSansCss: string | undefined;
 let _multiFontCss: string | undefined;
+let _fallbackCss: string | undefined;
 
-/**
- * The corpus is measured against webfonts, so a run that cannot fetch them is
- * not a run with a slightly different font — it is a run whose every score is
- * meaningless. This used to swap in `src: local('Open Sans')`, which resolves
- * to whatever the machine happens to have (usually nothing), and the suite
- * carried on recording numbers for a fallback face. Fail instead.
- */
-async function fetchFontCss(url: string, what: string): Promise<string> {
-  let css: string;
-  try {
-    const resp = await fetch(url);
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    css = await resp.text();
-  } catch (err) {
-    throw new Error(
-      `Cannot fetch the ${what} CSS (${url}): ${err}. The corpus scores are ` +
-      `only meaningful with these faces loaded — fix the network, or vendor ` +
-      `the font files, before running or regenerating baselines.`,
-    );
+async function loadFontCss(
+  url: string,
+  family?: { from: string; to: string },
+): Promise<string> {
+  const absoluteCssUrl = new URL(url, location.href).href;
+  const response = await fetch(absoluteCssUrl);
+  if (!response.ok) {
+    throw new Error(`Cannot load pinned font CSS ${absoluteCssUrl}: HTTP ${response.status}`);
   }
+  let css = await response.text();
   if (!css.includes('@font-face')) {
-    throw new Error(`The ${what} CSS carries no @font-face rule: ${css.slice(0, 200)}`);
+    throw new Error(`Pinned font CSS carries no @font-face rule: ${absoluteCssUrl}`);
   }
+  css = css.replace(
+    /url\((['"]?)([^'")]+)\1\)/g,
+    (_match, _quote, asset) => `url('${new URL(asset, absoluteCssUrl).href}')`,
+  );
+  if (family) css = css.replaceAll(family.from, family.to);
   return css;
 }
 
+const FALLBACK_FAMILIES = [
+  ['Noto Sans Arabic Variable', 'RT Noto Sans Arabic'],
+  ['Noto Sans Devanagari Variable', 'RT Noto Sans Devanagari'],
+  ['Noto Sans Myanmar Variable', 'RT Noto Sans Myanmar'],
+  ['Noto Sans Khmer Variable', 'RT Noto Sans Khmer'],
+  ['Noto Sans Thai Variable', 'RT Noto Sans Thai'],
+  ['Noto Sans JP Variable', 'RT Noto Sans JP'],
+  ['Noto Sans SC Variable', 'RT Noto Sans SC'],
+  ['Noto Sans KR Variable', 'RT Noto Sans KR'],
+  ['Noto Color Emoji', 'RT Noto Color Emoji'],
+] as const;
+
+export const TEST_FALLBACK_STACK = FALLBACK_FAMILIES
+  .map(([, family]) => `'${family}'`)
+  .join(', ');
+
+async function getFallbackCss(): Promise<string> {
+  if (!_fallbackCss) {
+    const urls = [
+      arabicCssUrl,
+      devanagariCssUrl,
+      myanmarCssUrl,
+      khmerCssUrl,
+      thaiCssUrl,
+      japaneseCssUrl,
+      simplifiedChineseCssUrl,
+      koreanCssUrl,
+      emojiCssUrl,
+    ];
+    _fallbackCss = (
+      await Promise.all(
+        urls.map((url, index) =>
+          loadFontCss(url, {
+            from: FALLBACK_FAMILIES[index][0],
+            to: FALLBACK_FAMILIES[index][1],
+          }),
+        ),
+      )
+    ).join('\n');
+  }
+  return _fallbackCss;
+}
+
 async function getOpenSansCss(): Promise<string> {
-  if (!_openSansCss) _openSansCss = await fetchFontCss(OPEN_SANS_CSS_URL, 'Open Sans');
+  if (!_openSansCss) {
+    const fallback = await getFallbackCss();
+    const faces = await Promise.all([
+      loadFontCss(openSansNormalCssUrl, {
+        from: 'Open Sans Variable',
+        to: 'Open Sans',
+      }),
+      loadFontCss(openSansItalicCssUrl, {
+        from: 'Open Sans Variable',
+        to: 'Open Sans',
+      }),
+    ]);
+    _openSansCss = faces.join('\n') + '\n' + fallback;
+  }
   return _openSansCss;
 }
 
 /** Font definitions for the multi-font test matrix */
 export const FONT_VARIANTS = [
-  { name: 'Open Sans', family: "'Open Sans', sans-serif" },
-  { name: 'Roboto', family: "'Roboto', sans-serif" },
-  { name: 'Playfair Display', family: "'Playfair Display', serif" },
-  { name: 'Merriweather', family: "'Merriweather', serif" },
-  { name: 'Lobster', family: "'Lobster', cursive" },
+  { name: 'Open Sans', family: `'Open Sans', ${TEST_FALLBACK_STACK}, sans-serif` },
+  { name: 'Roboto', family: `'Roboto', ${TEST_FALLBACK_STACK}, sans-serif` },
+  { name: 'Playfair Display', family: `'Playfair Display', ${TEST_FALLBACK_STACK}, serif` },
+  { name: 'Merriweather', family: `'Merriweather', ${TEST_FALLBACK_STACK}, serif` },
+  { name: 'Lobster', family: `'Lobster', ${TEST_FALLBACK_STACK}, cursive` },
 ] as const;
 
 export async function loadMultiFontCss(): Promise<string> {
@@ -64,7 +128,23 @@ export async function loadMultiFontCss(): Promise<string> {
 }
 
 async function getMultiFontCss(): Promise<string> {
-  if (!_multiFontCss) _multiFontCss = await fetchFontCss(MULTI_FONT_CSS_URL, 'multi-font matrix');
+  if (!_multiFontCss) {
+    const definitions = [
+      [robotoNormalCssUrl, 'Roboto Variable', 'Roboto'],
+      [robotoItalicCssUrl, 'Roboto Variable', 'Roboto'],
+      [playfairNormalCssUrl, 'Playfair Display Variable', 'Playfair Display'],
+      [playfairItalicCssUrl, 'Playfair Display Variable', 'Playfair Display'],
+      [merriweatherNormalCssUrl, 'Merriweather Variable', 'Merriweather'],
+      [merriweatherItalicCssUrl, 'Merriweather Variable', 'Merriweather'],
+      [inconsolataCssUrl, 'Inconsolata Variable', 'Inconsolata'],
+      [lobsterCssUrl, 'Lobster', 'Lobster'],
+    ] as const;
+    _multiFontCss = (
+      await Promise.all(
+        definitions.map(([url, from, to]) => loadFontCss(url, { from, to })),
+      )
+    ).join('\n') + '\n' + await getFallbackCss();
+  }
   return _multiFontCss;
 }
 
@@ -80,33 +160,10 @@ function withMultiFont(css: string): string {
   return _multiFontCss + '\n' + RESET_CSS + '\n' + css;
 }
 
-export async function loadGoogleFontCase(): Promise<BenchmarkCase> {
-  let fontCss: string;
-  try {
-    const resp = await fetch(GOOGLE_FONT_CSS_URL);
-    fontCss = await resp.text();
-  } catch {
-    fontCss = `@font-face { font-family: 'Roboto'; font-weight: 400; src: local('Roboto'); }`;
-  }
-
-  return {
-    name: 'Google Font (Roboto)',
-    width: 600,
-    height: 300,
-    css: fontCss + `\nbody { font-family: 'Roboto', sans-serif; }`,
-    html: `
-      <h1 style="font-weight:900">Roboto Black Heading</h1>
-      <p style="font-weight:300">Light weight paragraph text for contrast.</p>
-      <p style="font-weight:400">Regular weight body text with <strong>bold (700)</strong> and <em>italic</em> variants.</p>
-      <p style="font-weight:500;color:#555">Medium weight text in a muted color.</p>
-    `,
-  };
-}
-
 export async function loadBasicCases(): Promise<BenchmarkCase[]> {
   await getOpenSansCss();
   await getMultiFontCss();
-  const font = `font-family: 'Open Sans', sans-serif;`;
+  const font = `font-family: 'Open Sans', ${TEST_FALLBACK_STACK}, sans-serif;`;
 
   return [
     {
@@ -1649,46 +1706,25 @@ body { font-family: sans-serif; }`,
   html: `<div style="width:380px;font-size:16px;line-height:1.2;white-space:pre-wrap"><ul style="margin:0;padding-inline-start:32px;list-style:none"><li style="margin-bottom:-6px">Frühkindliche Sprachentwicklung beobachten und fördern</li> <li style="margin-bottom:-6px">Der Prozess des Spracherwerbs</li> <li style="margin-bottom:-6px">Mehrsprachigkeit</li> <li style="margin-bottom:-6px">Sprachstörungen und ihre Diagnostik</li> <li style="margin-bottom:-6px">Aktiv Sprachvorbild sein</li> <li style="margin-bottom:-6px">Methoden der Sprachförderung: Wortschatz, Grammatik und Aussprache</li> <li style="margin-bottom:-6px">Sprechen lernen mit allen Sinnen</li> <li style="margin-bottom:-6px">Netzwerkarbeit und Kommunikation</li></ul></div>`,
 };
 
+const ARIMO_CSS = `
+@font-face {
+  font-family: 'Arimo';
+  font-style: normal;
+  font-weight: 400 700;
+  src: url('${new URL(arimoNormalUrl, location.href).href}') format('woff2-variations');
+}
+@font-face {
+  font-family: 'Arimo';
+  font-style: italic;
+  font-weight: 400 700;
+  src: url('${new URL(arimoItalicUrl, location.href).href}') format('woff2-variations');
+}`;
+
 export const polotnoListsCase: BenchmarkCase = {
   name: 'Polotno Lists',
   width: 400,
   height: 500,
-  html: `<div style="white-space: pre-wrap; word-break: break-word; width: 396px; color: black; font-size: 20px; font-family: 'Arimo'; text-align: left; line-height: 1.4; font-style: normal; font-weight: normal" dir="ltr"><p><strong>Shopping List</strong></p><ul><li>Fruits and vegetables</li><li><em>Dairy products</em></li><li><span style="color: rgb(226, 15, 15);">Urgent:</span> Bread</li><li>Coffee beans</li></ul><p><strong>Weekly Tasks</strong></p><ol><li>Review <u>quarterly report</u></li><li>Schedule team meeting</li><li><span style="color: rgb(20, 218, 103);">Done:</span> Update documentation</li><li>Deploy new version</li><li>Send <strong>status update</strong> to stakeholders</li></ol><p>Nested items:</p><ul><li>Parent item</li><li class="ql-indent-1">Child item one</li><li class="ql-indent-1">Child item two</li><li class="ql-indent-2">Grandchild</li><li>Another parent</li></ul></div><style>/* latin */
-@font-face {
-  font-family: 'Arimo';
-  font-style: italic;
-  font-weight: 400;
-  font-display: swap;
-  src: url(https://fonts.gstatic.com/s/arimo/v35/P5sCzZCDf9_T_10c9CNkiL2t2dk.woff2) format('woff2');
-  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-}
-/* latin */
-@font-face {
-  font-family: 'Arimo';
-  font-style: italic;
-  font-weight: 700;
-  font-display: swap;
-  src: url(https://fonts.gstatic.com/s/arimo/v35/P5sCzZCDf9_T_10c9CNkiL2t2dk.woff2) format('woff2');
-  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-}
-/* latin */
-@font-face {
-  font-family: 'Arimo';
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url(https://fonts.gstatic.com/s/arimo/v35/P5sMzZCDf9_T_10ZxCFuj5-v.woff2) format('woff2');
-  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-}
-/* latin */
-@font-face {
-  font-family: 'Arimo';
-  font-style: normal;
-  font-weight: 700;
-  font-display: swap;
-  src: url(https://fonts.gstatic.com/s/arimo/v35/P5sMzZCDf9_T_10ZxCFuj5-v.woff2) format('woff2');
-  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-}</style>
+  html: `<div style="white-space: pre-wrap; word-break: break-word; width: 396px; color: black; font-size: 20px; font-family: 'Arimo'; text-align: left; line-height: 1.4; font-style: normal; font-weight: normal" dir="ltr"><p><strong>Shopping List</strong></p><ul><li>Fruits and vegetables</li><li><em>Dairy products</em></li><li><span style="color: rgb(226, 15, 15);">Urgent:</span> Bread</li><li>Coffee beans</li></ul><p><strong>Weekly Tasks</strong></p><ol><li>Review <u>quarterly report</u></li><li>Schedule team meeting</li><li><span style="color: rgb(20, 218, 103);">Done:</span> Update documentation</li><li>Deploy new version</li><li>Send <strong>status update</strong> to stakeholders</li></ol><p>Nested items:</p><ul><li>Parent item</li><li class="ql-indent-1">Child item one</li><li class="ql-indent-1">Child item two</li><li class="ql-indent-2">Grandchild</li><li>Another parent</li></ul></div><style>${ARIMO_CSS}</style>
 <style>
   html, body { padding: 0; margin: 0; }
   p { margin: 0; padding: 0; word-wrap: break-word; white-space: pre-wrap; }
@@ -1742,42 +1778,7 @@ export const polotnoCase: BenchmarkCase = {
   name: 'Polotno HTML',
   width: 600,
   height: 400,
-  html: `<div style="white-space: pre-wrap; word-break: break-word; width: 596px; color: black; font-size: 26.584502908891224px; font-family: 'Arimo'; text-align: left; text-transform: none; line-height: 1.2; font-style: normal; font-weight: normal" dir="ltr"><p>Will be <span style="color: rgb(226, 15, 15);">responsible</span><span> for managing activities that are part of the production of </span><strong><span>goods</span></strong> and services. Direct <em><span>responsibilities</span></em> include managing both the operations process, embracing design, planning, control, performance <u><span>improvement</span></u>, and <span style="color: rgb(20, 218, 103);">operations</span><span> strategy.</span></p><ul><li>F</li><li>Q</li><li>W</li><li>G</li></ul><ol><li>L</li><li>A</li><li>S</li><li>Q</li><li>W</li></ol></div><style>/* latin */
-@font-face {
-  font-family: 'Arimo';
-  font-style: italic;
-  font-weight: 400;
-  font-display: swap;
-  src: url(https://fonts.gstatic.com/s/arimo/v35/P5sCzZCDf9_T_10c9CNkiL2t2dk.woff2) format('woff2');
-  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-}
-/* latin */
-@font-face {
-  font-family: 'Arimo';
-  font-style: italic;
-  font-weight: 700;
-  font-display: swap;
-  src: url(https://fonts.gstatic.com/s/arimo/v35/P5sCzZCDf9_T_10c9CNkiL2t2dk.woff2) format('woff2');
-  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-}
-/* latin */
-@font-face {
-  font-family: 'Arimo';
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url(https://fonts.gstatic.com/s/arimo/v35/P5sMzZCDf9_T_10ZxCFuj5-v.woff2) format('woff2');
-  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-}
-/* latin */
-@font-face {
-  font-family: 'Arimo';
-  font-style: normal;
-  font-weight: 700;
-  font-display: swap;
-  src: url(https://fonts.gstatic.com/s/arimo/v35/P5sMzZCDf9_T_10ZxCFuj5-v.woff2) format('woff2');
-  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-}</style>
+  html: `<div style="white-space: pre-wrap; word-break: break-word; width: 596px; color: black; font-size: 26.584502908891224px; font-family: 'Arimo'; text-align: left; text-transform: none; line-height: 1.2; font-style: normal; font-weight: normal" dir="ltr"><p>Will be <span style="color: rgb(226, 15, 15);">responsible</span><span> for managing activities that are part of the production of </span><strong><span>goods</span></strong> and services. Direct <em><span>responsibilities</span></em> include managing both the operations process, embracing design, planning, control, performance <u><span>improvement</span></u>, and <span style="color: rgb(20, 218, 103);">operations</span><span> strategy.</span></p><ul><li>F</li><li>Q</li><li>W</li><li>G</li></ul><ol><li>L</li><li>A</li><li>S</li><li>Q</li><li>W</li></ol></div><style>${ARIMO_CSS}</style>
 <style>
   html, body { padding: 0; margin: 0; }
   p { margin: 0; padding: 0; word-wrap: break-word; white-space: pre-wrap; }

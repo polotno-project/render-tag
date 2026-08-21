@@ -4,7 +4,7 @@
  * In CSS, text-decoration is not inherited — the DECLARING element paints the
  * line across its in-flow descendants with the declaring element's own
  * color/style. Three consequences this suite locks down (each verified against
- * Chrome via foreignObject rasterization before being encoded here):
+ * Chrome's native DOM raster before being encoded here):
  *
  * 1. An ancestor's explicit `text-decoration-color` must survive into text
  *    sitting inside block children (<p>, <li>). The resolver used to merge

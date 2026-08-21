@@ -20,7 +20,7 @@
  * overlays. That is the two-band test at the bottom.
  */
 import { describe, it, expect } from 'vitest';
-import { compareRenders } from './helpers/compare.ts';
+import { compareNativeRenders as compareRenders } from './helpers/native-compare.ts';
 import { loadMultiFontCss } from './helpers/test-cases.ts';
 import { mockCtx } from './helpers/mock-ctx.ts';
 import {

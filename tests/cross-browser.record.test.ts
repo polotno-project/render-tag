@@ -6,7 +6,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { commands } from 'vitest/browser';
-import { renderToCanvas } from './helpers/compare.ts';
+import { prepareComparisonFonts, renderToCanvas } from './helpers/compare.ts';
 import { loadBasicCases, polotnoCase, polotnoListsCase, FONT_VARIANTS, loadMultiFontCss } from './helpers/test-cases.ts';
 
 interface ReferenceLine {
@@ -31,6 +31,7 @@ describe('Cross-browser: record Chrome reference', () => {
     const defaultCases = [...allCases, polotnoCase, polotnoListsCase];
     for (const tc of defaultCases) {
       const key = baselineKey(tc.name);
+      await prepareComparisonFonts(tc.html, tc.css);
       const { lines } = renderToCanvas(tc.html, tc.css, tc.width, tc.height);
       results[key] = { lines };
       console.log(`[${key}] ${lines.length} lines`);
@@ -42,6 +43,7 @@ describe('Cross-browser: record Chrome reference', () => {
       for (const tc of allCases) {
         const css = multiFontCss + '\n' + tc.css + `\nbody { font-family: ${font.family} !important; }`;
         const key = baselineKey(tc.name, font.name);
+        await prepareComparisonFonts(tc.html, css);
         const { lines } = renderToCanvas(tc.html, css, tc.width, tc.height);
         results[key] = { lines };
         console.log(`[${key}] ${lines.length} lines`);

@@ -5,7 +5,7 @@
  *  1. The text wraps at letter boundaries (overflow-wrap:break-word or
  *     word-break:break-all). Each letter sits on its own line and is
  *     centered relative to the line-box width (which includes the trailing
- *     letter-spacing — that's what Chrome's foreignObject reference does).
+ *     letter-spacing — that's what native browser layout does).
  *  2. The text doesn't wrap and overflows the container width. Per
  *     CSS Text 3 §7.1 and Chrome's actual behavior, alignment falls back
  *     to start so the content begins at the container's leading edge
@@ -17,7 +17,7 @@
 import { describe, it, expect } from 'vitest';
 import { layout } from '../src/index.ts';
 import type { LayoutText } from '../src/types.ts';
-import { compareRenders } from './helpers/compare.ts';
+import { compareNativeRenders as compareRenders } from './helpers/native-compare.ts';
 import { collectTexts } from './helpers/layout-tree.ts';
 
 const FONT = 'Arial, sans-serif';

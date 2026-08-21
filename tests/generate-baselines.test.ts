@@ -3,20 +3,17 @@
  *
  *   npm run test:update-baselines            # Chrome
  *   npm run test:update-baselines:firefox    # Firefox
- *   npm run test:update-baselines:webkit     # WebKit/Safari
+ *   npm run test:update-baselines:webkit     # Playwright WebKit (not Safari)
  */
 import { describe, it, expect } from 'vitest';
 import { commands } from 'vitest/browser';
-import { compareRenders, compareWrapping } from './helpers/compare.ts';
+import { compareWrapping } from './helpers/compare.ts';
+import { compareNativeRenders as compareRenders } from './helpers/native-compare.ts';
 import { loadBasicCases, polotnoCase, polotnoListsCase, negativeListMarginsCase, FONT_VARIANTS, loadMultiFontCss } from './helpers/test-cases.ts';
 import type { BenchmarkCase } from './helpers/test-cases.ts';
 
 const PIXEL_RATIO = 2;
-
-const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
-const isFirefox = ua.includes('Firefox');
-const isWebKit = ua.includes('AppleWebKit') && !ua.includes('Chrome');
-const browserName = isFirefox ? 'firefox' : isWebKit ? 'webkit' : 'chrome';
+import { browserName, isFirefox } from './helpers/browser-name.ts';
 const baselineFile = `./tests/baselines.${browserName}.json`;
 
 const SKIP_WRAPPING = new Set([
@@ -40,7 +37,7 @@ describe('Generate baselines', () => {
       const r = await compareRenders(tc.html, tc.css, tc.width, tc.height, 0.1, PIXEL_RATIO);
       const wrap = SKIP_WRAPPING.has(tc.name)
         ? { wrappingMatch: true }
-        : compareWrapping(tc.html, tc.css, tc.width, tc.height);
+        : compareWrapping(tc.html, tc.css, tc.width, tc.height, r.canvasLines);
       const score = Math.round(r.contentMismatchPercentage * 100) / 100;
       results[key] = { score, wrap: wrap.wrappingMatch };
       console.log(`[${key}] score: ${score}% wrap: ${wrap.wrappingMatch}`);
@@ -55,7 +52,7 @@ describe('Generate baselines', () => {
         const r = await compareRenders(tc.html, css, tc.width, tc.height, 0.1, PIXEL_RATIO);
         const wrap = SKIP_WRAPPING.has(tc.name)
           ? { wrappingMatch: true }
-          : compareWrapping(tc.html, css, tc.width, tc.height);
+          : compareWrapping(tc.html, css, tc.width, tc.height, r.canvasLines);
         const score = Math.round(r.contentMismatchPercentage * 100) / 100;
         results[key] = { score, wrap: wrap.wrappingMatch };
         console.log(`[${key}] score: ${score}% wrap: ${wrap.wrappingMatch}`);

@@ -138,12 +138,9 @@ async function fetchFontAsDataUri(url: string): Promise<string> {
     return `data:${mime};base64,${base64}`;
   } catch (err) {
     // DIVERGES FROM UPSTREAM ON PURPOSE. Upstream returns the bare URL so a
-    // production render degrades instead of failing. Here the render IS the
-    // test oracle: an un-inlined URL cannot load inside an SVG data: image, so
-    // the reference silently paints a fallback face while the canvas paints the
-    // real one, and every score in that run is noise. Under Google Fonts
-    // throttling that turned one case from 5.9% to 27.7% between sessions and
-    // poisoned the recorded baselines. Fail loudly instead.
+    // production render degrades instead of failing. An un-inlined URL cannot
+    // load inside an SVG data: image, so the demo comparison would silently
+    // paint a fallback face and report a meaningless score. Fail loudly.
     throw new Error(
       `html-to-svg: cannot inline the font at ${url} (${err}). The reference ` +
       `render would fall back to a system face and every score would be noise.`,
@@ -238,66 +235,6 @@ async function inlineFontsInCssUncached(css: string, codepoints?: Set<number>): 
       const dataUri = urlToDataUri.get(url);
       return dataUri ? `url("${dataUri}")` : original;
     });
-  });
-}
-
-// ── Font-weight normalization ────────────────────────────────────────────────
-//
-// Browsers do NOT apply font synthesis (faux bold/italic) inside SVG
-// <foreignObject>. When an @font-face declares font-weight: 100 but the
-// element requests font-weight: normal (400), regular DOM synthesizes the
-// missing weight automatically while foreignObject renders at the native
-// (thin) weight — causing a visible mismatch.
-//
-// Fix: for font families that ship only a single weight, expand the
-// font-weight descriptor to `1 999` so the browser uses the font file
-// directly for any requested weight. No synthesis needed → consistent
-// rendering in both DOM and foreignObject.
-
-const FAMILY_RE = /font-family:\s*(['"]?)([^'";]+)\1/i;
-const WEIGHT_RE = /font-weight:\s*([^;}]+)/i;
-
-/**
- * Expand font-weight to `1 999` for font families that have only one weight.
- * This eliminates the need for font synthesis, which doesn't work in foreignObject.
- */
-export function normalizeFontWeights(css: string): string {
-  // Collect distinct font-weight values per family
-  const weightsByFamily = new Map<string, Set<string>>();
-  for (const match of css.matchAll(FONT_FACE_RE)) {
-    const block = match[0];
-    const familyMatch = block.match(FAMILY_RE);
-    if (!familyMatch) continue;
-    const family = familyMatch[2].trim().toLowerCase();
-    const weightMatch = block.match(WEIGHT_RE);
-    const weight = weightMatch ? weightMatch[1].trim() : 'normal';
-
-    if (!weightsByFamily.has(family)) weightsByFamily.set(family, new Set());
-    weightsByFamily.get(family)!.add(weight);
-  }
-
-  // Find families with a single weight value
-  const expandFamilies = new Set<string>();
-  for (const [family, weights] of weightsByFamily) {
-    if (weights.size === 1) expandFamilies.add(family);
-  }
-
-  if (expandFamilies.size === 0) return css;
-
-  return css.replace(FONT_FACE_RE, (block) => {
-    const familyMatch = block.match(FAMILY_RE);
-    if (!familyMatch) return block;
-    const family = familyMatch[2].trim().toLowerCase();
-    if (!expandFamilies.has(family)) return block;
-
-    const weightMatch = block.match(WEIGHT_RE);
-    if (weightMatch) {
-      // Already a range (e.g. "100 900")? Leave it alone.
-      if (weightMatch[1].trim().includes(' ')) return block;
-      return block.replace(WEIGHT_RE, 'font-weight: 1 999');
-    }
-    // No font-weight — default is 'normal'. Expand it.
-    return block.replace('}', 'font-weight: 1 999; }');
   });
 }
 

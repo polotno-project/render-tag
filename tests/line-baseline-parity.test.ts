@@ -19,8 +19,7 @@ import { layout } from '../src/index.ts';
 import { FLOORS_LINE_BASELINE } from '../src/layout.ts';
 import { collectTexts } from './helpers/layout-tree.ts';
 
-const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
-const isWebKit = ua.includes('AppleWebKit') && !ua.includes('Chrome');
+import { isWebKit } from './helpers/browser-name.ts';
 
 const FONT = 'sans-serif';
 // Sizes and ratios chosen so the exact baseline lands on whole, half and

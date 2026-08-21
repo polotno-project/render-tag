@@ -49,61 +49,66 @@ When touching this area, run all of them plus `decoration-propagation`,
 
 ## Testing workflow
 
-### The corpus needs its webfonts, and now says so
+### Native DOM oracle and pinned fonts
 
-Every score compares a canvas render against `vendor/html-to-svg`, and both
-sides need the same face. A missing face is not "a slightly different font" — it
-scores a fallback against the real thing, which moved one case between 5.9% and
-27.7% across sessions and silently poisoned recorded baselines. Three paths used
-to swallow that; all three now throw:
+Quality scores compare render-tag with a screenshot of the same fixture in an
+independent browser page. Chromium and WebKit use isolated Playwright pages.
+Firefox uses the same Playwright screenshot path without `omitBackground`,
+which its transport does not implement; comparisons normalize both images onto
+white instead. The SVG `foreignObject` path remains a fast demo helper and has
+a canary against native DOM, but it is not the test oracle.
 
-- `tests/helpers/test-cases.ts` fetches the Google Fonts CSS (no more falling
-  back to `src: local(...)`),
-- `tests/helpers/compare.ts` checks that each injected family actually resolves,
-- `vendor/html-to-svg/font-inliner.ts` refuses to leave a font URL un-inlined —
-  a deliberate divergence from upstream, marked in the file, because an
-  un-inlined URL cannot load inside an SVG `data:` image.
+All corpus fonts are pinned `@fontsource` dev dependencies. The fallback stack
+also pins Arabic, Devanagari, Myanmar, Khmer, Thai, Japanese, Simplified Chinese,
+Korean, and color emoji faces. Tests do not contact Google Fonts and must not
+depend on system fallback selection. `tests/helpers/compare.ts` loads the browser's actual `FontFace`
+objects and keeps each unique rule registered for the test session; a load error
+throws before either pixels or wrapping can be recorded.
 
-So the suite needs fonts.googleapis.com and fonts.gstatic.com. Under throttling
-it now fails loudly instead of recording noise. Vendoring the woff2 files would
-remove the dependency and is the durable fix.
+Playwright WebKit is the WebKit engine, not branded Safari. CI runs the full
+corpus headlessly with WebKit on macOS. Branded Safari has no headless mode, so
+its `safaridriver` canaries are an explicit manual diagnostic, not a CI gate.
+They cover solid paint, rich inline text, and exact wrapping; Safari does not
+have a recorded 531-case baseline. Do not label WebKit baselines as Safari
+results.
 
-Text the declared families do not cover — CJK, emoji, Arabic in a Latin-only
-face — is painted from a SYSTEM fallback that no `@font-face` wait can reach.
-Safari resolves those lazily, so the reference and the canvas could catch a
-different face: two consecutive generator runs disagreed on 7 of 530 cases, and
-the gate's 0.01 threshold turned that into an intermittent red. `compareRenders`
-now does one throwaway render down EACH path — reference and canvas — to warm
-the fallbacks before the pair it measures. That took Safari's run-to-run
-difference to 0 of 530 and pinned Firefox's RTL case, but roughly 1 WebKit run
-in 8 still trips the gate on a single case. Vendoring the fallback coverage is
-the durable fix; until then, a lone unreproducible WebKit case is the flake, not
-a regression — confirm by running the file again.
+Several geometry suites intentionally encode Chrome-first output (for example,
+Chrome's decoration position). Run those in the Chromium job only. Firefox and
+WebKit still gate the complete native pixel/wrap corpus plus their native-oracle,
+cross-browser structure, and width-sweep checks.
 
 ### Running tests
 ```bash
 npm test                                      # baseline pixel/wrap tests (vitest + Chromium)
+npm run test:firefox                          # full Firefox + cross-browser + stress gates
+npm run test:webkit                           # full WebKit + cross-browser + stress gates
+npm run test:safari-native                    # manual visible Safari diagnostic (macOS; non-core)
+npm run test:svg-oracle                       # optional SVG demo-path canary; not a core gate
 npx vitest run tests/layout-logic.test.ts     # layout unit tests (mocked measureText, fast)
 npx vitest run tests/render.test.ts           # render quality tests
-npx vitest run tests/stress.test.ts           # layout width sweep
+npm run test:stress                           # native-DOM layout width sweep
 ```
 
 ### Baseline regression system
 - Per-browser baseline files: `tests/baselines.chrome.json`, `tests/baselines.firefox.json`, `tests/baselines.webkit.json`
 - Each stores `{ score, wrap }` per test case (default font + 5 font variants)
-- `score`: content mismatch %. Tests fail if any case regresses by >2% above its baseline
-- `wrap`: whether text wrapping matches DOM. Tests fail if a passing case starts failing
+- `score`: content mismatch %. A change greater than 0.01% in either direction fails
+- `wrap`: exact normalized line membership; there is no 1–2 character drift allowance
 - Baselines cover default font cases, Polotno cases, and all cases × 5 fonts (Open Sans, Roboto, Playfair Display, Merriweather, Lobster)
 - Each browser has its own baselines — no cross-browser tolerance hack
-- Reference renderer: `vendor/html-to-svg/` (ground truth for tests, font preloading in `tests/helpers/compare.ts`)
+- Reference renderer: native browser screenshot (`tests/helpers/native-dom-command.ts`)
+- Missing and unexpected baseline keys fail before scoring; improvements fail until deliberately promoted
+- Cross-browser structural residuals and width-sweep residuals have separate explicit baseline files
 
 ### Updating baselines
 - **Tests never update baselines** — baselines are only updated via explicit commands as a deliberate milestone
-- **Regressions fail the test** — any score increase >0.01% or wrapping regression causes failure
+- **Any unrecorded change fails** — regression, improvement, wrap change, or key-set change
 - **Update commands** (run after verifying improvements):
   - `npm run test:update-baselines` — Chrome baselines
   - `npm run test:update-baselines:firefox` — Firefox baselines
-  - `npm run test:update-baselines:webkit` — WebKit/Safari baselines
+  - `npm run test:update-baselines:webkit` — WebKit baselines
+  - `npm run test:update-cross-browser-baseline:{firefox,webkit}` — structural residuals
+  - `npm run test:update-stress-baseline[:firefox|:webkit]` — width-sweep residuals
 
 ### Unit tests for layout logic (`tests/layout-logic.test.ts`)
 Unit tests cover deterministic layout algorithms directly — no browser, no fonts, no pixels. They mock `ctx.measureText` to return predictable widths (e.g., 10px per character), then assert the output of layout functions.
@@ -131,7 +136,8 @@ constants at the top (they're plain constants — the browser context has no
 
 When triaging a divergence, classify it before chasing it:
 - **structural** (different line *count*) → likely a real break-logic bug
-- **same line-count, ±1 char drift** → sub-pixel cumulative noise (rarely fixable)
+- **same line-count, shifted membership** → an exact break-boundary divergence;
+  sub-pixel knife edges are still recorded explicitly rather than tolerated
 
 The benchmark demo (`docs/benchmark.ts`, isolated via
 `benchmark.html?case=…&font=…`) prints a per-character canvas-vs-DOM line check
@@ -170,12 +176,12 @@ configs.
 ### Making changes
 1. Run tests before AND after changes
 2. Check baselines output for regressions (shows "+X.X REGRESSION!")
-3. If a test improves, update baselines
+3. If a test improves, verify it and update baselines deliberately
 4. The stress test (`tests/stress.test.ts`) catches layout shifts across widths — run it for wrapping changes
 
 ### Margin collapsing rules
 - Sibling margins: `max(prevMarginBottom, nextMarginTop)` (positive case)
-- First child margin-top collapses through parent: **only for block/list-item `li`/`ul`/`ol`/`dd`/`dt`** (never flex/table; not general divs — html-to-svg reference prevents this)
+- First child margin-top collapses through parent: **only for block/list-item `li`/`ul`/`ol`/`dd`/`dt`** (never flex/table; not general divs — the native DOM reference prevents this)
 - Last child margin-bottom: included in parent height when parent has padding/border or a nonzero min-height (can't collapse through)
 - Last child margin-bottom: passed as `marginBottomOut` when it CAN collapse through
 
@@ -274,7 +280,8 @@ improvement." The Chrome baseline improved (bullets: ~8px→<1.3px vs native).
 - `npm run dev` — demo page with side-by-side comparison
 - `npm test` — vitest in Chromium
 - `npm run test:firefox` — vitest in Firefox (own baselines)
-- `npm run test:webkit` — vitest in WebKit/Safari (own baselines)
+- `npm run test:webkit` — full WebKit suite (own baselines; not branded Safari)
+- `npm run test:safari-native` — manual visible Safari canaries through safaridriver (non-core)
 - `npm run test:cross-browser:record` — record Chrome canvas layout as reference
 - `npm run test:cross-browser:firefox` — compare Firefox canvas layout vs Chrome reference
 - `npm run test:cross-browser:webkit` — compare WebKit canvas layout vs Chrome reference

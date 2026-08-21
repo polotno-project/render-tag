@@ -19,7 +19,7 @@ import { render } from 'render-tag';
 
 const { canvas, height } = render({
   html: `
-    <style>.title { font: 24px Georgia, serif; color: #1a1a1a; }</style>
+    <style>.title { font-size: 24px; font-family: Georgia, serif; color: #1a1a1a; }</style>
     <p class="title">Hello <strong>world</strong></p>
   `,
   width: 400,
@@ -80,7 +80,7 @@ Draw rich text along an SVG path. Separate subpath entry point.
 import { drawTextOnPath } from 'render-tag/path';
 
 drawTextOnPath({
-  html: '<span style="font:24px sans-serif">Hello <b>world</b></span>',
+  html: '<span style="font-size:24px;font-family:sans-serif">Hello <b>world</b></span>',
   path: 'M20,150 Q200,20 380,150',  // SVG `d` string, or a PathLike
   ctx,
   align: 'center',          // 'left' | 'center' | 'right' | 'justify' (default 'left')
