@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { compareRenders, compareWrapping } from './helpers/compare.ts';
-import { loadBasicCases, polotnoCase, polotnoListsCase, FONT_VARIANTS, loadMultiFontCss } from './helpers/test-cases.ts';
+import { loadBasicCases, polotnoCase, polotnoListsCase, negativeListMarginsCase, FONT_VARIANTS, loadMultiFontCss } from './helpers/test-cases.ts';
 import type { BenchmarkCase } from './helpers/test-cases.ts';
 import chromeBaselines from './baselines.chrome.json';
 import firefoxBaselines from './baselines.firefox.json';
@@ -103,7 +103,7 @@ describe('HTML Canvas Renderer', () => {
   describe('Default font cases', () => {
     it('all cases (score + wrapping)', async () => {
       if (!allCases) allCases = await loadBasicCases();
-      const cases = [...allCases, polotnoCase, polotnoListsCase];
+      const cases = [...allCases, polotnoCase, polotnoListsCase, negativeListMarginsCase];
       const regressions: string[] = [];
       const improvements: string[] = [];
 

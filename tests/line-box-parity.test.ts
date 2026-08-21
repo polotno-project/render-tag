@@ -208,6 +208,50 @@ const CASES: {
     inner: 'before <span style="display:inline-block;margin:4px 8px;padding:4px 8px">box</span> after',
     blockStyle: `font-size:18px;font-family:${FONT_A};line-height:1.4`,
   },
+  {
+    name: 'a negative list-item margin before preserved whitespace',
+    inner: '<ul style="margin:0;padding:0;list-style:none">' +
+      '<li style="margin:0 0 -6px">first</li> ' +
+      '<li style="margin:0">second</li></ul>',
+    blockStyle: `font-size:16px;font-family:${FONT_A};line-height:1.2;white-space:pre-wrap`,
+  },
+  {
+    name: 'a negative last-child margin inside a padded list',
+    inner: '<ul style="margin:0;padding:0 0 10px;list-style:none">' +
+      '<li style="margin:0 0 -6px">only</li></ul>',
+    blockStyle: `font-size:16px;font-family:${FONT_A};line-height:1.2`,
+  },
+  {
+    name: 'a trailing margin larger than the child height',
+    inner: '<ul style="margin:0;padding:0 0 10px;list-style:none">' +
+      '<li style="margin:0 0 -30px">only</li></ul>',
+    blockStyle: `font-size:16px;font-family:${FONT_A};line-height:1.2`,
+  },
+  {
+    name: 'a negative last-child margin collapsing through a list',
+    inner: '<ul style="margin:0;padding:0;list-style:none">' +
+      '<li style="margin:0 0 -6px">first</li></ul><div>second</div>',
+    blockStyle: `font-size:16px;font-family:${FONT_A};line-height:1.2`,
+  },
+  {
+    name: 'a last-child margin contained by a minimum-height list',
+    inner: '<ul style="margin:0;padding:0;list-style:none;min-height:40px">' +
+      '<li style="margin:0 0 10px">first</li></ul><div>second</div>',
+    blockStyle: `font-size:16px;font-family:${FONT_A};line-height:1.2`,
+  },
+  {
+    name: 'a negative first-child margin collapsing through a list',
+    inner: '<div>first</div><ul style="margin:0;padding:0;list-style:none">' +
+      '<li style="margin:-6px 0 0">second</li></ul>',
+    blockStyle: `font-size:16px;font-family:${FONT_A};line-height:1.2`,
+  },
+  {
+    name: 'a flex list does not collapse its first item margin',
+    inner: '<ul style="display:flex;margin:0;padding:0;list-style:none">' +
+      '<li style="margin:-6px 0 0">first</li><li style="margin:0">second</li>' +
+      '</ul><div>after</div>',
+    blockStyle: `font-size:16px;font-family:${FONT_A};line-height:1.2`,
+  },
 ];
 
 describe('line box height vs the DOM', () => {

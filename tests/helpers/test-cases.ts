@@ -1640,6 +1640,15 @@ code { font-family: monospace; background: #f3f4f6; padding: 1px 4px; border-rad
   ];
 }
 
+export const negativeListMarginsCase: BenchmarkCase = {
+  name: 'Negative list margins with preserved whitespace',
+  width: 420,
+  height: 320,
+  css: `html, body { margin: 0; padding: 0; }
+body { font-family: sans-serif; }`,
+  html: `<div style="width:380px;font-size:16px;line-height:1.2;white-space:pre-wrap"><ul style="margin:0;padding-inline-start:32px;list-style:none"><li style="margin-bottom:-6px">Frühkindliche Sprachentwicklung beobachten und fördern</li> <li style="margin-bottom:-6px">Der Prozess des Spracherwerbs</li> <li style="margin-bottom:-6px">Mehrsprachigkeit</li> <li style="margin-bottom:-6px">Sprachstörungen und ihre Diagnostik</li> <li style="margin-bottom:-6px">Aktiv Sprachvorbild sein</li> <li style="margin-bottom:-6px">Methoden der Sprachförderung: Wortschatz, Grammatik und Aussprache</li> <li style="margin-bottom:-6px">Sprechen lernen mit allen Sinnen</li> <li style="margin-bottom:-6px">Netzwerkarbeit und Kommunikation</li></ul></div>`,
+};
+
 export const polotnoListsCase: BenchmarkCase = {
   name: 'Polotno Lists',
   width: 400,

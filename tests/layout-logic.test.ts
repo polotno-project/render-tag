@@ -565,6 +565,21 @@ describe('Layout logic (mocked measureText)', () => {
       // Collapsed margin = max(15, 15) = 15
       expect(yB - yA).toBe(35); // 20 (lineHeight) + 15 (margin)
     });
+
+    it('applies a negative block margin before preserved inline whitespace', () => {
+      const tree = block('ul', [
+        block('li', [textNode('A')], { display: 'list-item', marginBottom: -6 }),
+        textNode(' ', { display: 'inline', whiteSpace: 'pre-wrap' }),
+        block('li', [textNode('B')], { display: 'list-item' }),
+      ], { whiteSpace: 'pre-wrap' });
+      const texts = collectTexts(doLayout(tree, 200));
+      const yA = texts.find(t => t.text === 'A')!.y;
+      const yB = texts.find(t => t.text === 'B')!.y;
+
+      // A and the preserved-space line are each 20px tall. The -6px margin
+      // pulls that anonymous inline line, and therefore B, upward by 6px.
+      expect(yB - yA).toBe(34);
+    });
   });
 
   // ─── Padding and borders ───────────────────────────────────────────

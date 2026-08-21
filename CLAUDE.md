@@ -175,8 +175,8 @@ configs.
 
 ### Margin collapsing rules
 - Sibling margins: `max(prevMarginBottom, nextMarginTop)` (positive case)
-- First child margin-top collapses through parent: **only for `li`/`ul`/`ol`/`dd`/`dt`** (not general divs — html-to-svg reference prevents this)
-- Last child margin-bottom: included in parent height when parent has padding/border (can't collapse through)
+- First child margin-top collapses through parent: **only for block/list-item `li`/`ul`/`ol`/`dd`/`dt`** (never flex/table; not general divs — html-to-svg reference prevents this)
+- Last child margin-bottom: included in parent height when parent has padding/border or a nonzero min-height (can't collapse through)
 - Last child margin-bottom: passed as `marginBottomOut` when it CAN collapse through
 
 ### Line boxes and the baseline (`lineBaselineOffset`, `layoutInlineContent`)

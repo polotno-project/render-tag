@@ -8,7 +8,7 @@
 import { describe, it, expect } from 'vitest';
 import { commands } from 'vitest/browser';
 import { compareRenders, compareWrapping } from './helpers/compare.ts';
-import { loadBasicCases, polotnoCase, polotnoListsCase, FONT_VARIANTS, loadMultiFontCss } from './helpers/test-cases.ts';
+import { loadBasicCases, polotnoCase, polotnoListsCase, negativeListMarginsCase, FONT_VARIANTS, loadMultiFontCss } from './helpers/test-cases.ts';
 import type { BenchmarkCase } from './helpers/test-cases.ts';
 
 const PIXEL_RATIO = 2;
@@ -34,7 +34,7 @@ describe('Generate baselines', () => {
     const results: Record<string, { score: number; wrap: boolean }> = {};
 
     // Default font cases (including polotno)
-    const defaultCases = [...allCases, polotnoCase, polotnoListsCase];
+    const defaultCases = [...allCases, polotnoCase, polotnoListsCase, negativeListMarginsCase];
     for (const tc of defaultCases) {
       const key = baselineKey(tc.name);
       const r = await compareRenders(tc.html, tc.css, tc.width, tc.height, 0.1, PIXEL_RATIO);

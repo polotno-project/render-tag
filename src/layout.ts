@@ -2276,6 +2276,25 @@ function isBlock(node: StyledNode): boolean {
     d === 'table-header-group' || d === 'table-footer-group';
 }
 
+function allowsMarginCollapseThrough(node: StyledNode): boolean {
+  const display = node.style.display;
+  return (display === 'block' || display === 'list-item') &&
+    (node.tagName === 'li' || node.tagName === 'ul' || node.tagName === 'ol' ||
+      node.tagName === 'dd' || node.tagName === 'dt');
+}
+
+function collapsibleMarginTop(node: StyledNode): number {
+  const marginTop = node.style.marginTop;
+  if (!allowsMarginCollapseThrough(node) || node.style.paddingTop !== 0 ||
+      node.style.borderTopWidth !== 0) {
+    return marginTop;
+  }
+  const firstChild = node.children[0];
+  return firstChild && isBlock(firstChild)
+    ? collapseMargins(marginTop, collapsibleMarginTop(firstChild))
+    : marginTop;
+}
+
 /**
  * Layout a block-level element and all its children.
  * Returns the LayoutBox and total height consumed (including margins).
@@ -2370,9 +2389,7 @@ function layoutBlock(
     let prevMarginBottom = 0;
     let hasContent = false; // tracks whether we've placed any content
     // Margin collapsing through parent: only for list elements.
-    const allowCollapseThrough =
-      node.tagName === 'li' || node.tagName === 'ul' || node.tagName === 'ol' ||
-      node.tagName === 'dd' || node.tagName === 'dt';
+    const allowCollapseThrough = allowsMarginCollapseThrough(node);
 
     for (let ci = 0; ci < node.children.length; ci++) {
       const child = node.children[ci];
@@ -2399,10 +2416,8 @@ function layoutBlock(
         }
 
         // Apply pending margin before inline content
-        if (prevMarginBottom > 0) {
-          curY += prevMarginBottom;
-          prevMarginBottom = 0;
-        }
+        curY += prevMarginBottom;
+        prevMarginBottom = 0;
 
         const inlineGroup: StyledNode = {
           element: null,
@@ -2421,10 +2436,8 @@ function layoutBlock(
       }
 
       // Block child — collapse margins
-      const childMarginTop = child.style.marginTop;
+      const childMarginTop = collapsibleMarginTop(child);
 
-      // First child margin-top collapses through parent if parent has no top border/padding
-      // Only for elements that don't establish a new BFC (not root, not flex, not overflow)
       // First child margin-top collapses through parent if parent has no
       // top padding/border and doesn't establish a new BFC.
       if (!hasContent && padTop === 0 && borderTop === 0 && allowCollapseThrough) {
@@ -2447,17 +2460,19 @@ function layoutBlock(
     // Last child's margin-bottom collapses through parent if no bottom border/padding.
     // Root container does NOT collapse last-child margin (it defines the content height).
     let marginBottomOut = style.marginBottom;
-    const canCollapseThrough = padBottom === 0 && borderBottom === 0 && allowCollapseThrough;
-    if (canCollapseThrough && prevMarginBottom > 0) {
+    const canCollapseThrough = padBottom === 0 && borderBottom === 0 &&
+      style.minHeight === 0 && allowCollapseThrough;
+    if (canCollapseThrough) {
       // Last child's margin passes through to become parent's effective margin-bottom
-      marginBottomOut = Math.max(style.marginBottom, prevMarginBottom);
+      marginBottomOut = collapseMargins(style.marginBottom, prevMarginBottom);
     }
 
     // Include last child's margin-bottom in parent height when it can't collapse through
     let contentEnd = curY - contentStartY;
-    if (!canCollapseThrough && prevMarginBottom > 0) {
+    if (!canCollapseThrough) {
       contentEnd += prevMarginBottom;
     }
+    contentEnd = Math.max(0, contentEnd);
     box.height = borderTop + padTop + contentEnd + padBottom + borderBottom;
     if (style.minHeight > 0) box.height = Math.max(box.height, style.minHeight);
     return { box, height: box.height, marginBottomOut };
