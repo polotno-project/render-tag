@@ -3,9 +3,16 @@ import path from 'node:path';
 import { defineConfig } from 'vitest/config';
 import { captureNativeDom } from './tests/helpers/native-dom-command.ts';
 
+/**
+ * `include` names the lane: which suites this engine gates. Chromium omits it
+ * and runs everything (its script excludes the maintainer-only files); the
+ * other engines opt in, because several geometry suites deliberately encode
+ * Chrome-first output. See CLAUDE.md.
+ */
 export function browserConfig(
   browser: 'chromium' | 'firefox' | 'webkit',
   testTimeout: number,
+  include?: string[],
 ) {
   return defineConfig({
     // Firefox capture pages load fixture assets from an opaque page.
@@ -23,6 +30,7 @@ export function browserConfig(
         instances: [{ browser, headless: true }],
       },
       testTimeout,
+      ...(include ? { include } : {}),
     },
   });
 }

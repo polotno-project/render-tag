@@ -58,6 +58,16 @@ which its transport does not implement; comparisons normalize both images onto
 white instead. The SVG `foreignObject` path remains a fast demo helper and has
 a canary against native DOM, but it is not the test oracle.
 
+One capture page per DPR is reused for a whole browser run, but every fixture
+gets a fresh `<iframe>` document, so its styles, CSSOM and `FontFaceSet` cannot
+reach the next fixture. Native reference PNGs persist in
+`node_modules/.cache/render-tag/native-dom/`, which is already git-ignored.
+The cache key includes the complete fixture, viewport, DPR, browser build, OS,
+package lock, and capture implementation; references captured under a
+superseded environment are pruned. A render-tag source change does not
+invalidate the independent reference. Run `npm run test:clear-native-cache` to
+force a cold reference run.
+
 All corpus fonts are pinned `@fontsource` dev dependencies. The fallback stack
 also pins Arabic, Devanagari, Myanmar, Khmer, Thai, Japanese, Simplified Chinese,
 Korean, and color emoji faces. Tests do not contact Google Fonts and must not
@@ -84,6 +94,7 @@ npm run test:firefox                          # full Firefox + cross-browser + s
 npm run test:webkit                           # full WebKit + cross-browser + stress gates
 npm run test:safari-native                    # manual visible Safari diagnostic (macOS; non-core)
 npm run test:svg-oracle                       # optional SVG demo-path canary; not a core gate
+npm run test:clear-native-cache               # remove local native-reference PNGs
 npx vitest run tests/layout-logic.test.ts     # layout unit tests (mocked measureText, fast)
 npx vitest run tests/render.test.ts           # render quality tests
 npm run test:stress                           # native-DOM layout width sweep
@@ -99,6 +110,7 @@ npm run test:stress                           # native-DOM layout width sweep
 - Reference renderer: native browser screenshot (`tests/helpers/native-dom-command.ts`)
 - Missing and unexpected baseline keys fail before scoring; improvements fail until deliberately promoted
 - Cross-browser structural residuals and width-sweep residuals have separate explicit baseline files
+- The width sweep compares exact native DOM line membership; it does not take screenshots
 
 ### Updating baselines
 - **Tests never update baselines** — baselines are only updated via explicit commands as a deliberate milestone
@@ -177,7 +189,7 @@ configs.
 1. Run tests before AND after changes
 2. Check baselines output for regressions (shows "+X.X REGRESSION!")
 3. If a test improves, verify it and update baselines deliberately
-4. The stress test (`tests/stress.test.ts`) catches layout shifts across widths — run it for wrapping changes
+4. The stress test (`tests/stress.test.ts`) sweeps widths and gates exact line membership against the native DOM — run it for wrapping changes. It no longer screenshots, so a vertical shift that leaves line membership intact is caught only by the pixel baselines, at each case's natural width.
 
 ### Margin collapsing rules
 - Sibling margins: `max(prevMarginBottom, nextMarginTop)` (positive case)

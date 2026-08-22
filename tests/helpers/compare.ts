@@ -1,5 +1,5 @@
 import pixelmatch from 'pixelmatch';
-import { render } from '../../src/index.ts';
+import { layout, render } from '../../src/index.ts';
 import {
   compareLineMembership,
   type LayoutComparisonResult,
@@ -377,7 +377,9 @@ export function compareWrapping(
 ): LayoutComparisonResult {
   const rawCanvasLines =
     precomputedCanvasLines ||
-    render({ html: css ? `<style>${css}</style>${html}` : html, width, height })
+    // layout() over render(): only the lines are wanted, and the sweeps that
+    // call this run thousands of widths — painting each one is pure waste.
+    layout({ html: css ? `<style>${css}</style>${html}` : html, width, height })
       .lines;
   const rawDomLines = extractDomLines(html, css, width);
   return compareLineMembership(rawCanvasLines, rawDomLines);
