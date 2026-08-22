@@ -20,11 +20,9 @@ interface CSSRule {
 /**
  * Parse a simple CSS string into rules.
  * Supports: tag, .class, parent > child, comma-separated selectors.
- * Extracts @font-face rules separately for injection into the document.
  */
-function parseCSS(css: string): { rules: CSSRule[]; fontFaceRules: string[] } {
+function parseCSS(css: string): CSSRule[] {
   const rules: CSSRule[] = [];
-  const fontFaceRules: string[] = [];
   // Remove comments
   css = css.replace(/\/\*[\s\S]*?\*\//g, '');
 
@@ -36,7 +34,6 @@ function parseCSS(css: string): { rules: CSSRule[]; fontFaceRules: string[] } {
 
     // Handle at-rules (@font-face, @media, etc.)
     if (css[i] === '@') {
-      const atStart = i;
       let braceDepth = 0;
       while (i < css.length) {
         if (css[i] === '{') braceDepth++;
@@ -45,11 +42,6 @@ function parseCSS(css: string): { rules: CSSRule[]; fontFaceRules: string[] } {
           if (braceDepth <= 0) { i++; break; }
         }
         i++;
-      }
-      // Capture @font-face rules for injection
-      const atRule = css.slice(atStart, i);
-      if (atRule.startsWith('@font-face')) {
-        fontFaceRules.push(atRule);
       }
       continue;
     }
@@ -89,7 +81,7 @@ function parseCSS(css: string): { rules: CSSRule[]; fontFaceRules: string[] } {
     }
   }
 
-  return { rules, fontFaceRules };
+  return rules;
 }
 
 // ─── Selector Matching ───────────────────────────────────────────────
@@ -341,6 +333,7 @@ function defaultStyle(): ResolvedStyle {
     direction: 'ltr',
     display: 'block',
     width: 0,
+    minWidth: null,
     minHeight: 0,
     paddingTop: 0,
     paddingRight: 0,
@@ -777,6 +770,11 @@ function applyDeclaration(
       else if (v !== 'auto') style.width = parseValue(v, fontSize, containerWidth);
       break;
     }
+    case 'min-width': {
+      const v = value.trim();
+      style.minWidth = v === 'auto' ? null : parseValue(v, fontSize, containerWidth);
+      break;
+    }
     case 'min-height': style.minHeight = parseValue(value, fontSize, containerWidth); break;
     case 'padding-top': style.paddingTop = parseValue(value, fontSize, containerWidth); break;
     case 'padding-right': style.paddingRight = parseValue(value, fontSize, containerWidth); break;
@@ -907,7 +905,12 @@ const INHERITABLE_KEYS: [string, keyof ResolvedStyle][] = [
  */
 function inheritFrom(child: ResolvedStyle, parent: ResolvedStyle, setProps: Set<string>): void {
   for (const [cssProp, key] of INHERITABLE_KEYS) {
-    if (!setProps.has(cssProp)) {
+    // The explicit CSS-wide `inherit` keyword wins the cascade but still
+    // resolves to the parent's computed value. String properties otherwise
+    // leaked the literal word into canvas state (notably font-family).
+    if ((child as any)[key] === 'inherit') {
+      (child as any)[key] = (parent as any)[key];
+    } else if (!setProps.has(cssProp)) {
       if (key === 'lineHeight') {
         // Unitless line-height: re-compute relative to child's font-size
         const multiplier = (parent as any)._lineHeightMultiplier;
@@ -1141,18 +1144,8 @@ export function resolveStylesFromCSS(
   fragment: DocumentFragment,
   css: string,
   containerWidth: number,
-): { tree: StyledNode; cleanup: () => void } {
-  const { rules, fontFaceRules } = parseCSS(css);
-
-  // Inject @font-face rules into the live document so fonts can load.
-  // Browser-only side effect: in non-browser environments there is no font
-  // loader to trigger, so skip silently (fonts come from the consumer there).
-  let fontStyleEl: HTMLStyleElement | null = null;
-  if (fontFaceRules.length > 0 && typeof document !== 'undefined' && document.head) {
-    fontStyleEl = document.createElement('style');
-    fontStyleEl.textContent = fontFaceRules.join('\n');
-    document.head.appendChild(fontStyleEl);
-  }
+): StyledNode {
+  const rules = parseCSS(css);
 
   // Build indexed rule lookup
   const ruleIndex = buildRuleIndex(rules);
@@ -1573,11 +1566,5 @@ export function resolveStylesFromCSS(
   }
 
   const rootStyle = defaultStyle();
-  const tree = resolveElement(container, rootStyle, null);
-
-  const cleanup = () => {
-    if (fontStyleEl) fontStyleEl.remove();
-  };
-
-  return { tree, cleanup };
+  return resolveElement(container, rootStyle, null);
 }

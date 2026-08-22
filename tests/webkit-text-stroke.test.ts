@@ -74,9 +74,7 @@ describe('expandShorthand("-webkit-text-stroke")', () => {
  */
 function resolve(html: string): StyledNode {
   const { fragment, css } = parseHTML(html);
-  const { tree, cleanup } = resolveStylesFromCSS(fragment, css, 476);
-  cleanup();
-  return tree;
+  return resolveStylesFromCSS(fragment, css, 476);
 }
 
 function findText(node: StyledNode, text: string): StyledNode | null {

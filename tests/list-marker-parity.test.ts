@@ -32,7 +32,7 @@ const RESET = `<style>
   li { padding-inline-start:0; margin:0; overflow-wrap:break-word; white-space:pre-wrap; }
   ol { list-style-type: decimal; }
   ul { list-style-type: disc; }
-  code, pre, kbd, samp { font-size: inherit; }
+  code, pre, kbd, samp { font-family: inherit; font-size: inherit; }
 </style>`;
 
 const FONTS = [

@@ -11,74 +11,11 @@ import { layout } from '../src/index.ts';
 import { mockCtx, CHAR_WIDTH } from './helpers/mock-ctx.ts';
 import type { StyledNode, ResolvedStyle, LayoutBox, LayoutText, DecorationEntry } from '../src/types.ts';
 import { collectInlineBoxes, collectTexts } from './helpers/layout-tree.ts';
+import { styleFixture as defaultStyle } from './helpers/style-fixture.ts';
 
 // ─── Test helpers ──────────────────────────────────────────────────────
 
 const SPACE_WIDTH = CHAR_WIDTH;
-
-/** Default style — all zeroes/defaults. Override per-test as needed. */
-function defaultStyle(overrides: Partial<ResolvedStyle> = {}): ResolvedStyle {
-  return {
-    fontFamily: 'TestFont',
-    fontSize: 16,
-    fontWeight: 400,
-    fontStyle: 'normal',
-    fontVariantCaps: 'normal',
-    color: 'black',
-    textAlign: 'left',
-    textTransform: 'none',
-    textDecorationLine: 'none',
-    textDecorationStyle: 'solid',
-    textDecorationColor: 'black',
-    textShadow: 'none',
-    webkitTextStrokeWidth: 0,
-    webkitTextStrokeColor: '',
-    webkitTextFillColor: '',
-    paintOrder: 'normal',
-    webkitBackgroundClip: '',
-    backgroundImage: 'none',
-    letterSpacing: 0,
-    wordSpacing: 0,
-    fontKerning: 'auto',
-    lineHeight: 20,
-    verticalAlign: 'baseline',
-    whiteSpace: 'normal',
-    wordBreak: 'normal',
-    overflowWrap: 'normal',
-    unicodeBidi: 'normal',
-    direction: 'ltr',
-    display: 'block',
-    width: 0,
-    minHeight: 0,
-    paddingTop: 0,
-    paddingRight: 0,
-    paddingBottom: 0,
-    paddingLeft: 0,
-    marginTop: 0,
-    marginRight: 0,
-    marginBottom: 0,
-    marginLeft: 0,
-    backgroundColor: 'transparent',
-    borderTopWidth: 0,
-    borderTopColor: 'transparent',
-    borderTopStyle: 'none',
-    borderRightWidth: 0,
-    borderRightColor: 'transparent',
-    borderRightStyle: 'none',
-    borderBottomWidth: 0,
-    borderBottomColor: 'transparent',
-    borderBottomStyle: 'none',
-    borderLeftWidth: 0,
-    borderLeftColor: 'transparent',
-    borderLeftStyle: 'none',
-    flexDirection: 'row',
-    gap: 0,
-    flexGrow: 0,
-    listStyleType: 'disc',
-    lineClamp: 0,
-    ...overrides,
-  };
-}
 
 /** Create a text node. */
 function textNode(text: string, styleOverrides: Partial<ResolvedStyle> = {}): StyledNode {
@@ -240,13 +177,18 @@ describe('Layout logic (mocked measureText)', () => {
       expect(lines).toEqual(['aaaa top-', 'to-end']);
     });
 
-    it('does not break a hyphen flanked by digits (phone/number/date)', () => {
-      // "+1-555-123-4567" — every hyphen sits between digits, which is NOT a
-      // break opportunity in the browser, so the token stays whole (overflowing)
-      // rather than splitting at the hyphens.
+    it('breaks a numeric phone token after a hyphen', () => {
+      // Chrome exposes ordinary line-break opportunities after these hyphens,
+      // including the ones flanked by digits.
       const tree = block('div', [block('p', [textNode('+1-555-123-4567')])]);
       const root = doLayout(tree, 100);
-      expect(getLines(root)).toEqual(['+1-555-123-4567']);
+      expect(getLines(root)).toEqual(['+1-555-', '123-4567']);
+    });
+
+    it('keeps a leading minus sign with its number', () => {
+      const tree = block('div', [block('p', [textNode('Tight -0.5px')])]);
+      const root = doLayout(tree, 80);
+      expect(getLines(root)).toEqual(['Tight', '-0.5px']);
     });
 
     it('splits at first fitting hyphen point', () => {
@@ -1445,6 +1387,14 @@ describe('Layout logic (mocked measureText)', () => {
       // With extra 20px per space, wraps earlier than without
       expect(lines.length).toBeGreaterThan(1);
       expect(lines[0]).toBe('aa bb');
+    });
+
+    it('keeps word spacing in the sub-pixel overflow recheck', () => {
+      const tree = block('div', [
+        block('p', [textNode('aa bb cc', { wordSpacing: 20 })]),
+      ]);
+      const root = doLayout(tree, 119.5);
+      expect(getLines(root)).toEqual(['aa bb', 'cc']);
     });
   });
 

@@ -144,7 +144,7 @@ export function layoutTextOnPath(config: LayoutTextOnPathConfig): TextOnPathLayo
   const ownsCtx = config.ctx === undefined;
 
   const { fragment, css } = parseHTML(html);
-  const { tree, cleanup } = resolveStylesFromCSS(fragment, css, Number.MAX_SAFE_INTEGER);
+  const tree = resolveStylesFromCSS(fragment, css, Number.MAX_SAFE_INTEGER);
 
   if (!ownsCtx) measureCtx.save();
   try {
@@ -152,7 +152,6 @@ export function layoutTextOnPath(config: LayoutTextOnPathConfig): TextOnPathLayo
     return layoutGlyphsOnPath({ segments, path, ctx: measureCtx, align, textBaseline });
   } finally {
     if (!ownsCtx) measureCtx.restore();
-    cleanup();
   }
 }
 

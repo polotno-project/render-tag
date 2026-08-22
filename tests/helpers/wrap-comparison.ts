@@ -15,7 +15,6 @@ export function normalizeLineText(text: string): string {
   let normalized = text.replace(/\s+/g, '');
   normalized = normalized.replace(/[•○■▪▸▹◦]/g, '');
   normalized = normalized.replace(/(?:^|\b)(\d+)\./g, '');
-  normalized = normalized.replace(/-$/, '');
   // DOM ranges report visual order while LayoutLine stores logical order.
   // Sorting code points makes that distinction irrelevant without allowing a
   // glyph to cross a line boundary.

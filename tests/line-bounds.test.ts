@@ -7,70 +7,9 @@
 import { describe, it, expect } from 'vitest';
 import { buildLayoutTree } from '../src/layout.ts';
 import type { StyledNode, ResolvedStyle, LayoutLine } from '../src/types.ts';
+import { styleFixture as defaultStyle } from './helpers/style-fixture.ts';
 
 const CHAR_WIDTH = 10;
-
-function defaultStyle(overrides: Partial<ResolvedStyle> = {}): ResolvedStyle {
-  return {
-    fontFamily: 'TestFont',
-    fontSize: 16,
-    fontWeight: 400,
-    fontStyle: 'normal',
-    color: 'black',
-    textAlign: 'left',
-    textAlignLast: 'auto',
-    textIndent: 0,
-    textTransform: 'none',
-    textDecorationLine: 'none',
-    textDecorationStyle: 'solid',
-    textDecorationColor: 'black',
-    textShadow: 'none',
-    webkitTextStrokeWidth: 0,
-    webkitTextStrokeColor: '',
-    webkitTextFillColor: '',
-    paintOrder: 'normal',
-    webkitBackgroundClip: '',
-    backgroundImage: 'none',
-    letterSpacing: 0,
-    wordSpacing: 0,
-    fontKerning: 'auto',
-    lineHeight: 20,
-    verticalAlign: 'baseline',
-    whiteSpace: 'normal',
-    wordBreak: 'normal',
-    overflowWrap: 'normal',
-    direction: 'ltr',
-    display: 'block',
-    width: 0,
-    minHeight: 0,
-    paddingTop: 0,
-    paddingRight: 0,
-    paddingBottom: 0,
-    paddingLeft: 0,
-    marginTop: 0,
-    marginRight: 0,
-    marginBottom: 0,
-    marginLeft: 0,
-    backgroundColor: 'transparent',
-    borderTopWidth: 0,
-    borderTopColor: 'transparent',
-    borderTopStyle: 'none',
-    borderRightWidth: 0,
-    borderRightColor: 'transparent',
-    borderRightStyle: 'none',
-    borderBottomWidth: 0,
-    borderBottomColor: 'transparent',
-    borderBottomStyle: 'none',
-    borderLeftWidth: 0,
-    borderLeftColor: 'transparent',
-    borderLeftStyle: 'none',
-    flexDirection: 'row',
-    gap: 0,
-    flexGrow: 0,
-    listStyleType: 'disc',
-    ...overrides,
-  };
-}
 
 function textNode(text: string, styleOverrides: Partial<ResolvedStyle> = {}): StyledNode {
   return {

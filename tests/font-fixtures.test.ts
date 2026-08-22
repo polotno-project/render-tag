@@ -14,6 +14,6 @@ describe('hermetic font fixtures', () => {
     expect(css).toContain("font-family: 'RT Noto Sans Arabic'");
     expect(css).toContain("font-family: 'RT Noto Sans SC'");
     expect(css).toContain("font-family: 'RT Noto Sans KR'");
-    expect(css).toContain("font-family: 'RT Noto Color Emoji'");
+    expect(css).toContain("font-family: 'RT Noto Emoji'");
   });
 });

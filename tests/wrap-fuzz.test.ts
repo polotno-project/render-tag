@@ -1,7 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { compareWrapping } from './helpers/compare.ts';
+import {
+  compareWrapping,
+  prepareComparisonFonts,
+  warmNativeLayout,
+} from './helpers/compare.ts';
 import { render } from '../src/index.ts';
 import baseline from './wrap-fuzz-baseline.json';
+import { loadMultiFontCss } from './helpers/test-cases.ts';
 
 /**
  * Generative differential wrap fuzzer — a REGRESSION GATE in `npm test`.
@@ -130,16 +135,8 @@ interface Finding {
 
 describe('Wrap fuzz (generative differential)', () => {
   it('no box-overflow and no new wrap-divergence class beyond the baseline', async () => {
-    // Best-effort font preload (differential is self-consistent even if Roboto
-    // falls back, but matching the real font reduces noise).
-    try {
-      const s = document.createElement('style');
-      s.textContent = `@font-face{font-family:'Roboto';font-weight:400;src:local('Roboto')}@font-face{font-family:'Roboto';font-weight:700;src:local('Roboto')}`;
-      document.head.appendChild(s);
-      await document.fonts.load(`400 40px 'Roboto'`, 'Experience');
-      await document.fonts.load(`700 40px 'Roboto'`, 'Experience');
-      await (document as any).fonts.ready;
-    } catch {}
+    const fontCss = await loadMultiFontCss();
+    await prepareComparisonFonts('', fontCss);
 
     const rng = makeRng(SEED);
     const findings: Finding[] = [];
@@ -154,6 +151,11 @@ describe('Wrap fuzz (generative differential)', () => {
 
     for (let c = 0; c < NUM_CASES; c++) {
       const gc = generate(rng);
+      // The first native layout of a fixture finalizes lazy variable-font
+      // shaping, so without this the FIRST width in the ladder is the only one
+      // measured against a cold font backend — and its divergence gets
+      // promoted into wrap-fuzz-baseline.json as a "known residual".
+      warmNativeLayout(gc.html, '', WIDTHS[0]);
       for (const width of WIDTHS) {
         totalRuns++;
         // 1) Structural line-grouping divergence vs DOM.

@@ -1,9 +1,6 @@
 {
-  "_comment": "Known-acceptable wrap-fuzz divergence signatures per browser. The generative fuzzer (tests/wrap-fuzz.test.ts) FAILS when a structural line-count divergence appears whose signature is NOT listed here, or when ANY box-overflow is found. The two chrome residuals are extreme-narrow (width 90/130) break-word cases with a 0.6em font run mid-word: off-by-one line count from cumulative cross-font measurement drift (an inherent canvas-API limitation, see CLAUDE.md 'Text measurement'); nothing overflows. To update deliberately after a verified change: run the fuzzer, copy the linecount signatures from tests/wrap-report.fuzz-<browser>.json into the matching browser array below.",
-  "chrome": [
-    "center|normal|break-word|sz40|size-down",
-    "left|pre-wrap|break-word|sz40|size-down"
-  ],
+  "_comment": "Known-acceptable wrap-fuzz divergence signatures per browser. The generative fuzzer (tests/wrap-fuzz.test.ts) fails when a structural line-count divergence appears whose signature is not listed here, or when any box overflow is found. Update only after verifying a reported residual.",
+  "chrome": [],
   "firefox": null,
   "webkit": null
 }

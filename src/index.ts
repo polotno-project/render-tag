@@ -41,7 +41,7 @@ export function layout(config: LayoutConfig): LayoutResult {
   const useDomMeasurements = accuracy === 'balanced';
 
   const { fragment, css } = parseHTML(html);
-  const { tree, cleanup } = resolveStylesFromCSS(fragment, css, width);
+  const tree = resolveStylesFromCSS(fragment, css, width);
 
   // Caller-provided ctx is mutated (font, fontKerning) and intentionally NOT
   // save/restored — save/restore is not free on all contexts (e.g. PDF
@@ -53,8 +53,6 @@ export function layout(config: LayoutConfig): LayoutResult {
 
   const { root, height: contentHeight, lines } = buildLayoutTree(measureCtx, tree, width, useDomMeasurements, debug);
   const finalHeight = height || contentHeight;
-
-  cleanup();
 
   return { layoutRoot: root, height: finalHeight, lines };
 }

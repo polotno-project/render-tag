@@ -1,5 +1,9 @@
 import { describe, it, beforeAll } from 'vitest';
-import { compareWrapping } from './helpers/compare.ts';
+import {
+  compareWrapping,
+  prepareComparisonFonts,
+  warmNativeLayout,
+} from './helpers/compare.ts';
 import {
   loadBasicCases,
   FONT_VARIANTS,
@@ -25,6 +29,10 @@ const WIDTH_MODE: 'coarse' | 'fine' | string = 'coarse';
 // the actionable failure list.
 const KNOWN_HARD = new Set<string>([
   'Very narrow container', // 1ch container, browser-specific min-content
+  // The extractor produces one global line stream, but these layouts contain
+  // independent cell/column flows whose rows cannot be paired globally.
+  'Styled table',
+  'Multi-column layout',
 ]);
 
 /** Width sweep for a case based on its natural width. */
@@ -45,38 +53,6 @@ function widthsFor(tc: BenchmarkCase): number[] {
   return out;
 }
 
-// ─── Font preloading ──────────────────────────────────────────────────────
-async function preloadFonts(multiFontCss: string, openSansCss: string) {
-  const style = document.createElement('style');
-  style.textContent = multiFontCss + '\n' + openSansCss;
-  document.head.appendChild(style);
-
-  const families = [
-    'Open Sans',
-    'Roboto',
-    'Playfair Display',
-    'Merriweather',
-    'Lobster',
-    'Inconsolata',
-  ];
-  const weights = ['300', '400', '600', '700', '900'];
-  const styles = ['normal', 'italic'];
-  const jobs: Promise<unknown>[] = [];
-  for (const fam of families) {
-    for (const w of weights) {
-      for (const st of styles) {
-        jobs.push(
-          document.fonts
-            .load(`${st} ${w} 32px '${fam}'`, 'BESbswy 0123 АаЁ 漢字 العربية')
-            .catch(() => {}),
-        );
-      }
-    }
-  }
-  await Promise.all(jobs);
-  await document.fonts.ready;
-}
-
 // ─── Report types ──────────────────────────────────────────────────────────
 interface Failure {
   case: string;
@@ -95,8 +71,6 @@ describe('Wrap debug matrix', () => {
   beforeAll(async () => {
     allCases = await loadBasicCases();
     multiFontCss = await loadMultiFontCss();
-    // openSansCss is embedded in case CSS already, but preload everything.
-    await preloadFonts(multiFontCss, '');
   }, 60000);
 
   it('sweeps wrapping across cases × fonts × widths', async () => {
@@ -132,6 +106,8 @@ describe('Wrap debug matrix', () => {
       const known = KNOWN_HARD.has(tc.name);
       for (const fp of fontPasses) {
         const css = fp.cssFor(tc);
+        await prepareComparisonFonts(tc.html, css);
+        warmNativeLayout(tc.html, css, tc.width);
         for (const w of widths) {
           totalRuns++;
           let res;
@@ -173,6 +149,9 @@ describe('Wrap debug matrix', () => {
     }
 
     const actionable = failures.filter((f) => !f.known);
+    const structural = actionable.filter((failure) =>
+      failure.canvasLines !== failure.domLines,
+    );
 
     // ─── Human-readable summary ───────────────────────────────────────────
     console.log(
@@ -180,6 +159,9 @@ describe('Wrap debug matrix', () => {
     );
     console.log(
       `Failures: ${failures.length} total | ${actionable.length} actionable | ${failures.length - actionable.length} known-hard`,
+    );
+    console.log(
+      `Actionable: ${structural.length} structural | ${actionable.length - structural.length} same-line-count drift`,
     );
 
     console.log('\n-- By case (actionable, desc) --');
@@ -201,6 +183,7 @@ describe('Wrap debug matrix', () => {
         totalRuns,
         failureCount: failures.length,
         actionableCount: actionable.length,
+        structuralCount: structural.length,
         byCase: Object.fromEntries(byCaseSorted),
         byCaseFont: Object.fromEntries(
           [...failByCaseFont.entries()].sort((a, b) => b[1] - a[1]),

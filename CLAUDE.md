@@ -58,9 +58,13 @@ which its transport does not implement; comparisons normalize both images onto
 white instead. The SVG `foreignObject` path remains a fast demo helper and has
 a canary against native DOM, but it is not the test oracle.
 
-One capture page per DPR is reused for a whole browser run, but every fixture
-gets a fresh `<iframe>` document, so its styles, CSSOM and `FontFaceSet` cannot
-reach the next fixture. Native reference PNGs persist in
+Capture documents are reused by exact font-face set and receive fresh fixture
+content/styles for each screenshot. Those documents are persistent iframes, so
+the WebKit font cache is never asked to reload a face into a discarded frame.
+WebKit additionally gets a separate top-level page per font set; that layer
+predates the persistent frames and is kept as belt-and-braces, since a font-cache
+regression there caches a wrong reference rather than failing. Native reference
+PNGs persist in
 `node_modules/.cache/render-tag/native-dom/`, which is already git-ignored.
 The cache key includes the complete fixture, viewport, DPR, browser build, OS,
 package lock, and capture implementation; references captured under a
@@ -70,10 +74,13 @@ force a cold reference run.
 
 All corpus fonts are pinned `@fontsource` dev dependencies. The fallback stack
 also pins Arabic, Devanagari, Myanmar, Khmer, Thai, Japanese, Simplified Chinese,
-Korean, and color emoji faces. Tests do not contact Google Fonts and must not
-depend on system fallback selection. `tests/helpers/compare.ts` loads the browser's actual `FontFace`
-objects and keeps each unique rule registered for the test session; a load error
-throws before either pixels or wrapping can be recorded.
+Korean, and monochrome emoji faces. Arabic, CJK and emoji use static files that
+all three engines accept; the other families remain variable. Tests do not
+contact Google Fonts or depend on system fallback selection.
+`tests/helpers/compare.ts` registers every unique rule in a stable order and
+warms the actual fixture text before measuring. Native captures keep only faces
+that cover that fixture, then load them sequentially. A load error throws before
+pixels or wrapping can be recorded.
 
 Playwright WebKit is the WebKit engine, not branded Safari. CI runs the full
 corpus headlessly with WebKit on macOS. Branded Safari has no headless mode, so
@@ -96,6 +103,7 @@ npm run test:safari-native                    # manual visible Safari diagnostic
 npm run test:svg-oracle                       # optional SVG demo-path canary; not a core gate
 npm run test:clear-native-cache               # remove local native-reference PNGs
 npx vitest run tests/layout-logic.test.ts     # layout unit tests (mocked measureText, fast)
+npx vitest run tests/wrapping-parity.test.ts  # focused Chrome DOM-wrap regressions
 npx vitest run tests/render.test.ts           # render quality tests
 npm run test:stress                           # native-DOM layout width sweep
 ```
@@ -151,12 +159,20 @@ When triaging a divergence, classify it before chasing it:
 - **same line-count, shifted membership** → an exact break-boundary divergence;
   sub-pixel knife edges are still recorded explicitly rather than tolerated
 
+Table cells and multi-column content are marked known-hard in this report: they
+contain independent flows that cannot be paired through one global line stream.
+Their pixels and direct layout behavior remain covered elsewhere.
+
 The benchmark demo (`docs/benchmark.ts`, isolated via
 `benchmark.html?case=…&font=…`) prints a per-character canvas-vs-DOM line check
 and per-word `measureText`-vs-DOM-rect deltas — use those to tell a real
 measurement bug (nonzero Δ) from a sub-pixel/font-loading artifact (Δ≈0). Note:
-`measureText` matches the browser to ~0.01px, so most residual mismatches are
-sub-pixel knife-edges where browser builds themselves disagree, not bugs.
+`measureText` usually matches the browser to ~0.01px, so most residual
+mismatches are sub-pixel knife-edges. One measured exception is Playfair
+Display at 48px: Chrome reports `253.34px` through Canvas for `This is 48px`
+but lays the same DOM range out at `251.77px`. The coarse wrap sweep keeps that
+single structural residual explicit; a global fit tolerance caused many real
+line-breaking regressions and was rejected.
 
 ### Generative wrap fuzzer (`tests/wrap-fuzz.test.ts`) — regression gate in `npm test`
 A generative differential test that *synthesizes* rich-text variations instead

@@ -1,3 +1,4 @@
+import { replaceFontFaces } from './css-text.ts';
 export interface BenchmarkCase {
   name: string;
   width: number;
@@ -16,15 +17,15 @@ import merriweatherNormalCssUrl from '@fontsource-variable/merriweather/wght.css
 import merriweatherItalicCssUrl from '@fontsource-variable/merriweather/wght-italic.css?url';
 import inconsolataCssUrl from '@fontsource-variable/inconsolata/wght.css?url';
 import lobsterCssUrl from '@fontsource/lobster/400.css?url';
-import arabicCssUrl from '@fontsource-variable/noto-sans-arabic/wght.css?url';
+import arabicCssUrl from '@fontsource/noto-sans-arabic/400.css?url';
 import devanagariCssUrl from '@fontsource-variable/noto-sans-devanagari/wght.css?url';
 import myanmarCssUrl from '@fontsource-variable/noto-sans-myanmar/wght.css?url';
 import khmerCssUrl from '@fontsource-variable/noto-sans-khmer/wght.css?url';
 import thaiCssUrl from '@fontsource-variable/noto-sans-thai/wght.css?url';
-import japaneseCssUrl from '@fontsource-variable/noto-sans-jp/wght.css?url';
-import simplifiedChineseCssUrl from '@fontsource-variable/noto-sans-sc/wght.css?url';
-import koreanCssUrl from '@fontsource-variable/noto-sans-kr/wght.css?url';
-import emojiCssUrl from '@fontsource/noto-color-emoji/400.css?url';
+import japaneseCssUrl from '@fontsource/noto-sans-jp/400.css?url';
+import simplifiedChineseCssUrl from '@fontsource/noto-sans-sc/400.css?url';
+import koreanCssUrl from '@fontsource/noto-sans-kr/400.css?url';
+import emojiCssUrl from '@fontsource/noto-emoji/400.css?url';
 import arimoNormalUrl from '@fontsource-variable/arimo/files/arimo-latin-wght-normal.woff2?url';
 import arimoItalicUrl from '@fontsource-variable/arimo/files/arimo-latin-wght-italic.woff2?url';
 
@@ -35,34 +36,53 @@ let _fallbackCss: string | undefined;
 async function loadFontCss(
   url: string,
   family?: { from: string; to: string },
+  subsetPrefix?: string,
 ): Promise<string> {
   const absoluteCssUrl = new URL(url, location.href).href;
-  const response = await fetch(absoluteCssUrl);
+  // Vite serves a normal `.css` request as a JavaScript style-injection
+  // module. `?direct` is the literal stylesheet consumed by both the native
+  // DOM and render-tag; appending the JS wrapper makes the browser discard the
+  // first fixture rule that follows it, so the two paths resolve different
+  // computed styles.
+  const directCssUrl = `${absoluteCssUrl}${absoluteCssUrl.includes('?') ? '&' : '?'}direct`;
+  const response = await fetch(directCssUrl);
   if (!response.ok) {
-    throw new Error(`Cannot load pinned font CSS ${absoluteCssUrl}: HTTP ${response.status}`);
+    throw new Error(`Cannot load pinned font CSS ${directCssUrl}: HTTP ${response.status}`);
   }
   let css = await response.text();
   if (!css.includes('@font-face')) {
-    throw new Error(`Pinned font CSS carries no @font-face rule: ${absoluteCssUrl}`);
+    throw new Error(`Pinned font CSS carries no @font-face rule: ${directCssUrl}`);
+  }
+  if (css.includes('__vite__') || css.includes('import.meta.hot')) {
+    throw new Error(`Pinned font CSS was transformed into JavaScript: ${directCssUrl}`);
   }
   css = css.replace(
     /url\((['"]?)([^'")]+)\1\)/g,
     (_match, _quote, asset) => `url('${new URL(asset, absoluteCssUrl).href}')`,
   );
   if (family) css = css.replaceAll(family.from, family.to);
+  if (subsetPrefix) {
+    const faces = [...css.matchAll(/\/\*\s*([^*]+?)\s*\*\/\s*(@font-face\s*\{[^}]*\})/g)]
+      .filter(([, label]) => label.startsWith(`${subsetPrefix}-`))
+      .map(([, , face]) => face);
+    if (faces.length === 0) {
+      throw new Error(`Pinned font CSS carries no ${subsetPrefix} subset: ${directCssUrl}`);
+    }
+    css = faces.join('\n');
+  }
   return css;
 }
 
 const FALLBACK_FAMILIES = [
-  ['Noto Sans Arabic Variable', 'RT Noto Sans Arabic'],
+  ['Noto Sans Arabic', 'RT Noto Sans Arabic'],
   ['Noto Sans Devanagari Variable', 'RT Noto Sans Devanagari'],
   ['Noto Sans Myanmar Variable', 'RT Noto Sans Myanmar'],
   ['Noto Sans Khmer Variable', 'RT Noto Sans Khmer'],
   ['Noto Sans Thai Variable', 'RT Noto Sans Thai'],
-  ['Noto Sans JP Variable', 'RT Noto Sans JP'],
-  ['Noto Sans SC Variable', 'RT Noto Sans SC'],
-  ['Noto Sans KR Variable', 'RT Noto Sans KR'],
-  ['Noto Color Emoji', 'RT Noto Color Emoji'],
+  ['Noto Sans JP', 'RT Noto Sans JP'],
+  ['Noto Sans SC', 'RT Noto Sans SC'],
+  ['Noto Sans KR', 'RT Noto Sans KR'],
+  ['Noto Emoji', 'RT Noto Emoji'],
 ] as const;
 
 export const TEST_FALLBACK_STACK = FALLBACK_FAMILIES
@@ -88,7 +108,7 @@ async function getFallbackCss(): Promise<string> {
           loadFontCss(url, {
             from: FALLBACK_FAMILIES[index][0],
             to: FALLBACK_FAMILIES[index][1],
-          }),
+          }, index === 0 ? 'noto-sans-arabic-arabic' : undefined),
         ),
       )
     ).join('\n');
@@ -98,7 +118,6 @@ async function getFallbackCss(): Promise<string> {
 
 async function getOpenSansCss(): Promise<string> {
   if (!_openSansCss) {
-    const fallback = await getFallbackCss();
     const faces = await Promise.all([
       loadFontCss(openSansNormalCssUrl, {
         from: 'Open Sans Variable',
@@ -109,7 +128,7 @@ async function getOpenSansCss(): Promise<string> {
         to: 'Open Sans',
       }),
     ]);
-    _openSansCss = faces.join('\n') + '\n' + fallback;
+    _openSansCss = faces.join('\n');
   }
   return _openSansCss;
 }
@@ -130,6 +149,8 @@ export async function loadMultiFontCss(): Promise<string> {
 async function getMultiFontCss(): Promise<string> {
   if (!_multiFontCss) {
     const definitions = [
+      [openSansNormalCssUrl, 'Open Sans Variable', 'Open Sans'],
+      [openSansItalicCssUrl, 'Open Sans Variable', 'Open Sans'],
       [robotoNormalCssUrl, 'Roboto Variable', 'Roboto'],
       [robotoItalicCssUrl, 'Roboto Variable', 'Roboto'],
       [playfairNormalCssUrl, 'Playfair Display Variable', 'Playfair Display'],
@@ -143,29 +164,85 @@ async function getMultiFontCss(): Promise<string> {
       await Promise.all(
         definitions.map(([url, from, to]) => loadFontCss(url, { from, to })),
       )
-    ).join('\n') + '\n' + await getFallbackCss();
+    ).join('\n');
   }
   return _multiFontCss;
 }
 
 /** Recommended CSS reset for canvas-DOM consistency (see README). */
-const RESET_CSS = `code, pre, kbd, samp { font-size: inherit; }
+const RESET_CSS = `code, pre, kbd, samp { font-family: inherit; font-size: inherit; }
 li::marker { content: none; font-size: 0; line-height: 0; }`;
 
 function withOpenSans(css: string): string {
-  return _openSansCss + '\n' + RESET_CSS + '\n' + css;
+  return _openSansCss + '\n' + _fallbackCss + '\n' + RESET_CSS + '\n' + css;
 }
 
 function withMultiFont(css: string): string {
-  return _multiFontCss + '\n' + RESET_CSS + '\n' + css;
+  return _multiFontCss + '\n' + _fallbackCss + '\n' + RESET_CSS + '\n' + css;
+}
+
+function fontFaceCoversText(face: string, codePoints: Set<number>): boolean {
+  const declaration = face.match(/unicode-range:\s*([^;]+);/i)?.[1];
+  if (!declaration) return true;
+  return declaration.split(',').some((part) => {
+    const [start, end = start] = part.trim().replace(/^U\+/i, '').split('-');
+    const lower = Number.parseInt(start, 16);
+    const upper = Number.parseInt(end, 16);
+    for (const codePoint of codePoints) {
+      if (codePoint >= lower && codePoint <= upper) return true;
+    }
+    return false;
+  });
+}
+
+export function keepUsedFontFaces(css: string, html: string): string {
+  const text = new DOMParser().parseFromString(html, 'text/html').body.textContent || '';
+  // Spaces and punctuation are present in nearly every fixture. Let the face
+  // selected for a real letter/number/symbol provide them; otherwise every
+  // fallback family's punctuation subset is retained and WebKit tries several
+  // overlapping faces for the same glyph.
+  const meaningfulCharacters = [...text].filter((character) =>
+    /[\p{Letter}\p{Number}\p{Symbol}]/u.test(character),
+  );
+  const codePoints = new Set(
+    meaningfulCharacters.map((character) => character.codePointAt(0)!),
+  );
+  const latinFamilies = new Set([
+    'Open Sans', 'Roboto', 'Playfair Display', 'Merriweather',
+    'Inconsolata', 'Lobster',
+  ]);
+  const hasLatinFamilyText = /[\p{Script=Latin}\p{Script=Cyrillic}\p{Script=Greek}\p{Script=Hebrew}]/u.test(text);
+  const needsItalic = /<(?:em|i)\b|font-style\s*:\s*(?:italic|oblique)/i.test(`${html}\n${css}`);
+  const scripts = new Map<string, RegExp>([
+    ['RT Noto Sans Arabic', /[\u0600-\u08ff\ufb50-\ufdff\ufe70-\ufefc]/u],
+    ['RT Noto Sans Devanagari', /[\u0900-\u097f]/u],
+    ['RT Noto Sans Myanmar', /[\u1000-\u109f]/u],
+    ['RT Noto Sans Khmer', /[\u1780-\u17ff]/u],
+    ['RT Noto Sans Thai', /[\u0e00-\u0e7f]/u],
+    // JP also covers unified Han. Keep it for Han-only text because it appears
+    // before SC in the declared fallback stack and therefore wins natively.
+    ['RT Noto Sans JP', /[\u3040-\u30ff\u3400-\u9fff]/u],
+    ['RT Noto Sans SC', /[\u3400-\u9fff]/u],
+    ['RT Noto Sans KR', /[\uac00-\ud7af]/u],
+    ['RT Noto Emoji', /\p{Extended_Pictographic}/u],
+  ]);
+  return replaceFontFaces(css, (face) => {
+    const family = face.match(/font-family:\s*['"]?([^;'"\n]+)/i)?.[1]?.trim();
+    if (family && latinFamilies.has(family) && !hasLatinFamilyText) return '';
+    if (!needsItalic && /font-style:\s*(?:italic|oblique)/i.test(face)) return '';
+    const script = family && scripts.get(family);
+    if (script && !script.test(text)) return '';
+    return fontFaceCoversText(face, codePoints) ? face : '';
+  });
 }
 
 export async function loadBasicCases(): Promise<BenchmarkCase[]> {
   await getOpenSansCss();
   await getMultiFontCss();
+  await getFallbackCss();
   const font = `font-family: 'Open Sans', ${TEST_FALLBACK_STACK}, sans-serif;`;
 
-  return [
+  const cases: BenchmarkCase[] = [
     {
       name: 'Simple paragraph',
       width: 600,
@@ -1695,6 +1772,26 @@ code { font-family: monospace; background: #f3f4f6; padding: 1px 4px; border-rad
 <p>after break\n\treset tab stop</p>`,
     },
   ];
+
+  // A generic/system family can pick a different fallback in canvas text than
+  // in DOM layout. These cases exercise layout features, not platform-font
+  // selection, so give every otherwise-unpinned fixture the same vendored
+  // Latin + script + emoji stack. Monospace fixtures use pinned Inconsolata.
+  return cases.map((testCase) => {
+    if (testCase.css.includes('@font-face')) return testCase;
+    const monospace = /body\s*\{[^}]*font-family:\s*monospace/i.test(testCase.css);
+    const family = monospace
+      ? `'Inconsolata', monospace`
+      : `'Open Sans', ${TEST_FALLBACK_STACK}, sans-serif`;
+    const css = testCase.css.replace(
+      /(body\s*\{[^}]*?)font-family:[^;]+;/i,
+      `$1font-family: ${family};`,
+    );
+    return {
+      ...testCase,
+      css: (monospace ? withMultiFont : withOpenSans)(css),
+    };
+  });
 }
 
 export const negativeListMarginsCase: BenchmarkCase = {

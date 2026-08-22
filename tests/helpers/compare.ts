@@ -4,6 +4,19 @@ import {
   compareLineMembership,
   type LayoutComparisonResult,
 } from './wrap-comparison.ts';
+import { keepUsedFontFaces } from './test-cases.ts';
+import { matchFontFaces, stripFontFaces } from './css-text.ts';
+
+/**
+ * Point a fixture's `html`/`body` rules at the offscreen container instead, so
+ * the DOM reference and the canvas see the same cascade.
+ */
+function scopeCss(css: string, containerId: string): string {
+  return css.replace(
+    /(^|[},;\s])(\s*)(html|body)\b/gm,
+    (_match, before, space) => `${before}${space}#${containerId}`,
+  );
+}
 
 export type { LayoutComparisonResult } from './wrap-comparison.ts';
 
@@ -11,10 +24,14 @@ export type { LayoutComparisonResult } from './wrap-comparison.ts';
 // browser test session so a pixel comparison and its following DOM wrap check
 // cannot observe different font sets.
 const registeredFontFaces = new Set<string>();
+let fontLoadQueue = Promise.resolve();
+let fontWarmId = 0;
 
-async function ensureFontsLoaded(css: string): Promise<void> {
-  const blocks = css.match(/@font-face\s*\{[^}]*\}/g) || [];
-  const newBlocks = blocks.filter((block) => !registeredFontFaces.has(block));
+async function registerFonts(css: string): Promise<void> {
+  const blocks = matchFontFaces(css);
+  const newBlocks = [...new Set(
+    blocks.filter((block) => !registeredFontFaces.has(block)),
+  )];
   if (newBlocks.length === 0) return;
 
   const existingFaces = new Set(document.fonts);
@@ -27,31 +44,79 @@ async function ensureFontsLoaded(css: string): Promise<void> {
   void style.sheet?.cssRules.length;
   const addedFaces = [...document.fonts].filter((face) => !existingFaces.has(face));
 
+  // Load through CSS selection instead of FontFace.load(). A variable family
+  // has several overlapping Unicode-range faces; forcing all of them to load
+  // can make Blink cache whichever subset finishes first, changing advances.
+  const probe = document.createElement('div');
+  probe.style.cssText =
+    'position:absolute;left:-99999px;top:-99999px;visibility:hidden;white-space:nowrap;';
+  const sample =
+    'BESbswy Привет Tiếng Việt 한글 日本語 中文 العربية हिन्दी မြန်မာ ខ្មែរ ไทย 👨‍👩‍👧‍👦';
+  const selections = new Map<string, FontFace>();
+  for (const face of addedFaces) {
+    const weight = face.weight === '700' ? '700' : '400';
+    selections.set(`${face.family}|${face.style}|${weight}`, face);
+  }
+  for (const face of selections.values()) {
+    const span = document.createElement('span');
+    span.style.fontFamily = face.family;
+    span.style.fontSize = '48px';
+    span.style.fontStyle = face.style === 'italic' ? 'italic' : 'normal';
+    span.style.fontWeight = face.weight === '700' ? '700' : '400';
+    span.textContent = sample;
+    probe.appendChild(span);
+  }
+  document.body.appendChild(probe);
   try {
-    await Promise.all(addedFaces.map((face) => face.load()));
-  } catch (error) {
-    style.remove();
-    throw new Error(`prepareComparisonFonts: a declared @font-face failed to load: ${error}`);
+    void probe.getBoundingClientRect();
+    await document.fonts.ready;
+  } finally {
+    probe.remove();
   }
 
   const failed = addedFaces
-    .filter((face) => face.status !== 'loaded')
+    .filter((face) => face.status === 'error')
     .map((face) => `${face.family} ${face.weight} ${face.style}`);
   if (failed.length > 0) {
     style.remove();
     throw new Error(
-      `prepareComparisonFonts: @font-face never became available: ${failed.join(', ')}`,
+      `prepareComparisonFonts: @font-face failed to load: ${failed.join(', ')}`,
     );
   }
 
   for (const block of newBlocks) registeredFontFaces.add(block);
 }
 
-export function prepareComparisonFonts(html: string, css: string): Promise<void> {
+function ensureFontsLoaded(css: string): Promise<void> {
+  const result = fontLoadQueue.then(() => registerFonts(css));
+  fontLoadQueue = result.catch(() => {});
+  return result;
+}
+
+export async function prepareComparisonFonts(html: string, css: string): Promise<void> {
   const inlineCss = (html.match(/<style[^>]*>([\s\S]*?)<\/style>/gi) || [])
     .map((style) => style.replace(/<\/?style[^>]*>/gi, ''))
     .join('\n');
-  return ensureFontsLoaded(`${css || ''}\n${inlineCss}`);
+  await ensureFontsLoaded(`${css || ''}\n${inlineCss}`);
+
+  const containerId = `__font_warm_${fontWarmId++}__`;
+  const container = document.createElement('div');
+  container.id = containerId;
+  container.style.cssText =
+    'position:absolute;left:-99999px;top:-99999px;visibility:hidden;';
+  const style = document.createElement('style');
+  const withoutFaces = stripFontFaces(css);
+  style.textContent = scopeCss(withoutFaces, containerId);
+  const content = document.createElement('div');
+  content.innerHTML = stripFontFaces(html);
+  container.append(style, content);
+  document.body.appendChild(container);
+  try {
+    void content.getBoundingClientRect();
+    await document.fonts.ready;
+  } finally {
+    container.remove();
+  }
 }
 
 export interface PixelComparisonResult {
@@ -106,10 +171,11 @@ export function extractDomLines(
   const container = document.createElement('div');
   container.id = containerId;
   container.style.cssText = `position:absolute;left:-9999px;width:${width}px;overflow:hidden;`;
-  const scopedCss = css.replace(
-    /(^|[},;\s])(\s*)(html|body)\b/gm,
-    (match, before, space) => `${before}${space}#${containerId}`,
-  );
+  // prepareComparisonFonts registers every face globally before this runs.
+  // Re-declaring @font-face in a short-lived style creates a fresh cold face
+  // and can make the DOM measure fallback glyphs for this one comparison.
+  const loadedFaceCss = stripFontFaces(css);
+  const scopedCss = scopeCss(loadedFaceCss, containerId);
   const styleEl = document.createElement('style');
   styleEl.textContent = scopedCss;
   container.appendChild(styleEl);
@@ -149,6 +215,17 @@ export function extractDomLines(
   for (const textNode of textNodes) {
     const text = textNode.textContent || '';
     if (!text.trim()) continue;
+    const transform = getComputedStyle(textNode.parentElement!).textTransform;
+    const paintedText = (value: string) => {
+      if (transform === 'uppercase') return value.toUpperCase();
+      if (transform === 'lowercase') return value.toLowerCase();
+      if (transform === 'capitalize') {
+        return value.replace(/(^|\s)(\p{L})/gu, (_match, space, letter) =>
+          space + letter.toUpperCase());
+      }
+      return value;
+    };
+
     const words = text.split(/(\s+)/);
     let offset = 0;
     for (const w of words) {
@@ -167,7 +244,14 @@ export function extractDomLines(
       // scan character-by-character to detect line breaks by Y position.
       const hasShy = w.includes('\u00AD') || w.includes('\u200B');
 
-      if (hasShy) {
+      if (hasShy || rects.length > 1) {
+        // Per character, the transform has to be read off the WHOLE word: `^`
+        // in the capitalize rule matches inside every single-character string,
+        // which would upper-case every letter. A transform that changes length
+        // has no character-to-character mapping, so fall back to the source.
+        const paintedWord = paintedText(w);
+        const paintedChar = (index: number) =>
+          paintedWord.length === w.length ? paintedWord[index] : w[index];
         // Char-by-char scan: group by Y position to find line breaks.
         // getClientRects() on shy words can return multiple rects on the
         // same Y line, so rect-based splitting doesn't work reliably.
@@ -179,7 +263,21 @@ export function extractDomLines(
         }[] = [];
         for (let ci = 0; ci < w.length; ci++) {
           const ch = w[ci];
-          if (ch === '\u00AD' || ch === '\u200B') continue;
+          if (ch === '\u00AD') {
+            const last = charGroups[charGroups.length - 1];
+            let next = ci + 1;
+            while (next < w.length && /[\u00AD\u200B]/.test(w[next])) next++;
+            if (last && next < w.length) {
+              range.setStart(textNode, offset + next);
+              range.setEnd(textNode, offset + next + 1);
+              const nextRect = range.getClientRects()[0];
+              if (nextRect && Math.abs(nextRect.top - cTop - last.y) >= last.height * 0.5) {
+                last.chars += '-';
+              }
+            }
+            continue;
+          }
+          if (ch === '\u200B') continue;
           range.setStart(textNode, offset + ci);
           range.setEnd(textNode, offset + ci + 1);
           const charRect = range.getClientRects()[0];
@@ -187,13 +285,13 @@ export function extractDomLines(
           const charY = charRect.top - cTop;
           const last = charGroups[charGroups.length - 1];
           if (last && Math.abs(charY - last.y) < last.height * 0.5) {
-            last.chars += ch;
+            last.chars += paintedChar(ci);
           } else {
             charGroups.push({
               y: charY,
               x: charRect.left,
               height: charRect.height,
-              chars: ch,
+              chars: paintedChar(ci),
             });
           }
         }
@@ -207,9 +305,9 @@ export function extractDomLines(
             });
           }
         }
-      } else if (rects.length <= 1) {
+      } else {
         const rect = rects[0] || range.getBoundingClientRect();
-        const clean = stripInvisible(w);
+        const clean = paintedText(stripInvisible(w));
         if (clean) {
           wordPositions.push({
             x: rect.left,
@@ -217,40 +315,6 @@ export function extractDomLines(
             height: rect.height,
             text: clean,
           });
-        }
-      } else {
-        let charIdx = 0;
-        for (let ri = 0; ri < rects.length; ri++) {
-          const rectY = rects[ri].top - cTop;
-          let fragment = '';
-          while (charIdx < w.length) {
-            range.setStart(textNode, offset + charIdx);
-            range.setEnd(textNode, offset + charIdx + 1);
-            const charRect = range.getClientRects()[0];
-            if (!charRect) {
-              charIdx++;
-              continue;
-            }
-            const charY = charRect.top - cTop;
-            if (
-              ri + 1 < rects.length &&
-              Math.abs(charY - rects[ri + 1].top + cTop) <
-                Math.abs(charY - rectY)
-            ) {
-              break;
-            }
-            fragment += w[charIdx];
-            charIdx++;
-          }
-          const clean = stripInvisible(fragment);
-          if (clean) {
-            wordPositions.push({
-              x: rects[ri].left,
-              y: rectY,
-              height: rects[ri].height,
-              text: clean,
-            });
-          }
         }
       }
       offset += w.length;
@@ -360,6 +424,17 @@ export function extractDomLines(
 }
 
 /**
+ * Lay a fixture out once against the DOM and throw the answer away.
+ *
+ * The first native layout of a fixture finalizes lazy variable-font shaping in
+ * some engines, so a width swept first would be the only one compared against a
+ * cold font backend. Sweeps call this at the fixture's natural width first.
+ */
+export function warmNativeLayout(html: string, css: string, width: number): void {
+  extractDomLines(html, css, width);
+}
+
+/**
  * Compare text wrapping between our canvas layout and the DOM.
  * Ignores paint-only order/marker differences, but requires every source glyph
  * to stay on the same line. There is no character-drift allowance.
@@ -375,13 +450,17 @@ export function compareWrapping(
   height: number,
   precomputedCanvasLines?: { y: number; text: string }[],
 ): LayoutComparisonResult {
+  // Shape through native layout first. Some browser font backends finalize a
+  // newly loaded variable face on its first DOM use; measuring canvas first
+  // can otherwise make a width sweep depend on which width happened to run
+  // before it.
+  const rawDomLines = extractDomLines(html, css, width);
   const rawCanvasLines =
     precomputedCanvasLines ||
     // layout() over render(): only the lines are wanted, and the sweeps that
     // call this run thousands of widths — painting each one is pure waste.
     layout({ html: css ? `<style>${css}</style>${html}` : html, width, height })
       .lines;
-  const rawDomLines = extractDomLines(html, css, width);
   return compareLineMembership(rawCanvasLines, rawDomLines);
 }
 
@@ -504,20 +583,24 @@ export async function compareRendersWithReference(
   renderReference: ReferenceRenderer,
   referenceWarmsInternally = false,
 ): Promise<ComparisonResult> {
+  const fixtureCss = keepUsedFontFaces(css, html);
+  // Register the complete fixture catalog in a stable order. The isolated
+  // native page gets the pruned CSS below, but incrementally adding subsets to
+  // the shared canvas document makes face selection depend on test-file order.
   await prepareComparisonFonts(html, css);
 
   // A reference renderer can resolve glyph paint lazily. One throwaway render
   // down each path keeps the measurement independent of which path happened
   // to paint first. Native screenshot commands warm internally.
   if (!referenceWarmsInternally) {
-    await renderReference(html, css, width, height, pixelRatio);
+    await renderReference(html, fixtureCss, width, height, pixelRatio);
   }
-  renderToCanvas(html, css, width, height, pixelRatio);
+  renderToCanvas(html, fixtureCss, width, height, pixelRatio);
 
-  const domCanvas = await renderReference(html, css, width, height, pixelRatio);
+  const domCanvas = await renderReference(html, fixtureCss, width, height, pixelRatio);
   const { canvas: libCanvas, lines: canvasLines } = renderToCanvas(
     html,
-    css,
+    fixtureCss,
     width,
     height,
     pixelRatio,

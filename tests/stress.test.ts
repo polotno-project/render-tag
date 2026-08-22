@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { commands } from 'vitest/browser';
-import { compareWrapping, prepareComparisonFonts } from './helpers/compare.ts';
+import {
+  compareWrapping,
+  prepareComparisonFonts,
+  warmNativeLayout,
+} from './helpers/compare.ts';
 import { loadBasicCases, polotnoCase, polotnoListsCase } from './helpers/test-cases.ts';
 import type { BenchmarkCase } from './helpers/test-cases.ts';
 import stressBaseline from './stress-baseline.json';
@@ -15,6 +19,7 @@ const MIN_WIDTH = 100;
 async function stressTestCase(tc: BenchmarkCase): Promise<{ name: string; failures: number[] }> {
   const failures: number[] = [];
   await prepareComparisonFonts(tc.html, tc.css);
+  warmNativeLayout(tc.html, tc.css, tc.width);
 
   for (let width = MIN_WIDTH; width <= tc.width; width += STEP) {
     const { wrappingMatch } = compareWrapping(tc.html, tc.css, width, tc.height);
@@ -34,7 +39,6 @@ describe('Layout stress test (width sweep)', () => {
       byName.get('Formatted text (bold, italic, colors)')!,
       byName.get('Multi-heading article')!,
       byName.get('Rich blog post')!,
-      byName.get('Multi-column layout')!,
       byName.get('Dense inline formatting')!,
       polotnoCase,
       polotnoListsCase,

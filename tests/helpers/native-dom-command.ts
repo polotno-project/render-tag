@@ -5,6 +5,7 @@ import { mkdir, readdir, readFile, rename, rm, unlink, writeFile } from 'node:fs
 import { release } from 'node:os';
 import path from 'node:path';
 import type { Browser, Page } from 'playwright';
+import { matchFontFaces, stripFontFaces } from './css-text.ts';
 
 export interface NativeDomCaptureOptions {
   html: string;
@@ -44,16 +45,22 @@ function digest(value: string | Buffer): string {
   return createHash('sha256').update(value).digest('hex');
 }
 
-function fixtureHtml(options: NativeDomCaptureOptions): string {
+function fixtureHtml(fontCss: string): string {
   return (
     '<!doctype html><html><head><meta charset="utf-8"><style>' +
     'html,body{margin:0;padding:0;background:transparent;overflow:hidden}' +
-    options.css +
-    '</style></head><body><div>' +
-    '<div style="margin:0;padding:0;overflow:hidden">' +
-    options.html +
-    '</div></div></body></html>'
+    '</style><style data-fonts>' + fontCss +
+    '</style><style data-fixture></style></head><body><div>' +
+    '<div data-content style="margin:0;padding:0;overflow:hidden"></div>' +
+    '</div></body></html>'
   );
+}
+
+function splitCss(css: string): { fontCss: string; fixtureCss: string } {
+  return {
+    fontCss: matchFontFaces(css).join('\n'),
+    fixtureCss: stripFontFaces(css),
+  };
 }
 
 let environmentKey: Promise<string> | undefined;
@@ -71,6 +78,7 @@ function environmentDigest(
     readFile(new URL('../../package-lock.json', import.meta.url)),
     readFile(new URL('../../vitest.browser.config.ts', import.meta.url)),
     readFile(new URL(import.meta.url)),
+    readFile(new URL('./css-text.ts', import.meta.url)),
   ]).then(async (implementation) => {
     const key = digest(JSON.stringify({
       schema: 1,
@@ -127,15 +135,22 @@ async function writeCached(file: string, image: Buffer): Promise<void> {
 }
 
 /**
- * One host page per device scale factor, reused for the whole run — creating a
- * context and navigating it costs more than every fixture put together. Each
- * fixture still gets a fresh `<iframe>` document, so its styles, its CSSOM and
- * its `FontFaceSet` cannot reach the next fixture; only the HTTP cache carries
- * over, which is exactly the part worth keeping.
+ * One browser context per device scale factor, reused for the whole run.
+ * Capture documents persist by exact font set so fonts load only once, and
+ * WebKit puts each font set in its own top-level page as well.
+ *
+ * That second layer was added when frames were discarded per fixture, which
+ * could poison a later face with the same family/source. Frames now persist,
+ * so the original trigger is gone: disabling the page split passed a cold
+ * WebKit run of the full lane. It is kept because a font-cache regression here
+ * is silent — it caches a wrong reference PNG — and one green run is not
+ * enough evidence to remove it. Delete it if CI stays green without it.
  */
 interface CaptureHost {
   page: Page;
-  /** Captures share one page, so they cannot overlap on it. */
+  runnerOrigin: string;
+  fontPages: Map<string, Promise<Page>>;
+  /** Captures mutate persistent documents, so serialize them. */
   tail: Promise<unknown>;
 }
 
@@ -152,6 +167,20 @@ async function createHost(
     viewport: { width: 1, height: 1 },
   });
   const page = await context.newPage();
+  await initializePage(page, browserName, runnerOrigin);
+  return {
+    page,
+    runnerOrigin,
+    fontPages: new Map(),
+    tail: Promise.resolve(),
+  };
+}
+
+async function initializePage(
+  page: Page,
+  browserName: string,
+  runnerOrigin: string,
+): Promise<void> {
   if (quirks(browserName).reopensRunnerOrigin) {
     await page.goto(runnerOrigin, { waitUntil: 'domcontentloaded' });
   }
@@ -165,7 +194,26 @@ async function createHost(
   // first paint — glyph rasterization is lazy, and a reference is cached to
   // disk the moment it is taken.
   await page.screenshot();
-  return { page, tail: Promise.resolve() };
+}
+
+async function pageForFontSet(
+  host: CaptureHost,
+  browserName: string,
+  fontCss: string,
+): Promise<Page> {
+  if (browserName !== 'webkit') return host.page;
+  const existing = host.fontPages.get(fontCss);
+  if (existing) return existing;
+
+  const page = host.fontPages.size === 0
+    ? Promise.resolve(host.page)
+    : host.page.context().newPage().then(async (created) => {
+      await initializePage(created, browserName, host.runnerOrigin);
+      return created;
+    });
+  host.fontPages.set(fontCss, page);
+  page.catch(() => host.fontPages.delete(fontCss));
+  return page;
 }
 
 function getHost(
@@ -190,29 +238,60 @@ async function capture(
   browserName: string,
   options: NativeDomCaptureOptions,
 ): Promise<Buffer> {
-  await host.page.setViewportSize({ width: options.width, height: options.height });
+  const { fontCss, fixtureCss } = splitCss(options.css);
+  const page = await pageForFontSet(host, browserName, fontCss);
+  await page.setViewportSize({ width: options.width, height: options.height });
 
-  const fontErrors = await host.page.evaluate(async ({ html, width, height }) => {
-    document.querySelector('iframe')?.remove();
-    const frame = document.createElement('iframe');
+  const fontErrors = await page.evaluate(async ({ documentHtml, fontCss, fixtureCss, contentHtml, width, height }) => {
+    type CaptureWindow = Window & {
+      __renderTagCaptureFrames?: Map<string, HTMLIFrameElement>;
+    };
+    const captureWindow = window as CaptureWindow;
+    const frames = captureWindow.__renderTagCaptureFrames ||= new Map();
+    for (const existing of frames.values()) existing.style.display = 'none';
+
+    let frame = frames.get(fontCss);
+    let loaded: Promise<unknown> | undefined;
+    if (!frame) {
+      frame = document.createElement('iframe');
+      loaded = new Promise((resolve) =>
+        frame!.addEventListener('load', resolve, { once: true }),
+      );
+      frame.srcdoc = documentHtml;
+      document.body.appendChild(frame);
+      frames.set(fontCss, frame);
+    }
     frame.setAttribute('scrolling', 'no');
     frame.style.cssText =
       `position:absolute;left:0;top:0;border:0;margin:0;padding:0;` +
       `width:${width}px;height:${height}px;background:transparent;`;
-    const loaded = new Promise((resolve) =>
-      frame.addEventListener('load', resolve, { once: true }),
-    );
-    frame.srcdoc = html;
-    document.body.appendChild(frame);
-    await loaded;
+    if (loaded) await loaded;
 
     const fixture = frame.contentDocument!;
+    if (loaded) {
+      // WebKit aborts some concurrently selected fallback subsets (notably
+      // CJK and emoji). The fixture CSS has already been reduced to faces that
+      // cover its text, so load those faces once, in source order, before the
+      // persistent document receives content.
+      for (const face of fixture.fonts) {
+        if (face.status === 'unloaded') await face.load().catch(() => {});
+      }
+    }
+    fixture.querySelector<HTMLStyleElement>('style[data-fixture]')!.textContent = fixtureCss;
+    fixture.querySelector<HTMLElement>('[data-content]')!.innerHTML = contentHtml;
     fixture.body.getBoundingClientRect();
     await fixture.fonts.ready;
     return [...fixture.fonts]
       .filter((face) => face.status === 'error')
       .map((face) => `${face.family} ${face.weight} ${face.style}`);
-  }, { html: fixtureHtml(options), width: options.width, height: options.height });
+  }, {
+    documentHtml: fixtureHtml(fontCss),
+    fontCss,
+    fixtureCss,
+    contentHtml: options.html,
+    width: options.width,
+    height: options.height,
+  });
   if (fontErrors.length > 0) {
     throw new Error(
       `captureNativeDom: fonts failed to load: ${fontErrors.join(', ')}`,
@@ -225,7 +304,7 @@ async function capture(
     animations: 'disabled' as const,
     scale: 'device' as const,
   };
-  return host.page.screenshot(screenshotOptions);
+  return page.screenshot(screenshotOptions);
 }
 
 /** Capture an independent native-DOM screenshot in the configured engine. */

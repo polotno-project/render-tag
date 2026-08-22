@@ -8,6 +8,7 @@ let _debug: ((entry: import('./types.ts').DebugEntry) => void) | undefined;
 // Lines emitted during layout. Reset at the start of buildLayoutTree();
 // layoutInlineContent appends one entry per committed line.
 let _lines: LayoutLine[] = [];
+const _minContentCache = new Map<StyledNode, number>();
 
 // ─── measureText width cache ──────────────────────────────────────────
 // Caches ctx.measureText(text).width keyed by "font\0text".
@@ -27,15 +28,19 @@ function cachedMeasureWidth(ctx: CanvasRenderingContext2D, text: string): number
 
 
 /**
- * Check if a line has mixed fonts (different fontFamily/fontSize/fontWeight/fontStyle).
+ * Would every glyph on this line be measured under one canvas state? Only then
+ * can the line be re-measured as a single string. Keyed on what `applyFont`
+ * and `formatLetterSpacing` actually set, not on the raw declarations —
+ * `font-kerning: auto` and `normal` are one state on the canvas.
  */
-function hasMixedFonts(words: Word[]): boolean {
-  let font = '';
+function hasMixedTextMetrics(words: Word[]): boolean {
+  let metrics = '';
   for (const w of words) {
     if (!w.text || w.isSpace) continue;
-    const f = buildCanvasFont(w.style);
-    if (font && f !== font) return true;
-    font = f;
+    const key = `${buildCanvasFont(w.style)}|${formatLetterSpacing(w.style.letterSpacing)}` +
+      `|${canvasKerning(w.style)}`;
+    if (metrics && key !== metrics) return true;
+    metrics = key;
   }
   return false;
 }
@@ -47,7 +52,12 @@ function hasMixedFonts(words: Word[]): boolean {
  */
 export function applyFont(ctx: CanvasRenderingContext2D, style: ResolvedStyle): void {
   ctx.font = buildCanvasFont(style);
-  ctx.fontKerning = style.fontKerning === 'none' ? 'none' : 'normal';
+  ctx.fontKerning = canvasKerning(style);
+}
+
+/** The `ctx.fontKerning` value a style resolves to. */
+function canvasKerning(style: ResolvedStyle): CanvasFontKerning {
+  return style.fontKerning === 'none' ? 'none' : 'normal';
 }
 
 /** Format a letter-spacing value (px) as a canvas `ctx.letterSpacing` string. */
@@ -469,6 +479,18 @@ interface TextRun {
   clipStyle?: ResolvedStyle;
   /** Nearest inline ancestor-or-self declaring --rt-text-stroke-image */
   strokeImageStyle?: ResolvedStyle;
+  /** Source element for an atomic inline-block with its own inner line flow. */
+  inlineBlock?: StyledNode;
+}
+
+interface InlineBlockLayout {
+  nodes: LayoutNode[];
+  lines: LayoutLine[];
+  contentWidth: number;
+  contentHeight: number;
+  /** Last inner line's baseline, measured from the margin-box top. */
+  baselineOffset: number;
+  marginBoxHeight: number;
 }
 
 interface Word {
@@ -497,6 +519,8 @@ interface Word {
   clipStyle?: ResolvedStyle;
   /** Nearest inline ancestor-or-self declaring --rt-text-stroke-image */
   strokeImageStyle?: ResolvedStyle;
+  inlineBlock?: StyledNode;
+  inlineBlockLayout?: InlineBlockLayout;
 }
 
 interface PositionedLine {
@@ -658,6 +682,7 @@ function collectTextRuns(node: StyledNode): TextRun[] {
         // Store the full box info for atomic inline-block handling
         boxOpen: n.style,  // signals this is a boxed element
         boxClose: n.style,
+        inlineBlock: n,
       });
       return;
     }
@@ -782,7 +807,9 @@ function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRu
 
   if (isPreserve) {
     // Split on spaces and tabs, keeping delimiters
-    const words = text.split(/( +|\t)/);
+    const words = text
+      .split(/( +|\t)/)
+      .flatMap((word) => /^( +|\t)$/.test(word) ? [word] : splitHyphenated(word));
     const tabStopInterval = cachedMeasureWidth(ctx, ' ') * 8; // CSS default: 8 spaces
     for (const w of words) {
       if (w === '') continue;
@@ -825,6 +852,9 @@ function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRu
       .split(/([ \t\n\r\f\v]+)/)
       .flatMap((w) =>
         /^[ \t\n\r\f\v]+$/.test(w) ? [w] : w.split(/(?<=\?)(?=.)/),
+      )
+      .flatMap((word) =>
+        /^[ \t\n\r\f\v]+$/.test(word) ? [word] : splitHyphenated(word),
       );
 
     // Use cumulative measurement to avoid rounding error accumulation
@@ -951,6 +981,7 @@ function tokenizeRuns(ctx: CanvasRenderingContext2D, runs: TextRun[]): Word[] {
         boxClose: run.boxClose,
         clipStyle: run.clipStyle,
         strokeImageStyle: run.strokeImageStyle,
+        inlineBlock: run.inlineBlock,
       });
       continue;
     }
@@ -1068,6 +1099,13 @@ function graphemes(text: string): string[] {
 
 const EMOJI_PICTOGRAPHIC = /\p{Extended_Pictographic}/u;
 /**
+ * Exactly the characters `isEmojiCluster` can answer `true` for: something in
+ * the emoji planes (regional-indicator flags included), a ZWJ, or a VS16. A
+ * word without one of these cannot contain an emoji cluster, so this skips
+ * grapheme segmentation for the overwhelming majority of words.
+ */
+const EMOJI_CANDIDATE = /[\u{1F000}-\u{10FFFF}\u200D\uFE0F]/u;
+/**
  * Is this grapheme cluster an emoji that creates a line-break opportunity?
  * Restricted to emoji-presentation clusters (emoji planes, regional-indicator
  * flags, and ZWJ/VS16 sequences) so plain text symbols like ©/®/™ — which are
@@ -1085,54 +1123,51 @@ function isEmojiCluster(s: string): boolean {
 }
 
 /**
+ * Split after CSS hyphen break opportunities, preserving the hyphen. The
+ * two-character lookbehind cannot match at index 1, which is what keeps a
+ * leading hyphen attached to the word it starts.
+ */
+function splitHyphenated(text: string): string[] {
+  return text.split(/(?<=[^]-)/).filter(Boolean);
+}
+
+/**
  * Break a word into character-level pieces if it contains CJK/emoji or if
  * overflow-wrap: break-word is set and the word is too wide.
+ *
+ * `emergency` distinguishes the two reasons. CJK and emoji carry their own
+ * break opportunities, so those splits are ordinary and fill the current line.
+ * `overflow-wrap: break-word` is a last resort, and the caller has to know
+ * which of the two it got.
  */
 function breakWordIfNeeded(
   ctx: CanvasRenderingContext2D,
   word: Word,
   contentWidth: number,
   currentLineWidth: number,
-): Word[] {
+): { pieces: Word[]; emergency: boolean } {
   // Check if word has CJK characters — always break at character level
   const hasCJK = [...word.text].some(isCJK);
 
   // Emoji form their own break opportunities (a run of emoji wraps between
   // clusters). Only meaningful when a grapheme segmenter is available so ZWJ
   // sequences / skin-tone / flag pairs stay intact.
-  const hasEmoji = EMOJI_PICTOGRAPHIC.test(word.text) && !!getGraphemeSegmenter();
+  const segmenter = getGraphemeSegmenter();
+  const hasEmoji = !!segmenter && EMOJI_CANDIDATE.test(word.text) &&
+    graphemes(word.text).some(isEmojiCluster);
 
   // Check if word needs break-word splitting — when it won't fit on a fresh line
   const needsBreak = word.width > contentWidth &&
     (word.style.overflowWrap === 'break-word' || word.style.wordBreak === 'break-all');
 
-  if (!hasCJK && !hasEmoji && !needsBreak) return [word];
+  if (!hasCJK && !hasEmoji && !needsBreak) return { pieces: [word], emergency: false };
 
-  // overflow-wrap:break-word is a LAST RESORT — the browser first uses any
-  // normal break opportunity inside the word (a hyphen) before breaking
-  // mid-character. So split a hyphenated word at its hyphens first and only
-  // char-break the segments that are themselves still too wide. (word-break:
-  // break-all genuinely allows breaking between any two characters, so it
-  // skips this and falls through to the char loop below.)
-  if (needsBreak && word.style.wordBreak !== 'break-all' &&
-      word.style.overflowWrap === 'break-word') {
-    const segTexts = word.text.split(/(?<=-)(?!\d)|(?<=[^\d]-)/).filter((s) => s.length);
-    if (segTexts.length > 1) {
-      ctx.font = buildCanvasFont(word.style);
-      ctx.letterSpacing = formatLetterSpacing(word.style.letterSpacing);
-      const out: Word[] = [];
-      for (const segText of segTexts) {
-        const segWidth = cachedMeasureWidth(ctx, segText);
-        if (segWidth <= contentWidth) {
-          out.push({ ...word, text: segText, width: segWidth });
-        } else {
-          // Segment still overflows — char-break just this segment.
-          out.push(...breakWordIfNeeded(ctx, { ...word, text: segText, width: segWidth }, contentWidth, 0));
-        }
-      }
-      return out;
-    }
-  }
+  // `overflow-wrap: break-word` is the last-resort split; CJK/emoji breaks are
+  // ordinary opportunities that behave nothing like it at the line edge.
+  // `word-break: break-all` genuinely allows a break anywhere, so it is not an
+  // emergency either.
+  const emergency = needsBreak && !hasCJK && !hasEmoji &&
+    word.style.wordBreak !== 'break-all';
 
   // Split into characters using cumulative measurement for accuracy.
   // Measuring each char individually ignores kerning — the sum of individual
@@ -1148,8 +1183,15 @@ function breakWordIfNeeded(
 
   let current = '';
   let currentWidth = 0;
+  let measuredText = '';
+  let measuredWidth = 0;
+  let currentStartWidth = 0;
 
   for (const char of chars) {
+    const nextMeasuredText = measuredText + char;
+    const nextMeasuredWidth = cachedMeasureWidth(ctx, nextMeasuredText);
+    const charWidth = nextMeasuredWidth - measuredWidth;
+
     // Emoji clusters each get their own word — a break opportunity between
     // adjacent emoji, matching the browser line breaker.
     if (hasEmoji && isEmojiCluster(char)) {
@@ -1158,7 +1200,10 @@ function breakWordIfNeeded(
         current = '';
         currentWidth = 0;
       }
-      pieces.push({ ...word, text: char, width: cachedMeasureWidth(ctx, char) });
+      pieces.push({ ...word, text: char, width: charWidth });
+      currentStartWidth = nextMeasuredWidth;
+      measuredText = nextMeasuredText;
+      measuredWidth = nextMeasuredWidth;
       continue;
     }
 
@@ -1169,36 +1214,69 @@ function breakWordIfNeeded(
         current = '';
         currentWidth = 0;
       }
-      const charWidth = cachedMeasureWidth(ctx, char);
       pieces.push({ ...word, text: char, width: charWidth });
+      currentStartWidth = nextMeasuredWidth;
+      measuredText = nextMeasuredText;
+      measuredWidth = nextMeasuredWidth;
       continue;
     }
 
     // Use cumulative measurement: measure the growing string, not individual chars
     const candidateText = current + char;
-    const candidateWidth = cachedMeasureWidth(ctx, candidateText);
+    const candidateWidth = nextMeasuredWidth - currentStartWidth;
 
     // For break-word: break when adding this char would exceed container
     if (needsBreak && candidateWidth > contentWidth && current) {
       pieces.push({ ...word, text: current, width: currentWidth });
       current = char;
-      currentWidth = cachedMeasureWidth(ctx, char);
+      currentWidth = charWidth;
+      currentStartWidth = measuredWidth;
+      measuredText = nextMeasuredText;
+      measuredWidth = nextMeasuredWidth;
       continue;
     }
 
     current = candidateText;
     currentWidth = candidateWidth;
+    measuredText = nextMeasuredText;
+    measuredWidth = nextMeasuredWidth;
   }
 
   if (current) {
     pieces.push({ ...word, text: current, width: currentWidth });
   }
 
-  return pieces;
+  return { pieces, emergency };
 }
 
 /** Punctuation that cannot start a line — stays with the preceding word. */
-const TRAILING_PUNCT = /^[,.\;:!?\)\]\}'"»›]+$/;
+const TRAILING_PUNCT = /^[,.\;:!?\)\]\}'"»›」』】〕〉》]+$/;
+/** Punctuation that cannot end a line — stays with the following word. */
+const OPENING_PUNCT = /^[\(\[\{«‹“‘「『【〔〈《]+$/;
+
+/**
+ * Total width of the content directly after `from` that cannot start a line:
+ * trailing punctuation (",.)]}…"), an inline span's right padding/border
+ * (empty boxClose markers), and a word continuation abutting across a run
+ * boundary with no soft-wrap opportunity (`noBreakBefore` — one word split
+ * across two inline spans with different font sizes). The browser includes all
+ * of it when deciding whether the preceding word fits, so the unit wraps
+ * together: if "Music Experie" doesn't leave room for the glued "nce", the
+ * whole word wraps as one. Stops at whitespace or the next breakable word.
+ */
+function gluedRunWidth(words: Word[], from: number): number {
+  let total = 0;
+  for (let index = from; index < words.length; index++) {
+    const next = words[index];
+    if (next.isSpace || next.text === '\n') break;
+    const isPunctuation = !!next.text && TRAILING_PUNCT.test(next.text);
+    const isClosingEdge = !next.text && !!next.boxClose;
+    const isContinuation = !!next.text && !!next.noBreakBefore;
+    if (!isPunctuation && !isClosingEdge && !isContinuation) break;
+    total += next.width;
+  }
+  return total;
+}
 
 /**
  * Flow words into lines that fit within contentWidth.
@@ -1289,7 +1367,9 @@ function flowWordsIntoLines(
     const word = words[wordIndex];
     let wordLineHeight = getLineHeight(ctx, word.style, useBulletProbe);
     // Inline-block elements expand line height with their vertical padding+margin
-    if (word.boxStyle && word.boxStyle.display === 'inline-block') {
+    if (word.inlineBlockLayout) {
+      wordLineHeight = Math.max(wordLineHeight, word.inlineBlockLayout.marginBoxHeight);
+    } else if (word.boxStyle && word.boxStyle.display === 'inline-block') {
       // Clamped at 0: negative margins shrink the margin box, but the original
       // `Math.max(h, h + extra)` never let them shrink the LINE, and nothing
       // here is measuring a case that says they should.
@@ -1363,7 +1443,7 @@ function flowWordsIntoLines(
             });
         const combinedText = cells.map((c) => c.ch).join('');
         // Hyphen break opportunities (same rule as the single-word hyphen path).
-        const segTexts = combinedText.split(/(?<=-)(?!\d)|(?<=[^\d]-)/).filter((s) => s.length);
+        const segTexts = splitHyphenated(combinedText);
         const hyphenMode = segTexts.length > 1;
         const fitsLine = currentLine.totalWidth + combined <= effWidth();
         // A hyphen is an ordinary break opportunity — intervene whenever the
@@ -1462,34 +1542,36 @@ function flowWordsIntoLines(
     }
 
     // Break long words / CJK characters if needed
-    const pieces = (!word.isSpace && word.text.length > 1)
+    const broken = (!word.isSpace && word.text.length > 1)
       ? breakWordIfNeeded(ctx, word, effWidth(), currentLine.totalWidth)
-      : [word];
+      : { pieces: [word], emergency: false };
+    const pieces = broken.pieces;
 
-    // Glued tail: content immediately after this word that cannot start a new
-    // line — trailing punctuation (",.)]}…"), an inline span's right
-    // padding/border (empty boxClose markers), and a word continuation that
-    // abuts this word across a run boundary with no soft-wrap opportunity
-    // (noBreakBefore — e.g. one word split across two inline spans with
-    // different font sizes). The browser includes all of it when deciding
-    // whether this word fits, so the unit wraps together: if "Music Experie"
-    // doesn't leave room for the glued "nce", the whole word wraps as one.
-    // Stops at whitespace or the next breakable word.
-    let gluedTailWidth = 0;
-    for (let j = wordIndex + 1; j < words.length; j++) {
-      const nw = words[j];
-      if (nw.isSpace || nw.text === '\n') break;
-      const isPunct = !!nw.text && TRAILING_PUNCT.test(nw.text);
-      const isCloseMarker = !nw.text && !!nw.boxClose;
-      const isGluedCont = !!nw.text && !!nw.noBreakBefore;
-      if (isPunct || isCloseMarker || isGluedCont) { gluedTailWidth += nw.width; continue; }
-      break;
+    // An emergency break is one taken inside a word that cannot fit on a fresh
+    // line. Native layout first takes the ordinary whitespace opportunity
+    // before that word; it does not pack the first emergency fragment into
+    // space left by the preceding word. Every other kind of split — CJK,
+    // emoji, hyphens, break-all — is a normal opportunity and fills first.
+    if (broken.emergency && currentLine.words.some((lineWord) => !lineWord.isSpace)) {
+      pushLine(true);
+      afterHardBreak = false;
     }
 
-    for (const piece of pieces) {
-      const isLastPiece = piece === pieces[pieces.length - 1];
-      // Only the last piece of the word carries the glued tail.
-      const tail = isLastPiece ? gluedTailWidth : 0;
+    const gluedTailWidth = gluedRunWidth(words, wordIndex + 1);
+    for (let pieceIndex = 0; pieceIndex < pieces.length; pieceIndex++) {
+      const piece = pieces[pieceIndex];
+      const isLastPiece = pieceIndex === pieces.length - 1;
+      // A trailing-punctuation piece produced by character splitting still
+      // belongs to the preceding character. Include it before deciding
+      // whether that character fits; appending it afterward can overflow the
+      // line (`…습니다.` must wrap as `다.`, never leave a hanging period).
+      let tail = isLastPiece ? gluedTailWidth : 0;
+      for (let tailIndex = pieceIndex + 1; tailIndex < pieces.length; tailIndex++) {
+        const trailing = pieces[tailIndex];
+        if (!trailing.text || !TRAILING_PUNCT.test(trailing.text)) break;
+        tail += trailing.width;
+        if (tailIndex === pieces.length - 1) tail += gluedTailWidth;
+      }
       // Trailing punctuation (e.g. comma after </span>) should not wrap
       // independently — browsers keep it with the preceding word.
       const isTrailingPunct = !piece.isSpace && piece.text.length > 0 &&
@@ -1501,9 +1583,10 @@ function flowWordsIntoLines(
       // opportunity before it — keep it with the preceding word like trailing
       // punctuation. Only the FIRST piece carries the flag; a break-word split
       // inside the word may still wrap mid-word.
-      const isGlued = piece === pieces[0] && piece.noBreakBefore &&
-        currentLine.words.length > 0 &&
-        !currentLine.words[currentLine.words.length - 1].isSpace;
+      const isGlued = currentLine.words.length > 0 &&
+        !currentLine.words[currentLine.words.length - 1].isSpace &&
+        ((piece === pieces[0] && piece.noBreakBefore) ||
+          (!piece.text && !!piece.boxClose));
 
       // Leading inline padding/border (an empty boxOpen marker) must not be
       // stranded at the end of a line — it belongs with the span's following
@@ -1511,17 +1594,32 @@ function flowWordsIntoLines(
       // content word's width in this marker's fit test so the two wrap together
       // and the left padding lands on the new line with the content.
       let headExtra = 0;
-      if (!piece.text && piece.boxOpen) {
-        const next = words[wordIndex + 1];
+      if ((!piece.text && piece.boxOpen) ||
+          (OPENING_PUNCT.test(piece.text) && gluedTailWidth === 0)) {
+        let nextIndex = wordIndex + 1;
+        // Opening punctuation can be followed by an inline box edge before
+        // its first glyph: `(<span>word</span>)`. Keep both the edge and that
+        // first breakable glyph on the same line as the punctuation.
+        while (nextIndex < words.length && !words[nextIndex].text && words[nextIndex].boxOpen) {
+          headExtra += words[nextIndex].width;
+          nextIndex++;
+        }
+        const next = words[nextIndex];
         if (next && !next.isSpace && next.text) {
           // Only the next word's first BREAKABLE unit must stay with the leading
           // padding — the whole word for unbreakable Latin, but just the first
           // character for CJK / break-word (which wrap per character). Using the
           // whole word here would over-wrap a long CJK run that follows padding.
           const np = next.text.length > 1
-            ? breakWordIfNeeded(ctx, next, effWidth(), 0)
+            ? breakWordIfNeeded(ctx, next, effWidth(), 0).pieces
             : [next];
-          headExtra = np[0].width;
+          headExtra += np[0].width;
+          if (np.length === 1) {
+            // The first word's own inseparable tail is part of the same unit:
+            // `(<span>p50</span>,` may break before `(` or after the comma,
+            // never between the word, closing edge, and comma.
+            headExtra += gluedRunWidth(words, nextIndex + 1);
+          }
         }
       }
 
@@ -1537,10 +1635,13 @@ function flowWordsIntoLines(
         shReserve = cachedMeasureWidth(ctx, '-');
       }
 
+      const candidateLineWidth = currentLine.totalWidth + piece.width +
+        shReserve + tail + headExtra;
+
       // Would this piece overflow?
       if (!piece.isSpace && !isTrailingPunct && !isGlued && currentLine.words.length > 0 &&
-        currentLine.totalWidth + piece.width + shReserve + tail + headExtra > effWidth()) {
-        const overflow = currentLine.totalWidth + piece.width + shReserve + tail + headExtra - effWidth();
+        candidateLineWidth > effWidth()) {
+        const overflow = candidateLineWidth - effWidth();
 
         // For borderline cases (overflow < 1px), word-by-word delta
         // accumulation may introduce rounding errors. Re-measure the
@@ -1548,7 +1649,7 @@ function flowWordsIntoLines(
         // Only works for single-font lines — mixed fonts can't be
         // measured as one string.
         let reallyOverflows = true;
-        if (overflow < 1 && !hasMixedFonts([...currentLine.words, piece])) {
+        if (overflow < 1 && !hasMixedTextMetrics([...currentLine.words, piece])) {
           applyFont(ctx, piece.style);
           const fullText = currentLine.words.map(w => w.text).join('') + piece.text +
             (piece.isSoftHyphenBreak ? '-' : '');
@@ -1556,49 +1657,18 @@ function flowWordsIntoLines(
           // markers, inline-block margins) that measureText(fullText) misses —
           // add them back so padded inline spans aren't under-measured.
           let markerWidth = 0;
-          for (const w of currentLine.words) if (!w.text) markerWidth += w.width;
+          for (const w of currentLine.words) {
+            if (!w.text) markerWidth += w.width;
+            else if (w.isSpace) markerWidth += w.style.wordSpacing;
+          }
           if (!piece.text) markerWidth += piece.width;
-          const fullWidth = cachedMeasureWidth(ctx, fullText) + markerWidth + tail + headExtra;
-          // Allow only a hair of sub-pixel overflow. measureText matches the
-          // browser's rendered width to ~0.01px, so a larger slack would keep
-          // lines the browser actually wraps (packing one extra word per
-          // borderline line and drifting the whole document's breaks).
+          else if (piece.isSpace) markerWidth += piece.style.wordSpacing;
+          const fullWidth = cachedMeasureWidth(ctx, fullText) + markerWidth + tail +
+            headExtra;
+          // Allow only a hair of sub-pixel overflow. A broader tolerance fixes
+          // isolated knife-edges but packs extra words in ordinary paragraphs.
           if (fullWidth <= effWidth() + 0.02) {
             reallyOverflows = false;
-          }
-        }
-
-        // Hyphen break on current line: before wrapping the whole word,
-        // try fitting a hyphen prefix on the current line. Browsers prefer
-        // keeping content on the current line by splitting at hyphens.
-        if (reallyOverflows && piece.text.includes('-')) {
-          const parts = piece.text.split(/(?<=-)(?!\d)|(?<=[^\d]-)/);
-          if (parts.length > 1) {
-            applyFont(ctx, piece.style);
-            let fitted = '';
-            let fittedWidth = 0;
-            let partIdx = 0;
-            const available = effWidth() - currentLine.totalWidth;
-            for (; partIdx < parts.length; partIdx++) {
-              const candidate = fitted + parts[partIdx];
-              const candidateWidth = cachedMeasureWidth(ctx, candidate);
-              if (candidateWidth > available) break;
-              fitted = candidate;
-              fittedWidth = candidateWidth;
-            }
-            if (partIdx > 0 && partIdx < parts.length) {
-              currentLine.words.push({ ...piece, text: fitted, width: fittedWidth });
-              currentLine.totalWidth += fittedWidth;
-              currentLine.lineHeight = Math.max(currentLine.lineHeight, wordLineHeight);
-              pushLine(true);
-              afterHardBreak = false;
-              const remainder = parts.slice(partIdx).join('');
-              const remainderWidth = cachedMeasureWidth(ctx, remainder);
-              currentLine.words.push({ ...piece, text: remainder, width: remainderWidth });
-              currentLine.totalWidth += remainderWidth;
-              currentLine.lineHeight = Math.max(currentLine.lineHeight, wordLineHeight);
-              continue;
-            }
           }
         }
 
@@ -1636,47 +1706,6 @@ function flowWordsIntoLines(
         piece.width = pieceWidth;
       }
 
-      // Hyphen break on a fresh line when word still too wide.
-      if (currentLine.words.length === 0 && pieceWidth > effWidth() &&
-          !piece.isSpace && piece.text.includes('-')) {
-        const subParts = piece.text.split(/(?<=-)(?!\d)|(?<=[^\d]-)/);
-        if (subParts.length > 1) {
-          applyFont(ctx, piece.style);
-          // Inject sub-parts as individual pieces — they'll flow through
-          // the normal overflow/wrap logic on subsequent iterations.
-          const newPieces: Word[] = subParts.filter(p => p).map(p => ({
-            ...piece,
-            text: p,
-            width: cachedMeasureWidth(ctx, p),
-          }));
-          // Replace current piece with the sub-parts by splicing into the pieces array
-          // Since we're iterating `pieces`, we push remaining sub-parts after the first
-          // onto the current line normally, letting the overflow check handle wrapping.
-          let first = true;
-          for (const sp of newPieces) {
-            if (first) {
-              first = false;
-              // First sub-part: add to current line (it fits since it's smaller)
-              currentLine.words.push(sp);
-              currentLine.totalWidth += sp.width;
-              currentLine.lineHeight = Math.max(currentLine.lineHeight, wordLineHeight);
-            } else if (currentLine.totalWidth + sp.width > effWidth()) {
-              // Overflow: wrap to next line
-              pushLine(true);
-              afterHardBreak = false;
-              currentLine.words.push(sp);
-              currentLine.totalWidth += sp.width;
-              currentLine.lineHeight = Math.max(currentLine.lineHeight, wordLineHeight);
-            } else {
-              currentLine.words.push(sp);
-              currentLine.totalWidth += sp.width;
-              currentLine.lineHeight = Math.max(currentLine.lineHeight, wordLineHeight);
-            }
-          }
-          continue;
-        }
-      }
-
       currentLine.words.push(piece);
       currentLine.totalWidth += pieceWidth;
       currentLine.lineHeight = Math.max(currentLine.lineHeight, wordLineHeight);
@@ -1706,6 +1735,53 @@ interface LineClampState {
   exhausted: boolean;
 }
 
+function prepareInlineBlocks(
+  ctx: CanvasRenderingContext2D,
+  words: Word[],
+  containingWidth: number,
+  useBulletProbe: boolean,
+): void {
+  for (const word of words) {
+    const source = word.inlineBlock;
+    if (!source) continue;
+    const s = source.style;
+    const margins = horizontalMargins(s);
+    const frame = horizontalFrame(s);
+    const preferredContent = Math.max(0, word.width - margins - frame);
+    // The source node IS the inner root: the inline formatting context reads
+    // only font, whiteSpace, direction, text-align/indent and line-clamp off
+    // it. Its box properties are applied here, by the caller, so there is
+    // nothing to zero out first.
+    const availableContent = Math.max(0, containingWidth - margins - frame);
+    let contentWidth = s.width > 0
+      ? Math.max(0, s.width - frame)
+      : Math.min(
+        preferredContent,
+        Math.max(minimumInlineContentWidth(ctx, source), availableContent),
+      );
+    if (s.minWidth !== null) {
+      contentWidth = Math.max(contentWidth, Math.max(0, s.minWidth - frame));
+    }
+
+    const inner = layoutInlineContent(ctx, source, 0, 0, contentWidth, useBulletProbe);
+    const contentHeight = inner.height || getLineHeight(ctx, s, useBulletProbe);
+    const lastBaseline = inner.lines.at(-1)?.y ??
+      leadedBox(ctx, s, useBulletProbe).ascent;
+    const extra = inlineBlockExtra(s);
+    const baselineOffset = extra.top + lastBaseline;
+    const marginBoxHeight = extra.top + contentHeight + extra.bottom;
+    word.width = margins + frame + contentWidth;
+    word.inlineBlockLayout = {
+      nodes: inner.nodes,
+      lines: inner.lines,
+      contentWidth,
+      contentHeight,
+      baselineOffset,
+      marginBoxHeight,
+    };
+  }
+}
+
 /**
  * Layout inline content: text wrapping + positioning using pure canvas measurement.
  * Returns layout nodes and the total height consumed.
@@ -1718,8 +1794,9 @@ function layoutInlineContent(
   contentWidth: number,
   useBulletProbe = false,
   clamp?: LineClampState,
-): { nodes: LayoutNode[]; height: number } {
+): { nodes: LayoutNode[]; height: number; lines: LayoutLine[] } {
   const results: LayoutNode[] = [];
+  const emittedLines: LayoutLine[] = [];
   // Text nodes covered by an inline element declaring background-clip:text
   // (clipRuns) or --rt-text-stroke-image (strokeImageRuns), mapped to that
   // declaring element's style. A post-pass turns each per-line run of
@@ -1729,12 +1806,13 @@ function layoutInlineContent(
   if (clamp && (clamp.exhausted || clamp.remaining <= 0)) {
     // An ancestor's clamp already used its line budget — drop this content.
     clamp.exhausted = true;
-    return { nodes: results, height: 0 };
+    return { nodes: results, height: 0, lines: emittedLines };
   }
   const runs = collectTextRuns(node);
-  if (runs.length === 0) return { nodes: results, height: 0 };
+  if (runs.length === 0) return { nodes: results, height: 0, lines: emittedLines };
 
   const words = tokenizeRuns(ctx, runs);
+  prepareInlineBlocks(ctx, words, contentWidth, useBulletProbe);
   const textIndent = node.style.textIndent || 0;
   // Tab stops follow the BLOCK's style, not the inline run the tab sits in:
   // Chrome sizes the interval as tab-size(8) × the block font's space advance
@@ -1903,7 +1981,11 @@ function layoutInlineContent(
       // baseline and does not honour vertical-align on it, so shifting the box
       // here would grow the line one way while the paint went the other.
       const atomic = word.boxStyle?.display === 'inline-block' ? word.boxStyle : null;
-      if (atomic) {
+      if (word.inlineBlockLayout) {
+        const ib = word.inlineBlockLayout;
+        box.ascent = ib.baselineOffset;
+        box.descent = ib.marginBoxHeight - ib.baselineOffset;
+      } else if (atomic) {
         const extra = inlineBlockExtra(atomic);
         box.ascent += extra.top;
         box.descent += extra.bottom;
@@ -1956,11 +2038,24 @@ function layoutInlineContent(
             boxHasText = false;
           }
           const s = word.style;
-          const textWidth = word.width - s.marginLeft - s.borderLeftWidth - s.paddingLeft
-            - s.paddingRight - s.borderRightWidth - s.marginRight;
           const boxX = scanX + s.marginLeft;
-          const boxW = s.borderLeftWidth + s.paddingLeft + textWidth + s.paddingRight + s.borderRightWidth;
-          emitInlineBox(s, boxX, boxW);
+          if (word.inlineBlockLayout) {
+            const ib = word.inlineBlockLayout;
+            results.push({
+              type: 'box', style: s, x: boxX,
+              y: lineBaselineY - ib.baselineOffset + s.marginTop,
+              width: s.borderLeftWidth + s.paddingLeft + ib.contentWidth +
+                s.paddingRight + s.borderRightWidth,
+              height: s.borderTopWidth + s.paddingTop + ib.contentHeight +
+                s.paddingBottom + s.borderBottomWidth,
+              tagName: 'span', children: [],
+            });
+          } else {
+            const textWidth = word.width - horizontalMargins(s) - horizontalFrame(s);
+            const boxW = s.borderLeftWidth + s.paddingLeft + textWidth +
+              s.paddingRight + s.borderRightWidth;
+            emitInlineBox(s, boxX, boxW);
+          }
           boxHasText = false;
           scanX += word.width;
           continue;
@@ -2109,6 +2204,47 @@ function layoutInlineContent(
           if (word.boxOpen && word.boxClose) {
             const s = word.style;
             const textX = curX + s.marginLeft + s.borderLeftWidth + s.paddingLeft;
+            if (word.inlineBlockLayout) {
+              const ib = word.inlineBlockLayout;
+              const contentY = lineBaselineY - ib.baselineOffset + s.marginTop +
+                s.borderTopWidth + s.paddingTop;
+              const move = (layoutNode: LayoutNode): void => {
+                layoutNode.x += textX;
+                layoutNode.y += contentY;
+                if (layoutNode.type === 'text') {
+                  if (layoutNode.lineBaselineY !== undefined) layoutNode.lineBaselineY += contentY;
+                  if (layoutNode.clip) {
+                    layoutNode.clip.x += textX;
+                    layoutNode.clip.y += contentY;
+                  }
+                  if (layoutNode.strokeImage) {
+                    layoutNode.strokeImage.x += textX;
+                    layoutNode.strokeImage.y += contentY;
+                  }
+                } else {
+                  for (const child of layoutNode.children) move(child);
+                }
+              };
+              for (const innerNode of ib.nodes) {
+                move(innerNode);
+                results.push(innerNode);
+              }
+              for (const innerLine of ib.lines.slice(0, -1)) {
+                const translated: LayoutLine = {
+                  y: Math.round(innerLine.y + contentY),
+                  text: innerLine.text,
+                  bounds: {
+                    x: innerLine.bounds.x + textX,
+                    y: innerLine.bounds.y + contentY,
+                    width: innerLine.bounds.width,
+                    height: innerLine.bounds.height,
+                  },
+                };
+                emittedLines.push(translated);
+              }
+              curX += word.width;
+              continue;
+            }
             const node: LayoutText = {
               type: 'text',
               text: word.text,
@@ -2160,9 +2296,13 @@ function layoutInlineContent(
       align === 'justify' && justifyExtraPerSpace > 0
         ? lineMaxWidth
         : line.totalWidth;
-    _lines.push({
+    const emittedLine: LayoutLine = {
       y: Math.round(lineBaselineY),
-      text: line.words.map(w => w.text).join(''),
+      // An inline-block's earlier rows were emitted as their own lines above,
+      // so this line carries only its LAST row — every glyph appears once,
+      // in order.
+      text: line.words.map((word) =>
+        word.inlineBlockLayout?.lines.at(-1)?.text ?? word.text).join(''),
       bounds: {
         x: lineLeftX,
         // The line box starts at curY — this is the CSS line box, which
@@ -2173,7 +2313,8 @@ function layoutInlineContent(
         width: lineWidth,
         height: lineBoxHeight,
       },
-    });
+    };
+    emittedLines.push(emittedLine);
 
     curY += lineBoxHeight;
   }
@@ -2189,7 +2330,7 @@ function layoutInlineContent(
     node.strokeImage = { image: s.webkitTextStrokeImage, ...box };
   });
 
-  return { nodes: results, height: curY - y };
+  return { nodes: results, height: curY - y, lines: emittedLines };
 }
 
 /**
@@ -2380,7 +2521,8 @@ function layoutBlock(
   if (hasOnlyInlineChildren(node)) {
     // Inline formatting context
     const bulletProbe = node.tagName === 'li' && BULLET_MARKERS.has(style.listStyleType);
-    const { nodes, height } = layoutInlineContent(ctx, node, contentX, contentStartY, contentWidth, bulletProbe, clamp);
+    const { nodes, height, lines } = layoutInlineContent(ctx, node, contentX, contentStartY, contentWidth, bulletProbe, clamp);
+    _lines.push(...lines);
     box.children = nodes;
     box.height = borderTop + padTop + height + padBottom + borderBottom;
   } else {
@@ -2427,7 +2569,8 @@ function layoutBlock(
           textContent: null,
         };
         const bulletProbe2 = node.tagName === 'li' && BULLET_MARKERS.has(style.listStyleType);
-        const { nodes, height } = layoutInlineContent(ctx, inlineGroup, contentX, curY, contentWidth, bulletProbe2, clamp);
+        const { nodes, height, lines } = layoutInlineContent(ctx, inlineGroup, contentX, curY, contentWidth, bulletProbe2, clamp);
+        _lines.push(...lines);
         box.children.push(...nodes);
         curY += height;
         prevMarginBottom = 0;
@@ -2544,6 +2687,154 @@ function layoutTable(
 
 // ─── Flex layout ───────────────────────────────────────────────────────
 
+/**
+ * The children a flex container lays out. A bare text node is an anonymous
+ * flex item only when it has actual text — and min-content sizing has to agree
+ * with the layout about that, or an item is frozen at the wrong minimum.
+ */
+function flexItems(node: StyledNode): StyledNode[] {
+  return node.children.filter(
+    (child) => child.tagName !== '#text' || child.textContent?.trim(),
+  );
+}
+
+function isFlexRow(style: ResolvedStyle): boolean {
+  return style.flexDirection === 'row' || style.flexDirection === '';
+}
+
+function horizontalFrame(style: ResolvedStyle): number {
+  return style.borderLeftWidth + style.paddingLeft +
+    style.paddingRight + style.borderRightWidth;
+}
+
+function horizontalMargins(style: ResolvedStyle): number {
+  return style.marginLeft + style.marginRight;
+}
+
+/**
+ * Minimum width of one inline formatting context. This is the longest unit
+ * between normal soft-wrap opportunities, measured with the same canvas
+ * context and tokenization as the actual line flow.
+ */
+function minimumInlineContentWidth(
+  ctx: CanvasRenderingContext2D,
+  node: StyledNode,
+): number {
+  const words = tokenizeRuns(ctx, collectTextRuns(node));
+  const noWrap = node.style.whiteSpace === 'nowrap' || node.style.whiteSpace === 'pre';
+  let current = 0;
+  let maximum = 0;
+  let attachNext = false;
+
+  const commit = () => {
+    maximum = Math.max(maximum, current);
+    current = 0;
+  };
+
+  for (const word of words) {
+    if (word.text === '\n') {
+      commit();
+      attachNext = false;
+      continue;
+    }
+    if (noWrap) {
+      current += word.width;
+      continue;
+    }
+    if (word.isSpace) {
+      commit();
+      attachNext = false;
+      continue;
+    }
+    if (!word.text) {
+      current += word.width;
+      attachNext = !!word.boxOpen;
+      continue;
+    }
+
+    if (current > 0 && !attachNext && !word.noBreakBefore) commit();
+    attachNext = false;
+
+    // `overflow-wrap:break-word` is deliberately ignored for min-content
+    // sizing by CSS. CJK/emoji and `word-break:break-all` still contribute
+    // their smallest legal pieces, so reuse the real breaker with only that
+    // last-resort mode disabled.
+    const minStyle = word.style.overflowWrap === 'break-word' &&
+      word.style.wordBreak !== 'break-all'
+      ? { ...word.style, overflowWrap: 'normal' }
+      : word.style;
+    // Hyphens are already their own words: tokenizeRuns splits every interior
+    // one, so a word reaching here carries at most a trailing hyphen.
+    const pieces = breakWordIfNeeded(ctx, { ...word, style: minStyle }, 0, 0)
+      .pieces.map((piece) => piece.width);
+
+    for (let index = 0; index < pieces.length; index++) {
+      if (index > 0) commit();
+      current += pieces[index];
+    }
+    if (word.isSoftHyphenBreak) {
+      applyFont(ctx, word.style);
+      ctx.letterSpacing = formatLetterSpacing(word.style.letterSpacing);
+      maximum = Math.max(maximum, current + cachedMeasureWidth(ctx, '-'));
+      current = 0;
+    }
+  }
+  commit();
+  return maximum;
+}
+
+/**
+ * Min-content contribution of a flex item, including its horizontal frame.
+ *
+ * Memoized for the render: a nested flex row asks for the minimum of its whole
+ * subtree, and so does every flex row above it, which otherwise costs
+ * O(depth x nodes). The answer depends only on the subtree and the font state,
+ * and `buildLayoutTree` clears the cache alongside the measurement caches.
+ */
+function minimumContentWidth(
+  ctx: CanvasRenderingContext2D,
+  node: StyledNode,
+): number {
+  const memoized = _minContentCache.get(node);
+  if (memoized !== undefined) return memoized;
+  const computed = computeMinimumContentWidth(ctx, node);
+  _minContentCache.set(node, computed);
+  return computed;
+}
+
+function computeMinimumContentWidth(
+  ctx: CanvasRenderingContext2D,
+  node: StyledNode,
+): number {
+  const margins = horizontalMargins(node.style);
+  const frame = horizontalFrame(node.style);
+
+  // An explicit min-width disables the flex automatic min-content size.
+  if (node.style.minWidth !== null) {
+    return margins + Math.max(frame, node.style.minWidth);
+  }
+
+  let content = 0;
+  if (hasOnlyInlineChildren(node)) {
+    content = minimumInlineContentWidth(ctx, node);
+  } else if (node.style.display === 'flex' && isFlexRow(node.style)) {
+    const children = flexItems(node);
+    content = children.reduce((sum, child) => sum + minimumContentWidth(ctx, child), 0) +
+      node.style.gap * Math.max(0, children.length - 1);
+  } else {
+    for (const child of node.children) {
+      if (child.tagName !== '#text') {
+        content = Math.max(content, minimumContentWidth(ctx, child));
+      }
+    }
+  }
+
+  let borderBox = frame + content;
+  // A definite width caps the automatic minimum size in the flex algorithm.
+  if (node.style.width > 0) borderBox = Math.min(borderBox, node.style.width);
+  return margins + borderBox;
+}
+
 function layoutFlex(
   ctx: CanvasRenderingContext2D,
   node: StyledNode,
@@ -2555,22 +2846,49 @@ function layoutFlex(
   const gap = style.gap;
   const children: LayoutNode[] = [];
 
-  const flexChildren = node.children.filter(c => c.tagName !== '#text' || c.textContent?.trim());
+  const flexChildren = flexItems(node);
   if (flexChildren.length === 0) return { children, height: 0 };
 
-  if (style.flexDirection === 'row' || style.flexDirection === '') {
+  if (isFlexRow(style)) {
     // Row layout
     const totalGaps = gap * (flexChildren.length - 1);
     const totalGrow = flexChildren.reduce((s, c) => s + (c.style.flexGrow || 0), 0);
-    const flexBasis = (contentWidth - totalGaps) / (totalGrow || flexChildren.length);
+    const available = Math.max(0, contentWidth - totalGaps);
+    const weights = flexChildren.map((child) =>
+      child.style.flexGrow || (totalGrow === 0 ? 1 : 0));
+    const minimums = flexChildren.map((child) => minimumContentWidth(ctx, child));
+    const widths = new Array<number>(flexChildren.length).fill(0);
+    const flexible = new Set(flexChildren.map((_, index) => index));
+    let remaining = available;
+
+    // Distribute free space by flex-grow, freezing items at their automatic
+    // min-content floor. Repeat because freezing one item changes every other
+    // item's share. If the minima themselves do not fit, they overflow the
+    // container exactly as native flex items with min-width:auto do.
+    while (flexible.size > 0) {
+      const weightSum = [...flexible].reduce((sum, index) => sum + weights[index], 0);
+      const share = (index: number) => weightSum > 0
+        ? remaining * weights[index] / weightSum
+        : remaining / flexible.size;
+      const newlyFrozen = [...flexible].filter((index) => share(index) < minimums[index]);
+      if (newlyFrozen.length === 0) {
+        for (const index of flexible) widths[index] = share(index);
+        break;
+      }
+      for (const index of newlyFrozen) {
+        widths[index] = minimums[index];
+        remaining -= minimums[index];
+        flexible.delete(index);
+      }
+    }
 
     let curX = contentX;
     let maxHeight = 0;
 
-    for (const child of flexChildren) {
+    for (let index = 0; index < flexChildren.length; index++) {
+      const child = flexChildren[index];
       if (child.tagName === '#text') continue;
-      const grow = child.style.flexGrow || (totalGrow === 0 ? 1 : 0);
-      const childWidth = flexBasis * grow;
+      const childWidth = widths[index];
 
       const { box, height } = layoutBlock(ctx, child, curX, contentY, childWidth);
       children.push(box);
@@ -2744,6 +3062,7 @@ export function buildLayoutTree(
   _fontMetricsCache.clear();
   _fontStringCache.clear();
   _measureCache.clear();
+  _minContentCache.clear();
   _lines = [];
 
   // The styledTree root is our container div — layout its children as a block flow
@@ -2761,11 +3080,14 @@ export function buildLayoutTree(
   const lines: LayoutLine[] = [];
   for (const candidate of sorted) {
     const last = lines[lines.length - 1];
-    // Tolerance keys off the candidate's line height (matches the legacy
-    // extractLines behavior). Using max(last, candidate) is symmetric but
-    // grows after each merge as last.bounds.height becomes the union — that
-    // leaks across rows in tight multi-column layouts.
-    const tolerance = candidate.bounds.height * 0.5;
+    // How far apart two baselines can sit and still be one visual row is
+    // bounded by the SHORTER of the two rows — the same rule the native DOM
+    // reference groups word rects by (`overlap / minH`). Using max() leaks
+    // across rows in tight multi-column layouts, and using the candidate's own
+    // height alone lets a line box that contains a tall atomic inline-block
+    // swallow the row above it.
+    const tolerance = Math.min(last?.bounds.height ?? Infinity,
+      candidate.bounds.height) * 0.5;
     if (last && Math.abs(candidate.y - last.y) < tolerance) {
       // Cross-cell merge: insert a space separator so the text stays
       // readable when N cells of a table row collapse into one LayoutLine.

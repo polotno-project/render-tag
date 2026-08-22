@@ -8,12 +8,22 @@ import { captureNativeDom } from './tests/helpers/native-dom-command.ts';
  * and runs everything (its script excludes the maintainer-only files); the
  * other engines opt in, because several geometry suites deliberately encode
  * Chrome-first output. See CLAUDE.md.
+ *
+ * A lane is what the engine GATES, not the only thing it can run: naming a
+ * file on the command line adds it for that run. `test:update-baselines:*`
+ * depends on this — `tests/generate-baselines.test.ts` is in no lane.
  */
 export function browserConfig(
   browser: 'chromium' | 'firefox' | 'webkit',
   testTimeout: number,
   include?: string[],
 ) {
+  const requestedTests = process.argv.filter((argument) =>
+    argument.endsWith('.test.ts'),
+  );
+  const effectiveInclude = include && requestedTests.length > 0
+    ? [...new Set([...include, ...requestedTests])]
+    : include;
   return defineConfig({
     // Firefox capture pages load fixture assets from an opaque page.
     server: { cors: true },
@@ -30,7 +40,7 @@ export function browserConfig(
         instances: [{ browser, headless: true }],
       },
       testTimeout,
-      ...(include ? { include } : {}),
+      ...(effectiveInclude ? { include: effectiveInclude } : {}),
     },
   });
 }

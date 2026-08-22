@@ -217,6 +217,8 @@ export interface ResolvedStyle {
   // Box
   display: string;
   width: number; // 0 = auto
+  /** null = auto (the flex automatic min-content floor); number = explicit CSS min-width. */
+  minWidth: number | null;
   minHeight: number; // 0 = none
   paddingTop: number;
   paddingRight: number;
