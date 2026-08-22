@@ -137,7 +137,7 @@
   },
   "Soft hyphens and zero-width spaces": {
     "score": 2.33,
-    "wrap": false
+    "wrap": true
   },
   "Non-breaking spaces vs regular spaces": {
     "score": 0,
@@ -301,7 +301,7 @@
   },
   "Mixed app text comprehensive": {
     "score": 4.26,
-    "wrap": false
+    "wrap": true
   },
   "Lists with alignment variations": {
     "score": 0.03,
@@ -501,7 +501,7 @@
   },
   "Soft hyphens and zero-width spaces@Open Sans": {
     "score": 2.33,
-    "wrap": false
+    "wrap": true
   },
   "Non-breaking spaces vs regular spaces@Open Sans": {
     "score": 0,
@@ -665,7 +665,7 @@
   },
   "Mixed app text comprehensive@Open Sans": {
     "score": 4.26,
-    "wrap": false
+    "wrap": true
   },
   "Lists with alignment variations@Open Sans": {
     "score": 0.03,
@@ -853,7 +853,7 @@
   },
   "Soft hyphens and zero-width spaces@Roboto": {
     "score": 1.52,
-    "wrap": false
+    "wrap": true
   },
   "Non-breaking spaces vs regular spaces@Roboto": {
     "score": 0,
@@ -1205,7 +1205,7 @@
   },
   "Soft hyphens and zero-width spaces@Playfair Display": {
     "score": 3.53,
-    "wrap": false
+    "wrap": true
   },
   "Non-breaking spaces vs regular spaces@Playfair Display": {
     "score": 0.07,
@@ -1557,7 +1557,7 @@
   },
   "Soft hyphens and zero-width spaces@Merriweather": {
     "score": 3.25,
-    "wrap": false
+    "wrap": true
   },
   "Non-breaking spaces vs regular spaces@Merriweather": {
     "score": 0,
@@ -1701,7 +1701,7 @@
   },
   "Word joiner and zero-width space@Merriweather": {
     "score": 1.17,
-    "wrap": false
+    "wrap": true
   },
   "Dense emoji sequences@Merriweather": {
     "score": 4.34,
@@ -1721,7 +1721,7 @@
   },
   "Mixed app text comprehensive@Merriweather": {
     "score": 5.82,
-    "wrap": false
+    "wrap": true
   },
   "Lists with alignment variations@Merriweather": {
     "score": 4.31,

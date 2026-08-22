@@ -297,6 +297,16 @@ export function extractDomLines(
           height: number;
           chars: string;
         }[] = [];
+        // A soft hyphen taken as a break makes the engine paint a '-' that it
+        // reports as an EXTRA rect on the previous line, ahead of the following
+        // character's own box. Taking the first rect put that character on the
+        // wrong line and hid the hyphen; the character's own box is the last.
+        const characterRect = (index: number): DOMRect | undefined => {
+          range.setStart(textNode, offset + index);
+          range.setEnd(textNode, offset + index + 1);
+          const rects = range.getClientRects();
+          return rects[rects.length - 1];
+        };
         for (let ci = 0; ci < w.length; ci++) {
           const ch = w[ci];
           if (ch === '\u00AD') {
@@ -304,9 +314,7 @@ export function extractDomLines(
             let next = ci + 1;
             while (next < w.length && /[\u00AD\u200B]/.test(w[next])) next++;
             if (last && next < w.length) {
-              range.setStart(textNode, offset + next);
-              range.setEnd(textNode, offset + next + 1);
-              const nextRect = range.getClientRects()[0];
+              const nextRect = characterRect(next);
               if (nextRect && Math.abs(nextRect.top - cTop - last.y) >= last.height * 0.5) {
                 last.chars += '-';
               }
@@ -314,9 +322,7 @@ export function extractDomLines(
             continue;
           }
           if (ch === '\u200B') continue;
-          range.setStart(textNode, offset + ci);
-          range.setEnd(textNode, offset + ci + 1);
-          const charRect = range.getClientRects()[0];
+          const charRect = characterRect(ci);
           if (!charRect) continue;
           const charY = charRect.top - cTop;
           const last = charGroups[charGroups.length - 1];

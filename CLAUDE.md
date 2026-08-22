@@ -117,6 +117,15 @@ npm run test:stress                           # native-DOM layout width sweep
 - Baselines cover default font cases, Polotno cases, and all cases × 5 fonts (Open Sans, Roboto, Playfair Display, Merriweather, Lobster)
 - Each browser has its own baselines — no cross-browser tolerance hack
 - Reference renderer: native browser screenshot (`tests/helpers/native-dom-command.ts`)
+- Line membership comes from `extractDomLines`, which walks per-CHARACTER
+  `Range` rects for any word that wraps mid-word. **Take the LAST rect, never
+  the first**: at a break the engine emits a spurious leading rect at the end of
+  the PREVIOUS line — Chrome the painted soft-hyphen `-` (nonzero width),
+  WebKit a zero-width box at every mid-word break, in every script. Reading
+  `getClientRects()[0]` put the first character of each wrapped line on the line
+  above, which cost 9 recorded Chrome wrap keys, 111 WebKit keys and WebKit's
+  entire 95-width sweep residual — all of them the reference being wrong, not
+  render-tag. Firefox emits no such rect.
 - Missing and unexpected baseline keys fail before scoring; improvements fail until deliberately promoted
 - Cross-browser structural residuals and width-sweep residuals have separate explicit baseline files
 - The width sweep compares exact native DOM line membership; it does not take screenshots
