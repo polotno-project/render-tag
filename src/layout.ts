@@ -9,6 +9,7 @@ let _debug: ((entry: import('./types.ts').DebugEntry) => void) | undefined;
 // layoutInlineContent appends one entry per committed line.
 let _lines: LayoutLine[] = [];
 const _minContentCache = new Map<StyledNode, number>();
+const _maxContentCache = new Map<StyledNode, number>();
 
 // ─── measureText width cache ──────────────────────────────────────────
 // Caches ctx.measureText(text).width keyed by "font\0text".
@@ -2687,15 +2688,38 @@ function layoutTable(
 
 // ─── Flex layout ───────────────────────────────────────────────────────
 
+const _anonymousFlexItems = new WeakMap<StyledNode, StyledNode>();
+
+/**
+ * Bare text in a flex container is an anonymous flex item: a block box of its
+ * own, sized and placed like any other. Built once per text node, because the
+ * min- and max-content caches are keyed by node identity and sizing must ask
+ * about the very node the layout places.
+ */
+function anonymousFlexItem(text: StyledNode): StyledNode {
+  let wrapper = _anonymousFlexItems.get(text);
+  if (!wrapper) {
+    wrapper = {
+      element: null,
+      tagName: 'div',
+      style: { ...text.style, display: 'block' },
+      children: [text],
+      textContent: null,
+    };
+    _anonymousFlexItems.set(text, wrapper);
+  }
+  return wrapper;
+}
+
 /**
  * The children a flex container lays out. A bare text node is an anonymous
  * flex item only when it has actual text — and min-content sizing has to agree
  * with the layout about that, or an item is frozen at the wrong minimum.
  */
 function flexItems(node: StyledNode): StyledNode[] {
-  return node.children.filter(
-    (child) => child.tagName !== '#text' || child.textContent?.trim(),
-  );
+  return node.children
+    .filter((child) => child.tagName !== '#text' || child.textContent?.trim())
+    .map((child) => child.tagName === '#text' ? anonymousFlexItem(child) : child);
 }
 
 function isFlexRow(style: ResolvedStyle): boolean {
@@ -2720,67 +2744,17 @@ function minimumInlineContentWidth(
   ctx: CanvasRenderingContext2D,
   node: StyledNode,
 ): number {
-  const words = tokenizeRuns(ctx, collectTextRuns(node));
-  const noWrap = node.style.whiteSpace === 'nowrap' || node.style.whiteSpace === 'pre';
-  let current = 0;
-  let maximum = 0;
-  let attachNext = false;
-
-  const commit = () => {
-    maximum = Math.max(maximum, current);
-    current = 0;
-  };
-
-  for (const word of words) {
-    if (word.text === '\n') {
-      commit();
-      attachNext = false;
-      continue;
-    }
-    if (noWrap) {
-      current += word.width;
-      continue;
-    }
-    if (word.isSpace) {
-      commit();
-      attachNext = false;
-      continue;
-    }
-    if (!word.text) {
-      current += word.width;
-      attachNext = !!word.boxOpen;
-      continue;
-    }
-
-    if (current > 0 && !attachNext && !word.noBreakBefore) commit();
-    attachNext = false;
-
-    // `overflow-wrap:break-word` is deliberately ignored for min-content
-    // sizing by CSS. CJK/emoji and `word-break:break-all` still contribute
-    // their smallest legal pieces, so reuse the real breaker with only that
-    // last-resort mode disabled.
-    const minStyle = word.style.overflowWrap === 'break-word' &&
-      word.style.wordBreak !== 'break-all'
-      ? { ...word.style, overflowWrap: 'normal' }
-      : word.style;
-    // Hyphens are already their own words: tokenizeRuns splits every interior
-    // one, so a word reaching here carries at most a trailing hyphen.
-    const pieces = breakWordIfNeeded(ctx, { ...word, style: minStyle }, 0, 0)
-      .pieces.map((piece) => piece.width);
-
-    for (let index = 0; index < pieces.length; index++) {
-      if (index > 0) commit();
-      current += pieces[index];
-    }
-    if (word.isSoftHyphenBreak) {
-      applyFont(ctx, word.style);
-      ctx.letterSpacing = formatLetterSpacing(word.style.letterSpacing);
-      maximum = Math.max(maximum, current + cachedMeasureWidth(ctx, '-'));
-      current = 0;
-    }
-  }
-  commit();
-  return maximum;
+  // `overflow-wrap:break-word` is deliberately ignored for min-content sizing
+  // by CSS. CJK/emoji and `word-break:break-all` still contribute their
+  // smallest legal pieces, so run the real line flow with only that
+  // last-resort mode disabled — at a width nothing fits in, every soft-wrap
+  // opportunity is taken and each line IS one unbreakable unit.
+  const words = tokenizeRuns(ctx, collectTextRuns(node)).map((word) =>
+    word.style.overflowWrap === 'break-word' && word.style.wordBreak !== 'break-all'
+      ? { ...word, style: { ...word.style, overflowWrap: 'normal' } }
+      : word);
+  const lines = flowWordsIntoLines(ctx, words, 0, node.style.whiteSpace);
+  return lines.reduce((widest, line) => Math.max(widest, line.totalWidth), 0);
 }
 
 /**
@@ -2835,6 +2809,125 @@ function computeMinimumContentWidth(
   return margins + borderBox;
 }
 
+/**
+ * Maximum width of one inline formatting context: the widest stretch between
+ * FORCED breaks. That is the same line flow every other caller uses, run at a
+ * width nothing can exceed — max-content does not get its own break rules.
+ */
+function maximumInlineContentWidth(
+  ctx: CanvasRenderingContext2D,
+  node: StyledNode,
+): number {
+  const words = tokenizeRuns(ctx, collectTextRuns(node));
+  const lines = flowWordsIntoLines(ctx, words, Infinity, node.style.whiteSpace);
+  return lines.reduce((widest, line) => Math.max(widest, line.totalWidth), 0);
+}
+
+/**
+ * Max-content contribution of a flex item, including its horizontal frame and
+ * margins — the same outer currency `minimumContentWidth` reports and
+ * `layoutBlock` takes as its available width.
+ *
+ * Memoized for the same reason the minimum is: every flex row above an item
+ * asks for its whole subtree.
+ */
+function maximumContentWidth(
+  ctx: CanvasRenderingContext2D,
+  node: StyledNode,
+): number {
+  const memoized = _maxContentCache.get(node);
+  if (memoized !== undefined) return memoized;
+  const computed = computeMaximumContentWidth(ctx, node);
+  _maxContentCache.set(node, computed);
+  return computed;
+}
+
+function computeMaximumContentWidth(
+  ctx: CanvasRenderingContext2D,
+  node: StyledNode,
+): number {
+  const margins = horizontalMargins(node.style);
+  // A definite width IS the max-content size.
+  if (node.style.width > 0) return margins + node.style.width;
+
+  let content = 0;
+  if (hasOnlyInlineChildren(node)) {
+    content = maximumInlineContentWidth(ctx, node);
+  } else if (node.style.display === 'flex' && isFlexRow(node.style)) {
+    const children = flexItems(node);
+    content = children.reduce((sum, child) => sum + maximumContentWidth(ctx, child), 0) +
+      node.style.gap * Math.max(0, children.length - 1);
+  } else {
+    for (const child of node.children) {
+      if (child.tagName !== '#text') {
+        content = Math.max(content, maximumContentWidth(ctx, child));
+      }
+    }
+  }
+  return margins + horizontalFrame(node.style) + content;
+}
+
+/**
+ * Flex base size of one item, as an outer width. `flex-basis: auto` (the
+ * initial value, and what `flex-grow: 1` on its own leaves in place) resolves
+ * against the item's own content; `flex: 1` sets it to 0 so the item's content
+ * stops mattering and the row splits by grow factor alone.
+ */
+function flexBaseSize(ctx: CanvasRenderingContext2D, node: StyledNode): number {
+  return node.style.flexBasis !== null
+    ? horizontalMargins(node.style) + node.style.flexBasis
+    : maximumContentWidth(ctx, node);
+}
+
+/**
+ * CSS flexible length resolution (CSS Flexbox §9.7) over outer widths.
+ *
+ * Grow or shrink is decided once, for the whole line, by whether the items'
+ * hypothetical sizes fit. Each pass distributes the space the unfrozen items
+ * are still free to take, then freezes every item that landed under its
+ * automatic minimum — freeing one item changes every other item's share, so
+ * the pass repeats until nothing new is clamped.
+ */
+function resolveFlexibleLengths(
+  styles: ResolvedStyle[],
+  bases: number[],
+  minimums: number[],
+  available: number,
+): number[] {
+  const sizes = bases.map((base, index) => Math.max(base, minimums[index]));
+  const growing = sizes.reduce((sum, size) => sum + size, 0) < available;
+  const factor = (index: number) =>
+    growing ? styles[index].flexGrow : styles[index].flexShrink;
+  const frozen = sizes.map((size, index) =>
+    factor(index) === 0 || (!growing && bases[index] < size));
+
+  for (;;) {
+    const unfrozen = sizes.map((_, index) => index).filter((index) => !frozen[index]);
+    if (unfrozen.length === 0) break;
+    const used = sizes.reduce(
+      (sum, size, index) => sum + (frozen[index] ? size : bases[index]),
+      0,
+    );
+    const remaining = available - used;
+    // Shrinking is weighted by base size, so a big item gives up more than a
+    // small one at the same shrink factor; growing is not.
+    const weights = unfrozen.map((index) =>
+      growing ? styles[index].flexGrow : styles[index].flexShrink * bases[index]);
+    const weightSum = weights.reduce((sum, weight) => sum + weight, 0);
+    if (weightSum <= 0) break;
+    unfrozen.forEach((index, slot) => {
+      sizes[index] = bases[index] + remaining * weights[slot] / weightSum;
+    });
+    const violators = unfrozen.filter((index) => sizes[index] < minimums[index]);
+    if (violators.length === 0) break;
+    for (const index of violators) {
+      sizes[index] = minimums[index];
+      frozen[index] = true;
+    }
+  }
+  return sizes;
+}
+
 function layoutFlex(
   ctx: CanvasRenderingContext2D,
   node: StyledNode,
@@ -2852,42 +2945,21 @@ function layoutFlex(
   if (isFlexRow(style)) {
     // Row layout
     const totalGaps = gap * (flexChildren.length - 1);
-    const totalGrow = flexChildren.reduce((s, c) => s + (c.style.flexGrow || 0), 0);
     const available = Math.max(0, contentWidth - totalGaps);
-    const weights = flexChildren.map((child) =>
-      child.style.flexGrow || (totalGrow === 0 ? 1 : 0));
-    const minimums = flexChildren.map((child) => minimumContentWidth(ctx, child));
-    const widths = new Array<number>(flexChildren.length).fill(0);
-    const flexible = new Set(flexChildren.map((_, index) => index));
-    let remaining = available;
-
-    // Distribute free space by flex-grow, freezing items at their automatic
-    // min-content floor. Repeat because freezing one item changes every other
-    // item's share. If the minima themselves do not fit, they overflow the
-    // container exactly as native flex items with min-width:auto do.
-    while (flexible.size > 0) {
-      const weightSum = [...flexible].reduce((sum, index) => sum + weights[index], 0);
-      const share = (index: number) => weightSum > 0
-        ? remaining * weights[index] / weightSum
-        : remaining / flexible.size;
-      const newlyFrozen = [...flexible].filter((index) => share(index) < minimums[index]);
-      if (newlyFrozen.length === 0) {
-        for (const index of flexible) widths[index] = share(index);
-        break;
-      }
-      for (const index of newlyFrozen) {
-        widths[index] = minimums[index];
-        remaining -= minimums[index];
-        flexible.delete(index);
-      }
-    }
+    // If the minima themselves do not fit, they overflow the container exactly
+    // as native flex items with min-width:auto do.
+    const widths = resolveFlexibleLengths(
+      flexChildren.map((child) => child.style),
+      flexChildren.map((child) => flexBaseSize(ctx, child)),
+      flexChildren.map((child) => minimumContentWidth(ctx, child)),
+      available,
+    );
 
     let curX = contentX;
     let maxHeight = 0;
 
     for (let index = 0; index < flexChildren.length; index++) {
       const child = flexChildren[index];
-      if (child.tagName === '#text') continue;
       const childWidth = widths[index];
 
       const { box, height } = layoutBlock(ctx, child, curX, contentY, childWidth);
@@ -2902,7 +2974,6 @@ function layoutFlex(
   // Column layout (fallback)
   let curY = contentY;
   for (const child of flexChildren) {
-    if (child.tagName === '#text') continue;
     const { box, height } = layoutBlock(ctx, child, contentX, curY, contentWidth);
     children.push(box);
     curY += height + gap;
@@ -3063,6 +3134,7 @@ export function buildLayoutTree(
   _fontStringCache.clear();
   _measureCache.clear();
   _minContentCache.clear();
+  _maxContentCache.clear();
   _lines = [];
 
   // The styledTree root is our container div — layout its children as a block flow

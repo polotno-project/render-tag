@@ -104,6 +104,7 @@ npm run test:svg-oracle                       # optional SVG demo-path canary; n
 npm run test:clear-native-cache               # remove local native-reference PNGs
 npx vitest run tests/layout-logic.test.ts     # layout unit tests (mocked measureText, fast)
 npx vitest run tests/wrapping-parity.test.ts  # focused Chrome DOM-wrap regressions
+npx vitest run tests/flex-parity.test.ts      # flex item geometry vs the DOM (all 3 lanes)
 npx vitest run tests/render.test.ts           # render quality tests
 npm run test:stress                           # native-DOM layout width sweep
 ```
@@ -212,6 +213,58 @@ configs.
 - First child margin-top collapses through parent: **only for block/list-item `li`/`ul`/`ol`/`dd`/`dt`** (never flex/table; not general divs — the native DOM reference prevents this)
 - Last child margin-bottom: included in parent height when parent has padding/border or a nonzero min-height (can't collapse through)
 - Last child margin-bottom: passed as `marginBottomOut` when it CAN collapse through
+
+### Flex sizing (`layoutFlex`, `flexBaseSize`, `resolveFlexibleLengths`)
+Every flex item has a **base size** before any space is shared, and that is the
+whole of the algorithm. `flex-basis` gives it directly; `auto` — the initial
+value, and what a bare `flex-grow: 1` leaves in place — resolves to the item's
+own **max-content** width. Grow and shrink then act on the FREE space around
+those bases, not on the container width:
+
+| declaration | base | what the row does |
+| --- | --- | --- |
+| `flex: 1` (= `1 1 0%`) | 0 | splits by grow factor alone; content width drops out |
+| `flex-grow: 1` | max-content | each item keeps its content width, leftover shared |
+| nothing | max-content | items sit at max-content, shrinking only if they overflow |
+| `flex: 0 0 140px` | 140 | fixed |
+
+Both intrinsic sizes are the SAME line flow at a different width, not their own
+break rules: `minimumInlineContentWidth` is `flowWordsIntoLines(..., 0, ...)`
+(every soft-wrap opportunity taken, so each line is one unbreakable unit) and
+`maximumInlineContentWidth` is the same call at `Infinity` (only forced breaks).
+Both take the widest resulting line. They each used to re-derive "can a line
+break here?" privately, and drifted from `flowWordsIntoLines` and from each
+other — the number that freezes a flex item is computed by the very rules the
+wrapper uses. Keep it that way. The one deliberate difference is that
+min-content neutralizes `overflow-wrap: break-word` per word, because CSS
+ignores that last resort when sizing.
+
+Shrinking is weighted by `flex-shrink x base`, growing by `flex-grow` alone.
+Both run through `resolveFlexibleLengths` (CSS Flexbox §9.7) over OUTER
+(margin-box) widths — the same currency `minimumContentWidth`,
+`maximumContentWidth` and `layoutBlock`'s `availableWidth` all use. Each pass
+freezes the items that landed under their automatic minimum (`min-width: auto`
+= min-content) and repeats, because freeing one item changes every other item's
+share. Minima that do not fit overflow the container, exactly as they do
+natively.
+
+Gated by `tests/flex-parity.test.ts` in all three lanes: it sweeps
+`loadFlexCases()` from 120px to each fixture's width and compares every
+`<section>`'s x and border-box width against the browser's own layout to
+0.05px, plus exact line membership. Flex fixtures are deliberately NOT in
+`loadBasicCases()` — a pixel baseline cannot see a wrong column split, and
+`Multi-column layout` (the one corpus flex case) is `flex: 1` at 800px, where
+the base sizes never matter.
+
+Bare text beside an element in a flex container is an **anonymous flex item**:
+`flexItems` wraps it in a block box, once per text node, so sizing and layout
+ask about the same node — the min/max-content caches are keyed by identity.
+Before that it was counted in the width distribution and then skipped at
+placement, so the text vanished and every item after it shifted left.
+
+Not supported, and silently ignored: `:first-child` / `:last-child` and every
+other pseudo-class (`parseSelector` returns null for them), so flex fixtures
+address items by class.
 
 ### Line boxes and the baseline (`lineBaselineOffset`, `layoutInlineContent`)
 A line box is the union of EVERY box on the line — the block strut, each run,

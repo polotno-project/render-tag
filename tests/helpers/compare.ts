@@ -157,14 +157,15 @@ export function renderToCanvas(
 }
 
 /**
- * Extract text lines from DOM using Range API.
- * Groups words by their Y position to detect line breaks.
+ * Mount a fixture off-screen at a fixed width, laid out by the browser itself.
+ * Callers must ensure fonts are loaded first (prepareComparisonFonts), and
+ * must remove the returned container when done.
  */
-export function extractDomLines(
+function mountFixture(
   html: string,
   css: string,
   width: number,
-): { y: number; text: string }[] {
+): { container: HTMLElement; content: HTMLElement } {
   // Create a container matching the exact structure used for the DOM toggle
   // view — same CSS scoping, same overflow, same wrapper structure.
   const containerId = `__wrap_check_${Date.now()}__`;
@@ -184,8 +185,43 @@ export function extractDomLines(
   content.innerHTML = html;
   container.appendChild(content);
   document.body.appendChild(container);
+  return { container, content };
+}
 
-  // Caller must ensure fonts are loaded first (prepareComparisonFonts).
+/**
+ * Border-box geometry of every element matching `selector`, in document order,
+ * relative to the fixture's content origin.
+ *
+ * Flex sizing is a width question, and only the boxes answer it directly: two
+ * columns are independent flows, so the line oracle cannot pair them, while
+ * their widths compare exactly.
+ */
+export function extractDomBoxes(
+  html: string,
+  css: string,
+  width: number,
+  selector: string,
+): { x: number; width: number }[] {
+  const { container, content } = mountFixture(html, css, width);
+  const origin = content.getBoundingClientRect().left;
+  const boxes = [...content.querySelectorAll(selector)].map((element) => {
+    const rect = element.getBoundingClientRect();
+    return { x: rect.left - origin, width: rect.width };
+  });
+  container.remove();
+  return boxes;
+}
+
+/**
+ * Extract text lines from DOM using Range API.
+ * Groups words by their Y position to detect line breaks.
+ */
+export function extractDomLines(
+  html: string,
+  css: string,
+  width: number,
+): { y: number; text: string }[] {
+  const { container, content } = mountFixture(html, css, width);
 
   const cTop = content.getBoundingClientRect().top;
 

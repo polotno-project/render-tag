@@ -738,34 +738,84 @@ describe('Layout logic (mocked measureText)', () => {
   // ─── Flex layout ───────────────────────────────────────────────────
 
   describe('Flex layout', () => {
-    it('row flex distributes width equally', () => {
-      const tree = block('div', [
-        block('div', [
-          block('div', [textNode('A')]),
-          block('div', [textNode('B')]),
-        ], { display: 'flex', flexDirection: 'row' }),
-      ]);
-      const root = doLayout(tree, 200);
-      // Find the flex children
+    // 10px per character (mocked measureText), so 'A' is a 10px max-content
+    // item and 'AAAAA' is a 50px one.
+    const flexRow = (
+      children: ReturnType<typeof block>[],
+      style: Record<string, unknown> = {},
+    ) => {
+      const root = doLayout(
+        block('div', [block('div', children, { display: 'flex', flexDirection: 'row', ...style })]),
+        200,
+      );
       const flexBox = root.children[0] as LayoutBox;
-      const childBoxes = flexBox.children.filter(c => c.type === 'box') as LayoutBox[];
-      expect(childBoxes.length).toBe(2);
-      expect(childBoxes[0].width).toBe(100);
-      expect(childBoxes[1].width).toBe(100);
+      return (flexBox.children.filter(c => c.type === 'box') as LayoutBox[])
+        .map((box) => box.width);
+    };
+
+    it('leaves items at their content width when nothing can grow', () => {
+      expect(flexRow([
+        block('div', [textNode('A')]),
+        block('div', [textNode('B')]),
+      ])).toEqual([10, 10]);
     });
 
-    it('flex-grow distributes proportionally', () => {
-      const tree = block('div', [
-        block('div', [
-          block('div', [textNode('A')], { flexGrow: 1 }),
-          block('div', [textNode('B')], { flexGrow: 3 }),
-        ], { display: 'flex', flexDirection: 'row' }),
-      ]);
-      const root = doLayout(tree, 200);
-      const flexBox = root.children[0] as LayoutBox;
-      const childBoxes = flexBox.children.filter(c => c.type === 'box') as LayoutBox[];
-      expect(childBoxes[0].width).toBe(50);  // 1/4 of 200
-      expect(childBoxes[1].width).toBe(150); // 3/4 of 200
+    it('flex-grow shares only the FREE space, over the content widths', () => {
+      expect(flexRow([
+        block('div', [textNode('A')], { flexGrow: 1 }),
+        block('div', [textNode('B')], { flexGrow: 3 }),
+      ])).toEqual([55, 145]); // 10 + 180/4, 10 + 3 x 180/4
+    });
+
+    it('a zero flex-basis drops the content width out of the split', () => {
+      expect(flexRow([
+        block('div', [textNode('A')], { flexGrow: 1, flexBasis: 0 }),
+        block('div', [textNode('B')], { flexGrow: 3, flexBasis: 0 }),
+      ])).toEqual([50, 150]);
+    });
+
+    it('shrinks in proportion to the base size when the bases overflow', () => {
+      // Bases 300 and 100 over a 200px row: each keeps 200/400 of its base.
+      expect(flexRow([
+        block('div', [textNode('AAAAA BBBBB CCCCC')], { flexBasis: 300 }),
+        block('div', [textNode('B')], { flexBasis: 100 }),
+      ])).toEqual([150, 50]);
+    });
+
+    it('freezes a shrinking item at its min-content width, and overflows', () => {
+      // The 20-character word cannot break, so item 0 stops shrinking at 200
+      // and item 1 gives up everything it has left down to its own minimum —
+      // 210 over a 200px row, which is what native flex items do too.
+      expect(flexRow([
+        block('div', [textNode('AAAAAAAAAAAAAAAAAAAA')], { flexBasis: 300 }),
+        block('div', [textNode('B')], { flexBasis: 100 }),
+      ])).toEqual([200, 10]);
+    });
+
+    // A lone item with `flex-basis: 0` and no grow freezes at its automatic
+    // minimum, so its width IS the min-content width the flex algorithm sees.
+    // These trees are post-resolution, so the style goes on the text node too
+    // — that is where the word breaker reads it from.
+    const minContentWidth = (text: string, style: Partial<ResolvedStyle> = {}) =>
+      flexRow([block('div', [textNode(text, style)], { flexBasis: 0, ...style })])[0];
+
+    it('min-content is the widest unbreakable unit', () => {
+      expect(minContentWidth('AAAAA BBBBB')).toBe(50);
+    });
+
+    it('overflow-wrap: break-word does not lower min-content', () => {
+      expect(minContentWidth('AAAAA BBBBB', { overflowWrap: 'break-word' })).toBe(50);
+    });
+
+    it('white-space: nowrap makes min-content the whole line', () => {
+      expect(minContentWidth('AAAAA BBBBB', { whiteSpace: 'nowrap' })).toBe(110);
+    });
+
+    it('gap comes off the space the items share', () => {
+      expect(flexRow([
+        block('div', [textNode('A')], { flexGrow: 1, flexBasis: 0 }),
+        block('div', [textNode('B')], { flexGrow: 1, flexBasis: 0 }),
+      ], { gap: 20 })).toEqual([90, 90]);
     });
   });
 

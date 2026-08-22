@@ -248,6 +248,9 @@ export interface ResolvedStyle {
   flexDirection: string;
   gap: number;
   flexGrow: number;
+  flexShrink: number;
+  /** `flex-basis` as a border-box length, or `null` for `auto`. */
+  flexBasis: number | null;
 
   // List
   listStyleType: string;

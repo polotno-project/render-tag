@@ -1794,6 +1794,109 @@ code { font-family: monospace; background: #f3f4f6; padding: 1px 4px; border-rad
   });
 }
 
+/**
+ * Flex fixtures, kept out of `loadBasicCases` on purpose: they gate flex
+ * SIZING, which `tests/flex-parity.test.ts` asserts box by box against the
+ * browser's own layout across a width sweep. Pixel baselines cannot see the
+ * distinction — two columns that split the row wrongly still paint text.
+ *
+ * Every flex item is a `<section>` so both sides can pair boxes by tag in
+ * document order.
+ */
+export async function loadFlexCases(): Promise<BenchmarkCase[]> {
+  await getOpenSansCss();
+  await getFallbackCss();
+  const font = `font-family: 'Open Sans', ${TEST_FALLBACK_STACK}, sans-serif; font-size: 16px; line-height: 1.5;`;
+  const row = `.row { display: flex; gap: 20px; }`;
+  const columns = `<section>Latency numbers every programmer should know</section>` +
+    `<section>alpha beta gamma delta epsilon</section>`;
+
+  const cases: Array<{ name: string; css: string; html: string }> = [
+    {
+      // `flex: 1` is `1 1 0%`: the items' own content widths drop out and the
+      // row splits by grow factor alone.
+      name: 'Flex basis zero',
+      css: `${row} section { flex: 1; }`,
+      html: `<div class="row">${columns}</div>`,
+    },
+    {
+      // `flex-grow: 1` on its own leaves the basis `auto`, so each item starts
+      // at its max-content width and only the leftover space is shared.
+      name: 'Flex basis auto grows',
+      css: `${row} section { flex-grow: 1; }`,
+      html: `<div class="row">${columns}</div>`,
+    },
+    {
+      // No flex properties at all: basis `auto`, no grow, shrink 1. Items sit
+      // at max-content when they fit and shrink in proportion when they do not.
+      name: 'Flex basis auto shrinks',
+      css: row,
+      html: `<div class="row">${columns}</div>`,
+    },
+    {
+      name: 'Flex fixed basis',
+      css: `${row} .a { flex: 0 0 140px; } .b { flex: 1; }`,
+      html: `<div class="row"><section class="a">Latency numbers every programmer should know</section>` +
+        `<section class="b">alpha beta gamma delta epsilon</section></div>`,
+    },
+    {
+      name: 'Flex uneven grow',
+      css: `${row} .a { flex: 2; } .b { flex: 1; }`,
+      html: `<div class="row"><section class="a">Latency numbers every programmer should know</section>` +
+        `<section class="b">alpha beta gamma delta epsilon</section></div>`,
+    },
+    {
+      name: 'Flex none beside auto',
+      css: `${row} .a { flex: none; } .b { flex: auto; }`,
+      html: `<div class="row"><section class="a">Latency numbers</section>` +
+        `<section class="b">alpha beta gamma delta epsilon</section></div>`,
+    },
+    {
+      name: 'Flex padded columns',
+      css: `${row} section { flex: 1; padding: 8px 12px; border: 1px solid #94a3b8; }`,
+      html: `<div class="row">${columns}</div>`,
+    },
+    {
+      name: 'Flex item margins',
+      css: `.row { display: flex; } section { flex: 1; margin: 0 6px; }`,
+      html: `<div class="row">${columns}</div>`,
+    },
+    {
+      name: 'Flex three columns',
+      css: `${row} section { flex: 1; }`,
+      html: `<div class="row"><section>Latency numbers</section>` +
+        `<section>alpha beta</section><section>gamma delta epsilon</section></div>`,
+    },
+    {
+      name: 'Flex nested rows',
+      css: `${row} section { flex: 1; } section .row { gap: 10px; }`,
+      html: `<div class="row"><section><div class="row">` +
+        `<section>Latency</section><section>numbers every</section>` +
+        `</div></section><section>alpha beta gamma</section></div>`,
+    },
+    {
+      // Bare text beside an element is an anonymous flex item: it takes a
+      // share of the row, and everything after it shifts by that share.
+      name: 'Flex anonymous item',
+      css: `${row} section { flex: 1; }`,
+      html: `<div class="row">Latency numbers<section>alpha beta gamma</section></div>`,
+    },
+    {
+      name: 'Flex column direction',
+      css: `.row { display: flex; flex-direction: column; gap: 8px; } section { flex: 1; }`,
+      html: `<div class="row">${columns}</div>`,
+    },
+  ];
+
+  return cases.map((testCase) => ({
+    name: testCase.name,
+    width: 480,
+    height: 320,
+    css: withOpenSans(`body { ${font} }\n${testCase.css}`),
+    html: testCase.html,
+  }));
+}
+
 export const negativeListMarginsCase: BenchmarkCase = {
   name: 'Negative list margins with preserved whitespace',
   width: 420,

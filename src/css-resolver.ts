@@ -359,6 +359,8 @@ function defaultStyle(): ResolvedStyle {
     flexDirection: 'row',
     gap: 0,
     flexGrow: 0,
+    flexShrink: 1,
+    flexBasis: null,
     listStyleType: 'disc',
     lineClamp: 0,
   };
@@ -455,6 +457,14 @@ export function paintOrderHasStrokeFirst(paintOrder: string): boolean {
   if (strokeIdx === -1) return false;
   if (fillIdx === -1) return true;
   return strokeIdx < fillIdx;
+}
+
+function flexLonghands(grow: string, shrink: string, basis: string): CSSDeclaration[] {
+  return [
+    { property: 'flex-grow', value: grow },
+    { property: 'flex-shrink', value: shrink },
+    { property: 'flex-basis', value: basis },
+  ];
 }
 
 /** Split on whitespace, but only at paren-depth 0 — keeps `rgb(1, 2, 3)` intact. */
@@ -580,13 +590,25 @@ export function expandShorthand(property: string, value: string): CSSDeclaration
   }
 
   if (property === 'flex') {
-    // flex: 1 → flex-grow: 1
-    const parts = value.trim().split(/\s+/);
-    const grow = parseFloat(parts[0]);
-    if (!isNaN(grow)) {
-      return [{ property: 'flex-grow', value: String(grow) }];
+    // The basis is what the shorthand is really for: `flex: 1` is `1 1 0%`,
+    // so the item ignores its own content width, while `flex-grow: 1` alone
+    // leaves the basis `auto` and grows from the content width instead.
+    const keyword = value.trim().toLowerCase();
+    if (keyword === 'none') return flexLonghands('0', '0', 'auto');
+    if (keyword === 'auto') return flexLonghands('1', '1', 'auto');
+    if (keyword === 'initial') return flexLonghands('0', '1', 'auto');
+    const numbers: string[] = [];
+    let basis = '';
+    for (const part of value.trim().split(/\s+/)) {
+      if (!basis && numbers.length < 2 && /^\d*\.?\d+$/.test(part)) numbers.push(part);
+      else basis = part;
     }
-    return [];
+    if (numbers.length === 0 && !basis) return [];
+    return flexLonghands(
+      numbers[0] ?? '1',
+      numbers[1] ?? '1',
+      basis || (numbers.length > 0 ? '0' : 'auto'),
+    );
   }
 
   if (property === 'border-collapse' || property === 'border-spacing') {
@@ -834,6 +856,18 @@ function applyDeclaration(
     case 'flex-direction': style.flexDirection = value.trim(); break;
     case 'gap': style.gap = parseValue(value, fontSize, containerWidth); break;
     case 'flex-grow': style.flexGrow = parseFloat(value) || 0; break;
+    case 'flex-shrink': {
+      const shrink = parseFloat(value);
+      style.flexShrink = Number.isFinite(shrink) && shrink >= 0 ? shrink : 1;
+      break;
+    }
+    case 'flex-basis': {
+      const v = value.trim();
+      style.flexBasis = v === 'auto' || v === 'content'
+        ? null
+        : parseValue(v, fontSize, containerWidth);
+      break;
+    }
 
     // List
     case 'list-style-type': style.listStyleType = value.trim(); break;

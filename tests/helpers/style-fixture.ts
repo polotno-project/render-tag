@@ -63,6 +63,8 @@ export function styleFixture(overrides: Partial<ResolvedStyle> = {}): ResolvedSt
     flexDirection: 'row',
     gap: 0,
     flexGrow: 0,
+    flexShrink: 1,
+    flexBasis: null,
     listStyleType: 'disc',
     lineClamp: 0,
     textAlignLast: 'auto',
