@@ -1,5 +1,12 @@
 import type { DecorationEntry, LayoutNode, LayoutBox, LayoutText, ResolvedStyle } from './types.js';
-import { buildCanvasFont, isTransparent, getFontMetrics, hasTextClip, isShiftedVAlign } from './layout.js';
+import {
+  BLINK_TEXT_RUN_SHAPING,
+  buildCanvasFont,
+  getFontMetrics,
+  hasTextClip,
+  isShiftedVAlign,
+  isTransparent,
+} from './layout.js';
 import { paintOrderHasStrokeFirst } from './css-resolver.js';
 
 /**
@@ -486,6 +493,20 @@ function renderText(
   ctx.restore();
 }
 
+const ORDINARY_SHAPING_TEXT =
+  /^[\p{Script=Latin}\p{Script=Cyrillic}\p{Script=Greek}\p{Mark}\p{Number}\p{Punctuation}\p{Separator}]+$/u;
+
+function canShapeAsRun(node: LayoutText): boolean {
+  const { style } = node;
+  return style.direction === 'ltr' &&
+    style.textAlign !== 'justify' &&
+    style.textDecorations.length === 0 &&
+    style.textShadow === 'none' &&
+    style.webkitTextStrokeWidth === 0 &&
+    !node.clip && !node.strokeImage &&
+    ORDINARY_SHAPING_TEXT.test(node.text);
+}
+
 /**
  * Render a layout box and its children to canvas.
  */
@@ -545,9 +566,36 @@ function renderBox(
     strokeGradient = parseLinearGradient(ctx, style.webkitTextStrokeImage, box.x, box.width, box.y, box.height);
   }
 
-  // Children
-  for (const child of box.children) {
-    renderNode(ctx, child, gradientFill, strokeGradient);
+  // Paint plain LTR words from one source run together. Layout stays
+  // word-based (and remains public); only fillText gets the browser's full
+  // shaping context across spaces. A box is eligible only when every child is
+  // plain text, so a complex fragment cannot change neighboring paint.
+  const runs = BLINK_TEXT_RUN_SHAPING &&
+      box.children.every((child) => child.type === 'text' && canShapeAsRun(child))
+    ? box.children as LayoutText[]
+    : null;
+  if (!runs) {
+    for (const child of box.children) {
+      renderNode(ctx, child, gradientFill, strokeGradient);
+    }
+    return;
+  }
+
+  for (let i = 0; i < runs.length; i++) {
+    const head = runs[i];
+    let text = head.text;
+    let width = head.width;
+    while (
+      i + 1 < runs.length &&
+      runs[i + 1].style === head.style &&
+      runs[i + 1].y === head.y &&
+      Math.abs(runs[i + 1].x - (head.x + width)) <= 0.01
+    ) {
+      text += runs[i + 1].text;
+      width += runs[i + 1].width;
+      i++;
+    }
+    renderText(ctx, { ...head, text, width }, gradientFill, strokeGradient);
   }
 }
 

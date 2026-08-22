@@ -82,6 +82,12 @@ warms the actual fixture text before measuring. Native captures keep only faces
 that cover that fixture, then load them sequentially. A load error throws before
 pixels or wrapping can be recorded.
 
+Unicode-range fonts often put spaces and punctuation in a different face from
+the letters. Fixture pruning keeps those neutral faces for the active
+family/style/weight; otherwise the isolated DOM and the shared canvas document
+silently use different glyphs. WebKit CJK is the exception: its script face owns
+the punctuation, and adding overlapping neutral faces changes font selection.
+
 Playwright WebKit is the WebKit engine, not branded Safari. CI runs the full
 corpus headlessly with WebKit on macOS. Branded Safari has no headless mode, so
 its `safaridriver` canaries are an explicit manual diagnostic, not a CI gate.
@@ -331,6 +337,10 @@ both asserting against the browser's own numbers rather than a constant.
 - `ctx.fontKerning = 'normal'` — always set for consistency
 - `ctx.letterSpacing` — use native property, not manual per-character rendering
 - Cross-font boundaries still accumulate errors — inherent canvas API limitation
+- Blink paints a plain Latin/Cyrillic/Greek source run with one `fillText` call,
+  preserving shaping across spaces. Layout remains word-based and public. The
+  paint batch is disabled for complex scripts, rich paints, justification,
+  nested boxes, Gecko, and WebKit.
 - **Block strut**: every line box has a minimum height AND a baseline from the
   block's OWN font (its font-size × line-height), even when all inline content
   on the line is smaller. `layoutInlineContent` seeds both `flowWordsIntoLines`

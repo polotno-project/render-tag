@@ -203,6 +203,11 @@ const IS_GECKO = /\bGecko\/\d/.test(UA);
 const IS_SAFARI =
   /AppleWebKit/.test(UA) && !/Chrome\/\d/.test(UA) && !/\bjsdom\//.test(UA);
 
+/** Blink (and server-side rendering, whose documented target is Blink) can
+ * paint ordinary LTR words as one shaped source run without moving its DOM
+ * raster. Gecko and WebKit keep the established word paint path. */
+export const BLINK_TEXT_RUN_SHAPING = !IS_GECKO && !IS_SAFARI;
+
 /**
  * True where the engine floors a line's baseline onto a whole CSS pixel.
  *

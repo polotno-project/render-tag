@@ -1,4 +1,5 @@
-import { replaceFontFaces } from './css-text.ts';
+import { isWebKit } from './browser-name.ts';
+import { matchFontFaces, replaceFontFaces, stripFontFaces } from './css-text.ts';
 export interface BenchmarkCase {
   name: string;
   width: number;
@@ -181,7 +182,7 @@ function withMultiFont(css: string): string {
   return _multiFontCss + '\n' + _fallbackCss + '\n' + RESET_CSS + '\n' + css;
 }
 
-function fontFaceCoversText(face: string, codePoints: Set<number>): boolean {
+export function fontFaceCoversText(face: string, codePoints: Set<number>): boolean {
   const declaration = face.match(/unicode-range:\s*([^;]+);/i)?.[1];
   if (!declaration) return true;
   return declaration.split(',').some((part) => {
@@ -197,21 +198,18 @@ function fontFaceCoversText(face: string, codePoints: Set<number>): boolean {
 
 export function keepUsedFontFaces(css: string, html: string): string {
   const text = new DOMParser().parseFromString(html, 'text/html').body.textContent || '';
-  // Spaces and punctuation are present in nearly every fixture. Let the face
-  // selected for a real letter/number/symbol provide them; otherwise every
-  // fallback family's punctuation subset is retained and WebKit tries several
-  // overlapping faces for the same glyph.
-  const meaningfulCharacters = [...text].filter((character) =>
-    /[\p{Letter}\p{Number}\p{Symbol}]/u.test(character),
-  );
-  const codePoints = new Set(
-    meaningfulCharacters.map((character) => character.codePointAt(0)!),
-  );
+  const isMeaningful = (character: string) =>
+    /[\p{Letter}\p{Number}\p{Symbol}]/u.test(character);
+  const codePoints = (characters: string[]) =>
+    new Set(characters.map((character) => character.codePointAt(0)!));
+  const meaningfulCodePoints = codePoints([...text].filter(isMeaningful));
+  const neutralCodePoints = codePoints([...text].filter((c) => !isMeaningful(c)));
   const latinFamilies = new Set([
     'Open Sans', 'Roboto', 'Playfair Display', 'Merriweather',
     'Inconsolata', 'Lobster',
   ]);
   const hasLatinFamilyText = /[\p{Script=Latin}\p{Script=Cyrillic}\p{Script=Greek}\p{Script=Hebrew}]/u.test(text);
+  const hasCjkText = /[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]/u.test(text);
   const needsItalic = /<(?:em|i)\b|font-style\s*:\s*(?:italic|oblique)/i.test(`${html}\n${css}`);
   const scripts = new Map<string, RegExp>([
     ['RT Noto Sans Arabic', /[\u0600-\u08ff\ufb50-\ufdff\ufe70-\ufefc]/u],
@@ -226,14 +224,67 @@ export function keepUsedFontFaces(css: string, html: string): string {
     ['RT Noto Sans KR', /[\uac00-\ud7af]/u],
     ['RT Noto Emoji', /\p{Extended_Pictographic}/u],
   ]);
-  return replaceFontFaces(css, (face) => {
-    const family = face.match(/font-family:\s*['"]?([^;'"\n]+)/i)?.[1]?.trim();
-    if (family && latinFamilies.has(family) && !hasLatinFamilyText) return '';
-    if (!needsItalic && /font-style:\s*(?:italic|oblique)/i.test(face)) return '';
+  const faces = matchFontFaces(css);
+  const faceFamily = (face: string) =>
+    face.match(/font-family:\s*['"]?([^;'"\n]+)/i)?.[1]?.trim() || '';
+  const availableFamilies = new Set(faces.map(faceFamily).filter(Boolean));
+  const primaryFamilies = new Set<string>();
+  const declarations = `${stripFontFaces(css)}\n${html}`;
+  for (const match of declarations.matchAll(/font-family\s*:\s*([^;}]+)/gi)) {
+    const family = match[1]
+      .split(',')
+      .map((candidate) =>
+        candidate.trim().replace(/\s*!important\s*$/i, '').replace(/^(['"])(.*)\1$/, '$2'))
+      .find((candidate) => availableFamilies.has(candidate));
+    if (family) primaryFamilies.add(family);
+  }
+  const faceVariant = (face: string) => {
+    const family = faceFamily(face);
+    const style = face.match(/font-style:\s*([^;]+)/i)?.[1]?.trim() || 'normal';
+    const weight = face.match(/font-weight:\s*([^;]+)/i)?.[1]?.trim() || 'normal';
+    return family ? `${family}\0${style}\0${weight}` : '';
+  };
+  const faceIsEligible = (face: string, forNeutral = false) => {
+    const family = faceFamily(face);
+    if (
+      family && latinFamilies.has(family) && !hasLatinFamilyText &&
+      !(forNeutral && primaryFamilies.has(family))
+    ) return false;
+    if (!needsItalic && /font-style:\s*(?:italic|oblique)/i.test(face)) return false;
     const script = family && scripts.get(family);
-    if (script && !script.test(text)) return '';
-    return fontFaceCoversText(face, codePoints) ? face : '';
-  });
+    return !script || script.test(text);
+  };
+
+  const selected = new Set(
+    faces.filter((face) =>
+      faceIsEligible(face) && fontFaceCoversText(face, meaningfulCodePoints),
+    ),
+  );
+  const activeVariants = new Set([...selected].map(faceVariant));
+  // WebKit assigns CJK punctuation from its script face in both the shared
+  // canvas document and the isolated reference. Adding overlapping neutral
+  // faces changes that choice; Blink and Gecko need them to mirror the shared
+  // document. This is font matching in the oracle, not a score tolerance.
+  if (!isWebKit || !hasCjkText) {
+    const neutral = faces.filter((face) => faceIsEligible(face, true));
+    for (const face of neutral) {
+      if (primaryFamilies.has(faceFamily(face))) activeVariants.add(faceVariant(face));
+    }
+
+    // A unicode-range family commonly stores spaces and punctuation in its
+    // Latin face, even when the letters come from its Cyrillic/Greek/etc. face.
+    // Retain them only for an activated family/style/weight variant.
+    for (const face of neutral) {
+      if (
+        activeVariants.has(faceVariant(face)) &&
+        fontFaceCoversText(face, neutralCodePoints)
+      ) {
+        selected.add(face);
+      }
+    }
+  }
+
+  return replaceFontFaces(css, (face) => selected.has(face) ? face : '');
 }
 
 export async function loadBasicCases(): Promise<BenchmarkCase[]> {
