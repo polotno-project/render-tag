@@ -24,7 +24,11 @@
 import { describe, it, expect } from 'vitest';
 import { commands } from 'vitest/browser';
 import {
-  compareWrapping, prepareComparisonFonts, warmNativeLayout, UNPAIRABLE_WRAP_CASES,
+  FIREFOX_WRAP_SKIPS,
+  prepareComparisonFonts,
+  sweepWrapWidths,
+  UNPAIRABLE_WRAP_CASES,
+  warmNativeLayout,
 } from './helpers/compare.ts';
 import {
   loadBasicCases, loadMultiFontCss, FONT_VARIANTS,
@@ -37,8 +41,6 @@ import sweepBaseline from './wrap-sweep-baseline.json';
 
 // ─── knobs (plain constants: the browser context has no `process.env`) ───
 
-/** Sweep resolution in px. The whole point of this suite is 1. */
-const STEP = 1;
 /** Narrowest width swept; cases narrower than this are swept at their width. */
 const MIN_WIDTH = 100;
 /** Bands this wide or narrower are threshold knife-edges, counted not listed. */
@@ -50,7 +52,7 @@ const CASE_FILTER: string[] | null = null;
 
 const SKIP_WRAPPING = new Set([
   ...UNPAIRABLE_WRAP_CASES,
-  ...(isFirefox ? ['Long unbroken word overflow-wrap'] : []),
+  ...(isFirefox ? FIREFOX_WRAP_SKIPS : []),
 ]);
 
 interface CaseFinding {
@@ -62,28 +64,21 @@ interface CaseFinding {
 }
 
 function sweepOne(key: string, tc: BenchmarkCase, css: string): CaseFinding {
-  const lo = Math.min(MIN_WIDTH, tc.width);
-  const failedWidths: number[] = [];
-  let span = 0;
-
-  for (let width = lo; width <= tc.width; width += STEP) {
-    span++;
-    if (!compareWrapping(tc.html, css, width, tc.height).wrappingMatch) {
-      failedWidths.push(width);
-    }
-  }
+  const failedWidths = sweepWrapWidths(tc.html, css, tc.width, tc.height, {
+    minWidth: MIN_WIDTH,
+  });
 
   const bands: Array<[number, number]> = [];
   for (const width of failedWidths) {
     const last = bands[bands.length - 1];
-    if (last && width === last[1] + STEP) last[1] = width;
+    if (last && width === last[1] + 1) last[1] = width;
     else bands.push([width, width]);
   }
 
   const structural = bands.filter(([a, b]) => b - a + 1 > KNIFE_MAX);
   return {
     key,
-    span,
+    span: tc.width - Math.min(MIN_WIDTH, tc.width) + 1,
     failed: failedWidths.length,
     knifeEdges: bands.length - structural.length,
     structural,

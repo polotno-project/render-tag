@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { compareWrapping } from './helpers/compare.ts';
+import { compareWrapping, FIREFOX_WRAP_SKIPS } from './helpers/compare.ts';
 import { compareNativeRenders as compareRenders } from './helpers/native-compare.ts';
 import { loadBasicCases, polotnoCase, polotnoListsCase, negativeListMarginsCase, FONT_VARIANTS, loadMultiFontCss } from './helpers/test-cases.ts';
 import type { BenchmarkCase } from './helpers/test-cases.ts';
@@ -27,7 +27,7 @@ const baselineMap = baselineFiles[browserName];
 // Known wrapping limitations that are skipped from wrap checks
 const SKIP_WRAPPING = new Set([
   'Very narrow container',
-  ...(isFirefox ? ['Long unbroken word overflow-wrap'] : []),
+  ...(isFirefox ? FIREFOX_WRAP_SKIPS : []),
 ]);
 
 function formatResult(name: string, score: number, wrap: boolean, baseline?: BaselineEntry): string {

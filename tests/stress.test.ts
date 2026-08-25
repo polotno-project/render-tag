@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { commands } from 'vitest/browser';
 import {
-  compareWrapping,
   prepareComparisonFonts,
+  sweepWrapWidths,
   warmNativeLayout,
 } from './helpers/compare.ts';
 import { loadBasicCases, polotnoCase, polotnoListsCase } from './helpers/test-cases.ts';
@@ -17,15 +17,12 @@ const STEP = 10;
 const MIN_WIDTH = 100;
 
 async function stressTestCase(tc: BenchmarkCase): Promise<{ name: string; failures: number[] }> {
-  const failures: number[] = [];
   await prepareComparisonFonts(tc.html, tc.css);
   warmNativeLayout(tc.html, tc.css, tc.width);
-
-  for (let width = MIN_WIDTH; width <= tc.width; width += STEP) {
-    const { wrappingMatch } = compareWrapping(tc.html, tc.css, width, tc.height);
-    if (!wrappingMatch) failures.push(width);
-  }
-
+  const failures = sweepWrapWidths(tc.html, tc.css, tc.width, tc.height, {
+    minWidth: MIN_WIDTH,
+    step: STEP,
+  });
   return { name: tc.name, failures };
 }
 

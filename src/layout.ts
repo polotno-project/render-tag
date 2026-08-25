@@ -854,22 +854,19 @@ function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRu
     // or ":" (verified against the browser), so only "?" is split here. The
     // "?" stays with the preceding fragment; a trailing "?" (no follower) is
     // left intact. Fragments measure cumulatively so kerning stays accurate.
+    // The second alternative: a non-breaking space still permits a break
+    // BEFORE it when the preceding character is a hyphen or a break-after one
+    // (UAX #14 LB12a, `[^SP BA HY] x GL`). Measured against the DOM with
+    // `aaaaaaaaaa<c>\u00A0bbbbbbbbbb` at 120px/15px Open Sans: only "-",
+    // "|", "\u2013" and "\u2014" break there. Letters, "\u2026", ")", "\u00BB",
+    // "?", "/" and "," all keep the NBSP glued, so the set is exactly HY
+    // plus BA and nothing wider.
     const words = text
       .split(/([ \t\n\r\f\v]+)/)
       .flatMap((w) =>
-        /^[ \t\n\r\f\v]+$/.test(w) ? [w] : w.split(/(?<=\?)(?=.)/),
-      )
-      // A non-breaking space still permits a break BEFORE it when the
-      // preceding character is a hyphen or a break-after one (UAX #14 LB12a,
-      // `[^SP BA HY] x GL`). Measured against the DOM with
-      // `aaaaaaaaaa<c>\u00A0bbbbbbbbbb` at 120px/15px Open Sans: only "-",
-      // "|", "\u2013" and "\u2014" break there. Letters, "\u2026", ")", "\u00BB",
-      // "?", "/" and "," all keep the NBSP glued, so the set is exactly HY
-      // plus BA and nothing wider.
-      .flatMap((word) =>
-        /^[ \t\n\r\f\v]+$/.test(word)
-          ? [word]
-          : word.split(/(?<=[-|\u2013\u2014])(?=\u00A0)/),
+        /^[ \t\n\r\f\v]+$/.test(w)
+          ? [w]
+          : w.split(/(?<=\?)(?=.)|(?<=[-|\u2013\u2014])(?=\u00A0)/),
       )
       .flatMap((word) =>
         /^[ \t\n\r\f\v]+$/.test(word) ? [word] : splitHyphenated(word),
@@ -1612,7 +1609,8 @@ function flowWordsIntoLines(
       // content word's width in this marker's fit test so the two wrap together
       // and the left padding lands on the new line with the content.
       let headExtra = 0;
-      if (OPENING_PUNCT.test(piece.text) && !isLastPiece) {
+      const isOpener = OPENING_PUNCT.test(piece.text);
+      if (isOpener && !isLastPiece) {
         // An opener stranded mid-word by the per-character CJK split glues to
         // its NEXT PIECE, not the next word: Chrome never ends a line with
         // \u300C or \uFF08 (measured: \u6C34x5 + opener + \u6C34x7 at width
@@ -1621,7 +1619,7 @@ function flowWordsIntoLines(
         // nothing mid-word, which left the bracket dangling at end of line.
         headExtra = pieces[pieceIndex + 1].width;
       } else if ((!piece.text && piece.boxOpen) ||
-          (OPENING_PUNCT.test(piece.text) && gluedTailWidth === 0)) {
+          (isOpener && gluedTailWidth === 0)) {
         let nextIndex = wordIndex + 1;
         // Opening punctuation can be followed by an inline box edge before
         // its first glyph: `(<span>word</span>)`. Keep both the edge and that
@@ -1679,10 +1677,11 @@ function flowWordsIntoLines(
         // measureText('\t') reports a flat control advance — the one-string
         // re-measure would under-count the line by most of a tab stop and
         // falsely keep the overflowing word. Cumulative widths already carry
-        // the true tab advance, so trust them on tab lines.
-        const lineHasTab = piece.isTab ||
-          currentLine.words.some((lineWord) => lineWord.isTab);
-        if (overflow < 1 && !lineHasTab &&
+        // the true tab advance, so trust them on tab lines. (The piece itself
+        // is never a tab here: tab words are spaces, and this branch requires
+        // a non-space piece.)
+        if (overflow < 1 &&
+            !currentLine.words.some((lineWord) => lineWord.isTab) &&
             !hasMixedTextMetrics([...currentLine.words, piece])) {
           applyFont(ctx, piece.style);
           const fullText = currentLine.words.map(w => w.text).join('') + piece.text +

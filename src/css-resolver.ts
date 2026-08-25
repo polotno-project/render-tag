@@ -1543,7 +1543,9 @@ export function resolveStylesFromCSS(
           return d === 'inline' || d === 'inline-block';
         };
 
-        if (prev && next && !isInlineSibling(prev) && !isInlineSibling(next)) {
+        const prevInline = isInlineSibling(prev);
+        const nextInline = isInlineSibling(next);
+        if (prev && next && !prevInline && !nextInline) {
           if (ws === 'pre' || ws === 'pre-wrap' || ws === 'pre-line') {
             // Keep
           } else {
@@ -1556,10 +1558,7 @@ export function resolveStylesFromCSS(
           // to a single space that consumes line width; dropping the node
           // painted the spans flush and packed lines the DOM wraps. Only a
           // gap touching a block boundary (or the container edge) vanishes.
-          const betweenInline =
-            prev !== null && next !== null &&
-            isInlineSibling(prev) && isInlineSibling(next);
-          if (text.includes('\n') && !betweenInline) return null;
+          if (text.includes('\n') && !(prevInline && nextInline)) return null;
         }
       }
 

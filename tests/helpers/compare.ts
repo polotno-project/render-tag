@@ -157,11 +157,6 @@ export function renderToCanvas(
 }
 
 /**
- * Mount a fixture off-screen at a fixed width, laid out by the browser itself.
- * Callers must ensure fonts are loaded first (prepareComparisonFonts), and
- * must remove the returned container when done.
- */
-/**
  * Corpus cases whose wrapping cannot be compared through `extractDomLines`.
  * It produces ONE global line stream, but these layouts contain independent
  * cell/column flows whose rows cannot be paired against a single stream — a
@@ -174,6 +169,14 @@ export const UNPAIRABLE_WRAP_CASES = new Set<string>([
   'Multi-column layout',
 ]);
 
+/** Cases whose wrapping only Firefox gets to skip — one home, three gates. */
+export const FIREFOX_WRAP_SKIPS = ['Long unbroken word overflow-wrap'];
+
+/**
+ * Mount a fixture off-screen at a fixed width, laid out by the browser itself.
+ * Callers must ensure fonts are loaded first (prepareComparisonFonts), and
+ * must remove the returned container when done.
+ */
 function mountFixture(
   html: string,
   css: string,
@@ -235,7 +238,24 @@ export function extractDomLines(
   width: number,
 ): { y: number; text: string }[] {
   const { container, content } = mountFixture(html, css, width);
+  try {
+    return collectDomLines(content);
+  } finally {
+    document.body.removeChild(container);
+  }
+}
 
+/** A word's trailing edge in reading order: right edge LTR, left edge RTL. */
+function trailingEdge(wp: { x: number; width: number }, rtl: boolean): number {
+  return rtl ? wp.x : wp.x + wp.width;
+}
+
+/**
+ * Read the browser's own line membership out of an already-mounted fixture.
+ * Separate from the mount so a width sweep can mount once and reflow per
+ * width instead of re-parsing the fixture ~30k times.
+ */
+function collectDomLines(content: HTMLElement): { y: number; text: string }[] {
   const cTop = content.getBoundingClientRect().top;
 
   const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT, {
@@ -382,8 +402,6 @@ export function extractDomLines(
     }
   }
 
-  document.body.removeChild(container);
-
   // Group words into lines by Y position. Words on the same visual line
   // can have different Y values due to mixed font sizes (baseline alignment).
   // Use the word's vertical midpoint for grouping, with a tolerance based
@@ -444,7 +462,7 @@ export function extractDomLines(
       }
       if (join) {
         last.words.push(wp);
-        last.lastX = last.rtl ? wp.x : wp.x + wp.width;
+        last.lastX = trailingEdge(wp, last.rtl);
         if (!last.rtl && RTL_RE.test(wp.text)) last.rtl = true;
         continue;
       }
@@ -453,7 +471,7 @@ export function extractDomLines(
     lineGroups.push({
       top,
       bottom,
-      lastX: rtl ? wp.x : wp.x + wp.width,
+      lastX: trailingEdge(wp, rtl),
       rtl,
       words: [wp],
     });
@@ -499,6 +517,43 @@ export function extractDomLines(
  */
 export function warmNativeLayout(html: string, css: string, width: number): void {
   extractDomLines(html, css, width);
+}
+
+/**
+ * Sweep one fixture across container widths and return the widths where the
+ * canvas and the DOM disagree on line membership. The fixture is mounted ONCE
+ * and reflowed per width — the mount (CSS scoping, style parse, innerHTML) is
+ * width-independent and dominated the sweep's runtime when repeated ~30k
+ * times. The DOM is read before the canvas at every width: some font
+ * backends finalize a face on its first DOM use.
+ */
+export function sweepWrapWidths(
+  html: string,
+  css: string,
+  maxWidth: number,
+  height: number,
+  options: { minWidth?: number; step?: number } = {},
+): number[] {
+  const { minWidth = 100, step = 1 } = options;
+  const failed: number[] = [];
+  const { container, content } = mountFixture(html, css, maxWidth);
+  try {
+    for (let width = Math.min(minWidth, maxWidth); width <= maxWidth; width += step) {
+      container.style.width = `${width}px`;
+      const domLines = collectDomLines(content);
+      const canvasLines = layout({
+        html: css ? `<style>${css}</style>${html}` : html,
+        width,
+        height,
+      }).lines;
+      if (!compareLineMembership(canvasLines, domLines).wrappingMatch) {
+        failed.push(width);
+      }
+    }
+  } finally {
+    document.body.removeChild(container);
+  }
+  return failed;
 }
 
 /**
