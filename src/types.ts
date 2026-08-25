@@ -61,11 +61,21 @@ export interface LayoutConfig {
 }
 
 export interface LayoutResult {
-  /** The layout tree root */
+  /**
+   * The COMPLETE layout — the rendering surface. This tree is exactly what
+   * `drawLayout` paints: every run keeps its own style, exact position and
+   * baseline. Build renderers (SVG, PDF, hit-testing) from this, never from
+   * `lines`.
+   */
   layoutRoot: LayoutBox;
   /** Content height in CSS pixels */
   height: number;
-  /** Text lines grouped by Y coordinate */
+  /**
+   * A LOSSY per-line summary for wrap inspection and tests: text is
+   * flattened (cross-cell merges invent a separator space), `y` is the
+   * rounded baseline, and bounds are unions. Anything that draws or measures
+   * should read `layoutRoot` instead.
+   */
   lines: LayoutLine[];
 }
 
@@ -98,9 +108,17 @@ export interface DebugEntry {
 
 /** A text line extracted from the layout tree */
 export interface LayoutLine {
-  /** Y coordinate of the text baseline */
+  /**
+   * Baseline Y, ROUNDED to a whole px (stable line grouping and recorded
+   * cross-browser references depend on it). The exact baseline lives on the
+   * line's text runs in `layoutRoot`.
+   */
   y: number;
-  /** Concatenated text content on this line */
+  /**
+   * Concatenated text content on this line. Lossy: separate flows that share
+   * a visual row (table cells, list markers) merge in reading order with an
+   * invented separator space.
+   */
   text: string;
   /**
    * Line-box geometry in canvas coordinates. Shape matches `DOMRect` — drop-in
@@ -121,9 +139,9 @@ export interface RenderResult {
   canvas: AnyCanvas;
   /** Content height in CSS pixels after layout */
   height: number;
-  /** The layout tree root — stable API for inspection and testing */
+  /** The complete layout that was painted — see `LayoutResult.layoutRoot`. */
   layoutRoot: LayoutBox;
-  /** Text lines grouped by Y coordinate — stable API */
+  /** Lossy per-line summary — see `LayoutResult.lines`. */
   lines: LayoutLine[];
 }
 

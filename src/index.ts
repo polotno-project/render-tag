@@ -9,8 +9,14 @@ import { buildLayoutTree } from './layout.js';
 import { renderNode } from './render.js';
 
 export type { RenderConfig, RenderResult, LayoutConfig, LayoutResult, DrawConfig, LayoutLine };
+// The layout tree's node types — the shape of `LayoutResult.layoutRoot`, so
+// external renderers consume a versioned contract instead of reverse-
+// engineering it.
+export type {
+  LayoutBox, LayoutText, LayoutNode, ResolvedStyle, DecorationEntry, BorderRadius,
+} from './types.js';
 export { setDOMParser, type DOMParserLike } from './dom.js';
-export { lineBaselineOffset } from './layout.js';
+export { lineBaselineOffset, getFontMetrics, tabStopMetrics } from './layout.js';
 import { createFallbackMeasureCtx } from './dom.js';
 
 // Default measurement context, created lazily and reused across layout()

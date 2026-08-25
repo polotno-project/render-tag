@@ -241,6 +241,35 @@ export function lineBaselineOffset(lineHeight: number, ascent: number, descent: 
 }
 
 /**
+ * Tab-stop metrics for a block, the way Chrome sizes them. Tab stops follow
+ * the BLOCK's style, not the inline run the tab sits in: the interval is
+ * tab-size(8) × the block font's space advance — measured with
+ * letter-spacing off — plus the block's letter- and word-spacing per stop
+ * (css-text-3 §tab-size), verified against the DOM (a tab inside a bold span
+ * still uses the regular-weight space). `halfSpace` carries Blink's skip
+ * rule: when the next stop is closer than half a space width, the tab
+ * advances to the stop after it (Font::TabWidth).
+ *
+ * Public API for the same reason as `lineBaselineOffset`: a renderer that
+ * re-flows text beside a render-tag canvas needs identical stops. Call it
+ * rather than restate it, or the two drift. Mutates ctx font state.
+ */
+export function tabStopMetrics(
+  ctx: CanvasRenderingContext2D,
+  style: ResolvedStyle,
+): { interval: number; halfSpace: number } {
+  applyFont(ctx, style);
+  const prevLetterSpacing = ctx.letterSpacing;
+  ctx.letterSpacing = '0px';
+  const spaceWidth = cachedMeasureWidth(ctx, ' ');
+  ctx.letterSpacing = prevLetterSpacing;
+  return {
+    interval: (spaceWidth + (style.letterSpacing || 0) + (style.wordSpacing || 0)) * 8,
+    halfSpace: spaceWidth / 2,
+  };
+}
+
+/**
  * The vertical space an inline-block's margin box adds around its content, over
  * and above the font's own leading. Written once because the wrap pass grows
  * the line by the same six values.
@@ -1856,19 +1885,7 @@ function layoutInlineContent(
   const words = tokenizeRuns(ctx, runs);
   prepareInlineBlocks(ctx, words, contentWidth, useBulletProbe);
   const textIndent = node.style.textIndent || 0;
-  // Tab stops follow the BLOCK's style, not the inline run the tab sits in:
-  // Chrome sizes the interval as tab-size(8) × the block font's space advance
-  // plus letter- and word-spacing (css-text-3 §tab-size) — verified against
-  // the DOM: a tab inside a bold span still uses the regular-weight space.
-  applyFont(ctx, node.style);
-  const prevLetterSpacing = ctx.letterSpacing;
-  ctx.letterSpacing = '0px';
-  const blockSpaceWidth = cachedMeasureWidth(ctx, ' ');
-  ctx.letterSpacing = prevLetterSpacing;
-  const tabMetrics = {
-    interval: (blockSpaceWidth + (node.style.letterSpacing || 0) + (node.style.wordSpacing || 0)) * 8,
-    halfSpace: blockSpaceWidth / 2,
-  };
+  const tabMetrics = tabStopMetrics(ctx, node.style);
   // The block's own font + line-height set the strut: the minimum height of
   // every line box, even a line holding only smaller inline content.
   const strutLineHeight = getLineHeight(ctx, node.style, useBulletProbe);
