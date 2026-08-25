@@ -12,6 +12,7 @@ import chromeBaselines from './baselines.chrome.json';
 import firefoxBaselines from './baselines.firefox.json';
 import webkitBaselines from './baselines.webkit.json';
 import { browserName, isFirefox } from './helpers/browser-name.ts';
+import { PORTABLE_GATES_ONLY } from './helpers/portable-mode.ts';
 
 // Each browser has its own baseline file — no cross-browser tolerance needed.
 const SCORE_TOLERANCE = 0.01;
@@ -74,11 +75,13 @@ describe('HTML Canvas Renderer', () => {
         allCases.map((testCase) => baselineKey(testCase.name, font.name)),
       ),
     ];
-    expect(validateBaselineCoverage(expectedKeys, baselineMap)).toEqual({
-      missing: [],
-      unexpected: [],
-    });
-    console.log(`Loaded ${allCases.length} test cases | browser: ${browserName} | baselines: ${Object.keys(baselineMap).length}`);
+    if (!PORTABLE_GATES_ONLY) {
+      expect(validateBaselineCoverage(expectedKeys, baselineMap)).toEqual({
+        missing: [],
+        unexpected: [],
+      });
+    }
+    console.log(`Loaded ${allCases.length} test cases | browser: ${browserName} | baselines: ${Object.keys(baselineMap).length}${PORTABLE_GATES_ONLY ? ' | PORTABLE MODE: environment-pinned score/wrap contract not gated' : ''}`);
   });
 
   describe('Default font cases', () => {
@@ -89,19 +92,21 @@ describe('HTML Canvas Renderer', () => {
 
       for (const tc of cases) {
         const key = baselineKey(tc.name);
-        const baseline = baselineMap[key];
+        const baseline = PORTABLE_GATES_ONLY ? undefined : baselineMap[key];
         const { score, wrap } = await runCase(tc, tc.css);
 
         console.log(formatResult(key, score, wrap, baseline));
-        baselineIssues.push(
-          ...classifyBaselineResult(
-            key,
-            score,
-            wrap,
-            baseline,
-            SCORE_TOLERANCE,
-          ),
-        );
+        if (!PORTABLE_GATES_ONLY) {
+          baselineIssues.push(
+            ...classifyBaselineResult(
+              key,
+              score,
+              wrap,
+              baseline,
+              SCORE_TOLERANCE,
+            ),
+          );
+        }
       }
 
       expect(
@@ -250,21 +255,23 @@ describe('HTML Canvas Renderer', () => {
         for (const tc of allCases) {
           const css = multiFontCss + '\n' + tc.css + `\nbody { font-family: ${font.family} !important; }`;
           const key = baselineKey(tc.name, font.name);
-          const baseline = baselineMap[key];
+          const baseline = PORTABLE_GATES_ONLY ? undefined : baselineMap[key];
           const { score, wrap } = await runCase(tc, css);
-  
+
           console.log(formatResult(key, score, wrap, baseline));
           totalScore += score;
           count++;
-          baselineIssues.push(
-            ...classifyBaselineResult(
-              key,
-              score,
-              wrap,
-              baseline,
-              SCORE_TOLERANCE,
-            ),
-          );
+          if (!PORTABLE_GATES_ONLY) {
+            baselineIssues.push(
+              ...classifyBaselineResult(
+                key,
+                score,
+                wrap,
+                baseline,
+                SCORE_TOLERANCE,
+              ),
+            );
+          }
         }
 
         console.log(`[${font.name}] avg: ${(totalScore / count).toFixed(1)}%`);

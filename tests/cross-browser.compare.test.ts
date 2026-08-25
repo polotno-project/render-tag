@@ -17,6 +17,7 @@ import { gateResidualBaseline } from './helpers/baselines.ts';
 import reference from './cross-browser-reference.json';
 import residualBaseline from './cross-browser-baseline.json';
 import { browserName } from './helpers/browser-name.ts';
+import { PORTABLE_GATES_ONLY } from './helpers/portable-mode.ts';
 
 interface ReferenceLine {
   y: number;
@@ -90,7 +91,10 @@ function compareLinesAgainstReference(
   return { key, status: 'match', maxYDrift };
 }
 
-describe(`Cross-browser consistency: ${browserName} vs chrome`, () => {
+// The Chrome reference layout and the residual baseline are both recorded on
+// the maintainer's machine; canvas metrics shift per OS, so portable mode
+// (CI) skips this suite entirely.
+describe.skipIf(PORTABLE_GATES_ONLY)(`Cross-browser consistency: ${browserName} vs chrome`, () => {
   it('all cases match Chrome reference layout', async () => {
     const allCases = await loadBasicCases();
     const results: CaseResult[] = [];

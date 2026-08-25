@@ -25,6 +25,13 @@ export function browserConfig(
     ? [...new Set([...include, ...requestedTests])]
     : include;
   return defineConfig({
+    // The browser context has no process.env; tests read this through
+    // tests/helpers/portable-mode.ts. See CLAUDE.md "CI vs local deep testing".
+    define: {
+      __RENDER_TAG_PORTABLE__: JSON.stringify(
+        process.env.RENDER_TAG_PORTABLE === '1',
+      ),
+    },
     // Firefox capture pages load fixture assets from an opaque page.
     server: { cors: true },
     resolve: {

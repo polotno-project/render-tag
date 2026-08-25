@@ -7,6 +7,7 @@ import {
 import { render } from '../src/index.ts';
 import baseline from './wrap-fuzz-baseline.json';
 import { loadMultiFontCss } from './helpers/test-cases.ts';
+import { PORTABLE_GATES_ONLY } from './helpers/portable-mode.ts';
 
 /**
  * Generative differential wrap fuzzer — a REGRESSION GATE in `npm test`.
@@ -239,7 +240,11 @@ describe('Wrap fuzz (generative differential)', () => {
     //    residuals are recorded in wrap-fuzz-baseline.json (same philosophy as
     //    the pixel baselines — divergences are promoted deliberately). A new
     //    signature here means the fuzzer found a class we haven't triaged.
-    const known: string[] | null = (baseline as Record<string, string[] | null>)[browserName] ?? null;
+    //    The signature set is environment-pinned (knife-edge widths shift with
+    //    the OS's font rasterization), so portable mode keeps only gate 1.
+    const known: string[] | null = PORTABLE_GATES_ONLY
+      ? null
+      : (baseline as Record<string, string[] | null>)[browserName] ?? null;
     if (known) {
       const knownSet = new Set(known);
       const newSigs = findings

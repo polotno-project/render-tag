@@ -17,6 +17,7 @@
 import { describe, it, expect } from 'vitest';
 import { compareNativeRenders as compareRenders } from './helpers/native-compare.ts';
 import { loadMultiFontCss, FONT_VARIANTS } from './helpers/test-cases.ts';
+import { PORTABLE_GATES_ONLY } from './helpers/portable-mode.ts';
 
 interface Band {
   center: number;
@@ -52,7 +53,10 @@ function redBand(canvas: HTMLCanvasElement): Band | null {
 }
 
 const FONTS = [
-  { name: 'serif(default)', family: 'serif' },
+  // The system serif is whatever the OS ships, so its decoration geometry is
+  // only meaningful on the maintainer's machine; portable mode keeps the
+  // pinned @fontsource rows only.
+  ...(PORTABLE_GATES_ONLY ? [] : [{ name: 'serif(default)', family: 'serif' }]),
   ...FONT_VARIANTS.map(f => ({ name: f.name, family: f.family })),
 ];
 const SIZES = [16, 40, 64];

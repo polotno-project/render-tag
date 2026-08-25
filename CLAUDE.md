@@ -116,6 +116,39 @@ npm run test:stress                           # native-DOM layout width sweep (7
 npm run test:wrap-sweep                       # full corpus x all fonts at 1px (rare, ~13 min)
 ```
 
+### CI vs local deep testing (portable mode)
+
+The recorded contracts are ENVIRONMENT-PINNED: baseline scores, wrap keys,
+fuzz signatures and a few hardcoded pixel constants were measured on the
+maintainer's machine, and font rasterization differs per OS and per GitHub
+runner image (ubuntu drifted scores up to +31.9%; even `macos-latest` WebKit
+missed 3 shadow keys). So GitHub Actions runs every lane with
+`RENDER_TAG_PORTABLE=1` — injected through a vitest `define` in
+`vitest.browser.config.ts` because the browser context has no `process.env`,
+read via `tests/helpers/portable-mode.ts`.
+
+Portable mode gates everything that self-compares inside the current
+environment (layout unit tests, flex/line-baseline/line-box/wrapping parity,
+the fuzz zero-overflow gate, full-corpus crash coverage, node tests, build) at
+FULL strictness, and skips only the environment-pinned contracts:
+
+- `render.test.ts` — the baseline score/wrap contract and key-set coverage
+  (all cases still render and log; a throw still fails)
+- `cross-browser.compare.test.ts` — skipped entirely (the Chrome reference
+  layout is a local recording)
+- `wrap-fuzz.test.ts` — the structural-signature set only; overflow still gates
+- `native-dom-oracle.test.ts` — the ≤1-mismatched-pixel constant relaxes to a
+  <2% transport-sanity bound
+- `decoration-geometry.test.ts` — the system `serif(default)` rows (unpinned
+  font); pinned @fontsource rows still gate
+
+The deep gates are LOCAL: `npm test` / `test:firefox` / `test:webkit` without
+the flag remain the release bar. Never "fix" red CI by re-recording baselines
+on a runner — either the change is wrong or a gate is environment-pinned and
+belongs behind `PORTABLE_GATES_ONLY`. Known watch-item: `stress.test.ts`
+residuals are also recorded locally but have matched on CI so far; if a runner
+image update flakes them, move that gate behind the flag too.
+
 ### Baseline regression system
 - Per-browser baseline files: `tests/baselines.chrome.json`, `tests/baselines.firefox.json`, `tests/baselines.webkit.json`
 - Each stores `{ score, wrap }` per test case (default font + 5 font variants)

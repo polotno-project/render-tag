@@ -1,5 +1,13 @@
 name: Test
 
+# CI runs with RENDER_TAG_PORTABLE=1: suites that self-compare against the
+# browser's own DOM in the same environment gate at full strictness, while the
+# environment-pinned contracts (recorded pixel-score/wrap baselines, the
+# cross-browser Chrome reference, fuzz signature sets, system-font geometry)
+# stay local-only — they were recorded on the maintainer's machine and font
+# rasterization differs per OS/runner image. See CLAUDE.md
+# "CI vs local deep testing".
+
 on:
   push:
     branches: [master]
@@ -24,7 +32,7 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Cache native DOM references
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: node_modules/.cache/render-tag/native-dom
           # A unique key every run: actions/cache only uploads when the key
@@ -36,12 +44,14 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-native-dom-chromium-
       - name: Cache Playwright browsers
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ runner.os == 'macOS' && '~/Library/Caches/ms-playwright' || '~/.cache/ms-playwright' }}
           key: ${{ runner.os }}-playwright-chromium-${{ hashFiles('package-lock.json') }}
       - run: npx playwright install --with-deps chromium
       - run: npm test
+        env:
+          RENDER_TAG_PORTABLE: "1"
       - run: npm run build
 
   firefox:
@@ -55,7 +65,7 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Cache native DOM references
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: node_modules/.cache/render-tag/native-dom
           # A unique key every run: actions/cache only uploads when the key
@@ -67,12 +77,14 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-native-dom-firefox-
       - name: Cache Playwright browsers
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ runner.os == 'macOS' && '~/Library/Caches/ms-playwright' || '~/.cache/ms-playwright' }}
           key: ${{ runner.os }}-playwright-firefox-${{ hashFiles('package-lock.json') }}
       - run: npx playwright install --with-deps firefox
       - run: npm run test:firefox
+        env:
+          RENDER_TAG_PORTABLE: "1"
 
   webkit:
     # Playwright WebKit is not branded Safari, but running the engine on macOS
@@ -87,7 +99,7 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Cache native DOM references
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: node_modules/.cache/render-tag/native-dom
           # A unique key every run: actions/cache only uploads when the key
@@ -99,9 +111,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-native-dom-webkit-
       - name: Cache Playwright browsers
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ runner.os == 'macOS' && '~/Library/Caches/ms-playwright' || '~/.cache/ms-playwright' }}
           key: ${{ runner.os }}-playwright-webkit-${{ hashFiles('package-lock.json') }}
       - run: npx playwright install webkit
       - run: npm run test:webkit
+        env:
+          RENDER_TAG_PORTABLE: "1"
