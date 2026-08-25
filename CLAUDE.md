@@ -438,6 +438,16 @@ those updates are an intentional Chrome-first residual, NOT an improvement, and
 are the one sanctioned exception to "update baselines only after verifying
 improvement." The Chrome baseline improved (bullets: ~8px→<1.3px vs native).
 
+## Releasing
+1. Add a `CHANGELOG.md` entry at the top for the new version: only
+   interesting, user-visible changes since the previous version, one line
+   each, plain words. Skip internal test/infra work. Credit external
+   contributors and link fixed issues/PRs.
+2. `npm version patch --no-git-tag-version`; commit the bump + changelog
+   as `render-tag: vX.Y.Z`
+3. Push, `npm run build`, `npm publish` (no git tag — tagging stopped at
+   v0.1.26)
+
 ## Commands
 - `npm run dev` — demo page with side-by-side comparison
 - `npm test` — vitest in Chromium
