@@ -3,6 +3,7 @@ import {
   compareWrapping,
   prepareComparisonFonts,
   warmNativeLayout,
+  UNPAIRABLE_WRAP_CASES,
 } from './helpers/compare.ts';
 import {
   loadBasicCases,
@@ -24,16 +25,8 @@ const FONT_MODE: 'all' | 'default' = 'all';
 const CASE_FILTER: Set<string> | null = null;
 const WIDTH_MODE: 'coarse' | 'fine' | string = 'coarse';
 
-// Cases that are inherently impossible / out of scope for wrap matching.
-// We still measure them but flag results as "known" so they don't pollute
-// the actionable failure list.
-const KNOWN_HARD = new Set<string>([
-  'Very narrow container', // 1ch container, browser-specific min-content
-  // The extractor produces one global line stream, but these layouts contain
-  // independent cell/column flows whose rows cannot be paired globally.
-  'Styled table',
-  'Multi-column layout',
-]);
+// Measured but flagged "known" so they don't pollute the actionable list.
+const KNOWN_HARD = UNPAIRABLE_WRAP_CASES;
 
 /** Width sweep for a case based on its natural width. */
 function widthsFor(tc: BenchmarkCase): number[] {

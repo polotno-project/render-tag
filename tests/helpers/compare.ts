@@ -161,6 +161,19 @@ export function renderToCanvas(
  * Callers must ensure fonts are loaded first (prepareComparisonFonts), and
  * must remove the returned container when done.
  */
+/**
+ * Corpus cases whose wrapping cannot be compared through `extractDomLines`.
+ * It produces ONE global line stream, but these layouts contain independent
+ * cell/column flows whose rows cannot be paired against a single stream — a
+ * mismatch here is the comparison method, not a render-tag bug. Shared so the
+ * sweep gates and the debug harness agree on what is out of scope.
+ */
+export const UNPAIRABLE_WRAP_CASES = new Set<string>([
+  'Very narrow container', // 1ch container, browser-specific min-content
+  'Styled table',
+  'Multi-column layout',
+]);
+
 function mountFixture(
   html: string,
   css: string,

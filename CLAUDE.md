@@ -112,7 +112,8 @@ npx vitest run tests/layout-logic.test.ts     # layout unit tests (mocked measur
 npx vitest run tests/wrapping-parity.test.ts  # focused Chrome DOM-wrap regressions
 npx vitest run tests/flex-parity.test.ts      # flex item geometry vs the DOM (all 3 lanes)
 npx vitest run tests/render.test.ts           # render quality tests
-npm run test:stress                           # native-DOM layout width sweep
+npm run test:stress                           # native-DOM layout width sweep (7 cases, 10px)
+npm run test:wrap-sweep                       # full corpus x all fonts at 1px (rare, ~13 min)
 ```
 
 ### Baseline regression system
@@ -145,6 +146,7 @@ npm run test:stress                           # native-DOM layout width sweep
   - `npm run test:update-baselines:webkit` — WebKit baselines
   - `npm run test:update-cross-browser-baseline:{firefox,webkit}` — structural residuals
   - `npm run test:update-stress-baseline[:firefox|:webkit]` — width-sweep residuals
+  - `npm run test:update-wrap-sweep-baseline[:firefox|:webkit]` — full-corpus 1px sweep bands
 
 ### Unit tests for layout logic (`tests/layout-logic.test.ts`)
 Unit tests cover deterministic layout algorithms directly — no browser, no fonts, no pixels. They mock `ctx.measureText` to return predictable widths (e.g., 10px per character), then assert the output of layout functions.
@@ -159,6 +161,50 @@ Unit tests cover deterministic layout algorithms directly — no browser, no fon
 3. Implement the fix/feature
 4. Run it — confirm it **passes** (green)
 5. Then run baseline tests (`npm test`) to check for regressions
+
+### Full-corpus 1px width sweep (`tests/wrap-sweep.test.ts`) — rare milestone gate
+
+The wide net for line-breaking bugs. Not in `npm test`: it sweeps every corpus
+case (plus the polotno cases) across every width from 100px to the case's own
+width in **1px** steps, in all six font variants — ~195k line-membership
+comparisons per lane, ~13 minutes. Run it deliberately, like a baseline.
+
+```bash
+npm run test:wrap-sweep[:firefox|:webkit]
+npm run test:update-wrap-sweep-baseline[:firefox|:webkit]
+```
+
+**Why 1px, when `stress.test.ts` already sweeps at 10px.** Wrapping is a STEP
+function of container width, so a divergence occupies a contiguous *band* of
+widths whose size IS the disagreement. A 10px grid samples a band of size `d`
+with probability `d/10` — measured on a 12-case subset, it caught **0 of 10**
+knife-edge bands and missed **17 of 45** structural ones. The 10px sweep also
+covers only 7 hand-named Latin cases, so it never sees the CJK/non-Latin cases
+where every recorded wrap failure actually lives.
+
+**Band width is the diagnosis**, and the two classes are recorded differently:
+
+| band | meaning | recorded as |
+| --- | --- | --- |
+| 1–2px | threshold knife-edge — render-tag and the DOM disagree by a fraction of a px about where one word stops fitting; inherent `measureText`-vs-layout drift | a per-key COUNT (`key knife=<n>`) |
+| ≥3px | the wrong break decision PERSISTS across widths — a real break-rule bug | each band listed (`key w=<start>-<end>`) |
+
+Counting the knife edges instead of listing them is what keeps the baseline
+readable: on the validation subset, **422 failing widths compressed to 21
+signatures**. Listing every width would churn the file on any measurement nudge
+and nobody would read it again.
+
+`tests/wrap-sweep-report.<browser>.json` (git-ignored) carries the full
+per-case detail, and the run logs the widest structural bands first — that
+ordering is the fixing queue.
+
+**This gate measures what the 531-key baselines cannot.** Those sample each case
+at ONE width, so a case can read `wrap=true` there and still break at a third of
+all other widths — `Non-Latin text alignment`, `Simplified Chinese text` and
+`Japanese text mixed scripts` all do exactly that in Chrome.
+
+Tune `FONT_MODE` / `CASE_FILTER` at the top of the file for a fast subset run
+(plain constants — the browser context has no `process.env`).
 
 ### Wrap-accuracy debugging harness (`tests/wrap-debug.test.ts`)
 A maintainer tool (not part of `npm test`) for hunting text-wrapping divergences
