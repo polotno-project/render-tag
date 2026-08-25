@@ -1,4 +1,4 @@
-import type { DecorationEntry, ResolvedStyle, StyledNode } from './types.js';
+import type { BorderRadius, DecorationEntry, ResolvedStyle, StyledNode } from './types.js';
 
 // Node.TEXT_NODE / Node.ELEMENT_NODE without the ambient `Node` global
 // (unavailable in non-browser environments).
@@ -540,9 +540,10 @@ export function expandShorthand(property: string, value: string): CSSDeclaration
 
   if (property === 'border-radius') {
     // 1-4 values assign corners as TL, TR, BR, BL (css-backgrounds §4.5).
-    // Elliptical `4px / 2px` keeps the horizontal radii: circular corners are
-    // all the paint path draws, and the horizontal set is the visually
-    // dominant one.
+    // Elliptical `4px / 2px` keeps only the horizontal radii: BorderRadius
+    // stores ONE component per corner, so an independent vertical set has
+    // nowhere to live. (A bare percentage still paints elliptically — the
+    // renderer resolves it against each axis.)
     const parts = value.split('/')[0].trim().split(/\s+/);
     const [tl, tr = tl, br = tl, bl = tr] = parts;
     return [
@@ -643,10 +644,16 @@ export function expandShorthand(property: string, value: string): CSSDeclaration
   return [{ property, value }];
 }
 
-/** A border-radius length in px; negative and percentage values stay 0. */
-function borderRadiusValue(value: string, fontSize: number): number {
+/**
+ * A border-radius value: px, or `{ pct }` resolved at paint; negatives stay
+ * 0, and a second (elliptical) component on a longhand is ignored.
+ */
+function borderRadiusValue(value: string, fontSize: number): BorderRadius {
   const v = value.trim();
-  if (v.endsWith('%')) return 0;
+  if (v.endsWith('%')) {
+    const pct = parseFloat(v);
+    return pct > 0 ? { pct } : 0;
+  }
   return Math.max(0, parseValue(v, fontSize, 0));
 }
 
@@ -884,8 +891,7 @@ function applyDeclaration(
     case 'border-left-style': style.borderLeftStyle = value.trim(); break;
 
     // Border radius. Percentages resolve against the border box's own size,
-    // unknown until paint — parseValue would misread them against the
-    // container width, so they stay 0 (square) instead of wrong.
+    // unknown until paint, so they stay symbolic here (see BorderRadius).
     case 'border-top-left-radius':
       style.borderTopLeftRadius = borderRadiusValue(value, fontSize); break;
     case 'border-top-right-radius':

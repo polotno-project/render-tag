@@ -417,11 +417,12 @@ export async function loadBasicCases(): Promise<BenchmarkCase[]> {
         .callout { background: #eff6ff; border: 2px solid rgb(29, 78, 216); border-radius: 12px; padding: 8px 16px; }
         .pill { display: inline-block; background: #1d4ed8; color: #fff; padding: 2px 12px; border-radius: 999px; }
         .corners { border: 3px solid #dc2626; border-radius: 4px 24px 8px 0; padding: 6px 12px; }
+        .oval { display: inline-block; background: #fef08a; border: 2px solid #ca8a04; border-radius: 50%; padding: 4px 20px; }
       `),
       html: `
         <p>Hello <span style="border: 1px solid red; border-radius: 4px;">world</span></p>
         <p class="callout">Rounded block with a uniform border</p>
-        <p><span class="pill">pill badge</span> beside plain text</p>
+        <p><span class="pill">pill badge</span> beside <span class="oval">50% oval</span></p>
         <div class="corners">Different radius on each corner</div>
       `,
     },

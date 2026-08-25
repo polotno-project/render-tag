@@ -17,38 +17,25 @@ function pixelAt(canvas: HTMLCanvasElement, x: number, y: number): [number, numb
 }
 
 describe('border-radius shorthand parsing', () => {
+  /** Corner values in the expansion's fixed TL, TR, BR, BL order. */
   const radius = (value: string) =>
-    Object.fromEntries(expandShorthand('border-radius', value).map(d => [d.property, d.value]));
+    expandShorthand('border-radius', value).map(d => d.value);
 
   it('assigns 1-4 values to corners in TL TR BR BL order', () => {
-    expect(radius('4px')).toEqual({
-      'border-top-left-radius': '4px',
-      'border-top-right-radius': '4px',
-      'border-bottom-right-radius': '4px',
-      'border-bottom-left-radius': '4px',
-    });
-    expect(radius('4px 8px')).toEqual({
-      'border-top-left-radius': '4px',
-      'border-top-right-radius': '8px',
-      'border-bottom-right-radius': '4px',
-      'border-bottom-left-radius': '8px',
-    });
-    expect(radius('1px 2px 3px')).toEqual({
-      'border-top-left-radius': '1px',
-      'border-top-right-radius': '2px',
-      'border-bottom-right-radius': '3px',
-      'border-bottom-left-radius': '2px',
-    });
-    expect(radius('1px 2px 3px 4px')).toEqual({
-      'border-top-left-radius': '1px',
-      'border-top-right-radius': '2px',
-      'border-bottom-right-radius': '3px',
-      'border-bottom-left-radius': '4px',
-    });
+    expect(expandShorthand('border-radius', '4px').map(d => d.property)).toEqual([
+      'border-top-left-radius',
+      'border-top-right-radius',
+      'border-bottom-right-radius',
+      'border-bottom-left-radius',
+    ]);
+    expect(radius('4px')).toEqual(['4px', '4px', '4px', '4px']);
+    expect(radius('4px 8px')).toEqual(['4px', '8px', '4px', '8px']);
+    expect(radius('1px 2px 3px')).toEqual(['1px', '2px', '3px', '2px']);
+    expect(radius('1px 2px 3px 4px')).toEqual(['1px', '2px', '3px', '4px']);
   });
 
   it('keeps the horizontal radii of the elliptical syntax', () => {
-    expect(radius('4px / 2px')['border-top-left-radius']).toBe('4px');
+    expect(radius('4px / 2px')).toEqual(['4px', '4px', '4px', '4px']);
   });
 
   it('keeps a function color in the border shorthand intact', () => {
@@ -69,6 +56,31 @@ describe('border-radius rendering', () => {
     expect(b).toBeGreaterThan(150);
     expect(r).toBeLessThan(100);
     expect(g).toBeLessThan(150);
+  });
+
+  it('resolves percentage radii against the border box at paint time', () => {
+    // 50% on a non-square box is an ELLIPSE per corner (horizontal component
+    // from the width, vertical from the height), so at 200x~20 the whole left
+    // edge is curved: the corner is empty, the vertical-center column is not.
+    const html = `<p style="margin:0; background:#1d4ed8; border-radius:50%; padding:8px;">x</p>`;
+    const { canvas } = render({ html, width: 200, pixelRatio: 1 });
+    const c = canvas as HTMLCanvasElement;
+    expect(pixelAt(c, 1, 1)[3]).toBe(0);
+    const [r, , b, a] = pixelAt(c, 1, Math.round(c.height / 2));
+    expect(a).toBe(255);
+    expect(b).toBeGreaterThan(150);
+    expect(r).toBeLessThan(100);
+  });
+
+  it('clamps overlapping percentage radii uniformly (100% paints as 50%)', () => {
+    // 100% radii overlap on every side; css-backgrounds §4.5 scales all
+    // corners by the largest factor that fits, which lands exactly on 50%.
+    const paint = (radius: string) => (render({
+      html: `<p style="margin:0; background:#1d4ed8; border-radius:${radius}; padding:8px;">x</p>`,
+      width: 200,
+      pixelRatio: 1,
+    }).canvas as HTMLCanvasElement).toDataURL();
+    expect(paint('100%')).toBe(paint('50%'));
   });
 
   it('rounds a uniform border and paints it its own color', () => {

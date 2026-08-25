@@ -56,26 +56,38 @@ function hasBorder(style: ResolvedStyle, side: 'Top' | 'Right' | 'Bottom' | 'Lef
 }
 
 /**
- * Corner radii [TL, TR, BR, BL] for a box, or null when every corner is
- * square. Overlapping radii shrink UNIFORMLY by the largest factor that fits
- * (css-backgrounds §4.5): scaling all four together is what keeps a pill
- * (`border-radius: 999px`) a pill instead of a lens.
+ * Corner radii [TL, TR, BR, BL] as ellipse radii for `roundRect`, or null
+ * when every corner is square. Percentages resolve here: the horizontal
+ * component against the box width, the vertical against its height — a bare
+ * `border-radius: 50%` on a non-square box is an ellipse per corner, as in
+ * the DOM. Overlapping radii shrink UNIFORMLY by the largest factor that
+ * fits (css-backgrounds §4.5, per axis): scaling all corners together is
+ * what keeps a pill (`border-radius: 999px`) a pill instead of a lens.
  */
 function cornerRadii(
   style: ResolvedStyle, width: number, height: number,
-): [number, number, number, number] | null {
-  const tl = style.borderTopLeftRadius;
-  const tr = style.borderTopRightRadius;
-  const br = style.borderBottomRightRadius;
-  const bl = style.borderBottomLeftRadius;
-  if (tl <= 0 && tr <= 0 && br <= 0 && bl <= 0) return null;
+): { x: number; y: number }[] | null {
+  const {
+    borderTopLeftRadius: tl, borderTopRightRadius: tr,
+    borderBottomRightRadius: br, borderBottomLeftRadius: bl,
+  } = style;
+  // Nearly every box is square on every corner, and this runs once per
+  // rendered box — bail before allocating anything.
+  if (tl === 0 && tr === 0 && br === 0 && bl === 0) return null;
+  const corners = [tl, tr, br, bl].map((r) => {
+    if (typeof r === 'number') return { x: r, y: r };
+    const k = r.pct / 100;
+    return { x: k * width, y: k * height };
+  });
+  const [ctl, ctr, cbr, cbl] = corners;
   let f = 1;
   for (const [side, sum] of [
-    [width, tl + tr], [width, bl + br], [height, tl + bl], [height, tr + br],
+    [width, ctl.x + ctr.x], [width, cbl.x + cbr.x],
+    [height, ctl.y + cbl.y], [height, ctr.y + cbr.y],
   ]) {
     if (sum > side) f = Math.min(f, side / sum);
   }
-  return [tl * f, tr * f, br * f, bl * f];
+  return corners.map((c) => ({ x: c.x * f, y: c.y * f }));
 }
 
 /**
@@ -563,17 +575,11 @@ function renderBox(
   // corners with per-side borders keep the straight-line paint below: the
   // browser's per-corner color transitions aren't reproducible with strokes,
   // and the combination is vanishingly rare.
-  const uniformRoundedBorder = radii !== null &&
-    hasBorder(style, 'Top') &&
-    style.borderTopWidth === style.borderRightWidth &&
-    style.borderTopWidth === style.borderBottomWidth &&
-    style.borderTopWidth === style.borderLeftWidth &&
-    style.borderTopStyle === style.borderRightStyle &&
-    style.borderTopStyle === style.borderBottomStyle &&
-    style.borderTopStyle === style.borderLeftStyle &&
-    style.borderTopColor === style.borderRightColor &&
-    style.borderTopColor === style.borderBottomColor &&
-    style.borderTopColor === style.borderLeftColor;
+  const uniformRoundedBorder = radii !== null && hasBorder(style, 'Top') &&
+    (['Right', 'Bottom', 'Left'] as const).every((side) =>
+      style[`border${side}Width`] === style.borderTopWidth &&
+      style[`border${side}Style`] === style.borderTopStyle &&
+      style[`border${side}Color`] === style.borderTopColor);
   if (uniformRoundedBorder) {
     const w = style.borderTopWidth;
     ctx.strokeStyle = style.borderTopColor;
@@ -581,7 +587,7 @@ function renderBox(
     ctx.beginPath();
     ctx.roundRect(
       box.x + w / 2, box.y + w / 2, box.width - w, box.height - w,
-      radii.map((r) => Math.max(0, r - w / 2)),
+      radii.map((r) => ({ x: Math.max(0, r.x - w / 2), y: Math.max(0, r.y - w / 2) })),
     );
     ctx.stroke();
   } else {

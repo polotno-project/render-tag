@@ -152,7 +152,13 @@ export interface DecorationEntry {
   declarer: ResolvedStyle;
 }
 
-/** Resolved style for a single element — all values in px / concrete strings */
+/** A corner radius: a px length, or a percentage of the border box. */
+export type BorderRadius = number | { pct: number };
+
+/**
+ * Resolved style for a single element — all values in px / concrete strings,
+ * except corner radii, which may stay a symbolic percentage until paint.
+ */
 export interface ResolvedStyle {
   // Text
   fontFamily: string;
@@ -243,11 +249,16 @@ export interface ResolvedStyle {
   borderLeftWidth: number;
   borderLeftColor: string;
   borderLeftStyle: string;
-  /** Corner radii in px (percentages unsupported); clamped to the box at paint. */
-  borderTopLeftRadius: number;
-  borderTopRightRadius: number;
-  borderBottomRightRadius: number;
-  borderBottomLeftRadius: number;
+  /**
+   * Corner radii: px, or `{ pct }` of the border box's own size, which is
+   * unknown until paint — resolved (and clamped) in the renderer's
+   * `cornerRadii`, horizontal component against the width, vertical against
+   * the height, exactly as the DOM does.
+   */
+  borderTopLeftRadius: BorderRadius;
+  borderTopRightRadius: BorderRadius;
+  borderBottomRightRadius: BorderRadius;
+  borderBottomLeftRadius: BorderRadius;
 
   // Flex
   flexDirection: string;

@@ -422,21 +422,21 @@
         }
       },
       {
-        "y": 131,
-        "text": "pill badge beside plain text",
+        "y": 135,
+        "text": "pill badge beside 50% oval",
         "bounds": {
           "x": 0,
           "y": 112,
-          "width": 223.21875,
-          "height": 26
+          "width": 263.953125,
+          "height": 34
         }
       },
       {
-        "y": 180,
+        "y": 188,
         "text": "Different radius on each corner",
         "bounds": {
           "x": 15,
-          "y": 163,
+          "y": 171,
           "width": 233.7109375,
           "height": 22
         }
@@ -7116,21 +7116,21 @@
         }
       },
       {
-        "y": 131,
-        "text": "pill badge beside plain text",
+        "y": 135,
+        "text": "pill badge beside 50% oval",
         "bounds": {
           "x": 0,
           "y": 112,
-          "width": 223.21875,
-          "height": 26
+          "width": 263.953125,
+          "height": 34
         }
       },
       {
-        "y": 180,
+        "y": 188,
         "text": "Different radius on each corner",
         "bounds": {
           "x": 15,
-          "y": 163,
+          "y": 171,
           "width": 233.7109375,
           "height": 22
         }
@@ -13482,21 +13482,21 @@
         }
       },
       {
-        "y": 123,
-        "text": "pill badge beside plain text",
+        "y": 127,
+        "text": "pill badge beside 50% oval",
         "bounds": {
           "x": 0,
           "y": 106,
-          "width": 213.03125,
-          "height": 23
+          "width": 254.7734375,
+          "height": 31
         }
       },
       {
-        "y": 169,
+        "y": 177,
         "text": "Different radius on each corner",
         "bounds": {
           "x": 15,
-          "y": 154,
+          "y": 162,
           "width": 219.3203125,
           "height": 19
         }
@@ -19748,21 +19748,21 @@
         }
       },
       {
-        "y": 129,
-        "text": "pill badge beside plain text",
+        "y": 133,
+        "text": "pill badge beside 50% oval",
         "bounds": {
           "x": 0,
           "y": 110,
-          "width": 215.4397430419922,
-          "height": 25
+          "width": 253.10379028320312,
+          "height": 33
         }
       },
       {
-        "y": 177,
+        "y": 185,
         "text": "Different radius on each corner",
         "bounds": {
           "x": 15,
-          "y": 160,
+          "y": 168,
           "width": 225.82371520996094,
           "height": 21
         }
@@ -26084,21 +26084,21 @@
         }
       },
       {
-        "y": 126,
-        "text": "pill badge beside plain text",
+        "y": 130,
+        "text": "pill badge beside 50% oval",
         "bounds": {
           "x": 0,
           "y": 108,
-          "width": 228.407958984375,
-          "height": 24
+          "width": 270.9696960449219,
+          "height": 32
         }
       },
       {
-        "y": 173,
+        "y": 181,
         "text": "Different radius on each corner",
         "bounds": {
           "x": 15,
-          "y": 157,
+          "y": 165,
           "width": 238.6268310546875,
           "height": 20
         }
@@ -32530,21 +32530,21 @@
         }
       },
       {
-        "y": 126,
-        "text": "pill badge beside plain text",
+        "y": 130,
+        "text": "pill badge beside 50% oval",
         "bounds": {
           "x": 0,
           "y": 108,
-          "width": 185.59974670410156,
-          "height": 24
+          "width": 232.20777893066406,
+          "height": 32
         }
       },
       {
-        "y": 173,
+        "y": 181,
         "text": "Different radius on each corner",
         "bounds": {
           "x": 15,
-          "y": 157,
+          "y": 165,
           "width": 189.5997314453125,
           "height": 20
         }
