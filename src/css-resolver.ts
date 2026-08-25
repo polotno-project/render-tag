@@ -1552,7 +1552,14 @@ export function resolveStylesFromCSS(
         }
 
         if (ws !== 'pre' && ws !== 'pre-wrap' && ws !== 'pre-line') {
-          if (text.includes('\n')) return null;
+          // Between two INLINE siblings Chrome collapses '</span>\n  <span>'
+          // to a single space that consumes line width; dropping the node
+          // painted the spans flush and packed lines the DOM wraps. Only a
+          // gap touching a block boundary (or the container edge) vanishes.
+          const betweenInline =
+            prev !== null && next !== null &&
+            isInlineSibling(prev) && isInlineSibling(next);
+          if (text.includes('\n') && !betweenInline) return null;
         }
       }
 

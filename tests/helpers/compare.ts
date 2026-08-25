@@ -257,6 +257,7 @@ export function extractDomLines(
   const wordPositions: {
     x: number;
     y: number;
+    width: number;
     height: number;
     text: string;
   }[] = [];
@@ -307,6 +308,7 @@ export function extractDomLines(
         const charGroups: {
           y: number;
           x: number;
+          right: number;
           height: number;
           chars: string;
         }[] = [];
@@ -341,10 +343,12 @@ export function extractDomLines(
           const last = charGroups[charGroups.length - 1];
           if (last && Math.abs(charY - last.y) < last.height * 0.5) {
             last.chars += paintedChar(ci);
+            last.right = Math.max(last.right, charRect.right);
           } else {
             charGroups.push({
               y: charY,
               x: charRect.left,
+              right: charRect.right,
               height: charRect.height,
               chars: paintedChar(ci),
             });
@@ -355,6 +359,7 @@ export function extractDomLines(
             wordPositions.push({
               x: g.x,
               y: g.y,
+              width: g.right - g.x,
               height: g.height,
               text: g.chars,
             });
@@ -367,6 +372,7 @@ export function extractDomLines(
           wordPositions.push({
             x: rect.left,
             y: rect.top - cTop,
+            width: rect.width,
             height: rect.height,
             text: clean,
           });
@@ -427,22 +433,28 @@ export function extractDomLines(
       if (ratio >= 0.7) {
         join = true;
       } else if (ratio > 0.2) {
+        // Advance is judged against the previous word's TRAILING edge in
+        // reading order (LTR: right edge; RTL: left edge). Comparing against
+        // its left edge wrongly joined a wrapped word whenever the previous
+        // line held a single word flush at the margin — under line-height
+        // <= 1 that merged real DOM lines and misreported render-tag.
         join = last.rtl
-          ? wp.x <= last.lastX + TOL_X
+          ? wp.x + wp.width <= last.lastX + TOL_X
           : wp.x >= last.lastX - TOL_X;
       }
       if (join) {
         last.words.push(wp);
-        last.lastX = wp.x;
+        last.lastX = last.rtl ? wp.x : wp.x + wp.width;
         if (!last.rtl && RTL_RE.test(wp.text)) last.rtl = true;
         continue;
       }
     }
+    const rtl = RTL_RE.test(wp.text);
     lineGroups.push({
       top,
       bottom,
-      lastX: wp.x,
-      rtl: RTL_RE.test(wp.text),
+      lastX: rtl ? wp.x : wp.x + wp.width,
+      rtl,
       words: [wp],
     });
   }

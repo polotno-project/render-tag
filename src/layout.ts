@@ -1268,9 +1268,9 @@ function breakWordIfNeeded(
 }
 
 /** Punctuation that cannot start a line — stays with the preceding word. */
-const TRAILING_PUNCT = /^[,.\;:!?\)\]\}'"»›」』】〕〉》]+$/;
+const TRAILING_PUNCT = /^[,.\;:!?\)\]\}'"»›」』】〕〉》”、。・！），：；？၊-၏។-៖៘-៚]+$/;
 /** Punctuation that cannot end a line — stays with the following word. */
-const OPENING_PUNCT = /^[\(\[\{«‹“‘「『【〔〈《]+$/;
+const OPENING_PUNCT = /^[\(\[\{«‹“‘「『【〔〈《（]+$/;
 
 /**
  * Total width of the content directly after `from` that cannot start a line:
@@ -1612,7 +1612,15 @@ function flowWordsIntoLines(
       // content word's width in this marker's fit test so the two wrap together
       // and the left padding lands on the new line with the content.
       let headExtra = 0;
-      if ((!piece.text && piece.boxOpen) ||
+      if (OPENING_PUNCT.test(piece.text) && !isLastPiece) {
+        // An opener stranded mid-word by the per-character CJK split glues to
+        // its NEXT PIECE, not the next word: Chrome never ends a line with
+        // \u300C or \uFF08 (measured: \u6C34x5 + opener + \u6C34x7 at width
+        // 100 — the DOM wraps the opener down with its following character).
+        // The word-level branch below reads words[wordIndex + 1] and finds
+        // nothing mid-word, which left the bracket dangling at end of line.
+        headExtra = pieces[pieceIndex + 1].width;
+      } else if ((!piece.text && piece.boxOpen) ||
           (OPENING_PUNCT.test(piece.text) && gluedTailWidth === 0)) {
         let nextIndex = wordIndex + 1;
         // Opening punctuation can be followed by an inline box edge before
@@ -1667,7 +1675,15 @@ function flowWordsIntoLines(
         // Only works for single-font lines — mixed fonts can't be
         // measured as one string.
         let reallyOverflows = true;
-        if (overflow < 1 && !hasMixedTextMetrics([...currentLine.words, piece])) {
+        // A preserved tab's advance is position-dependent (tab stops), but
+        // measureText('\t') reports a flat control advance — the one-string
+        // re-measure would under-count the line by most of a tab stop and
+        // falsely keep the overflowing word. Cumulative widths already carry
+        // the true tab advance, so trust them on tab lines.
+        const lineHasTab = piece.isTab ||
+          currentLine.words.some((lineWord) => lineWord.isTab);
+        if (overflow < 1 && !lineHasTab &&
+            !hasMixedTextMetrics([...currentLine.words, piece])) {
           applyFont(ctx, piece.style);
           const fullText = currentLine.words.map(w => w.text).join('') + piece.text +
             (piece.isSoftHyphenBreak ? '-' : '');

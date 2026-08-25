@@ -383,6 +383,14 @@ both asserting against the browser's own numbers rather than a constant.
 - `ctx.fontKerning = 'normal'` — always set for consistency
 - `ctx.letterSpacing` — use native property, not manual per-character rendering
 - Cross-font boundaries still accumulate errors — inherent canvas API limitation
+- **Kinsoku (CJK punctuation glue)**: a line never STARTS with a fullwidth
+  closer/stop (`。、，！？：；・）` + closing curly quote `”`, plus the Myanmar
+  `၊-၏` and Khmer `។-៖ ៘-៚` section signs) and never ENDS with an opener
+  (`「（` etc.) — all measured against Chrome DOM with `水×5 <char> 水×7`
+  probes. Both live in `TRAILING_PUNCT`/`OPENING_PUNCT` (layout.ts), which
+  feed the piece-level glue in `flowWordsIntoLines`. Small kana and `ー` are
+  deliberately NOT glued: Chrome's default `line-break: auto` breaks before
+  them freely (measured; adding them would CREATE divergence).
 - Blink paints a plain Latin/Cyrillic/Greek source run with one `fillText` call,
   preserving shaping across spaces. Layout remains word-based and public. The
   paint batch is disabled for complex scripts, rich paints, justification,

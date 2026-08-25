@@ -128,6 +128,140 @@ describe('Layout logic (mocked measureText)', () => {
     });
   });
 
+  // ─── Tab lines skip the borderline single-string re-measure ────────
+
+  describe('Tab in borderline re-measure', () => {
+    // A preserved tab's advance is position-dependent (next tab stop), but
+    // measureText('\t') reports a flat control advance — so the <1px
+    // borderline re-measure under-measured tab lines by most of a tab stop
+    // and kept words the DOM wraps (all 9 pre-wrap knife widths).
+    it('does not let the tab under-measure rescue an overflowing word', () => {
+      // 'aaaa'=40, tab at 40 advances to stop 80, 'bb'=20, ' '=10, 'cc'=20:
+      // true line = 130 > 129.5. fullText re-measure would see 10 chars =
+      // 100px and falsely keep 'cc'.
+      const tree = block('div', [
+        block('p', [textNode('aaaa\tbb cc', { whiteSpace: 'pre-wrap' })],
+          { whiteSpace: 'pre-wrap' }),
+      ]);
+      const lines = getLines(doLayout(tree, 129.5));
+      expect(lines.length).toBe(2);
+      expect(lines[1]).toBe('cc');
+    });
+  });
+
+  // ─── Whitespace-only node between inline siblings ──────────────────
+
+  describe('Inter-inline whitespace with newline', () => {
+    // Chrome collapses '</span>\n  <span>' to ONE space that takes line
+    // width; dropping the node entirely painted the spans flush together
+    // and packed lines the DOM wraps (Text decorations & shadows bands).
+    it('collapses a newline gap between inline siblings to a space', () => {
+      const { lines } = layout({
+        html: '<div><span>aaa</span>\n  <span>bbb</span></div>',
+        width: 200,
+        ctx: mockCtx(),
+      });
+      expect(lines.map((line) => line.text)).toEqual(['aaa bbb']);
+    });
+
+    it('the collapsed space still counts toward wrapping', () => {
+      // 'aaa bbb' = 70px > 60px, so it wraps; dropping the space kept 60px.
+      const { lines } = layout({
+        html: '<div><span>aaa</span>\n<span>bbb</span></div>',
+        width: 60,
+        ctx: mockCtx(),
+      });
+      expect(lines.map((line) => line.text)).toEqual(['aaa', 'bbb']);
+    });
+
+    it('still drops whitespace between block siblings', () => {
+      const { lines } = layout({
+        html: '<div><p>aaa</p>\n<p>bbb</p></div>',
+        width: 200,
+        ctx: mockCtx(),
+      });
+      expect(lines.map((line) => line.text)).toEqual(['aaa', 'bbb']);
+    });
+  });
+
+  // ─── CJK kinsoku: closers glue back, openers glue forward ──────────
+
+  describe('CJK punctuation glue (kinsoku)', () => {
+    // Measured against Chrome DOM (probe <p>水水水水水水X水水水水水水</p> at
+    // 16px, width sweep): Chrome forbids a line break BEFORE the fullwidth
+    // closers/stops \u3002\u3001\uFF0C\uFF01\uFF1F\uFF1A\uFF1B\uFF09\u30FB and
+    // the closing curly quote \u201D, and forbids a break AFTER the openers
+    // \u300C\uFF08. Small kana and \u30FC are NOT glued — Chrome's default
+    // line-break:auto breaks before them freely (measured; do not add them).
+    it('never starts a line with a fullwidth closer', () => {
+      // 4 chars fit per 40px line. \u3002 cannot start line 2, so the
+      // preceding \u3042 wraps down with it.
+      const tree = block('div', [
+        block('p', [textNode('\u3042\u3042\u3042\u3042\u3002\u3042\u3042')]),
+      ]);
+      expect(getLines(doLayout(tree, 40)))
+        .toEqual(['\u3042\u3042\u3042', '\u3042\u3002\u3042\u3042']);
+    });
+
+    it('never starts a line with an ideographic comma', () => {
+      const tree = block('div', [
+        block('p', [textNode('\u6C34\u6C34\u6C34\u6C34\uFF0C\u6C34\u6C34')]),
+      ]);
+      expect(getLines(doLayout(tree, 40)))
+        .toEqual(['\u6C34\u6C34\u6C34', '\u6C34\uFF0C\u6C34\u6C34']);
+    });
+
+    it('still breaks freely before ordinary CJK and small kana', () => {
+      // Control: plain run splits 4+3; prolonged sound mark may start a line.
+      const plain = block('div', [
+        block('p', [textNode('\u3042\u3042\u3042\u3042\u3042\u3042\u3042')]),
+      ]);
+      expect(getLines(doLayout(plain, 40)))
+        .toEqual(['\u3042\u3042\u3042\u3042', '\u3042\u3042\u3042']);
+      const kana = block('div', [
+        block('p', [textNode('\u30B9\u30B9\u30B9\u30B9\u30FC\u30B9\u30B9')]),
+      ]);
+      expect(getLines(doLayout(kana, 40)))
+        .toEqual(['\u30B9\u30B9\u30B9\u30B9', '\u30FC\u30B9\u30B9']);
+    });
+
+    it('never ends a line with a CJK opener', () => {
+      // 5 chars would fill 50px, but the line cannot END with \u300C — it
+      // wraps down with the character it opens.
+      const tree = block('div', [
+        block('p', [textNode('\u6C34\u6C34\u6C34\u6C34\u300C\u6C34\u6C34\u6C34')]),
+      ]);
+      expect(getLines(doLayout(tree, 50)))
+        .toEqual(['\u6C34\u6C34\u6C34\u6C34', '\u300C\u6C34\u6C34\u6C34']);
+    });
+
+    it('never ends a line with a fullwidth opening paren', () => {
+      const tree = block('div', [
+        block('p', [textNode('\u6C34\u6C34\u6C34\u6C34\uFF08\u6C34\u6C34\u6C34')]),
+      ]);
+      expect(getLines(doLayout(tree, 50)))
+        .toEqual(['\u6C34\u6C34\u6C34\u6C34', '\uFF08\u6C34\u6C34\u6C34']);
+    });
+
+    it('glues a closing curly quote to the preceding CJK character', () => {
+      const tree = block('div', [
+        block('p', [textNode('\uB2E4\uB2E4\uB2E4\uB2E4\u201D\uB2E4\uB2E4')]),
+      ]);
+      expect(getLines(doLayout(tree, 40)))
+        .toEqual(['\uB2E4\uB2E4\uB2E4', '\uB2E4\u201D\uB2E4\uB2E4']);
+    });
+
+    it('glues Khmer and Myanmar section signs to the preceding segment', () => {
+      // Signs \u17D4 (khan) and \u104B must not start a line; they wrap down
+      // with their preceding word (probed against Chrome DOM).
+      const khmer = block('div', [
+        block('p', [textNode('\u3042\u3042\u3042\u3042\u17D4\u3042\u3042')]),
+      ]);
+      expect(getLines(doLayout(khmer, 40)))
+        .toEqual(['\u3042\u3042\u3042', '\u3042\u17D4\u3042\u3042']);
+    });
+  });
+
   // ─── Break before a non-breaking space (UAX #14 LB12a) ─────────────
 
   describe('Break before NBSP', () => {
