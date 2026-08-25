@@ -206,6 +206,14 @@ all other widths — `Non-Latin text alignment`, `Simplified Chinese text` and
 Tune `FONT_MODE` / `CASE_FILTER` at the top of the file for a fast subset run
 (plain constants — the browser context has no `process.env`).
 
+Browser console output does not stream from this runner, and a long run can
+kill the page mid-sweep — with vitest sometimes still exiting 0. The sweep
+writes `tests/wrap-sweep-progress.<browser>.log` (git-ignored) before each
+key; on a silent death that file names the key that was running. The write's
+RPC round-trip also yields the page's task queue between keys — multi-font
+runs died without it and completed with it. A completed run always writes
+`tests/wrap-sweep-report.<browser>.json`; no report file means the run died.
+
 ### Wrap-accuracy debugging harness (`tests/wrap-debug.test.ts`)
 A maintainer tool (not part of `npm test`) for hunting text-wrapping divergences
 between the canvas and the real DOM. Run `npx vitest run tests/wrap-debug.test.ts`

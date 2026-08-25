@@ -114,6 +114,17 @@ describe('Full-corpus 1px width sweep', () => {
     let failures = 0;
 
     for (const [index, unit] of work.entries()) {
+      // Per-key breadcrumb through the server, for two reasons. Browser
+      // console output does not stream to the terminal here, and a killed
+      // page can make vitest exit silently (even with code 0) — on a crash
+      // this file is the only record of which key was running. The RPC
+      // round-trip is also a real task-queue yield between the long
+      // synchronous sweeps; multi-font runs reproducibly killed the page
+      // without it and completed with it (mitigation, mechanism unproven).
+      await commands.writeFile(
+        `./tests/wrap-sweep-progress.${browserName}.log`,
+        `[${index + 1}/${work.length}] ${unit.key}\n`,
+      );
       await prepareComparisonFonts(unit.tc.html, unit.css);
       warmNativeLayout(unit.tc.html, unit.css, unit.tc.width);
       const finding = sweepOne(unit.key, unit.tc, unit.css);
