@@ -399,6 +399,50 @@
       }
     ]
   },
+  "Rounded borders": {
+    "lines": [
+      {
+        "y": 33,
+        "text": "Hello world",
+        "bounds": {
+          "x": 0,
+          "y": 16,
+          "width": 87.03125,
+          "height": 22
+        }
+      },
+      {
+        "y": 81,
+        "text": "Rounded block with a uniform border",
+        "bounds": {
+          "x": 18,
+          "y": 64,
+          "width": 280.125,
+          "height": 22
+        }
+      },
+      {
+        "y": 131,
+        "text": "pill badge beside plain text",
+        "bounds": {
+          "x": 0,
+          "y": 112,
+          "width": 223.21875,
+          "height": 26
+        }
+      },
+      {
+        "y": 180,
+        "text": "Different radius on each corner",
+        "bounds": {
+          "x": 15,
+          "y": 163,
+          "width": 233.7109375,
+          "height": 22
+        }
+      }
+    ]
+  },
   "Multi-column layout": {
     "lines": [
       {
@@ -547,11 +591,11 @@
       },
       {
         "y": 296,
-        "text": "Wavy overlineDotted underlineDouble strikethrough",
+        "text": "Wavy overline Dotted underline Double strikethrough",
         "bounds": {
           "x": 0,
           "y": 271.4,
-          "width": 486.53125,
+          "width": 494.84375,
           "height": 38
         }
       },
@@ -7049,6 +7093,50 @@
       }
     ]
   },
+  "Rounded borders@Open Sans": {
+    "lines": [
+      {
+        "y": 33,
+        "text": "Hello world",
+        "bounds": {
+          "x": 0,
+          "y": 16,
+          "width": 87.03125,
+          "height": 22
+        }
+      },
+      {
+        "y": 81,
+        "text": "Rounded block with a uniform border",
+        "bounds": {
+          "x": 18,
+          "y": 64,
+          "width": 280.125,
+          "height": 22
+        }
+      },
+      {
+        "y": 131,
+        "text": "pill badge beside plain text",
+        "bounds": {
+          "x": 0,
+          "y": 112,
+          "width": 223.21875,
+          "height": 26
+        }
+      },
+      {
+        "y": 180,
+        "text": "Different radius on each corner",
+        "bounds": {
+          "x": 15,
+          "y": 163,
+          "width": 233.7109375,
+          "height": 22
+        }
+      }
+    ]
+  },
   "Multi-column layout@Open Sans": {
     "lines": [
       {
@@ -7197,11 +7285,11 @@
       },
       {
         "y": 296,
-        "text": "Wavy overlineDotted underlineDouble strikethrough",
+        "text": "Wavy overline Dotted underline Double strikethrough",
         "bounds": {
           "x": 0,
           "y": 271.4,
-          "width": 486.53125,
+          "width": 494.84375,
           "height": 38
         }
       },
@@ -13371,6 +13459,50 @@
       }
     ]
   },
+  "Rounded borders@Roboto": {
+    "lines": [
+      {
+        "y": 31,
+        "text": "Hello world",
+        "bounds": {
+          "x": 0,
+          "y": 16,
+          "width": 82.2578125,
+          "height": 19
+        }
+      },
+      {
+        "y": 76,
+        "text": "Rounded block with a uniform border",
+        "bounds": {
+          "x": 18,
+          "y": 61,
+          "width": 262.1640625,
+          "height": 19
+        }
+      },
+      {
+        "y": 123,
+        "text": "pill badge beside plain text",
+        "bounds": {
+          "x": 0,
+          "y": 106,
+          "width": 213.03125,
+          "height": 23
+        }
+      },
+      {
+        "y": 169,
+        "text": "Different radius on each corner",
+        "bounds": {
+          "x": 15,
+          "y": 154,
+          "width": 219.3203125,
+          "height": 19
+        }
+      }
+    ]
+  },
   "Multi-column layout@Roboto": {
     "lines": [
       {
@@ -13519,11 +13651,11 @@
       },
       {
         "y": 279,
-        "text": "Wavy overlineDotted underlineDouble strikethrough",
+        "text": "Wavy overline Dotted underline Double strikethrough",
         "bounds": {
           "x": 0,
           "y": 256.4,
-          "width": 458.8046875,
+          "width": 466.7421875,
           "height": 35
         }
       },
@@ -19593,6 +19725,50 @@
       }
     ]
   },
+  "Rounded borders@Playfair Display": {
+    "lines": [
+      {
+        "y": 33,
+        "text": "Hello world",
+        "bounds": {
+          "x": 0,
+          "y": 16,
+          "width": 85.11990356445312,
+          "height": 21
+        }
+      },
+      {
+        "y": 80,
+        "text": "Rounded block with a uniform border",
+        "bounds": {
+          "x": 18,
+          "y": 63,
+          "width": 270.2076721191406,
+          "height": 21
+        }
+      },
+      {
+        "y": 129,
+        "text": "pill badge beside plain text",
+        "bounds": {
+          "x": 0,
+          "y": 110,
+          "width": 215.4397430419922,
+          "height": 25
+        }
+      },
+      {
+        "y": 177,
+        "text": "Different radius on each corner",
+        "bounds": {
+          "x": 15,
+          "y": 160,
+          "width": 225.82371520996094,
+          "height": 21
+        }
+      }
+    ]
+  },
   "Multi-column layout@Playfair Display": {
     "lines": [
       {
@@ -19741,11 +19917,11 @@
       },
       {
         "y": 294,
-        "text": "Wavy overlineDotted underlineDouble strikethrough",
+        "text": "Wavy overline Dotted underline Double strikethrough",
         "bounds": {
           "x": 0,
           "y": 269.4,
-          "width": 471.3595275878906,
+          "width": 479.3275146484375,
           "height": 37
         }
       },
@@ -25885,6 +26061,50 @@
       }
     ]
   },
+  "Rounded borders@Merriweather": {
+    "lines": [
+      {
+        "y": 32,
+        "text": "Hello world",
+        "bounds": {
+          "x": 0,
+          "y": 16,
+          "width": 89.99339294433594,
+          "height": 20
+        }
+      },
+      {
+        "y": 78,
+        "text": "Rounded block with a uniform border",
+        "bounds": {
+          "x": 18,
+          "y": 62,
+          "width": 288.9776611328125,
+          "height": 20
+        }
+      },
+      {
+        "y": 126,
+        "text": "pill badge beside plain text",
+        "bounds": {
+          "x": 0,
+          "y": 108,
+          "width": 228.407958984375,
+          "height": 24
+        }
+      },
+      {
+        "y": 173,
+        "text": "Different radius on each corner",
+        "bounds": {
+          "x": 15,
+          "y": 157,
+          "width": 238.6268310546875,
+          "height": 20
+        }
+      }
+    ]
+  },
   "Multi-column layout@Merriweather": {
     "lines": [
       {
@@ -26033,11 +26253,11 @@
       },
       {
         "y": 289,
-        "text": "Wavy overlineDotted underlineDouble strikethrough",
+        "text": "Wavy overline Dotted underline Double strikethrough",
         "bounds": {
           "x": 0,
           "y": 265.4,
-          "width": 500.69822692871094,
+          "width": 508.28221130371094,
           "height": 36
         }
       },
@@ -32287,6 +32507,50 @@
       }
     ]
   },
+  "Rounded borders@Lobster": {
+    "lines": [
+      {
+        "y": 32,
+        "text": "Hello world",
+        "bounds": {
+          "x": 0,
+          "y": 16,
+          "width": 74.09590148925781,
+          "height": 20
+        }
+      },
+      {
+        "y": 78,
+        "text": "Rounded block with a uniform border",
+        "bounds": {
+          "x": 18,
+          "y": 62,
+          "width": 227.9196319580078,
+          "height": 20
+        }
+      },
+      {
+        "y": 126,
+        "text": "pill badge beside plain text",
+        "bounds": {
+          "x": 0,
+          "y": 108,
+          "width": 185.59974670410156,
+          "height": 24
+        }
+      },
+      {
+        "y": 173,
+        "text": "Different radius on each corner",
+        "bounds": {
+          "x": 15,
+          "y": 157,
+          "width": 189.5997314453125,
+          "height": 20
+        }
+      }
+    ]
+  },
   "Multi-column layout@Lobster": {
     "lines": [
       {
@@ -32415,11 +32679,11 @@
       },
       {
         "y": 287,
-        "text": "Wavy overlineDotted underlineDouble strikethroughOver + under solid",
+        "text": "Wavy overline Dotted underline Double strikethrough Over + under solid",
         "bounds": {
           "x": 0,
           "y": 263.4,
-          "width": 563.4393463134766,
+          "width": 573.8553009033203,
           "height": 36
         }
       }

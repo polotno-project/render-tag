@@ -243,6 +243,11 @@ export interface ResolvedStyle {
   borderLeftWidth: number;
   borderLeftColor: string;
   borderLeftStyle: string;
+  /** Corner radii in px (percentages unsupported); clamped to the box at paint. */
+  borderTopLeftRadius: number;
+  borderTopRightRadius: number;
+  borderBottomRightRadius: number;
+  borderBottomLeftRadius: number;
 
   // Flex
   flexDirection: string;

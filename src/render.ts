@@ -56,6 +56,29 @@ function hasBorder(style: ResolvedStyle, side: 'Top' | 'Right' | 'Bottom' | 'Lef
 }
 
 /**
+ * Corner radii [TL, TR, BR, BL] for a box, or null when every corner is
+ * square. Overlapping radii shrink UNIFORMLY by the largest factor that fits
+ * (css-backgrounds §4.5): scaling all four together is what keeps a pill
+ * (`border-radius: 999px`) a pill instead of a lens.
+ */
+function cornerRadii(
+  style: ResolvedStyle, width: number, height: number,
+): [number, number, number, number] | null {
+  const tl = style.borderTopLeftRadius;
+  const tr = style.borderTopRightRadius;
+  const br = style.borderBottomRightRadius;
+  const bl = style.borderBottomLeftRadius;
+  if (tl <= 0 && tr <= 0 && br <= 0 && bl <= 0) return null;
+  let f = 1;
+  for (const [side, sum] of [
+    [width, tl + tr], [width, bl + br], [height, tl + bl], [height, tr + br],
+  ]) {
+    if (sum > side) f = Math.min(f, side / sum);
+  }
+  return [tl * f, tr * f, br * f, bl * f];
+}
+
+/**
  * Draw a decoration line with the given style (solid, dotted, dashed, double, wavy).
  */
 export function drawDecorationLine(
@@ -518,28 +541,65 @@ function renderBox(
 ): void {
   const { style } = box;
 
+  const radii = cornerRadii(style, box.width, box.height);
+
   // Background. With background-clip:text the background is NOT painted as a
   // box — it's clipped to descendant glyphs (threaded below as the text fill).
   if (!isTransparent(style.backgroundColor) && style.webkitBackgroundClip !== 'text') {
     ctx.fillStyle = style.backgroundColor;
-    ctx.fillRect(box.x, box.y, box.width, box.height);
+    if (radii) {
+      ctx.beginPath();
+      ctx.roundRect(box.x, box.y, box.width, box.height, radii);
+      ctx.fill();
+    } else {
+      ctx.fillRect(box.x, box.y, box.width, box.height);
+    }
   }
 
-  // Borders
-  const borders: [side: 'Top' | 'Right' | 'Bottom' | 'Left', x1: number, y1: number, x2: number, y2: number][] = [
-    ['Top', box.x, box.y + style.borderTopWidth / 2, box.x + box.width, box.y + style.borderTopWidth / 2],
-    ['Right', box.x + box.width - style.borderRightWidth / 2, box.y, box.x + box.width - style.borderRightWidth / 2, box.y + box.height],
-    ['Bottom', box.x, box.y + box.height - style.borderBottomWidth / 2, box.x + box.width, box.y + box.height - style.borderBottomWidth / 2],
-    ['Left', box.x + style.borderLeftWidth / 2, box.y, box.x + style.borderLeftWidth / 2, box.y + box.height],
-  ];
-  for (const [side, x1, y1, x2, y2] of borders) {
-    if (!hasBorder(style, side)) continue;
-    ctx.strokeStyle = style[`border${side}Color` as keyof ResolvedStyle] as string;
-    ctx.lineWidth = style[`border${side}Width` as keyof ResolvedStyle] as number;
+  // Borders. A rounded box with the same border on all four sides — the only
+  // shape browsers give clean corner joins to, and the one authors write —
+  // strokes the rounded path once, on the stroke's centerline (radius shrinks
+  // by half the width there, matching the border-box outer curve). Rounded
+  // corners with per-side borders keep the straight-line paint below: the
+  // browser's per-corner color transitions aren't reproducible with strokes,
+  // and the combination is vanishingly rare.
+  const uniformRoundedBorder = radii !== null &&
+    hasBorder(style, 'Top') &&
+    style.borderTopWidth === style.borderRightWidth &&
+    style.borderTopWidth === style.borderBottomWidth &&
+    style.borderTopWidth === style.borderLeftWidth &&
+    style.borderTopStyle === style.borderRightStyle &&
+    style.borderTopStyle === style.borderBottomStyle &&
+    style.borderTopStyle === style.borderLeftStyle &&
+    style.borderTopColor === style.borderRightColor &&
+    style.borderTopColor === style.borderBottomColor &&
+    style.borderTopColor === style.borderLeftColor;
+  if (uniformRoundedBorder) {
+    const w = style.borderTopWidth;
+    ctx.strokeStyle = style.borderTopColor;
+    ctx.lineWidth = w;
     ctx.beginPath();
-    ctx.moveTo(x1, y1);
-    ctx.lineTo(x2, y2);
+    ctx.roundRect(
+      box.x + w / 2, box.y + w / 2, box.width - w, box.height - w,
+      radii.map((r) => Math.max(0, r - w / 2)),
+    );
     ctx.stroke();
+  } else {
+    const borders: [side: 'Top' | 'Right' | 'Bottom' | 'Left', x1: number, y1: number, x2: number, y2: number][] = [
+      ['Top', box.x, box.y + style.borderTopWidth / 2, box.x + box.width, box.y + style.borderTopWidth / 2],
+      ['Right', box.x + box.width - style.borderRightWidth / 2, box.y, box.x + box.width - style.borderRightWidth / 2, box.y + box.height],
+      ['Bottom', box.x, box.y + box.height - style.borderBottomWidth / 2, box.x + box.width, box.y + box.height - style.borderBottomWidth / 2],
+      ['Left', box.x + style.borderLeftWidth / 2, box.y, box.x + style.borderLeftWidth / 2, box.y + box.height],
+    ];
+    for (const [side, x1, y1, x2, y2] of borders) {
+      if (!hasBorder(style, side)) continue;
+      ctx.strokeStyle = style[`border${side}Color` as keyof ResolvedStyle] as string;
+      ctx.lineWidth = style[`border${side}Width` as keyof ResolvedStyle] as number;
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+    }
   }
 
   // Pre-compute the paint for background-clip: text elements — a gradient

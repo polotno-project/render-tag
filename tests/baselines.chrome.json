@@ -19,6 +19,10 @@
     "score": 4.59,
     "wrap": true
   },
+  "Rounded borders": {
+    "score": 0.02,
+    "wrap": true
+  },
   "Multi-column layout": {
     "score": 1.34,
     "wrap": true
@@ -32,7 +36,7 @@
     "wrap": true
   },
   "Code blocks & quotes": {
-    "score": 0.02,
+    "score": 0,
     "wrap": true
   },
   "Dense inline formatting": {
@@ -383,6 +387,10 @@
     "score": 4.59,
     "wrap": true
   },
+  "Rounded borders@Open Sans": {
+    "score": 0.02,
+    "wrap": true
+  },
   "Multi-column layout@Open Sans": {
     "score": 1.34,
     "wrap": true
@@ -396,7 +404,7 @@
     "wrap": true
   },
   "Code blocks & quotes@Open Sans": {
-    "score": 0.02,
+    "score": 0,
     "wrap": true
   },
   "Dense inline formatting@Open Sans": {
@@ -735,6 +743,10 @@
     "score": 5.23,
     "wrap": true
   },
+  "Rounded borders@Roboto": {
+    "score": 0.04,
+    "wrap": true
+  },
   "Multi-column layout@Roboto": {
     "score": 0.68,
     "wrap": true
@@ -748,7 +760,7 @@
     "wrap": true
   },
   "Code blocks & quotes@Roboto": {
-    "score": 0.02,
+    "score": 0,
     "wrap": true
   },
   "Dense inline formatting@Roboto": {
@@ -1087,6 +1099,10 @@
     "score": 4.36,
     "wrap": true
   },
+  "Rounded borders@Playfair Display": {
+    "score": 0.02,
+    "wrap": true
+  },
   "Multi-column layout@Playfair Display": {
     "score": 2.22,
     "wrap": true
@@ -1100,7 +1116,7 @@
     "wrap": true
   },
   "Code blocks & quotes@Playfair Display": {
-    "score": 0.02,
+    "score": 0,
     "wrap": true
   },
   "Dense inline formatting@Playfair Display": {
@@ -1436,7 +1452,11 @@
     "wrap": true
   },
   "Styled table@Merriweather": {
-    "score": 5.76,
+    "score": 5.77,
+    "wrap": true
+  },
+  "Rounded borders@Merriweather": {
+    "score": 0,
     "wrap": true
   },
   "Multi-column layout@Merriweather": {
@@ -1452,7 +1472,7 @@
     "wrap": true
   },
   "Code blocks & quotes@Merriweather": {
-    "score": 0.02,
+    "score": 0,
     "wrap": true
   },
   "Dense inline formatting@Merriweather": {
@@ -1684,7 +1704,7 @@
     "wrap": true
   },
   "RTL with inline code@Merriweather": {
-    "score": 0.81,
+    "score": 0.82,
     "wrap": true
   },
   "Multi-script single paragraph@Merriweather": {
@@ -1791,6 +1811,10 @@
     "score": 5.57,
     "wrap": true
   },
+  "Rounded borders@Lobster": {
+    "score": 0.04,
+    "wrap": true
+  },
   "Multi-column layout@Lobster": {
     "score": 1.04,
     "wrap": true
@@ -1804,7 +1828,7 @@
     "wrap": true
   },
   "Code blocks & quotes@Lobster": {
-    "score": 0.02,
+    "score": 0,
     "wrap": true
   },
   "Dense inline formatting@Lobster": {

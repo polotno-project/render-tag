@@ -4,7 +4,7 @@
     "wrap": true
   },
   "Formatted text (bold, italic, colors)": {
-    "score": 1.1,
+    "score": 1.11,
     "wrap": true
   },
   "Multi-heading article": {
@@ -17,6 +17,10 @@
   },
   "Styled table": {
     "score": 4.14,
+    "wrap": true
+  },
+  "Rounded borders": {
+    "score": 0,
     "wrap": true
   },
   "Multi-column layout": {
@@ -32,7 +36,7 @@
     "wrap": true
   },
   "Code blocks & quotes": {
-    "score": 0.02,
+    "score": 0,
     "wrap": true
   },
   "Dense inline formatting": {
@@ -368,7 +372,7 @@
     "wrap": true
   },
   "Formatted text (bold, italic, colors)@Open Sans": {
-    "score": 1.1,
+    "score": 1.11,
     "wrap": true
   },
   "Multi-heading article@Open Sans": {
@@ -381,6 +385,10 @@
   },
   "Styled table@Open Sans": {
     "score": 4.14,
+    "wrap": true
+  },
+  "Rounded borders@Open Sans": {
+    "score": 0,
     "wrap": true
   },
   "Multi-column layout@Open Sans": {
@@ -396,7 +404,7 @@
     "wrap": true
   },
   "Code blocks & quotes@Open Sans": {
-    "score": 0.02,
+    "score": 0,
     "wrap": true
   },
   "Dense inline formatting@Open Sans": {
@@ -735,6 +743,10 @@
     "score": 5.07,
     "wrap": true
   },
+  "Rounded borders@Roboto": {
+    "score": 0,
+    "wrap": true
+  },
   "Multi-column layout@Roboto": {
     "score": 0,
     "wrap": true
@@ -748,7 +760,7 @@
     "wrap": true
   },
   "Code blocks & quotes@Roboto": {
-    "score": 0.02,
+    "score": 0,
     "wrap": true
   },
   "Dense inline formatting@Roboto": {
@@ -1072,7 +1084,7 @@
     "wrap": true
   },
   "Formatted text (bold, italic, colors)@Playfair Display": {
-    "score": 3.53,
+    "score": 3.54,
     "wrap": true
   },
   "Multi-heading article@Playfair Display": {
@@ -1084,7 +1096,11 @@
     "wrap": true
   },
   "Styled table@Playfair Display": {
-    "score": 4.2,
+    "score": 4.21,
+    "wrap": true
+  },
+  "Rounded borders@Playfair Display": {
+    "score": 0.06,
     "wrap": true
   },
   "Multi-column layout@Playfair Display": {
@@ -1100,7 +1116,7 @@
     "wrap": true
   },
   "Code blocks & quotes@Playfair Display": {
-    "score": 0.28,
+    "score": 0.26,
     "wrap": true
   },
   "Dense inline formatting@Playfair Display": {
@@ -1424,7 +1440,7 @@
     "wrap": true
   },
   "Formatted text (bold, italic, colors)@Merriweather": {
-    "score": 2.68,
+    "score": 2.7,
     "wrap": true
   },
   "Multi-heading article@Merriweather": {
@@ -1436,7 +1452,11 @@
     "wrap": true
   },
   "Styled table@Merriweather": {
-    "score": 5.67,
+    "score": 5.68,
+    "wrap": true
+  },
+  "Rounded borders@Merriweather": {
+    "score": 0,
     "wrap": true
   },
   "Multi-column layout@Merriweather": {
@@ -1452,7 +1472,7 @@
     "wrap": true
   },
   "Code blocks & quotes@Merriweather": {
-    "score": 0.02,
+    "score": 0,
     "wrap": true
   },
   "Dense inline formatting@Merriweather": {
@@ -1791,6 +1811,10 @@
     "score": 4.96,
     "wrap": true
   },
+  "Rounded borders@Lobster": {
+    "score": 0,
+    "wrap": true
+  },
   "Multi-column layout@Lobster": {
     "score": 0,
     "wrap": true
@@ -1804,7 +1828,7 @@
     "wrap": true
   },
   "Code blocks & quotes@Lobster": {
-    "score": 0.02,
+    "score": 0,
     "wrap": true
   },
   "Dense inline formatting@Lobster": {

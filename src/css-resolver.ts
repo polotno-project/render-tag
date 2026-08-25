@@ -356,6 +356,10 @@ function defaultStyle(): ResolvedStyle {
     borderLeftWidth: 0,
     borderLeftColor: 'rgb(0, 0, 0)',
     borderLeftStyle: 'none',
+    borderTopLeftRadius: 0,
+    borderTopRightRadius: 0,
+    borderBottomRightRadius: 0,
+    borderBottomLeftRadius: 0,
     flexDirection: 'row',
     gap: 0,
     flexGrow: 0,
@@ -512,7 +516,12 @@ export function expandShorthand(property: string, value: string): CSSDeclaration
 
   if (property === 'border' || property === 'border-top' || property === 'border-right' ||
       property === 'border-bottom' || property === 'border-left') {
-    const parts = value.trim().split(/\s+/);
+    // Split at paren-depth 0: `rgb(29, 78, 216)` is one token, and the
+    // browser rewrites even hex colors to that form when the shorthand comes
+    // from a style="" attribute. A plain whitespace split truncated the color
+    // to `rgb(29,`, which canvas silently drops — the border then painted
+    // with whatever strokeStyle was left over from the previous box.
+    const parts = splitTopLevelWhitespace(value.trim());
     const borderStyles = ['solid', 'dashed', 'dotted', 'double', 'none', 'hidden'];
     const width = parts.find(p => p.endsWith('px') || /^\d/.test(p)) || '0';
     const style = parts.find(p => borderStyles.includes(p)) || 'none';
@@ -527,6 +536,21 @@ export function expandShorthand(property: string, value: string): CSSDeclaration
       result.push({ property: `border-${side}-color`, value: color });
     }
     return result;
+  }
+
+  if (property === 'border-radius') {
+    // 1-4 values assign corners as TL, TR, BR, BL (css-backgrounds §4.5).
+    // Elliptical `4px / 2px` keeps the horizontal radii: circular corners are
+    // all the paint path draws, and the horizontal set is the visually
+    // dominant one.
+    const parts = value.split('/')[0].trim().split(/\s+/);
+    const [tl, tr = tl, br = tl, bl = tr] = parts;
+    return [
+      { property: 'border-top-left-radius', value: tl },
+      { property: 'border-top-right-radius', value: tr },
+      { property: 'border-bottom-right-radius', value: br },
+      { property: 'border-bottom-left-radius', value: bl },
+    ];
   }
 
   if (property === 'list-style') {
@@ -617,6 +641,13 @@ export function expandShorthand(property: string, value: string): CSSDeclaration
   }
 
   return [{ property, value }];
+}
+
+/** A border-radius length in px; negative and percentage values stay 0. */
+function borderRadiusValue(value: string, fontSize: number): number {
+  const v = value.trim();
+  if (v.endsWith('%')) return 0;
+  return Math.max(0, parseValue(v, fontSize, 0));
 }
 
 /** Normalize the (case-insensitive) currentColor keyword to '', the canonical unset value. */
@@ -852,6 +883,18 @@ function applyDeclaration(
     case 'border-left-color': style.borderLeftColor = value.trim(); break;
     case 'border-left-style': style.borderLeftStyle = value.trim(); break;
 
+    // Border radius. Percentages resolve against the border box's own size,
+    // unknown until paint — parseValue would misread them against the
+    // container width, so they stay 0 (square) instead of wrong.
+    case 'border-top-left-radius':
+      style.borderTopLeftRadius = borderRadiusValue(value, fontSize); break;
+    case 'border-top-right-radius':
+      style.borderTopRightRadius = borderRadiusValue(value, fontSize); break;
+    case 'border-bottom-right-radius':
+      style.borderBottomRightRadius = borderRadiusValue(value, fontSize); break;
+    case 'border-bottom-left-radius':
+      style.borderBottomLeftRadius = borderRadiusValue(value, fontSize); break;
+
     // Flex
     case 'flex-direction': style.flexDirection = value.trim(); break;
     case 'gap': style.gap = parseValue(value, fontSize, containerWidth); break;
@@ -883,11 +926,6 @@ function applyDeclaration(
     case 'content':
     case 'counter-reset':
     case 'counter-increment':
-    case 'border-radius':
-    case 'border-top-left-radius':
-    case 'border-top-right-radius':
-    case 'border-bottom-left-radius':
-    case 'border-bottom-right-radius':
     case 'cursor':
     case 'opacity':
     case 'overflow':
