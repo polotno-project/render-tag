@@ -345,6 +345,15 @@ function verticalAlignShift(
   useBulletProbe: boolean,
 ): number {
   switch (va) {
+    // Blink and WebKit share the fraction (Blink's inline_box_state.cc:
+    // fontSize/3 + 1 for super, /5 + 1 for sub, from the PARENT box's size,
+    // no font metric involved); Gecko raises by 0.34em and lowers by 0.2em.
+    // Deliberately NOT Blink's LayoutUnit arithmetic (snap the size to the
+    // 1/64px grid, truncate the division): that matches Chrome's DOM layout
+    // rects exactly (measured, 18/18 samples 10-100px vs float's <=0.0125px
+    // residual — and WebKit divides in plain float), but the shift also feeds
+    // the line-box union, and quantizing it REGRESSED the sub/sup pixel
+    // baselines 0.5-2% on every font variant. The screenshot is the oracle.
     case 'super':
       return BLINK_SUPER_SUB
         ? -(parentStyle.fontSize / 3 + 1) : -parentStyle.fontSize * 0.34;
@@ -2032,7 +2041,9 @@ function layoutInlineContent(
 
     // Emit inline background box using line-level baseline for vertical alignment.
     // Uses the line's ascent/descent (not the box's own font) so box aligns with text.
-    const emitInlineBox = (style: ResolvedStyle, bx: number, bw: number) => {
+    const emitInlineBox = (
+      style: ResolvedStyle, bx: number, bw: number, textWord?: Word,
+    ) => {
       // The box's OWN font decides its height, not the line's largest. An
       // inline-block's content box is its LINE-HEIGHT, though, not the bare
       // font metrics — measured against Chrome, bare metrics put it at
@@ -2049,7 +2060,21 @@ function layoutInlineContent(
       // TOP instead detached from its own glyphs as soon as something taller
       // shared the line — measured, a background at y 4..33 around text whose
       // baseline was 46.
-      const boxY = lineBaselineY - boxAscent - padTop;
+      let baselineY = lineBaselineY;
+      // A vertical-align that moves the glyphs moves their band with them: the
+      // shift comes from the SAME call, on the SAME word, as the text emit
+      // below, so box and glyphs cannot drift apart. Computed independently
+      // they did — the band painted at the unshifted baseline under super/
+      // sub'd text. Inline-block stays put: the emit pass does not honour
+      // vertical-align on it (see the line-box union above).
+      if (textWord && style.display !== 'inline-block') {
+        const va = textWord.style.verticalAlign;
+        if (isShiftedVAlign(va)) {
+          baselineY += verticalAlignShift(
+            va, ctx, textWord.style, textWord.parentStyle ?? blockStyle, useBulletProbe);
+        }
+      }
+      const boxY = baselineY - boxAscent - padTop;
       results.push({
         type: 'box', style, x: bx, y: boxY, width: bw, height: boxHeight,
         tagName: 'span', children: [],
@@ -2061,14 +2086,17 @@ function layoutInlineContent(
       let scanX = curX;
       let boxStartX = scanX;
       let currentBoxStyle: ResolvedStyle | undefined;
-      let boxHasText = false;
+      // First text word of the open box group — its presence decides whether
+      // the group's band is emitted at all, and its style pair decides where
+      // the band's baseline sits (the same pair the text emit shifts by).
+      let boxTextWord: Word | undefined;
 
       for (const word of line.words) {
         if (word.boxOpen && word.boxClose && word.text) {
           if (currentBoxStyle) {
-            if (boxHasText) emitInlineBox(currentBoxStyle, boxStartX, scanX - boxStartX);
+            if (boxTextWord) emitInlineBox(currentBoxStyle, boxStartX, scanX - boxStartX, boxTextWord);
             currentBoxStyle = undefined;
-            boxHasText = false;
+            boxTextWord = undefined;
           }
           const s = word.style;
           const boxX = scanX + s.marginLeft;
@@ -2087,26 +2115,26 @@ function layoutInlineContent(
             const textWidth = word.width - horizontalMargins(s) - horizontalFrame(s);
             const boxW = s.borderLeftWidth + s.paddingLeft + textWidth +
               s.paddingRight + s.borderRightWidth;
-            emitInlineBox(s, boxX, boxW);
+            emitInlineBox(s, boxX, boxW, word);
           }
-          boxHasText = false;
+          boxTextWord = undefined;
           scanX += word.width;
           continue;
         }
 
         if (word.boxStyle !== currentBoxStyle) {
-          if (currentBoxStyle && boxHasText) {
-            emitInlineBox(currentBoxStyle, boxStartX, scanX - boxStartX);
+          if (currentBoxStyle && boxTextWord) {
+            emitInlineBox(currentBoxStyle, boxStartX, scanX - boxStartX, boxTextWord);
           }
           currentBoxStyle = word.boxStyle;
           boxStartX = scanX;
-          boxHasText = false;
+          boxTextWord = undefined;
         }
-        if (word.text && !word.isSpace) boxHasText = true;
+        if (word.text && !word.isSpace) boxTextWord ??= word;
         scanX += word.width + (word.isSpace ? justifyExtraPerSpace : 0);
       }
-      if (currentBoxStyle && boxHasText) {
-        emitInlineBox(currentBoxStyle, boxStartX, scanX - boxStartX);
+      if (currentBoxStyle && boxTextWord) {
+        emitInlineBox(currentBoxStyle, boxStartX, scanX - boxStartX, boxTextWord);
       }
     }
 

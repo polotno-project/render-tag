@@ -1688,6 +1688,25 @@ describe('Layout logic (mocked measureText)', () => {
       expect(yDelta('super')).toBeCloseTo(-superShift, 5);
     });
 
+    // The pixel corpus only covers sub/sup at 16px — the one size where the
+    // old 0.4em/0.26em constants happened to agree with the engine rule — so
+    // pin a display size too, where a drift back would be 4px off.
+    it('super/sub scale with the parent font size', () => {
+      const sizedDelta = (va: string, size: number) => {
+        // The parent size lives on the BLOCK — `<p style="font-size:76px">` —
+        // because a #text child's shift measures against the block it flows
+        // in, not against its own (smaller) size.
+        const tree = block('div', [block('p', [
+          textNode('base', { fontSize: size, lineHeight: size * 1.2 }),
+          textNode('X', { fontSize: size * 0.6, lineHeight: size * 1.2, verticalAlign: va }),
+        ], { fontSize: size, lineHeight: size * 1.2 })]);
+        const texts = collectTexts(doLayout(tree, 2000));
+        return texts.find(t => t.text === 'X')!.y - texts.find(t => t.text === 'base')!.y;
+      };
+      expect(sizedDelta('super', 76)).toBeCloseTo(BLINK_SUPER_SUB ? -(76 / 3 + 1) : -76 * 0.34, 5);
+      expect(sizedDelta('sub', 76)).toBeCloseTo(BLINK_SUPER_SUB ? 76 / 5 + 1 : 76 * 0.2, 5);
+    });
+
     it('baseline leaves the word on the baseline', () => {
       expect(yDelta('baseline')).toBeCloseTo(0, 5);
     });
@@ -1696,6 +1715,37 @@ describe('Layout logic (mocked measureText)', () => {
       expect(yDelta('top')).toBeCloseTo(0, 5);
       expect(yDelta('bottom')).toBeCloseTo(0, 5);
     });
+
+    // A span's background/border band belongs to its glyphs and travels with
+    // them. Two colors keep the boxes from merging into one run; one font size
+    // across both spans makes their heights comparable.
+    const shiftDeltas = (va: string) => {
+      const tree = block('div', [block('p', [
+        inline('span', [textNode('base')], { backgroundColor: '#ffd400' }),
+        inline('span', [textNode('X', { verticalAlign: va })],
+          { backgroundColor: '#00d4ff', verticalAlign: va }),
+      ])]);
+      const root = doLayout(tree, 400);
+      const [plainBox, raisedBox] = collectInlineBoxes(root);
+      const texts = collectTexts(root);
+      const plainText = texts.find(t => t.text === 'base')!;
+      const raisedText = texts.find(t => t.text === 'X')!;
+      return {
+        box: raisedBox.y - plainBox.y,
+        text: raisedText.y - plainText.y,
+        heightDelta: raisedBox.height - plainBox.height,
+      };
+    };
+
+    // text-top/text-bottom/middle are omitted: mock metrics are uniform, so
+    // they shift by 0 here and the test would pass vacuously.
+    it.each(['super', 'sub', '5px', '50%'])(
+      'background box moves with its glyphs (vertical-align: %s)', (va) => {
+        const { box, text, heightDelta } = shiftDeltas(va);
+        expect(text).not.toBeCloseTo(0, 5); // guard: the glyphs really moved
+        expect(box).toBeCloseTo(text, 5);
+        expect(heightDelta).toBeCloseTo(0, 5);
+      });
   });
 
   // ─── CJK breaking ─────────────────────────────────────────────────
