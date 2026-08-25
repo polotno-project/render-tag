@@ -128,6 +128,38 @@ describe('Layout logic (mocked measureText)', () => {
     });
   });
 
+  // ─── Break before a non-breaking space (UAX #14 LB12a) ─────────────
+
+  describe('Break before NBSP', () => {
+    // Measured against the DOM at 15px Open Sans, one char before U+00A0 in
+    // `aaaaaaaaaa<c>\u00A0bbbbbbbbbb` at 120px. ONLY `-` `|` `\u2013` `\u2014`
+    // let the line break there; letters, `\u2026`, `)`, `\u00BB`, `?`, `/`, `,`
+    // and the rest keep the NBSP glued. That is LB12a: `[^SP BA HY] x GL`,
+    // where `-` is HY and the three others are BA.
+    it('breaks before NBSP after a break-after character', () => {
+      // "aa|" = 30px then NBSP glues to "bb" = 30px; container fits only one.
+      const tree = block('div', [
+        block('p', [textNode('aa|\u00A0bb')]),
+      ]);
+      expect(getLines(doLayout(tree, 40))).toEqual(['aa|', '\u00A0bb']);
+    });
+
+    it('keeps NBSP glued after an ordinary character', () => {
+      const tree = block('div', [
+        block('p', [textNode('aaX\u00A0bb')]),
+      ]);
+      // No break opportunity at all: one overflowing line.
+      expect(getLines(doLayout(tree, 40))).toEqual(['aaX\u00A0bb']);
+    });
+
+    it('breaks before NBSP after an em dash', () => {
+      const tree = block('div', [
+        block('p', [textNode('aa\u2014\u00A0bb')]),
+      ]);
+      expect(getLines(doLayout(tree, 40))).toEqual(['aa\u2014', '\u00A0bb']);
+    });
+  });
+
   // ─── Hyphen breaking ───────────────────────────────────────────────
 
   describe('Hyphen breaking', () => {

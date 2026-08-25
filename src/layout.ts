@@ -859,6 +859,18 @@ function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRu
       .flatMap((w) =>
         /^[ \t\n\r\f\v]+$/.test(w) ? [w] : w.split(/(?<=\?)(?=.)/),
       )
+      // A non-breaking space still permits a break BEFORE it when the
+      // preceding character is a hyphen or a break-after one (UAX #14 LB12a,
+      // `[^SP BA HY] x GL`). Measured against the DOM with
+      // `aaaaaaaaaa<c>\u00A0bbbbbbbbbb` at 120px/15px Open Sans: only "-",
+      // "|", "\u2013" and "\u2014" break there. Letters, "\u2026", ")", "\u00BB",
+      // "?", "/" and "," all keep the NBSP glued, so the set is exactly HY
+      // plus BA and nothing wider.
+      .flatMap((word) =>
+        /^[ \t\n\r\f\v]+$/.test(word)
+          ? [word]
+          : word.split(/(?<=[-|\u2013\u2014])(?=\u00A0)/),
+      )
       .flatMap((word) =>
         /^[ \t\n\r\f\v]+$/.test(word) ? [word] : splitHyphenated(word),
       );
