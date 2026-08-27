@@ -87,7 +87,11 @@ export interface LayoutInput {
 
 export interface LayoutOutput {
   glyphs: GlyphPlacement[];
-  /** Sum of glyph widths + letterSpacing (the natural width of the rendered text). */
+  /**
+   * Natural width of the rendered text: the sum of the measured placement
+   * widths (each already carrying its letter-spacing) less the trailing
+   * letter-space of the last one, which must not hang off the end.
+   */
   textWidth: number;
   pathLength: number;
   /**
@@ -334,12 +338,31 @@ export function layoutGlyphsOnPath(input: LayoutInput): LayoutOutput {
     measuredWholeWidth += ctx.measureText(seg.text).width;
   }
 
-  // 2. Sum natural width (sum of placement widths + letterSpacing per item).
+  // 2. Sum natural width. `g.width` came out of measureText with
+  // ctx.letterSpacing ALREADY applied, so it carries one letter-space per
+  // grapheme in the run — a trailing one included. Adding letterSpacing again
+  // here would double it. (Chrome folds the spacing into the advance:
+  // `ctx.letterSpacing='40px'; measureText('ABC').width` is 3 advances plus
+  // THREE spaces, not two.)
   let textWidth = 0;
   for (const g of preGlyphs) {
-    textWidth += g.width + (g.style.letterSpacing || 0);
+    textWidth += g.width;
   }
   // Trim the last letterSpacing — it shouldn't trail.
+  //
+  // DO NOT "fix" this to match how a browser centres a line box. A browser
+  // centres the ADVANCE box, trailing space included; this centres the INK.
+  // The reason is consistency for the thing curved text is FOR: a curve with a
+  // very large radius must print where the same text prints straight. Measured
+  // through Polotno's own pipeline, `ABC` at letterSpacing 1em in a 600px box —
+  // straight, a near-flat curve, and a gentle arc:
+  //
+  //   with this trim:     299 / 299 / 299   (ink width 160 in all three)
+  //   without this trim:  299 / 279 / 279
+  //
+  // Straight text is centred on its ink too (the consumer widens the layout box
+  // by the trailing space to get there), so dropping the trim leaves a nearly
+  // flat curve half a letter-space off from identical straight text.
   if (preGlyphs.length > 0) {
     textWidth -= preGlyphs[preGlyphs.length - 1].style.letterSpacing || 0;
   }
@@ -377,7 +400,15 @@ export function layoutGlyphsOnPath(input: LayoutInput): LayoutOutput {
   let naturalOffset = 0;
   for (let i = 0; i < preGlyphs.length; i++) {
     const g = preGlyphs[i];
-    const effectiveWidth = g.width + (g.isSpace ? extraPerSpace : 0);
+    // The LAST placement advances by its ink alone: `textWidth` above drops its
+    // trailing letter-space, so advancing by the full measured width would walk
+    // one space past the width we reported. On a path sized to `textWidth` —
+    // which is what `align: right` and `justify` produce — that overshoot fell
+    // outside `kerningSlack` and dropped the final glyph outright.
+    const trailing =
+      i === preGlyphs.length - 1 ? g.style.letterSpacing || 0 : 0;
+    const effectiveWidth =
+      g.width - trailing + (g.isSpace ? extraPerSpace : 0);
     const p0 = path.getPointAtLength(offset);
     if (!p0) break;
 
@@ -402,7 +433,10 @@ export function layoutGlyphsOnPath(input: LayoutInput): LayoutOutput {
       x: p0.x,
       y: p0.y,
       rotation,
-      width: g.width,
+      // Trimmed for the last placement, like the advance above: this width is
+      // also the glyph's decoration span and its cell in `bounds`, and neither
+      // should reach into a trailing space no glyph occupies.
+      width: g.width - trailing,
       style: g.style,
       ascent: g.ascent,
       descent: g.descent,
@@ -412,8 +446,12 @@ export function layoutGlyphsOnPath(input: LayoutInput): LayoutOutput {
       strokeImageStyle: g.strokeImageStyle,
     });
 
-    offset = endLen + (g.style.letterSpacing || 0);
-    naturalOffset += g.width + (g.style.letterSpacing || 0);
+    // `g.width` already includes this glyph's trailing letter-space (see the
+    // textWidth sum above), so the advance is the measured width alone — less
+    // the last one's trailing space, so the walk ends exactly on `textWidth`
+    // and `pathOffset + width` never overruns the range gradients slice by.
+    offset = endLen;
+    naturalOffset += effectiveWidth - (g.isSpace ? extraPerSpace : 0);
   }
 
   assignFragmentRanges(glyphs, g => g.clipStyle, (g, r) => { g.clipRange = r; });

@@ -2,6 +2,11 @@
 
 Only the interesting, user-visible changes. Full detail lives in the git history.
 
+## 0.1.35 — 2026-08-26
+
+- Fix: text on a path applied `letter-spacing` twice — curved text drew at double the requested tracking, and centered text sat half a space off center.
+- Fix: text on a path could drop its last glyph with `align: right` or `align: justify` when `letter-spacing` was set, and a gradient across the text ran out before that glyph's ink.
+
 ## 0.1.34 — 2026-08-25
 
 - `border-radius` support: backgrounds and uniform borders, per-corner values, percentages (`50%` draws real circles/ellipses). Closes [#2](https://github.com/polotno-project/render-tag/issues/2).

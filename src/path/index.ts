@@ -81,7 +81,12 @@ export interface LayoutTextOnPathConfig {
 export interface TextOnPathLayout {
   /** Per-glyph (or per-shaped-run) placement records. */
   glyphs: GlyphPlacement[];
-  /** Sum of per-glyph advances (the natural width of the rendered text). */
+  /**
+   * Natural width of the rendered text: the sum of the per-glyph advances,
+   * less the last one's trailing letter-space, which no glyph occupies. The
+   * walk ends exactly here, so `pathOffset + width` of the final placement is
+   * this number.
+   */
   textWidth: number;
   /** Total arc length of the path. */
   pathLength: number;

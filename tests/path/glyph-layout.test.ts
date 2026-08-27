@@ -9,23 +9,36 @@ const CHAR_WIDTH = 10;
 const mockStyle = (overrides: Partial<ResolvedStyle> = {}): ResolvedStyle =>
   styleFixture({ display: 'inline', ...overrides });
 
+// Emulates the real 2D context closely enough for advance arithmetic — in
+// particular it FOLDS `letterSpacing` into `measureText`, one space per
+// character INCLUDING the last. Measured on all three engines: `measureText`
+// grows by one space for a 1-char string and three for a 3-char one, in
+// Chromium, Firefox and WebKit alike. A mock that ignored it reported a
+// plausible-looking width and hid a double-count in the advance.
+//
+// It models UNIFORM spacing, which is where it stops being faithful: Chrome
+// applies no letter-spacing at all inside a cursive Arabic run, so a real
+// shaped run there measures without the spaces this mock adds.
 function mockCtx(charWidth = CHAR_WIDTH): CanvasRenderingContext2D {
-  return {
+  const ctx = {
     font: '',
     fontKerning: 'normal',
     letterSpacing: '0px',
     measureText(text: string) {
+      const ls = parseFloat(ctx.letterSpacing) || 0;
+      const width = text.length * (charWidth + ls);
       return {
-        width: text.length * charWidth,
+        width,
         actualBoundingBoxAscent: 12,
         actualBoundingBoxDescent: 4,
         fontBoundingBoxAscent: 12,
         fontBoundingBoxDescent: 4,
         actualBoundingBoxLeft: 0,
-        actualBoundingBoxRight: text.length * charWidth,
+        actualBoundingBoxRight: width,
       };
     },
-  } as unknown as CanvasRenderingContext2D;
+  };
+  return ctx as unknown as CanvasRenderingContext2D;
 }
 
 /** Straight horizontal path from (0,0) along +x for `length` units. */
@@ -197,10 +210,80 @@ describe('layoutGlyphsOnPath', () => {
       ctx,
       align: 'left',
     });
-    // A=0, B=10+5=15, C=30+5+5=... wait: offset after A = 10 (width) + 5 (ls) = 15
-    // B is at offset 15, then advances to 15+10+5=30. C at 30, advances to 30+10=40.
+    // One space per glyph, not two: the advance is 10 (glyph) + 5 (space).
     expect(out.glyphs[0].x).toBe(0);
     expect(out.glyphs[1].x).toBe(15);
     expect(out.glyphs[2].x).toBe(30);
+  });
+
+  it('textWidth counts one letterSpacing per gap and none after the last glyph', () => {
+    const ctx = mockCtx();
+    const path = horizontalPath(200);
+    const out = layoutGlyphsOnPath({
+      segments: [seg('ABC', { letterSpacing: 5 })],
+      path,
+      ctx,
+      align: 'left',
+    });
+    // 3 glyphs x 10 + 2 gaps x 5. The trailing space does not hang off the end.
+    expect(out.textWidth).toBe(40);
+  });
+
+  it.each(['left', 'center', 'right', 'justify'] as const)(
+    'keeps every placement at align=%s with letterSpacing',
+    (align) => {
+      // `textWidth` drops the last placement's trailing letter-space, so the
+      // walk must drop it from that placement's advance too. Advancing by the
+      // full measured width walked one space past the width we reported, and on
+      // a path sized to `textWidth` — which is exactly what `right` and
+      // `justify` produce — the overshoot fell outside `kerningSlack` and the
+      // final glyph was dropped from the output entirely.
+      const out = layoutGlyphsOnPath({
+        segments: [seg('AB CD', { letterSpacing: 5 })],
+        path: horizontalPath(200),
+        ctx: mockCtx(),
+        align,
+      });
+      expect(out.glyphs.map(g => g.char).join('')).toBe('AB CD');
+    },
+  );
+
+  it('walks exactly to textWidth — the last glyph never overruns it', () => {
+    // `pathOffset + width` is the range gradients slice by, and the fallback
+    // range is `{ start: 0, width: textWidth }`. If the walk ends past
+    // textWidth the final fragment is overstated and the gradient runs out
+    // before the last glyph's ink.
+    const out = layoutGlyphsOnPath({
+      segments: [seg('AB CD', { letterSpacing: 5 })],
+      path: horizontalPath(200),
+      ctx: mockCtx(),
+      align: 'left',
+    });
+    const last = out.glyphs[out.glyphs.length - 1];
+    expect(last.pathOffset + last.width).toBe(out.textWidth);
+  });
+
+  it('centers the INK on the path, ignoring the trailing letterSpacing', () => {
+    const ctx = mockCtx();
+    const path = horizontalPath(200);
+    const spaced = layoutGlyphsOnPath({
+      segments: [seg('ABC', { letterSpacing: 5 })],
+      path,
+      ctx,
+      align: 'center',
+    });
+    const plain = layoutGlyphsOnPath({
+      segments: [seg('ABC', { letterSpacing: 0 })],
+      path,
+      ctx,
+      align: 'center',
+    });
+    // Ink spans from the first glyph's origin to the last glyph's origin plus
+    // its own 10px advance (its trailing space is not ink). Both runs are
+    // centered on the same 200px path, so both ink midpoints land on 100.
+    const inkMid = (o: typeof spaced) =>
+      (o.glyphs[0].x + o.glyphs[o.glyphs.length - 1].x + CHAR_WIDTH) / 2;
+    expect(inkMid(plain)).toBe(100);
+    expect(inkMid(spaced)).toBe(100);
   });
 });
