@@ -2,6 +2,11 @@
 
 Only the interesting, user-visible changes. Full detail lives in the git history.
 
+## 0.1.37 — 2026-09-16
+
+- Expose per-box line geometry and hard breaks through `LayoutBox.lineBoxes`, including blank lines from `<br>` and preserved newlines.
+- Match native HTML text-decoration color and thickness when text has a stroke, including text on a path.
+
 ## 0.1.36 — 2026-09-16
 
 - Fix Safari shadow corruption on scaled gradient text.

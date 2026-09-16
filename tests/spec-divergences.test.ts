@@ -287,29 +287,8 @@ describe('14. text-align: right ignores trailing whitespace', () => {
 
 // (already in defaults map — sanity skip)
 
-// ─── 16. empty <p></p> takes vertical space ──────────────────────────
-
-describe('16. empty <p></p>', () => {
-  it('empty paragraph between two paragraphs adds a line of space', () => {
-    const html = `<div style="font:20px sans-serif"><p>before</p><p></p><p>after</p></div>`;
-    const browser = browserWordPositions(html);
-    const yBefore = browser.find(w => w.text === 'before')!.y;
-    const yAfter = browser.find(w => w.text === 'after')!.y;
-    // Browser: with default p margins, gap is roughly 60-100px (margin top+bottom + empty line).
-    // The empty p contributes its own height plus margins.
-    const gap = yAfter - yBefore;
-
-    const { canvas } = renderToCanvas(html, '', 400, 400, 1);
-    // Find first ink row and last ink row in canvas to measure rendered gap.
-    let firstY = -1, lastY = -1;
-    for (let y = 0; y < canvas.height; y++) {
-      if (rightmostInkX(canvas, y, y + 1) >= 0) { if (firstY < 0) firstY = y; lastY = y; }
-    }
-    // The rendered total height should track the browser layout.
-    // If empty <p> is dropped, the gap will be smaller.
-    expect(lastY - firstY).toBeGreaterThan(gap - 30);
-  });
-});
+// ─── 16. empty <p></p> creates no line box; <p><br></p> does.
+//         Native DOM geometry is covered in tests/line-metadata.test.ts. ───
 
 // ─── 17. (removed) — trailing \n is absorbed by browsers; covered in
 //        tests/whitespace-edge-cases.test.ts ─────────────────────────

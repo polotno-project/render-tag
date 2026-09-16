@@ -1,4 +1,4 @@
-import type { StyledNode, LayoutNode, LayoutBox, LayoutText, ResolvedStyle, LayoutLine, DecorationEntry } from './types.js';
+import type { StyledNode, LayoutNode, LayoutBox, LayoutText, ResolvedStyle, LayoutLine, LayoutLineBox, DecorationEntry } from './types.js';
 import { isTransparent } from './css-resolver.js';
 
 // Module-level flag controlling DOM measurement usage.
@@ -527,6 +527,7 @@ interface TextRun {
 interface InlineBlockLayout {
   nodes: LayoutNode[];
   lines: LayoutLine[];
+  lineBoxes: LayoutLineBox[];
   contentWidth: number;
   contentHeight: number;
   /** Last inner line's baseline, measured from the margin-box top. */
@@ -568,8 +569,7 @@ interface PositionedLine {
   words: Word[];
   totalWidth: number;
   lineHeight: number;
-  /** True if this line ends at a forced break (\n or <br>). Such a line is
-   *  treated as a "last line" for text-align — never justified. */
+  /** True at a forced break (preserved \n or <br>); uses text-align-last. */
   endedByHardBreak?: boolean;
 }
 
@@ -1842,6 +1842,7 @@ function prepareInlineBlocks(
     word.inlineBlockLayout = {
       nodes: inner.nodes,
       lines: inner.lines,
+      lineBoxes: inner.lineBoxes,
       contentWidth,
       contentHeight,
       baselineOffset,
@@ -1862,9 +1863,10 @@ function layoutInlineContent(
   contentWidth: number,
   useBulletProbe = false,
   clamp?: LineClampState,
-): { nodes: LayoutNode[]; height: number; lines: LayoutLine[] } {
+): { nodes: LayoutNode[]; height: number; lines: LayoutLine[]; lineBoxes: LayoutLineBox[] } {
   const results: LayoutNode[] = [];
   const emittedLines: LayoutLine[] = [];
+  const lineBoxes: LayoutLineBox[] = [];
   // Text nodes covered by an inline element declaring background-clip:text
   // (clipRuns) or --rt-text-stroke-image (strokeImageRuns), mapped to that
   // declaring element's style. A post-pass turns each per-line run of
@@ -1874,10 +1876,10 @@ function layoutInlineContent(
   if (clamp && (clamp.exhausted || clamp.remaining <= 0)) {
     // An ancestor's clamp already used its line budget — drop this content.
     clamp.exhausted = true;
-    return { nodes: results, height: 0, lines: emittedLines };
+    return { nodes: results, height: 0, lines: emittedLines, lineBoxes };
   }
   const runs = collectTextRuns(node);
-  if (runs.length === 0) return { nodes: results, height: 0, lines: emittedLines };
+  if (runs.length === 0) return { nodes: results, height: 0, lines: emittedLines, lineBoxes };
 
   const words = tokenizeRuns(ctx, runs);
   prepareInlineBlocks(ctx, words, contentWidth, useBulletProbe);
@@ -1901,9 +1903,9 @@ function layoutInlineContent(
     // element's first line (effective budget of 1) hits it.
     const lineMaxForEllipsis = contentWidth - (clampN === 1 ? textIndent : 0);
     applyEllipsisToLine(ctx, lastLine, lineMaxForEllipsis);
-    // Tag the truncated line so per-line alignment (text-align vs
-    // text-align-last) still picks the right branch.
-    lastLine.endedByHardBreak = true;
+    // The ellipsis replaces the original ending. Alignment already treats
+    // this as the last visible line; it is not a source hard break.
+    lastLine.endedByHardBreak = false;
     if (clamp) {
       clamp.remaining = 0;
       clamp.exhausted = true;
@@ -1941,10 +1943,6 @@ function layoutInlineContent(
 
   for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
     const line = lines[lineIdx];
-    if (line.words.length === 0) {
-      curY += line.lineHeight;
-      continue;
-    }
 
     const isLastLine = lineIdx === lines.length - 1;
     const isFirstLine = lineIdx === 0;
@@ -1995,6 +1993,15 @@ function layoutInlineContent(
     }
     // Snapshot the line's left edge before LTR emission advances curX.
     const lineLeftX = curX;
+
+    if (line.words.length === 0) {
+      lineBoxes.push({
+        x: lineLeftX, y: curY, width: 0, height: line.lineHeight,
+        endedByHardBreak: !!line.endedByHardBreak,
+      });
+      curY += line.lineHeight;
+      continue;
+    }
 
     // Inline background boxes and text are emitted after baseline computation
     // (below) so that emitInlineBox can use line-level metrics for alignment.
@@ -2116,14 +2123,20 @@ function layoutInlineContent(
           const boxX = scanX + s.marginLeft;
           if (word.inlineBlockLayout) {
             const ib = word.inlineBlockLayout;
+            const boxY = lineBaselineY - ib.baselineOffset + s.marginTop;
             results.push({
               type: 'box', style: s, x: boxX,
-              y: lineBaselineY - ib.baselineOffset + s.marginTop,
+              y: boxY,
               width: s.borderLeftWidth + s.paddingLeft + ib.contentWidth +
                 s.paddingRight + s.borderRightWidth,
               height: s.borderTopWidth + s.paddingTop + ib.contentHeight +
                 s.paddingBottom + s.borderBottomWidth,
               tagName: 'span', children: [],
+              lineBoxes: ib.lineBoxes.map(line => ({
+                ...line,
+                x: line.x + boxX + s.borderLeftWidth + s.paddingLeft,
+                y: line.y + boxY + s.borderTopWidth + s.paddingTop,
+              })),
             });
           } else {
             const textWidth = word.width - horizontalMargins(s) - horizontalFrame(s);
@@ -2297,6 +2310,10 @@ function layoutInlineContent(
                     layoutNode.strokeImage.y += contentY;
                   }
                 } else {
+                  for (const line of layoutNode.lineBoxes ?? []) {
+                    line.x += textX;
+                    line.y += contentY;
+                  }
                   for (const child of layoutNode.children) move(child);
                 }
               };
@@ -2390,6 +2407,7 @@ function layoutInlineContent(
       },
     };
     emittedLines.push(emittedLine);
+    lineBoxes.push({ ...emittedLine.bounds, endedByHardBreak: !!line.endedByHardBreak });
 
     curY += lineBoxHeight;
   }
@@ -2405,7 +2423,7 @@ function layoutInlineContent(
     node.strokeImage = { image: s.webkitTextStrokeImage, ...box };
   });
 
-  return { nodes: results, height: curY - y, lines: emittedLines };
+  return { nodes: results, height: curY - y, lines: emittedLines, lineBoxes };
 }
 
 /**
@@ -2596,9 +2614,10 @@ function layoutBlock(
   if (hasOnlyInlineChildren(node)) {
     // Inline formatting context
     const bulletProbe = node.tagName === 'li' && BULLET_MARKERS.has(style.listStyleType);
-    const { nodes, height, lines } = layoutInlineContent(ctx, node, contentX, contentStartY, contentWidth, bulletProbe, clamp);
+    const { nodes, height, lines, lineBoxes } = layoutInlineContent(ctx, node, contentX, contentStartY, contentWidth, bulletProbe, clamp);
     _lines.push(...lines);
     box.children = nodes;
+    box.lineBoxes = lineBoxes;
     box.height = borderTop + padTop + height + padBottom + borderBottom;
   } else {
     // Block formatting context — stack children vertically
@@ -2644,9 +2663,10 @@ function layoutBlock(
           textContent: null,
         };
         const bulletProbe2 = node.tagName === 'li' && BULLET_MARKERS.has(style.listStyleType);
-        const { nodes, height, lines } = layoutInlineContent(ctx, inlineGroup, contentX, curY, contentWidth, bulletProbe2, clamp);
+        const { nodes, height, lines, lineBoxes } = layoutInlineContent(ctx, inlineGroup, contentX, curY, contentWidth, bulletProbe2, clamp);
         _lines.push(...lines);
         box.children.push(...nodes);
+        (box.lineBoxes ??= []).push(...lineBoxes);
         curY += height;
         prevMarginBottom = 0;
         hasContent = true;

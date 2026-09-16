@@ -52,19 +52,53 @@ function drawLayout(config: DrawConfig): { canvas };
 
 Use `layout()` + `drawLayout()` when you need to measure content, render the same layout onto multiple targets, or render onto an `OffscreenCanvas`.
 
-### `LayoutLine`
+### Line geometry and breaks
+
+Read `layoutRoot` for rendering. Boxes with inline content expose `lineBoxes`:
+
+```ts
+interface LayoutLineBox {
+  x: number;
+  y: number;       // top, not baseline
+  width: number;
+  height: number;
+  endedByHardBreak: boolean;
+}
+```
+
+These rectangles use canvas coordinates and the line heights used during layout.
+Each box owns its lines; table cells and inline-blocks keep separate arrays.
+An absent or empty array means the box has no lines of its own.
+The metadata reflects the current layout, including its existing limitations:
+RTL inline-block content is flattened, and inline-blocks containing only `<br>`
+elements are dropped. Neither case has separate inner line boxes.
+
+`endedByHardBreak` is true for `<br>` and preserved newlines. It is false for
+soft wraps, the end of content, and lines cut by an ellipsis. Soft-hyphen
+substitution does not affect this flag. Justification is already reflected in
+the positioned text runs; renderers should use those positions.
+
+Blank lines from `<br>` or preserved newlines have zero width and retain their
+height. An empty `<p></p>` creates no line box, matching native HTML. Paragraph
+margins are spacing between boxes, not blank lines. Backgrounds that extend a
+blank line to a neighbour's width are a consumer policy.
+
+### `LayoutLine` summary
 
 Each entry in `result.lines`:
 
 ```ts
 interface LayoutLine {
-  y: number;        // baseline y
+  y: number;        // rounded baseline y
   text: string;
-  bounds: { x, y, width, height };  // DOMRect-shaped line box
+  bounds: { x, y, width, height };  // union of line boxes
 }
 ```
 
-`bounds` is a drop-in replacement for `Range.getClientRects()` per line — useful for per-line backgrounds, hit-testing, or highlighting.
+`result.lines` is a lossy summary for wrap inspection. It omits blank lines and
+merges text and bounds from separate flows on the same visual row, including
+table cells and list markers. Use `layoutRoot` for backgrounds, hit-testing,
+and rendering.
 
 ### Multi-line ellipsis (`-webkit-line-clamp`)
 

@@ -134,8 +134,8 @@ export interface LayoutLine {
    */
   text: string;
   /**
-   * Line-box geometry in canvas coordinates. Shape matches `DOMRect` — drop-in
-   * replacement for `Range.getClientRects()` when drawing per-line backgrounds.
+   * Union of line-box geometry in canvas coordinates. Separate flows can be
+   * merged here; use `LayoutBox.lineBoxes` for per-line backgrounds.
    * `bounds.y` is the top of the line box (not the baseline); `bounds.height`
    * is the effective line height including any super/sub expansion.
    */
@@ -369,6 +369,16 @@ export interface LayoutText {
   strokeImage?: { image: string; x: number; y: number; width: number; height: number };
 }
 
+/** A line box in canvas coordinates, before the lossy `result.lines` merge. */
+export interface LayoutLineBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** Ends at <br> or a preserved newline; false for a wrap, end of content or clamp. */
+  endedByHardBreak: boolean;
+}
+
 /** A positioned box (element) */
 export interface LayoutBox {
   type: 'box';
@@ -379,6 +389,11 @@ export interface LayoutBox {
   height: number;
   tagName: string;
   children: LayoutNode[];
+  /**
+   * This box's own inline lines, including blank lines (width 0).
+   * Other boxes keep their lines separately. Absent or empty if there are no lines.
+   */
+  lineBoxes?: LayoutLineBox[];
   listMarker?: string;
 }
 

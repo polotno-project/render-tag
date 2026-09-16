@@ -13,7 +13,7 @@ export type { RenderConfig, RenderResult, LayoutConfig, LayoutResult, DrawConfig
 // external renderers consume a versioned contract instead of reverse-
 // engineering it.
 export type {
-  LayoutBox, LayoutText, LayoutNode, ResolvedStyle, DecorationEntry, BorderRadius,
+  LayoutBox, LayoutLineBox, LayoutText, LayoutNode, ResolvedStyle, DecorationEntry, BorderRadius,
   CanvasFactory, ShadowOptions,
 } from './types.js';
 export { setDOMParser, type DOMParserLike } from './dom.js';
