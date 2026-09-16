@@ -120,11 +120,10 @@ describe('decorations inside background-clip: text gradient', () => {
 });
 
 describe('decorations under -webkit-text-stroke', () => {
-  it('the decoration band is stroked like the glyphs', () => {
-    // Chrome strokes text decorations with -webkit-text-stroke (measured:
-    // red text + 3px blue stroke + underline adds ONLY blue pixels — the
-    // stroke swallows the thin band). The band must gain stroke-colored
-    // edges, not stay purely decoration-colored.
+  it('the automatic decoration band uses the text stroke colour', () => {
+    // Chrome paints the band in the text stroke colour, without outlining
+    // it. The native thickness/colour contract is covered separately in
+    // decoration-text-stroke.test.ts.
     const base = `<div style="font-size: 40px; line-height: 2; color: rgb(231, 76, 60); -webkit-text-stroke: 3px rgb(52, 152, 219);">ABCD</div>`;
     const withDeco = `<div style="font-size: 40px; line-height: 2; color: rgb(231, 76, 60); -webkit-text-stroke: 3px rgb(52, 152, 219); text-decoration: underline;">ABCD</div>`;
     const bluesBase = countColoredPixels(

@@ -5,9 +5,8 @@ import {
   getFontMetrics,
   hasTextClip,
   isShiftedVAlign,
-  isTransparent,
 } from './layout.js';
-import { paintOrderHasStrokeFirst } from './css-resolver.js';
+import { isTransparent, paintOrderHasStrokeFirst } from './css-resolver.js';
 import { paintTextShadows, shadowBounds, textPaintBounds, unionBounds, withCanvasShadow, withoutCanvasShadow, type PaintBounds } from './shadow.js';
 
 /**
@@ -429,28 +428,10 @@ function renderText(
       }
       const decoStyle = deco.style || 'solid';
 
-      // Chrome strokes decorations with -webkit-text-stroke, same as glyphs
-      // (measured: red text + 3px blue stroke + underline adds only blue
-      // pixels — the stroke swallows the thin band). Approximate the outline
-      // with a thicker stroke-colored underlay; the decoration paint on top
-      // keeps whatever the stroke leaves visible (decoWidth - strokeWidth).
-      const strokeW = style.webkitTextStrokeWidth > 0 ? style.webkitTextStrokeWidth : 0;
-      const strokeColor: string | CanvasGradient =
-        effectiveStrokeGradient || style.webkitTextStrokeColor || style.color;
+      // HTML decorations keep their own thickness regardless of text stroke
+      // or paint-order. Their color was resolved on the decorating element.
       const paintBand = (y: number) => {
-        // A gradient stroke (CanvasGradient) is never transparent; a solid
-        // stroke color still gets the transparent check below.
-        const strokeIsTransparent =
-          typeof strokeColor === 'string' && isTransparent(strokeColor);
-        if (strokeW > 0 && !strokeIsTransparent) {
-          drawDecorationLine(ctx, decoX, y, textWidth, decoWidth + strokeW, decoStyle, strokeColor);
-          const inner = decoWidth - strokeW;
-          if (inner > 0) {
-            drawDecorationLine(ctx, decoX, y, textWidth, inner, decoStyle, color);
-          }
-        } else {
-          drawDecorationLine(ctx, decoX, y, textWidth, decoWidth, decoStyle, color);
-        }
+        drawDecorationLine(ctx, decoX, y, textWidth, decoWidth, decoStyle, color);
       };
 
       if (deco.line === 'underline') {

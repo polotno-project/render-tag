@@ -5,6 +5,17 @@ import type { BorderRadius, DecorationEntry, ResolvedStyle, StyledNode } from '.
 const ELEMENT_NODE = 1;
 const TEXT_NODE = 3;
 
+export function isTransparent(color: string): boolean {
+  if (!color) return true;
+  const value = color.trim().toLowerCase();
+  if (!value || value === 'transparent' || /^#(?:[\da-f]{3}0|[\da-f]{6}00)$/.test(value)) return true;
+  // Legacy comma alpha and modern slash alpha. Only resolve literal alpha;
+  // computed expressions such as color-mix() need a CSS colour evaluator.
+  const alpha = value.match(/^(?:rgba?|hsla?)\([^,()]+,[^,()]+,[^,()]+,\s*([^,()\s]+)\s*\)$/)?.[1]
+    ?? value.match(/^[a-z-]+\([^()]*\/\s*([^()\s]+)\s*\)$/)?.[1];
+  return alpha !== undefined && Number(alpha.replace(/%$/, '')) <= 0;
+}
+
 // ─── CSS Parser ──────────────────────────────────────────────────────
 
 interface CSSDeclaration {
@@ -1435,14 +1446,15 @@ export function resolveStylesFromCSS(
     inheritFrom(style, parentStyle, setProps);
 
     // Auto-set currentColor defaults (browser default behavior).
-    // Decorations: with no explicit text-decoration-color, Chrome paints the
-    // line with -webkit-text-fill-color when that is set (measured: red color +
-    // blue fill-color + <u> → blue underline; transparent fill-color → the
-    // decoration disappears with the glyphs), falling back to `color`.
-    if (!setProps.has('text-decoration-color')) {
-      style.textDecorationColor = style.webkitTextFillColor || style.color;
-    } else if (style.textDecorationColor === 'currentColor') {
-      style.textDecorationColor = style.color;
+    // An automatic HTML decoration uses the text stroke color when a visible
+    // stroke is enabled, otherwise the text fill color, falling back to `color`.
+    // This selects the band's paint; it does not outline or widen the band.
+    // Resolve it on the declarer so descendant runs and path text agree.
+    if (!setProps.has('text-decoration-color') || style.textDecorationColor.toLowerCase() === 'currentcolor') {
+      const strokeColor = style.webkitTextStrokeColor || style.color;
+      style.textDecorationColor = style.webkitTextStrokeWidth > 0 && !isTransparent(strokeColor)
+        ? strokeColor
+        : style.webkitTextFillColor || style.color;
     }
     for (const side of ['Top', 'Right', 'Bottom', 'Left'] as const) {
       const colorKey = `border${side}Color` as keyof ResolvedStyle;

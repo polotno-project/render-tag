@@ -194,6 +194,12 @@ across formats. No separate shadow-layer or preparation API is required.
 
 Paragraphs, headings, divs, spans · bold, italic, underline, strikethrough, overline · colors, background colors, text-shadow, text-stroke (solid **and gradient**), gradient text · font families, sizes, weights (100–900) · line-height, letter-spacing, text-align (left/center/right/justify) · ordered/unordered lists with nesting · flexbox (row/column, with `flex-grow`/`flex-shrink`/`flex-basis` sized against min- and max-content like the browser), basic tables · `-webkit-line-clamp` · `pre-wrap`, `overflow-wrap: break-word`, soft hyphens · RTL, CJK, emoji.
 
+Text decorations follow HTML painting rules. A visible text stroke supplies the
+automatic decoration color without widening the band. An explicit decoration
+color other than `currentColor` overrides it. `paint-order` controls glyph
+fill/stroke order; it does not add a filled outline to the decoration as native
+SVG text can.
+
 ## render-tag-specific inputs
 
 render-tag renders plain HTML/CSS — no custom syntax required. The exception:
@@ -230,6 +236,9 @@ gradient) and threads through block children (`<p>`, `<li>`), so wrapped lines
 and list items share one continuous stroke gradient. A custom property is used
 because a browser strips unknown *real* properties from inline `cssText` before
 render-tag can read them — custom properties survive.
+
+The gradient paints glyph outlines. Automatic decorations use the solid text
+stroke color, following the HTML rules above.
 
 ## Recommended CSS reset
 

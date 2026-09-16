@@ -1,4 +1,5 @@
 import type { StyledNode, LayoutNode, LayoutBox, LayoutText, ResolvedStyle, LayoutLine, DecorationEntry } from './types.js';
+import { isTransparent } from './css-resolver.js';
 
 // Module-level flag controlling DOM measurement usage.
 // Set by buildLayoutTree() based on the useDomMeasurements option.
@@ -320,10 +321,6 @@ function isInline(node: StyledNode): boolean {
 
 function hasOnlyInlineChildren(node: StyledNode): boolean {
   return node.children.length > 0 && node.children.every(isInline);
-}
-
-export function isTransparent(color: string): boolean {
-  return !color || color === 'transparent' || color === 'rgba(0, 0, 0, 0)';
 }
 
 /**

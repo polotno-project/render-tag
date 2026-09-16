@@ -32,8 +32,8 @@
 
 import type { ShadowOptions, ResolvedStyle, DecorationEntry } from '../types.js';
 import { parseHTML } from '../parse.js';
-import { resolveStylesFromCSS, paintOrderHasStrokeFirst } from '../css-resolver.js';
-import { applyFont, isTransparent, hasTextClip, getFontMetrics, sameDecorationBand } from '../layout.js';
+import { resolveStylesFromCSS, paintOrderHasStrokeFirst, isTransparent } from '../css-resolver.js';
+import { applyFont, hasTextClip, getFontMetrics, sameDecorationBand } from '../layout.js';
 import {
   parseTextShadows,
   parseLinearGradient,
