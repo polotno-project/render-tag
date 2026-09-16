@@ -13,6 +13,16 @@ HTML string + CSS → parseHTML (DOMParser) → resolveStylesFromCSS (pure CSS p
 
 - **`accuracy` option** (default: `'performance'`) — `'balanced'` enables hidden DOM probes for line heights. `'performance'` uses pure canvas API only.
 - **`render()` is synchronous** — no async, no font loading. Caller must load fonts first.
+- **Vector consumers exist.** PDF exporters pass Canvas-like proxies that emit
+  vector drawing commands. Keep the public boundary Canvas-shaped: shadow images
+  use `drawImage`; foreground retains drawing commands and per-paint opacity.
+  Adapters own image embedding and preserve paint order if embedding is async.
+  Do not assume every `ctx` implements image/transform APIs. `renderShadows: false`
+  must omit both CSS and context shadows without buffers or those APIs; the
+  exporter is then responsible for the omitted effects. `createCanvas` supplies
+  real scratch canvases. A caller's canvas shadow uses the completed rendering
+  as its caster. See README's PDF adapter contract and
+  `tests/node/vector-shadows.test.ts` before changing this boundary.
 
 ### Text paint propagation (the recurring gradient/stroke/decoration bug class)
 

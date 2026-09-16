@@ -1,7 +1,20 @@
 export type AnyCanvas = HTMLCanvasElement | OffscreenCanvas;
 export type AnyContext = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+/** Scratch surfaces for shadow composition. Required outside browsers; return
+ * a fresh, compatible canvas (for example, from the caller's canvas library). */
+export type CanvasFactory = (width: number, height: number) => AnyCanvas;
 
-export interface RenderConfig {
+export interface ShadowOptions {
+  /** Render CSS and caller-supplied canvas shadows (default true).
+   * Only shadows are rasterized; foreground stays drawing commands in both modes.
+   * Set false to omit shadows without allocating buffers or requiring image and
+   * transform APIs. The caller is responsible for any omitted effects. */
+  renderShadows?: boolean;
+  /** Scratch surfaces for shadows. Required in non-browser environments. */
+  createCanvas?: CanvasFactory;
+}
+
+export interface RenderConfig extends ShadowOptions {
   /** HTML string to render (include <style> tags for CSS) */
   html: string;
   /** Width of the rendering area in CSS pixels */
@@ -79,7 +92,7 @@ export interface LayoutResult {
   lines: LayoutLine[];
 }
 
-export interface DrawConfig {
+export interface DrawConfig extends ShadowOptions {
   /** Layout result from layout() */
   layout: LayoutResult;
   /** Width used during layout (must match) */

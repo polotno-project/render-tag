@@ -2,6 +2,12 @@
 
 Only the interesting, user-visible changes. Full detail lives in the git history.
 
+## 0.1.36 — 2026-09-16
+
+- Fix Safari shadow corruption on scaled gradient text.
+- Shadows stay behind text fill, outlines and decorations without repainting the foreground, including text on a path.
+- Shadow buffering preserves foreground drawing commands for vector adapters. Add `createCanvas` for Node shadow rendering and `renderShadows: false` to omit effects.
+
 ## 0.1.35 — 2026-08-26
 
 - Fix: text on a path applied `letter-spacing` twice — curved text drew at double the requested tracking, and centered text sat half a space off center.

@@ -28,11 +28,11 @@
     "wrap": true
   },
   "Text decorations & shadows": {
-    "score": 2.46,
+    "score": 2.21,
     "wrap": true
   },
   "Stroked transparent text with shadow": {
-    "score": 29.84,
+    "score": 15.63,
     "wrap": true
   },
   "Code blocks & quotes": {
@@ -396,11 +396,11 @@
     "wrap": true
   },
   "Text decorations & shadows@Open Sans": {
-    "score": 2.46,
+    "score": 2.21,
     "wrap": true
   },
   "Stroked transparent text with shadow@Open Sans": {
-    "score": 29.84,
+    "score": 15.63,
     "wrap": true
   },
   "Code blocks & quotes@Open Sans": {
@@ -752,11 +752,11 @@
     "wrap": true
   },
   "Text decorations & shadows@Roboto": {
-    "score": 2.12,
+    "score": 1.81,
     "wrap": true
   },
   "Stroked transparent text with shadow@Roboto": {
-    "score": 26.67,
+    "score": 11.95,
     "wrap": true
   },
   "Code blocks & quotes@Roboto": {
@@ -1108,11 +1108,11 @@
     "wrap": true
   },
   "Text decorations & shadows@Playfair Display": {
-    "score": 6.76,
+    "score": 6.1,
     "wrap": true
   },
   "Stroked transparent text with shadow@Playfair Display": {
-    "score": 29,
+    "score": 12.49,
     "wrap": true
   },
   "Code blocks & quotes@Playfair Display": {
@@ -1464,11 +1464,11 @@
     "wrap": true
   },
   "Text decorations & shadows@Merriweather": {
-    "score": 6.81,
+    "score": 6.5,
     "wrap": true
   },
   "Stroked transparent text with shadow@Merriweather": {
-    "score": 27.96,
+    "score": 11.49,
     "wrap": true
   },
   "Code blocks & quotes@Merriweather": {
@@ -1820,11 +1820,11 @@
     "wrap": true
   },
   "Text decorations & shadows@Lobster": {
-    "score": 2.18,
+    "score": 1.9,
     "wrap": true
   },
   "Stroked transparent text with shadow@Lobster": {
-    "score": 17.31,
+    "score": 9.91,
     "wrap": true
   },
   "Code blocks & quotes@Lobster": {

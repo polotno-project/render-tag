@@ -21,7 +21,7 @@
  *   font-family / size / weight / style / kerning
  *   color, -webkit-text-fill-color, -webkit-text-stroke (width + color), paint-order
  *   background-color (span backgrounds drawn as curve-following polygons)
- *   text-shadow (rotates with glyphs; multi-shadow supported)
+ *   text-shadow (in path coordinates; multi-shadow supported)
  *   text-decoration: underline / line-through / overline (solid/dotted/dashed/double/wavy)
  *   text-decoration-color, text-decoration-style
  *   background-clip:text + background-image:linear-gradient (gradient flows along the path)
@@ -30,7 +30,7 @@
  *   rendered as a unit so cursive joining and reordering work correctly.
  */
 
-import type { ResolvedStyle, DecorationEntry } from '../types.js';
+import type { ShadowOptions, ResolvedStyle, DecorationEntry } from '../types.js';
 import { parseHTML } from '../parse.js';
 import { resolveStylesFromCSS, paintOrderHasStrokeFirst } from '../css-resolver.js';
 import { applyFont, isTransparent, hasTextClip, getFontMetrics, sameDecorationBand } from '../layout.js';
@@ -43,6 +43,7 @@ import {
   textFillColor,
   applyTextStroke,
 } from '../render.js';
+import { paintTextShadows, shadowBounds, textPaintBounds, transformBounds, unionBounds, withCanvasShadow, withoutCanvasShadow } from '../shadow.js';
 import { pathFromString, type PathLike } from './svg-path.js';
 import {
   flattenSegments,
@@ -109,14 +110,14 @@ export interface TextOnPathLayout {
   textBaseline: TextBaseline;
 }
 
-export interface DrawTextOnPathLayoutConfig {
+export interface DrawTextOnPathLayoutConfig extends ShadowOptions {
   /** Result from layoutTextOnPath(). */
   layout: TextOnPathLayout;
   /** Destination 2D context. Saved+restored around the whole batch. */
   ctx: CanvasRenderingContext2D;
 }
 
-export interface DrawTextOnPathConfig {
+export interface DrawTextOnPathConfig extends ShadowOptions {
   /** Rich-text HTML (same dialect as render-tag's main API). */
   html: string;
   /** SVG path 'd' attribute string, or a PathLike implementation. */
@@ -165,7 +166,7 @@ export function layoutTextOnPath(config: LayoutTextOnPathConfig): TextOnPathLayo
  *
  * Rendering passes (matching CSS painting order):
  *   1. Span backgrounds (background-color, curve-following polygons)
- *   2. Text shadows (per glyph, multi-shadow supported, rotates with glyph)
+ *   2. Text shadows (combined glyphs and decorations, in path coordinates)
  *   3. Glyph fill + stroke (paint-order aware; gradient text via slicing)
  *   4. Text decoration (underline / line-through / overline)
  *
@@ -178,9 +179,58 @@ export function drawTextOnPathLayout(config: DrawTextOnPathLayoutConfig): void {
 
   ctx.save();
   try {
-    drawBackgrounds(ctx, layout.glyphs, tb);
-    drawShadowsAndGlyphs(ctx, layout.glyphs, layout.textWidth, tb);
-    drawDecorations(ctx, layout.glyphs, layout.textWidth, tb);
+    if (config.renderShadows === false) {
+      withoutCanvasShadow(ctx, target => {
+        drawBackgrounds(target, layout.glyphs, tb);
+        drawGlyphs(target, layout.glyphs, layout.textWidth, tb);
+        drawDecorations(target, layout.glyphs, layout.textWidth, tb);
+      });
+      return;
+    }
+    const groups = new Map<string, { glyphs: GlyphPlacement[][]; shadows: ReturnType<typeof parseTextShadows> }>();
+    let previousKey = '';
+    for (const glyph of layout.glyphs) {
+      const shadows = parseTextShadows(glyph.style.textShadow, glyph.style.color);
+      const key = shadows.length ? JSON.stringify(shadows) : '';
+      if (key) {
+        let group = groups.get(key);
+        if (!group) { group = { glyphs: [], shadows }; groups.set(key, group); }
+        // Keep gaps: decorations must not bridge unrelated spans.
+        if (key !== previousKey) group.glyphs.push([]);
+        group.glyphs[group.glyphs.length - 1].push(glyph);
+      }
+      previousKey = key;
+    }
+    const boundsFor = (glyphs: GlyphPlacement[]) => glyphs.map(g => {
+      const baseY = baselineLocalY(tb, g.ascent, g.descent);
+      ctx.save();
+      applyFont(ctx, g.style);
+      ctx.textBaseline = 'alphabetic';
+      ctx.letterSpacing = `${g.style.letterSpacing || 0}px`;
+      const ink = textPaintBounds(ctx, g.char, g.style, 0, baseY, g.width);
+      ctx.restore();
+      const box = unionBounds(ink, { x: 0, y: baseY - g.ascent, width: g.width, height: g.ascent + g.descent });
+      const c = Math.cos(g.rotation), s = Math.sin(g.rotation);
+      return transformBounds(box, { a: c, b: s, c: -s, d: c, e: g.x, f: g.y });
+    }).reduce(unionBounds);
+    const foreground = (target: CanvasRenderingContext2D, glyphs: GlyphPlacement[]) => {
+      drawGlyphs(target, glyphs, layout.textWidth, tb);
+      drawDecorations(target, glyphs, layout.textWidth, tb);
+    };
+    withCanvasShadow(ctx, () => {
+      let bounds = boundsFor(layout.glyphs);
+      for (const group of groups.values()) {
+        bounds = unionBounds(bounds, shadowBounds(boundsFor(group.glyphs.flat()), group.shadows));
+      }
+      return bounds;
+    }, target => {
+      drawBackgrounds(target, layout.glyphs, tb);
+      for (const group of groups.values()) {
+        paintTextShadows(target, boundsFor(group.glyphs.flat()), group.shadows,
+          mask => group.glyphs.forEach(glyphs => foreground(mask, glyphs)), config.createCanvas);
+      }
+      foreground(target, layout.glyphs);
+    }, config.createCanvas);
   } finally {
     ctx.restore();
   }
@@ -197,7 +247,7 @@ export function drawTextOnPath(config: DrawTextOnPathConfig): DrawTextOnPathResu
     textBaseline: config.textBaseline,
     ctx: config.ctx,
   });
-  drawTextOnPathLayout({ layout, ctx: config.ctx });
+  drawTextOnPathLayout({ layout, ctx: config.ctx, createCanvas: config.createCanvas, renderShadows: config.renderShadows });
   return layout;
 }
 
@@ -319,7 +369,7 @@ function fillGlyphPolygon(
   ctx.restore();
 }
 
-// ─── Pass 2: Shadows + glyph fill/stroke ─────────────────────────────
+// ─── Glyph fill/stroke ─────────────────────────────
 
 /** True when the glyph's own fill paints nothing (both transparency channels). */
 function isFillTransparent(style: ResolvedStyle): boolean {
@@ -396,12 +446,8 @@ function effectiveFillPaint(
   return isFillTransparent(g.style) ? null : textFillColor(g.style);
 }
 
-/**
- * Iterate glyphs once. For each: draw the configured text-shadow stack (if
- * any), then fill (possibly through a sliced gradient) and stroke per
- * paint-order.
- */
-function drawShadowsAndGlyphs(
+/** Paint glyph fill and stroke without shadows. */
+function drawGlyphs(
   ctx: CanvasRenderingContext2D,
   glyphs: GlyphPlacement[],
   textWidth: number,
@@ -426,33 +472,6 @@ function drawShadowsAndGlyphs(
 
     const fill = effectiveFillPaint(ctx, g, textWidth, baseY);
     const strokeGradient = strokePaintFor(ctx, g, textWidth, baseY);
-    const isStroked = g.style.webkitTextStrokeWidth > 0;
-
-    // Shadow pass — drawn underneath the glyph paint. Cast the shadow from
-    // what is actually painted: the effective fill (solid or gradient) when
-    // visible, and/or the stroke — matching the main renderer. Multi-shadow
-    // stacks paint last-listed-first so the first declared shadow is on top.
-    const shadows = parseTextShadows(g.style.textShadow);
-    if (shadows.length > 0) {
-      for (let i = shadows.length - 1; i >= 0; i--) {
-        const sh = shadows[i];
-        ctx.save();
-        ctx.shadowOffsetX = sh.offsetX;
-        ctx.shadowOffsetY = sh.offsetY;
-        ctx.shadowBlur = sh.blur;
-        ctx.shadowColor = sh.color;
-        if (fill) {
-          ctx.fillStyle = fill;
-          ctx.fillText(g.char, 0, baseY);
-        }
-        if (isStroked) {
-          applyTextStroke(ctx, g.style, strokeGradient);
-          ctx.strokeText(g.char, 0, baseY);
-        }
-        ctx.restore();
-      }
-    }
-
     drawGlyphFillAndStroke(ctx, g, baseY, fill, strokeGradient);
     ctx.restore();
   }

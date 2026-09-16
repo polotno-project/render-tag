@@ -14,6 +14,7 @@ export type { RenderConfig, RenderResult, LayoutConfig, LayoutResult, DrawConfig
 // engineering it.
 export type {
   LayoutBox, LayoutText, LayoutNode, ResolvedStyle, DecorationEntry, BorderRadius,
+  CanvasFactory, ShadowOptions,
 } from './types.js';
 export { setDOMParser, type DOMParserLike } from './dom.js';
 export { lineBaselineOffset, getFontMetrics, tabStopMetrics } from './layout.js';
@@ -104,7 +105,7 @@ export function drawLayout(config: DrawConfig): { canvas: AnyCanvas } {
     renderCtx.scale(pixelRatio, pixelRatio);
   }
 
-  renderNode(renderCtx as CanvasRenderingContext2D, layoutResult.layoutRoot);
+  renderNode(renderCtx as CanvasRenderingContext2D, layoutResult.layoutRoot, config);
 
   return { canvas };
 }
@@ -138,6 +139,8 @@ export function render(config: RenderConfig): RenderResult {
     ctx: config.ctx,
     canvas: config.canvas,
     pixelRatio: config.pixelRatio,
+    createCanvas: config.createCanvas,
+    renderShadows: config.renderShadows,
   });
 
   return {
@@ -147,4 +150,3 @@ export function render(config: RenderConfig): RenderResult {
     lines: layoutResult.lines,
   };
 }
-

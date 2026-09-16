@@ -1,4 +1,4 @@
-import type { DecorationEntry, LayoutNode, LayoutBox, LayoutText, ResolvedStyle } from './types.js';
+import type { ShadowOptions, DecorationEntry, LayoutNode, LayoutBox, LayoutText, ResolvedStyle } from './types.js';
 import {
   BLINK_TEXT_RUN_SHAPING,
   buildCanvasFont,
@@ -8,41 +8,28 @@ import {
   isTransparent,
 } from './layout.js';
 import { paintOrderHasStrokeFirst } from './css-resolver.js';
+import { paintTextShadows, shadowBounds, textPaintBounds, unionBounds, withCanvasShadow, withoutCanvasShadow, type PaintBounds } from './shadow.js';
 
 /**
  * Parse a CSS text-shadow string into individual shadow values.
  * Format: "2px 2px 4px rgba(0,0,0,0.3), ..."
  */
-export function parseTextShadows(shadow: string): Array<{
-  offsetX: number;
-  offsetY: number;
-  blur: number;
-  color: string;
+export function parseTextShadows(shadow: string, currentColor = 'black'): Array<{
+  offsetX: number; offsetY: number; blur: number; color: string;
 }> {
   if (!shadow || shadow === 'none') return [];
-
   const shadows: Array<{ offsetX: number; offsetY: number; blur: number; color: string }> = [];
-
-  // Split by comma but not within parentheses
-  const parts = shadow.split(/,(?![^(]*\))/);
-
-  for (const part of parts) {
-    const trimmed = part.trim();
-    // Extract color (rgb/rgba or named) and numbers
-    const colorMatch = trimmed.match(/(rgb[a]?\([^)]+\)|#[0-9a-fA-F]+|\b[a-z]+\b)(?:\s|$)/i);
-    const numMatches = trimmed.match(/-?[\d.]+px/g);
-
-    if (numMatches && numMatches.length >= 2) {
-      const nums = numMatches.map(n => parseFloat(n));
-      shadows.push({
-        offsetX: nums[0],
-        offsetY: nums[1],
-        blur: nums[2] || 0,
-        color: colorMatch ? colorMatch[1] : 'rgba(0,0,0,1)',
-      });
+  for (const part of shadow.split(/,(?![^(]*\))/)) {
+    const tokens = part.trim().match(/[^\s(]+\([^)]*\)|[^\s]+/g) ?? [];
+    const lengths: number[] = [];
+    let color = currentColor;
+    for (const token of tokens) {
+      if (/^[+-]?(?:\d*\.)?\d+(?:px)?$/.test(token)) lengths.push(parseFloat(token));
+      else color = token.toLowerCase() === 'currentcolor' ? currentColor : token;
     }
+    if (lengths.length < 2 || lengths.length > 3 || (lengths[2] ?? 0) < 0) continue;
+    shadows.push({ offsetX: lengths[0], offsetY: lengths[1], blur: lengths[2] ?? 0, color });
   }
-
   return shadows;
 }
 
@@ -290,20 +277,8 @@ export function applyTextStroke(
   ctx.lineJoin = join === 'miter' || join === 'bevel' ? join : 'round';
 }
 
-/**
- * Render a single text node to canvas.
- * @param gradientFill — pre-computed gradient for background-clip:text spanning full element
- * @param strokeGradient — pre-computed gradient for -webkit-text-stroke-image spanning full element
- */
-function renderText(
-  ctx: CanvasRenderingContext2D,
-  node: LayoutText,
-  gradientFill?: CanvasGradient | string | null,
-  strokeGradient?: CanvasGradient | null,
-): void {
-  const { style } = node;
-
-  ctx.save();
+/** Shared by foreground painting and shadow bounds, including inherited state. */
+function applyTextState(ctx: CanvasRenderingContext2D, style: ResolvedStyle): void {
   ctx.font = buildCanvasFont(style);
   ctx.textBaseline = 'alphabetic';
   ctx.fontKerning = style.fontKerning === 'none' ? 'none' : 'normal';
@@ -317,6 +292,22 @@ function renderText(
     ctx.direction = 'rtl';
     ctx.textAlign = 'right';
   }
+}
+
+/**
+ * Render a single text node to canvas.
+ * @param gradientFill — pre-computed gradient for background-clip:text spanning full element
+ * @param strokeGradient — pre-computed gradient for -webkit-text-stroke-image spanning full element
+ */
+function renderText(
+  ctx: CanvasRenderingContext2D,
+  node: LayoutText,
+  gradientFill?: CanvasGradient | string | null,
+  strokeGradient?: CanvasGradient | null,
+): void {
+  const { style } = node;
+  ctx.save();
+  applyTextState(ctx, style);
 
   const hasOwnClip = hasTextClip(style);
   const isStrokedText = style.webkitTextStrokeWidth > 0;
@@ -360,32 +351,6 @@ function renderText(
       )
     : null;
   const effectiveStrokeGradient = inlineStrokeGradient ?? strokeGradient ?? null;
-
-  // Text shadow (drawn behind the text). Cast the shadow from the shape that
-  // is actually painted: the fill when it's visible, and/or the stroke. This
-  // matters for stroked text with a transparent fill (color:transparent +
-  // -webkit-text-stroke), where CSS casts the shadow from the stroke outline
-  // rather than the invisible fill.
-  const shadows = parseTextShadows(style.textShadow);
-  if (shadows.length > 0) {
-    const hasVisibleFill = isGradientText || !isFillTransparent;
-    for (const shadow of shadows) {
-      ctx.save();
-      ctx.shadowOffsetX = shadow.offsetX;
-      ctx.shadowOffsetY = shadow.offsetY;
-      ctx.shadowBlur = shadow.blur;
-      ctx.shadowColor = shadow.color;
-      if (hasVisibleFill) {
-        ctx.fillStyle = isGradientText && effectiveGradient ? effectiveGradient : textFillColor(style);
-        ctx.fillText(node.text, node.x, node.y);
-      }
-      if (isStrokedText) {
-        applyTextStroke(ctx, style, effectiveStrokeGradient);
-        ctx.strokeText(node.text, node.x, node.y);
-      }
-      ctx.restore();
-    }
-  }
 
   const drawFill = () => {
     if (isGradientText) {
@@ -542,69 +507,99 @@ function canShapeAsRun(node: LayoutText): boolean {
     ORDINARY_SHAPING_TEXT.test(node.text);
 }
 
-/**
- * Render a layout box and its children to canvas.
- */
+interface PaintPass {
+  runs?: Set<LayoutText>;
+  beforeText?: (ctx: CanvasRenderingContext2D, node: LayoutText) => void;
+}
+
+/** Visit the actual foreground runs, retaining their original node for hooks. */
+function forEachPaintedChild(
+  box: LayoutBox, paint: (node: LayoutNode, original: LayoutNode) => void,
+  separateRuns = false,
+): void {
+  const runs = !separateRuns && BLINK_TEXT_RUN_SHAPING &&
+    box.children.every(child => child.type === 'text' && canShapeAsRun(child))
+    ? box.children as LayoutText[] : null;
+  if (!runs) {
+    box.children.forEach(child => paint(child, child));
+    return;
+  }
+  for (let i = 0; i < runs.length; i++) {
+    const head = runs[i];
+    let text = head.text, width = head.width;
+    while (i + 1 < runs.length && runs[i + 1].style === head.style &&
+      runs[i + 1].y === head.y && Math.abs(runs[i + 1].x - (head.x + width)) <= 0.01) {
+      text += runs[i + 1].text;
+      width += runs[++i].width;
+    }
+    paint({ ...head, text, width }, head);
+  }
+}
+
+/** Render a layout box and its children to canvas. */
 function renderBox(
   ctx: CanvasRenderingContext2D,
   box: LayoutBox,
   gradientFill: CanvasGradient | string | null = null,
   strokeGradient: CanvasGradient | null = null,
+  pass?: PaintPass,
 ): void {
   const { style } = box;
 
-  const radii = cornerRadii(style, box.width, box.height);
+  if (!pass?.runs) {
+    const radii = cornerRadii(style, box.width, box.height);
 
-  // Background. With background-clip:text the background is NOT painted as a
-  // box — it's clipped to descendant glyphs (threaded below as the text fill).
-  if (!isTransparent(style.backgroundColor) && style.webkitBackgroundClip !== 'text') {
-    ctx.fillStyle = style.backgroundColor;
-    if (radii) {
-      ctx.beginPath();
-      ctx.roundRect(box.x, box.y, box.width, box.height, radii);
-      ctx.fill();
-    } else {
-      ctx.fillRect(box.x, box.y, box.width, box.height);
+    // Background. With background-clip:text the background is NOT painted as a
+    // box — it's clipped to descendant glyphs (threaded below as the text fill).
+    if (!isTransparent(style.backgroundColor) && style.webkitBackgroundClip !== 'text') {
+      ctx.fillStyle = style.backgroundColor;
+      if (radii) {
+        ctx.beginPath();
+        ctx.roundRect(box.x, box.y, box.width, box.height, radii);
+        ctx.fill();
+      } else {
+        ctx.fillRect(box.x, box.y, box.width, box.height);
+      }
     }
-  }
 
-  // Borders. A rounded box with the same border on all four sides — the only
-  // shape browsers give clean corner joins to, and the one authors write —
-  // strokes the rounded path once, on the stroke's centerline (radius shrinks
-  // by half the width there, matching the border-box outer curve). Rounded
-  // corners with per-side borders keep the straight-line paint below: the
-  // browser's per-corner color transitions aren't reproducible with strokes,
-  // and the combination is vanishingly rare.
-  const uniformRoundedBorder = radii !== null && hasBorder(style, 'Top') &&
-    (['Right', 'Bottom', 'Left'] as const).every((side) =>
-      style[`border${side}Width`] === style.borderTopWidth &&
-      style[`border${side}Style`] === style.borderTopStyle &&
-      style[`border${side}Color`] === style.borderTopColor);
-  if (uniformRoundedBorder) {
-    const w = style.borderTopWidth;
-    ctx.strokeStyle = style.borderTopColor;
-    ctx.lineWidth = w;
-    ctx.beginPath();
-    ctx.roundRect(
-      box.x + w / 2, box.y + w / 2, box.width - w, box.height - w,
-      radii.map((r) => ({ x: Math.max(0, r.x - w / 2), y: Math.max(0, r.y - w / 2) })),
-    );
-    ctx.stroke();
-  } else {
-    const borders: [side: 'Top' | 'Right' | 'Bottom' | 'Left', x1: number, y1: number, x2: number, y2: number][] = [
-      ['Top', box.x, box.y + style.borderTopWidth / 2, box.x + box.width, box.y + style.borderTopWidth / 2],
-      ['Right', box.x + box.width - style.borderRightWidth / 2, box.y, box.x + box.width - style.borderRightWidth / 2, box.y + box.height],
-      ['Bottom', box.x, box.y + box.height - style.borderBottomWidth / 2, box.x + box.width, box.y + box.height - style.borderBottomWidth / 2],
-      ['Left', box.x + style.borderLeftWidth / 2, box.y, box.x + style.borderLeftWidth / 2, box.y + box.height],
-    ];
-    for (const [side, x1, y1, x2, y2] of borders) {
-      if (!hasBorder(style, side)) continue;
-      ctx.strokeStyle = style[`border${side}Color` as keyof ResolvedStyle] as string;
-      ctx.lineWidth = style[`border${side}Width` as keyof ResolvedStyle] as number;
+    // Borders. A rounded box with the same border on all four sides — the only
+    // shape browsers give clean corner joins to, and the one authors write —
+    // strokes the rounded path once, on the stroke's centerline (radius shrinks
+    // by half the width there, matching the border-box outer curve). Rounded
+    // corners with per-side borders keep the straight-line paint below: the
+    // browser's per-corner color transitions aren't reproducible with strokes,
+    // and the combination is vanishingly rare.
+    const uniformRoundedBorder = radii !== null && hasBorder(style, 'Top') &&
+      (['Right', 'Bottom', 'Left'] as const).every((side) =>
+        style[`border${side}Width`] === style.borderTopWidth &&
+        style[`border${side}Style`] === style.borderTopStyle &&
+        style[`border${side}Color`] === style.borderTopColor);
+    if (uniformRoundedBorder) {
+      const w = style.borderTopWidth;
+      ctx.strokeStyle = style.borderTopColor;
+      ctx.lineWidth = w;
       ctx.beginPath();
-      ctx.moveTo(x1, y1);
-      ctx.lineTo(x2, y2);
+      ctx.roundRect(
+        box.x + w / 2, box.y + w / 2, box.width - w, box.height - w,
+        radii.map((r) => ({ x: Math.max(0, r.x - w / 2), y: Math.max(0, r.y - w / 2) })),
+      );
       ctx.stroke();
+    } else {
+      const borders: [side: 'Top' | 'Right' | 'Bottom' | 'Left', x1: number, y1: number, x2: number, y2: number][] = [
+        ['Top', box.x, box.y + style.borderTopWidth / 2, box.x + box.width, box.y + style.borderTopWidth / 2],
+        ['Right', box.x + box.width - style.borderRightWidth / 2, box.y, box.x + box.width - style.borderRightWidth / 2, box.y + box.height],
+        ['Bottom', box.x, box.y + box.height - style.borderBottomWidth / 2, box.x + box.width, box.y + box.height - style.borderBottomWidth / 2],
+        ['Left', box.x + style.borderLeftWidth / 2, box.y, box.x + style.borderLeftWidth / 2, box.y + box.height],
+      ];
+      for (const [side, x1, y1, x2, y2] of borders) {
+        if (!hasBorder(style, side)) continue;
+        ctx.strokeStyle = style[`border${side}Color` as keyof ResolvedStyle] as string;
+        ctx.lineWidth = style[`border${side}Width` as keyof ResolvedStyle] as number;
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.stroke();
+      }
     }
   }
 
@@ -636,47 +631,95 @@ function renderBox(
   // word-based (and remains public); only fillText gets the browser's full
   // shaping context across spaces. A box is eligible only when every child is
   // plain text, so a complex fragment cannot change neighboring paint.
-  const runs = BLINK_TEXT_RUN_SHAPING &&
-      box.children.every((child) => child.type === 'text' && canShapeAsRun(child))
-    ? box.children as LayoutText[]
-    : null;
-  if (!runs) {
-    for (const child of box.children) {
-      renderNode(ctx, child, gradientFill, strokeGradient);
-    }
-    return;
-  }
-
-  for (let i = 0; i < runs.length; i++) {
-    const head = runs[i];
-    let text = head.text;
-    let width = head.width;
-    while (
-      i + 1 < runs.length &&
-      runs[i + 1].style === head.style &&
-      runs[i + 1].y === head.y &&
-      Math.abs(runs[i + 1].x - (head.x + width)) <= 0.01
-    ) {
-      text += runs[i + 1].text;
-      width += runs[i + 1].width;
-      i++;
-    }
-    renderText(ctx, { ...head, text, width }, gradientFill, strokeGradient);
-  }
+  forEachPaintedChild(box, (child, original) => {
+    paintNode(ctx, child, gradientFill, strokeGradient, pass, original);
+  }, !!pass?.runs);
 }
 
 /**
  * Render any layout node.
  */
-export function renderNode(
+function paintNode(
   ctx: CanvasRenderingContext2D,
   node: LayoutNode,
   gradientFill?: CanvasGradient | string | null,
   strokeGradient?: CanvasGradient | null,
+  pass?: PaintPass,
+  original: LayoutNode = node,
 ): void {
   if (node.type === 'text') {
-    renderText(ctx, node, gradientFill, strokeGradient);
+    if (!pass?.runs || pass.runs.has(node)) {
+      pass?.beforeText?.(ctx, original as LayoutText);
+      renderText(ctx, node, gradientFill, strokeGradient);
+    }
   } else {
-    renderBox(ctx, node, gradientFill, strokeGradient);
+    renderBox(ctx, node, gradientFill, strokeGradient, pass);
   }
+}
+
+/** Insert CSS shadows before their text without reordering background paints.
+ * The caller's canvas shadow belongs to the completed result. */
+export function renderNode(
+  ctx: CanvasRenderingContext2D, node: LayoutNode, options: ShadowOptions = {},
+): void {
+  if (options.renderShadows === false) {
+    withoutCanvasShadow(ctx, target => paintNode(target, node));
+    return;
+  }
+  const { createCanvas } = options;
+  type ShadowGroup = { runs: Set<LayoutText>; shadows: ReturnType<typeof parseTextShadows> };
+  const passes = new Map<LayoutText, Map<string, ShadowGroup>>();
+  let first: LayoutText | undefined;
+  const collect = (node: LayoutNode) => {
+    if (node.type === 'box') {
+      const style = node.style;
+      // A later box paint may cover earlier overflowing text. Keep that order;
+      // runs without an intervening background/border share a shadow pass.
+      if ((!isTransparent(style.backgroundColor) && style.webkitBackgroundClip !== 'text') ||
+        (['Top', 'Right', 'Bottom', 'Left'] as const).some(side => hasBorder(style, side))) first = undefined;
+      node.children.forEach(collect);
+      return;
+    }
+    first ??= node;
+    const shadows = parseTextShadows(node.style.textShadow, node.style.color);
+    if (!shadows.length) return;
+    let groups = passes.get(first);
+    if (!groups) { groups = new Map(); passes.set(first, groups); }
+    const key = JSON.stringify(shadows);
+    let group = groups.get(key);
+    if (!group) { group = { runs: new Set(), shadows }; groups.set(key, group); }
+    group.runs.add(node);
+  };
+  collect(node);
+  const boundsFor = (node: LayoutNode): PaintBounds => {
+    if (node.type === 'box') {
+      let bounds = { x: node.x, y: node.y, width: node.width, height: node.height };
+      forEachPaintedChild(node, child => { bounds = unionBounds(bounds, boundsFor(child)); });
+      return bounds;
+    }
+    ctx.save();
+    applyTextState(ctx, node.style);
+    let bounds = textPaintBounds(ctx, node.text, node.style, node.x, node.y, node.width, node.style.direction === 'rtl');
+    ctx.restore();
+    if (node.lineBaselineY !== undefined) {
+      bounds = unionBounds(bounds, { ...bounds, y: bounds.y + node.lineBaselineY - node.y });
+    }
+    return bounds;
+  };
+  withCanvasShadow(ctx, () => {
+    let bounds = boundsFor(node);
+    for (const groups of passes.values()) for (const group of groups.values()) {
+      const ink = [...group.runs].map(boundsFor).reduce(unionBounds);
+      bounds = unionBounds(bounds, shadowBounds(ink, group.shadows));
+    }
+    return bounds;
+  }, target => {
+    paintNode(target, node, null, null, { beforeText: (destination, run) => {
+      for (const group of passes.get(run)?.values() ?? []) {
+        const bounds = [...group.runs].map(boundsFor).reduce(unionBounds);
+        paintTextShadows(destination, bounds, group.shadows,
+          mask => paintNode(mask, node, null, null, { runs: group.runs }), createCanvas);
+      }
+    } });
+  }, createCanvas);
 }

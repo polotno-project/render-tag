@@ -45,6 +45,8 @@ function drawLayout(config: DrawConfig): { canvas };
 | `height` | auto | Fixed height; auto-sized from content if omitted. |
 | `canvas` | created | Existing target canvas (mutually exclusive with `ctx`). |
 | `ctx` | — | Existing 2D context — no canvas resizing or scaling. |
+| `createCanvas` | browser canvas | Factory `(width, height) => canvas` for shadow composition. Required for shadows outside browsers. |
+| `renderShadows` | `true` | Set `false` to omit CSS and context shadows without allocating shadow buffers. Foreground stays drawing commands in both modes. |
 | `pixelRatio` | `devicePixelRatio` | HiDPI scaling. |
 | `accuracy` | `'performance'` | `'balanced'` uses DOM probes for per-browser line-height accuracy; `'performance'` is pure canvas and consistent cross-browser. |
 
@@ -126,10 +128,67 @@ setDOMParser(new DOMParser()); // once
 
 const ctx = createCanvas(1, 1).getContext('2d');
 const result = layout({ html, width: 400, ctx }); // ctx is required on Node
-drawLayout({ layout: result, width: 400, ctx: outputCtx });
+drawLayout({ layout: result, width: 400, ctx: outputCtx, createCanvas });
 ```
 
 Without injection, functions throw with guidance. `accuracy: 'balanced'` needs a real browser DOM and throws on Node — use the default `'performance'`. `render-tag/path` works the same way (`layoutTextOnPath` already takes `ctx`; it re-exports `setDOMParser`).
+
+## Shadows
+
+`text-shadow` paints behind the combined text fill, stroke and decorations.
+Multiple shadows paint in CSS order (the first listed is on top). Shadows do
+not repaint the foreground or include box backgrounds. Offsets and blur are
+in layout pixels and transform with the text; on a path they use the whole
+path's coordinates, not each glyph's rotated coordinates.
+
+An existing `ctx.shadow*` casts one shadow from the completed rendering,
+including backgrounds and CSS shadows. Its offsets and blur retain Canvas 2D's
+device pixel semantics. Combining both intentionally produces both effects.
+Both shadow paths rasterize only the effect. The foreground still uses text,
+stroke and decoration commands, retaining the caller's per-paint opacity and
+blending behavior.
+
+Shadow composition uses temporary canvases sized for the painted content,
+including overhanging glyphs and decorations. Node consumers must pass
+`createCanvas` to `render`, `drawLayout`, `drawTextOnPath`, or
+`drawTextOnPathLayout` when using shadows. It must return a fresh canvas
+compatible with the destination context. Drawing without shadows needs no
+scratch canvas. Fonts and blur rasterization can still differ slightly between
+browser engines; these APIs do not promise byte-identical pixels across engines.
+
+### PDF and other vector adapters
+
+Some consumers pass a Canvas-like proxy that translates drawing commands into
+PDF operations, preserving vector text. The same drawing API works with a
+compatible proxy: render-tag emits shadow images through `drawImage`, then
+foreground text, stroke and decoration commands in the correct paint order.
+
+```ts
+// Requires a compatible Canvas 2D proxy and a raster canvas factory.
+drawLayout({ layout: result, width: 400, ctx: pdfContext, createCanvas });
+```
+
+With shadows enabled, the proxy must support Canvas 2D image and transform
+operations, including `drawImage`, `getTransform` and `setTransform`. The adapter
+owns PDF image embedding and must preserve drawing order if embedding is
+asynchronous; render-tag's drawing APIs remain synchronous. The factory supplies
+real raster canvases for shadow composition. The foreground remains drawing
+commands on the destination proxy.
+
+For adapters that paint effects separately, use `renderShadows: false`:
+
+```ts
+drawLayout({ layout: result, width: 400, ctx: pdfContext, renderShadows: false });
+```
+
+This omits both CSS `text-shadow` and caller-supplied `ctx.shadow*`, allocates no
+shadow canvases, and keeps foreground commands and layout unchanged. It requires
+no image or transform-query APIs. The adapter must provide the omitted effects;
+this option alone does not preserve the appearance of shadowed text.
+
+Unsupported proxies fail with guidance when shadows are enabled. Exporters
+remain responsible for matching fonts, opacity, blending and effect placement
+across formats. No separate shadow-layer or preparation API is required.
 
 ## What it renders
 
