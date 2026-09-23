@@ -2,6 +2,11 @@
 
 Only the interesting, user-visible changes. Full detail lives in the git history.
 
+## 0.2.0 — 2026-09-23
+
+- Add lazy `paintBounds` to ordinary and curved text layouts, including overflowing glyphs, strokes, decorations and CSS shadows.
+- Account for synthetic italic overflow in WebKit when sizing text paint buffers.
+
 ## 0.1.37 — 2026-09-16
 
 - Expose per-box line geometry and hard breaks through `LayoutBox.lineBoxes`, including blank lines from `<br>` and preserved newlines.
