@@ -11,6 +11,16 @@ export interface PaintBounds { x: number; y: number; width: number; height: numb
 type Matrix = Pick<DOMMatrix, 'a' | 'b' | 'c' | 'd' | 'e' | 'f'>;
 type Paint = (ctx: CanvasRenderingContext2D) => void;
 
+/** Measure layout-owned paint independently of the caller's current drawing
+ * state. A shared layout context may have been reused since layout completed. */
+export function measurePaintBounds(ctx: CanvasRenderingContext2D, measure: () => PaintBounds): PaintBounds {
+  ctx.save();
+  ctx.textAlign = 'left'; ctx.direction = 'ltr';
+  ctx.letterSpacing = '0px'; ctx.wordSpacing = '0px'; ctx.miterLimit = 10;
+  try { return measure(); }
+  finally { ctx.restore(); }
+}
+
 /** Also works on drawing-command proxies whose save/restore only snapshots
  * their vector graphics state, not emulated canvas shadow properties. */
 export function withoutCanvasShadow(ctx: CanvasRenderingContext2D, paint: Paint): void {
@@ -67,7 +77,12 @@ export function textPaintBounds(
   const right = Math.max(rightAligned ? 0 : width, metrics.actualBoundingBoxRight || 0);
   const ascent = Math.max(style.fontSize, metrics.actualBoundingBoxAscent || 0);
   const descent = Math.max(style.fontSize * 0.5, metrics.actualBoundingBoxDescent || 0);
-  return { x: x + left - pad, y: y - ascent - pad, width: right - left + pad * 2, height: ascent + descent + pad * 2 };
+  // WebKit can omit synthetic italics from TextMetrics. Its painter shears by
+  // 14 degrees (WebCore/FontCascade.h::syntheticObliqueAngle). Canvas does not
+  // expose whether a face was synthesized, so conservatively allow that shear.
+  const skew = /^(italic|oblique)\b/.test(style.fontStyle) ? Math.tan(14 * Math.PI / 180) : 0;
+  return { x: x + left - pad - descent * skew, y: y - ascent - pad,
+    width: right - left + pad * 2 + (ascent + descent) * skew, height: ascent + descent + pad * 2 };
 }
 
 export function shadowBounds(bounds: PaintBounds, shadows: TextShadow[]): PaintBounds {

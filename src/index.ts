@@ -6,7 +6,9 @@ import type {
 import { parseHTML } from './parse.js';
 import { resolveStylesFromCSS } from './css-resolver.js';
 import { buildLayoutTree } from './layout.js';
-import { renderNode } from './render.js';
+import { renderNode, getNodePaintBounds } from './render.js';
+import { measurePaintBounds, type PaintBounds } from './shadow.js';
+export type { PaintBounds } from './shadow.js';
 
 export type { RenderConfig, RenderResult, LayoutConfig, LayoutResult, DrawConfig, LayoutLine };
 // The layout tree's node types — the shape of `LayoutResult.layoutRoot`, so
@@ -61,7 +63,13 @@ export function layout(config: LayoutConfig): LayoutResult {
   const { root, height: contentHeight, lines } = buildLayoutTree(measureCtx, tree, width, useDomMeasurements, debug);
   const finalHeight = height || contentHeight;
 
-  return { layoutRoot: root, height: finalHeight, lines };
+  let paintBounds: PaintBounds | undefined;
+  return {
+    layoutRoot: root, height: finalHeight, lines,
+    get paintBounds() {
+      return paintBounds ??= measurePaintBounds(measureCtx, () => getNodePaintBounds(measureCtx, root));
+    },
+  };
 }
 
 // ─── drawLayout() ────────────────────────────────────────────────────
@@ -143,10 +151,5 @@ export function render(config: RenderConfig): RenderResult {
     renderShadows: config.renderShadows,
   });
 
-  return {
-    canvas,
-    height: layoutResult.height,
-    layoutRoot: layoutResult.layoutRoot,
-    lines: layoutResult.lines,
-  };
+  return Object.assign(layoutResult, { canvas });
 }

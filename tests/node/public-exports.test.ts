@@ -3,11 +3,15 @@
  * layoutRoot's node types as named exports, and the shared metric helpers.
  * A rename or dropped re-export must fail here, not in a downstream repo.
  */
-import { it, expect } from 'vitest';
+import { it, expect, afterAll } from 'vitest';
+import { DOMParser } from 'linkedom';
+import { layoutTextOnPath } from '../../src/path/index.node.ts';
 import {
   lineBaselineOffset,
   getFontMetrics,
   tabStopMetrics,
+  layout,
+  setDOMParser,
 } from '../../src/index.node.ts';
 import type {
   LayoutBox,
@@ -45,4 +49,20 @@ it('names the layout node types', () => {
   const deco: DecorationEntry[] = [];
   const radius: BorderRadius = { pct: 50 };
   expect([box, deco, radius]).toBeDefined();
+});
+
+afterAll(() => setDOMParser(null));
+
+it('measures painted bounds through both Node entry points without a DOM canvas', () => {
+  setDOMParser(new DOMParser());
+  const ctx = mockCtx();
+  const html = '<div style="font-size:40px;text-shadow:60px 0 red">Hello</div>';
+  const flat = layout({ html, width: 100, ctx });
+  const plain = layout({ html: html.replace('text-shadow:60px 0 red', ''), width: 100, ctx }).paintBounds;
+  const shadow = flat.paintBounds;
+  expect(shadow.width).toBeGreaterThan(plain.width);
+  const curved = layoutTextOnPath({ html, path: 'M0,0 L500,0', ctx });
+  const bounds = curved.paintBounds;
+  expect(bounds.width).toBeGreaterThan(curved.textWidth);
+  expect(bounds.height).toBeGreaterThan(0);
 });

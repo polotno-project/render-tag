@@ -43,7 +43,7 @@ import {
   textFillColor,
   applyTextStroke,
 } from '../render.js';
-import { paintTextShadows, shadowBounds, textPaintBounds, transformBounds, unionBounds, withCanvasShadow, withoutCanvasShadow } from '../shadow.js';
+import { paintTextShadows, shadowBounds, textPaintBounds, transformBounds, unionBounds, withCanvasShadow, withoutCanvasShadow, measurePaintBounds, type PaintBounds } from '../shadow.js';
 import { pathFromString, type PathLike } from './svg-path.js';
 import {
   flattenSegments,
@@ -52,6 +52,7 @@ import {
   type AlignMode,
   type GlyphPlacement,
   type TextBaseline,
+  type LayoutOutput,
 } from './glyph-layout.js';
 
 export type { PathLike, GlyphPlacement, AlignMode, TextBaseline };
@@ -79,35 +80,10 @@ export interface LayoutTextOnPathConfig {
   ctx?: CanvasRenderingContext2D;
 }
 
-export interface TextOnPathLayout {
-  /** Per-glyph (or per-shaped-run) placement records. */
-  glyphs: GlyphPlacement[];
-  /**
-   * Natural width of the rendered text: the sum of the per-glyph advances,
-   * less the last one's trailing letter-space, which no glyph occupies. The
-   * walk ends exactly here, so `pathOffset + width` of the final placement is
-   * this number.
-   */
-  textWidth: number;
-  /** Total arc length of the path. */
-  pathLength: number;
-  /**
-   * Max line height across all segments. Useful as the thickness for a
-   * background ribbon polygon around curved text.
-   */
-  lineHeight: number;
-  /**
-   * Visible bounding box of the rendered text in the layout's coordinate
-   * system (same shape as `DOMRect`). Computed as the union of each glyph's
-   * `width × per-glyph line-height` cell, rotated by the glyph's tangent.
-   *
-   * Consumer-facing: render-tag does not consume `bounds` itself. Use it to
-   * keep a parent element's width/height in sync with the rendered curved
-   * text without re-walking the glyphs.
-   */
-  bounds: { x: number; y: number; width: number; height: number };
-  /** The textBaseline mode the layout was computed with. */
-  textBaseline: TextBaseline;
+export interface TextOnPathLayout extends LayoutOutput {
+  /** Conservative local painted bounds; same contract as LayoutResult.paintBounds.
+   * Measured on first access and reused. Does not change the layout's bounds. */
+  readonly paintBounds: PaintBounds;
 }
 
 export interface DrawTextOnPathLayoutConfig extends ShadowOptions {
@@ -155,10 +131,65 @@ export function layoutTextOnPath(config: LayoutTextOnPathConfig): TextOnPathLayo
   if (!ownsCtx) measureCtx.save();
   try {
     const segments = flattenSegments(tree);
-    return layoutGlyphsOnPath({ segments, path, ctx: measureCtx, align, textBaseline });
+    const result = layoutGlyphsOnPath({ segments, path, ctx: measureCtx, align, textBaseline });
+    let paintBounds: PaintBounds | undefined;
+    return {
+      ...result,
+      get paintBounds() {
+        return paintBounds ??= measurePaintBounds(measureCtx, () => pathPaintBounds(measureCtx, result));
+      },
+    };
   } finally {
     if (!ownsCtx) measureCtx.restore();
   }
+}
+
+function collectPathShadowGroups(glyphs: GlyphPlacement[]) {
+  const groups = new Map<string, { glyphs: GlyphPlacement[][]; shadows: ReturnType<typeof parseTextShadows> }>();
+  let previousKey = '';
+  for (const glyph of glyphs) {
+    const shadows = parseTextShadows(glyph.style.textShadow, glyph.style.color);
+    const key = shadows.length ? JSON.stringify(shadows) : '';
+    if (key) {
+      let group = groups.get(key);
+      if (!group) { group = { glyphs: [], shadows }; groups.set(key, group); }
+      // Keep gaps: decorations must not bridge unrelated spans.
+      if (key !== previousKey) group.glyphs.push([]);
+      group.glyphs[group.glyphs.length - 1].push(glyph);
+    }
+    previousKey = key;
+  }
+  return groups;
+}
+
+function pathForegroundBounds(
+  ctx: CanvasRenderingContext2D, glyphs: GlyphPlacement[], tb: TextBaseline,
+): PaintBounds {
+  if (!glyphs.length) return { x: 0, y: 0, width: 0, height: 0 };
+  return glyphs.map(g => {
+    const baseY = baselineLocalY(tb, g.ascent, g.descent);
+    ctx.save();
+    applyFont(ctx, g.style);
+    ctx.textBaseline = 'alphabetic';
+    ctx.letterSpacing = `${g.style.letterSpacing || 0}px`;
+    const ink = textPaintBounds(ctx, g.char, g.style, 0, baseY, g.width);
+    ctx.restore();
+    const box = unionBounds(ink, { x: 0, y: baseY - g.ascent, width: g.width, height: g.ascent + g.descent });
+    const c = Math.cos(g.rotation), s = Math.sin(g.rotation);
+    return transformBounds(box, { a: c, b: s, c: -s, d: c, e: g.x, f: g.y });
+  }).reduce(unionBounds);
+}
+
+function pathPaintBounds(
+  ctx: CanvasRenderingContext2D, layout: LayoutOutput,
+  groups = collectPathShadowGroups(layout.glyphs),
+): PaintBounds {
+  let bounds = pathForegroundBounds(ctx, layout.glyphs, layout.textBaseline);
+  for (const group of groups.values()) {
+    bounds = unionBounds(bounds, shadowBounds(
+      pathForegroundBounds(ctx, group.glyphs.flat(), layout.textBaseline), group.shadows));
+  }
+  return bounds;
 }
 
 /**
@@ -187,46 +218,15 @@ export function drawTextOnPathLayout(config: DrawTextOnPathLayoutConfig): void {
       });
       return;
     }
-    const groups = new Map<string, { glyphs: GlyphPlacement[][]; shadows: ReturnType<typeof parseTextShadows> }>();
-    let previousKey = '';
-    for (const glyph of layout.glyphs) {
-      const shadows = parseTextShadows(glyph.style.textShadow, glyph.style.color);
-      const key = shadows.length ? JSON.stringify(shadows) : '';
-      if (key) {
-        let group = groups.get(key);
-        if (!group) { group = { glyphs: [], shadows }; groups.set(key, group); }
-        // Keep gaps: decorations must not bridge unrelated spans.
-        if (key !== previousKey) group.glyphs.push([]);
-        group.glyphs[group.glyphs.length - 1].push(glyph);
-      }
-      previousKey = key;
-    }
-    const boundsFor = (glyphs: GlyphPlacement[]) => glyphs.map(g => {
-      const baseY = baselineLocalY(tb, g.ascent, g.descent);
-      ctx.save();
-      applyFont(ctx, g.style);
-      ctx.textBaseline = 'alphabetic';
-      ctx.letterSpacing = `${g.style.letterSpacing || 0}px`;
-      const ink = textPaintBounds(ctx, g.char, g.style, 0, baseY, g.width);
-      ctx.restore();
-      const box = unionBounds(ink, { x: 0, y: baseY - g.ascent, width: g.width, height: g.ascent + g.descent });
-      const c = Math.cos(g.rotation), s = Math.sin(g.rotation);
-      return transformBounds(box, { a: c, b: s, c: -s, d: c, e: g.x, f: g.y });
-    }).reduce(unionBounds);
+    const groups = collectPathShadowGroups(layout.glyphs);
     const foreground = (target: CanvasRenderingContext2D, glyphs: GlyphPlacement[]) => {
       drawGlyphs(target, glyphs, layout.textWidth, tb);
       drawDecorations(target, glyphs, layout.textWidth, tb);
     };
-    withCanvasShadow(ctx, () => {
-      let bounds = boundsFor(layout.glyphs);
-      for (const group of groups.values()) {
-        bounds = unionBounds(bounds, shadowBounds(boundsFor(group.glyphs.flat()), group.shadows));
-      }
-      return bounds;
-    }, target => {
+    withCanvasShadow(ctx, () => pathPaintBounds(ctx, layout, groups), target => {
       drawBackgrounds(target, layout.glyphs, tb);
       for (const group of groups.values()) {
-        paintTextShadows(target, boundsFor(group.glyphs.flat()), group.shadows,
+        paintTextShadows(target, pathForegroundBounds(ctx, group.glyphs.flat(), tb), group.shadows,
           mask => group.glyphs.forEach(glyphs => foreground(mask, glyphs)), config.createCanvas);
       }
       foreground(target, layout.glyphs);

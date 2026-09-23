@@ -33,8 +33,8 @@ document.body.appendChild(canvas);
 ## API
 
 ```ts
-function render(config: RenderConfig): { canvas, height, layoutRoot, lines };
-function layout(config: LayoutConfig): { layoutRoot, height, lines };
+function render(config: RenderConfig): { canvas, height, layoutRoot, lines, paintBounds };
+function layout(config: LayoutConfig): { layoutRoot, height, lines, paintBounds };
 function drawLayout(config: DrawConfig): { canvas };
 ```
 
@@ -51,6 +51,28 @@ function drawLayout(config: DrawConfig): { canvas };
 | `accuracy` | `'performance'` | `'balanced'` uses DOM probes for per-browser line-height accuracy; `'performance'` is pure canvas and consistent cross-browser. |
 
 Use `layout()` + `drawLayout()` when you need to measure content, render the same layout onto multiple targets, or render onto an `OffscreenCanvas`.
+
+### Painted bounds
+
+Both `layout()` and `layoutTextOnPath()` return `paintBounds`: a conservative
+`{ x, y, width, height }` in layout coordinates. It includes overflowing glyphs,
+strokes, decorations, box paints and CSS text shadows. Use it to size offscreen
+buffers; `x` and `y` can be negative. Existing layout dimensions and curved-text
+`bounds` keep their selection/layout meaning.
+
+```ts
+const result = layout({ html, width: 400 });
+const { x, y, width, height } = result.paintBounds;
+```
+
+Bounds are measured on first access and reused, so layout-only callers pay no
+extra measurement cost. Load fonts first and create a new layout when content,
+styles or fonts change; treat the returned layout as a snapshot.
+
+Measurement uses the layout's context (required in Node) and preserves its current
+state. Bounds exclude destination transforms, clipping and canvas effects. CSS
+shadows are always included, even if drawing later uses `renderShadows: false`.
+The combined `render()` and `drawTextOnPath()` APIs expose the same property.
 
 ### Line geometry and breaks
 

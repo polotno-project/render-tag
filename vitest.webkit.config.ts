@@ -9,4 +9,5 @@ export default browserConfig('webkit', 60_000, [
   'tests/cross-browser.compare.test.ts',
   'tests/stress.test.ts',
   'tests/text-shadow-paint.test.ts',
+  'tests/paint-bounds.test.ts',
 ]);

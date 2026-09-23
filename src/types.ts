@@ -1,3 +1,5 @@
+import type { PaintBounds } from './shadow.js';
+
 export type AnyCanvas = HTMLCanvasElement | OffscreenCanvas;
 export type AnyContext = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 /** Scratch surfaces for shadow composition. Required outside browsers; return
@@ -74,6 +76,11 @@ export interface LayoutConfig {
 }
 
 export interface LayoutResult {
+  /** Conservative local paint rectangle, including overflow, strokes,
+   * decorations and CSS shadows. Measured on first access and reused.
+   * Excludes destination transforms, clipping and canvas effects.
+   * Load fonts first; create a new layout after changing content or fonts. */
+  readonly paintBounds: PaintBounds;
   /**
    * The COMPLETE layout — the rendering surface. This tree is exactly what
    * `drawLayout` paints: every run keeps its own style, exact position and
@@ -147,15 +154,9 @@ export interface LayoutLine {
   };
 }
 
-export interface RenderResult {
+export interface RenderResult extends LayoutResult {
   /** The canvas that was rendered onto */
   canvas: AnyCanvas;
-  /** Content height in CSS pixels after layout */
-  height: number;
-  /** The complete layout that was painted — see `LayoutResult.layoutRoot`. */
-  layoutRoot: LayoutBox;
-  /** Lossy per-line summary — see `LayoutResult.lines`. */
-  lines: LayoutLine[];
 }
 
 /**

@@ -638,16 +638,7 @@ function paintNode(
   }
 }
 
-/** Insert CSS shadows before their text without reordering background paints.
- * The caller's canvas shadow belongs to the completed result. */
-export function renderNode(
-  ctx: CanvasRenderingContext2D, node: LayoutNode, options: ShadowOptions = {},
-): void {
-  if (options.renderShadows === false) {
-    withoutCanvasShadow(ctx, target => paintNode(target, node));
-    return;
-  }
-  const { createCanvas } = options;
+function collectShadowPasses(node: LayoutNode) {
   type ShadowGroup = { runs: Set<LayoutText>; shadows: ReturnType<typeof parseTextShadows> };
   const passes = new Map<LayoutText, Map<string, ShadowGroup>>();
   let first: LayoutText | undefined;
@@ -672,32 +663,51 @@ export function renderNode(
     group.runs.add(node);
   };
   collect(node);
-  const boundsFor = (node: LayoutNode): PaintBounds => {
-    if (node.type === 'box') {
-      let bounds = { x: node.x, y: node.y, width: node.width, height: node.height };
-      forEachPaintedChild(node, child => { bounds = unionBounds(bounds, boundsFor(child)); });
-      return bounds;
-    }
-    ctx.save();
-    applyTextState(ctx, node.style);
-    let bounds = textPaintBounds(ctx, node.text, node.style, node.x, node.y, node.width, node.style.direction === 'rtl');
-    ctx.restore();
-    if (node.lineBaselineY !== undefined) {
-      bounds = unionBounds(bounds, { ...bounds, y: bounds.y + node.lineBaselineY - node.y });
-    }
+  return passes;
+}
+
+function foregroundBounds(ctx: CanvasRenderingContext2D, node: LayoutNode): PaintBounds {
+  if (node.type === 'box') {
+    let bounds = { x: node.x, y: node.y, width: node.width, height: node.height };
+    forEachPaintedChild(node, child => { bounds = unionBounds(bounds, foregroundBounds(ctx, child)); });
     return bounds;
-  };
-  withCanvasShadow(ctx, () => {
-    let bounds = boundsFor(node);
-    for (const groups of passes.values()) for (const group of groups.values()) {
-      const ink = [...group.runs].map(boundsFor).reduce(unionBounds);
-      bounds = unionBounds(bounds, shadowBounds(ink, group.shadows));
-    }
-    return bounds;
-  }, target => {
+  }
+  ctx.save();
+  applyTextState(ctx, node.style);
+  let bounds = textPaintBounds(ctx, node.text, node.style, node.x, node.y, node.width, node.style.direction === 'rtl');
+  ctx.restore();
+  if (node.lineBaselineY !== undefined) {
+    bounds = unionBounds(bounds, { ...bounds, y: bounds.y + node.lineBaselineY - node.y });
+  }
+  return bounds;
+}
+
+export function getNodePaintBounds(
+  ctx: CanvasRenderingContext2D, node: LayoutNode, passes = collectShadowPasses(node),
+): PaintBounds {
+  let bounds = foregroundBounds(ctx, node);
+  for (const groups of passes.values()) for (const group of groups.values()) {
+    const ink = [...group.runs].map(run => foregroundBounds(ctx, run)).reduce(unionBounds);
+    bounds = unionBounds(bounds, shadowBounds(ink, group.shadows));
+  }
+  return bounds;
+}
+
+/** Insert CSS shadows before their text without reordering background paints.
+ * The caller's canvas shadow belongs to the completed result. */
+export function renderNode(
+  ctx: CanvasRenderingContext2D, node: LayoutNode, options: ShadowOptions = {},
+): void {
+  if (options.renderShadows === false) {
+    withoutCanvasShadow(ctx, target => paintNode(target, node));
+    return;
+  }
+  const { createCanvas } = options;
+  const passes = collectShadowPasses(node);
+  withCanvasShadow(ctx, () => getNodePaintBounds(ctx, node, passes), target => {
     paintNode(target, node, null, null, { beforeText: (destination, run) => {
       for (const group of passes.get(run)?.values() ?? []) {
-        const bounds = [...group.runs].map(boundsFor).reduce(unionBounds);
+        const bounds = [...group.runs].map(run => foregroundBounds(ctx, run)).reduce(unionBounds);
         paintTextShadows(destination, bounds, group.shadows,
           mask => paintNode(mask, node, null, null, { runs: group.runs }), createCanvas);
       }
