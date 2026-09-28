@@ -139,9 +139,15 @@ describe('4. text-align-last: justify', () => {
   });
 });
 
-// ─── 5. text-transform: capitalize + Unicode ──────────────────────────
+// ─── 5. text-transform: capitalize ────────────────────────────────────
 
-describe('5. text-transform: capitalize Unicode', () => {
+describe('5. text-transform: capitalize', () => {
+  it('starts a new word inside an inline-block', () => {
+    const html = `<div style="text-transform:capitalize; font:20px sans-serif">he<span style="display:inline-block">llo</span></div>`;
+    const { lines } = renderToCanvas(html, '', 300, 80, 1);
+    expect(lines.map(line => line.text).join('')).toBe('HeLlo');
+  });
+
   it('capitalizes non-ASCII first letters (über → Über)', () => {
     const html = `<div style="text-transform:capitalize; font:20px sans-serif">über</div>`;
     const browser = browserWordPositions(html);

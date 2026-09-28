@@ -2,6 +2,12 @@
 
 Only the interesting, user-visible changes. Full detail lives in the git history.
 
+## 0.2.1 — 2026-09-28
+
+- Text on a path now applies CSS `text-transform`.
+- Capitalization follows browser word boundaries across inline styles, quotes and inline blocks.
+- Text on a path omits `display:none` descendants.
+
 ## 0.2.0 — 2026-09-23
 
 - Add lazy `paintBounds` to ordinary and curved text layouts, including overflowing glyphs, strokes, decorations and CSS shadows.

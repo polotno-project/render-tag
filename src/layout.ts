@@ -300,17 +300,46 @@ function leadedBox(
   return { ascent: boxAscent, descent: lineHeight - boxAscent };
 }
 
-function applyTextTransform(text: string, transform: string): string {
+/** Transform source text before measuring it, while keeping CSS word context
+ * across inline style boundaries. Runs with no transform still participate in
+ * word detection: a later capitalize run must not recase the middle of a word.
+ */
+export function transformTextRuns<T extends {
+  text: string;
+  style: { textTransform: string };
+  wordBoundaryBefore?: boolean;
+}>(
+  runs: T[],
+): T[] {
+  if (!runs.some(run => run.style.textTransform !== 'none')) return runs;
 
-  switch (transform) {
-    case 'uppercase': return text.toUpperCase();
-    case 'lowercase': return text.toLowerCase();
-    // Capitalize the first letter of each word. A mid-word apostrophe is NOT a
-    // word boundary (UAX#29), so "o'clock" → "O'clock", not "O'Clock".
-    case 'capitalize': return text.replace(/(^|[\s\p{P}])(\p{L})/gu, (m, p, c) =>
-      p === "'" || p === '’' ? m : p + c.toUpperCase());
-    default: return text;
+  let source = '';
+  const offsets = runs.map(run => {
+    if (run.wordBoundaryBefore) source += ' ';
+    const offset = source.length;
+    source += run.text;
+    return offset;
+  });
+  const capitals = new Set<number>();
+  for (const match of source.matchAll(/(^|[\s\p{P}\p{S}])(\p{L})/gu)) {
+    const boundary = match[1];
+    const index = match.index + boundary.length;
+    // Apostrophes within a word do not start a new word; opening quotes do.
+    if ((boundary === "'" || boundary === '’') &&
+      /[\p{L}\p{N}]\p{M}*$/u.test(source.slice(0, index - 1))) continue;
+    capitals.add(index);
   }
+
+  return runs.map((run, runIndex) => {
+    const transform = run.style.textTransform;
+    const text = transform === 'uppercase' ? run.text.toUpperCase()
+      : transform === 'lowercase' ? run.text.toLowerCase()
+      : transform === 'capitalize'
+        ? run.text.replace(/\p{L}/gu, (letter, index) =>
+          capitals.has(offsets[runIndex] + index) ? letter.toUpperCase() : letter)
+        : run.text;
+    return { ...run, text };
+  });
 }
 
 function isInline(node: StyledNode): boolean {
@@ -503,6 +532,8 @@ export function hasTextClip(style: ResolvedStyle): boolean {
 interface TextRun {
   text: string;
   style: ResolvedStyle;
+  /** Atomic inline-block content starts a new CSS word. */
+  wordBoundaryBefore?: boolean;
   /**
    * The style of the PARENT of the element this run's style came from — what
    * `vertical-align` measures its shift against (CSS 2.1 §10.8.1). Not the
@@ -716,6 +747,7 @@ function collectTextRuns(node: StyledNode): TextRun[] {
       runs.push({
         text: allText,
         style: n.style,
+        wordBoundaryBefore: true,
         parentStyle,
         boxStyle: newBoxStyle,
         clipStyle: newClipStyle,
@@ -998,7 +1030,7 @@ function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRu
 function tokenizeRuns(ctx: CanvasRenderingContext2D, runs: TextRun[]): Word[] {
   const allWords: Word[] = [];
 
-  for (const run of runs) {
+  for (const run of transformTextRuns(runs)) {
     // Handle inline-block margins (empty text, no boxOpen/boxClose)
     if (run.text === '' && !run.boxOpen && !run.boxClose) {
       const margin = run.style.display === 'inline-block'
@@ -1015,7 +1047,7 @@ function tokenizeRuns(ctx: CanvasRenderingContext2D, runs: TextRun[]): Word[] {
     if (run.boxOpen && run.boxClose && run.text) {
       applyFont(ctx, run.style);
       ctx.letterSpacing = formatLetterSpacing(run.style.letterSpacing);
-      const text = applyTextTransform(run.text, run.style.textTransform);
+      const text = run.text;
       const s = run.style;
       const textWidth = cachedMeasureWidth(ctx, text);
       const totalWidth = s.marginLeft + s.borderLeftWidth + s.paddingLeft +
@@ -1054,7 +1086,7 @@ function tokenizeRuns(ctx: CanvasRenderingContext2D, runs: TextRun[]): Word[] {
 
     applyFont(ctx, run.style);
     ctx.letterSpacing = formatLetterSpacing(run.style.letterSpacing);
-    const text = applyTextTransform(run.text, run.style.textTransform);
+    const text = run.text;
 
     // Mark the first word produced from `startLen` as having no soft-wrap
     // opportunity before it when it directly abuts real text from a previous

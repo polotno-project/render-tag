@@ -151,7 +151,7 @@ drawTextOnPath({
 `'middle'` — path through the vertical center.
 `'top'` / `'bottom'` — text hangs below / above the path.
 
-Same HTML/CSS dialect as the main API: fonts, colors, weights, `direction: rtl`, `text-shadow`, `background-color`, `text-decoration`, gradient text via `background-clip: text`. Joining scripts (Arabic, Hebrew, Indic, Thai, Khmer, Myanmar) are shaped as runs so cursive joining works.
+Same HTML/CSS dialect as the main API: fonts, colors, weights, `text-transform`, `direction: rtl`, `text-shadow`, `background-color`, `text-decoration`, gradient text via `background-clip: text`. Joining scripts (Arabic, Hebrew, Indic, Thai, Khmer, Myanmar) are shaped as runs so cursive joining works.
 
 The path lays out as a single logical line — glyphs that overflow the path's end are dropped.
 

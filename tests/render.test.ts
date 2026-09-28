@@ -242,6 +242,7 @@ describe('HTML Canvas Renderer', () => {
   });
 
   describe('Multi-font matrix', () => {
+    // Cold WebKit native captures can take longer than five minutes on macOS.
     it('all cases × all fonts (score + wrapping)', async () => {
       if (!allCases) allCases = await loadBasicCases();
       const multiFontCss = await loadMultiFontCss();
@@ -281,7 +282,7 @@ describe('HTML Canvas Renderer', () => {
         baselineIssues,
         `Baseline contract changed:\n  ${baselineIssues.join('\n  ')}`,
       ).toEqual([]);
-    }, 300000);
+    }, 900000);
   });
 
   describe('Visual debug: bullet item with leading nbsp', () => {

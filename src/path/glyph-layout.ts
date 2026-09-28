@@ -11,13 +11,15 @@
  */
 
 import type { ResolvedStyle, StyledNode } from '../types.js';
-import { applyFont, getFontMetrics, hasTextClip } from '../layout.js';
+import { applyFont, getFontMetrics, hasTextClip, transformTextRuns } from '../layout.js';
 import { stringToArray } from './grapheme.js';
 import type { PathLike, Point } from './svg-path.js';
 
 export interface Segment {
   text: string;
   style: ResolvedStyle;
+  /** An atomic or block element starts a new CSS word for capitalize. */
+  wordBoundaryBefore?: boolean;
   /** True when this segment should be laid out right-to-left. */
   rtl: boolean;
   /** Nearest ancestor-or-self element declaring background-clip:text + background.
@@ -140,21 +142,30 @@ export function baselineLocalY(
 
 /**
  * Flatten a styled tree into a flat sequence of styled text segments.
- * Walks in document order; concatenates text under nested inline elements.
+ * Walks in document order; text transforms keep word context across elements.
  * Each `#text` node contributes one segment with its resolved style.
  */
 export function flattenSegments(root: StyledNode): Segment[] {
   const out: Segment[] = [];
+  let wordBoundaryBefore = false;
   function walk(
     node: StyledNode,
     inheritedRtl: boolean,
     clipStyle?: ResolvedStyle,
     strokeImageStyle?: ResolvedStyle,
   ) {
+    if (node.style.display === 'none') return;
     const rtl = node.style.direction === 'rtl' || inheritedRtl;
     if (node.tagName === '#text' && node.textContent) {
-      out.push({ text: node.textContent, style: node.style, rtl, clipStyle, strokeImageStyle });
+      out.push({
+        text: node.textContent, style: node.style, rtl, clipStyle, strokeImageStyle,
+        wordBoundaryBefore,
+      });
+      wordBoundaryBefore = false;
       return;
+    }
+    if (node !== root && node.style.display !== 'inline' && node.style.display !== 'contents') {
+      wordBoundaryBefore = true;
     }
     // Track the nearest element declaring a background-clip:text background or
     // a --rt-text-stroke-image — those paints propagate to descendant glyphs
@@ -166,7 +177,7 @@ export function flattenSegments(root: StyledNode): Segment[] {
     for (const child of node.children) walk(child, rtl, newClip, newStroke);
   }
   walk(root, false);
-  return out;
+  return transformTextRuns(out);
 }
 
 // Unicode ranges where graphemes need shape-aware rendering. The browser's

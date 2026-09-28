@@ -81,6 +81,42 @@ describe('drawTextOnPath (integration)', () => {
     expect(result.glyphs[2].style.fontWeight).toBe(result.glyphs[0].style.fontWeight);
   });
 
+  // Path and block layout use the same CSS word context before measuring text.
+  it('text-transform: lays out transformed characters across style boundaries', () => {
+    const chars = (html: string) =>
+      layoutTextOnPath({ html, path: 'M0,50 L800,50', align: 'left' })
+        .glyphs.map((g) => g.char)
+        .join('');
+    const font = 'font-size: 20px; font-family: sans-serif';
+    expect(chars(`<span style="${font}; text-transform: uppercase">Ab <b>cd</b></span>`)).toBe('AB CD');
+    // A run can opt back out of an inherited transform.
+    expect(
+      chars(`<span style="${font}; text-transform: uppercase">ab<span style="text-transform: none">cd</span></span>`),
+    ).toBe('ABcd');
+    expect(chars(`<span style="${font}">ab<span style="text-transform: uppercase">cd</span></span>`)).toBe('abCD');
+    expect(chars(`<span style="${font}; text-transform: lowercase">AB</span>`)).toBe('ab');
+    // Inline blocks start a new word; inline and display:contents elements do not.
+    expect(chars(`<span style="${font}; text-transform: capitalize">he<span style="display:contents">llo</span></span>`)).toBe('Hello');
+    expect(chars(`<span style="${font}; text-transform: capitalize"><span style="display:inline-block">he</span>llo</span>`)).toBe('Hello');
+    expect(chars(`<span style="${font}; text-transform: capitalize">he<span style="display:inline-block">llo</span></span>`)).toBe('HeLlo');
+    expect(chars(`<span style="${font}; text-transform: capitalize"><b>he</b>llo</span>`)).toBe('Hello');
+    // Opening quotes and symbols also start words.
+    expect(chars(`<span style="${font}; text-transform: capitalize">'hello' 😀world</span>`)).toBe("'Hello' 😀World");
+    // Hidden descendants do not contribute glyphs.
+    expect(chars(`<span style="${font}; text-transform: uppercase">a<span style="display:none">hidden</span>b</span>`)).toBe('AB');
+    // A length-changing case mapping advances by the characters drawn.
+    const upper = layoutTextOnPath({
+      html: `<span style="${font}; text-transform: uppercase">ß</span>`,
+      path: 'M0,50 L800,50',
+      align: 'left',
+    });
+    expect(upper.glyphs.map((g) => g.char).join('')).toBe('SS');
+    expect(upper.textWidth).toBeCloseTo(
+      layoutTextOnPath({ html: `<span style="${font}">SS</span>`, path: 'M0,50 L800,50', align: 'left' }).textWidth,
+      5,
+    );
+  });
+
   it('curved path: glyphs follow the curve with non-zero rotation', () => {
     const { ctx } = makeCanvas(400, 200);
     // Steeper arc — semicircle to guarantee meaningful rotation.

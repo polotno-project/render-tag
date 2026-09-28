@@ -25,7 +25,7 @@
  *   text-decoration: underline / line-through / overline (solid/dotted/dashed/double/wavy)
  *   text-decoration-color, text-decoration-style
  *   background-clip:text + background-image:linear-gradient (gradient flows along the path)
- *   letter-spacing, direction: rtl, dir="rtl"
+ *   letter-spacing, text-transform, direction: rtl, dir="rtl"
  *   Arabic / Hebrew / Indic / Thai / Khmer / Myanmar — shaped runs are
  *   rendered as a unit so cursive joining and reordering work correctly.
  */

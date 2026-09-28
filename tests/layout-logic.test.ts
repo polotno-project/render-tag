@@ -765,6 +765,29 @@ describe('Layout logic (mocked measureText)', () => {
       expect(allText).toContain('Test-Case');
       expect(allText).toContain('(Paren)');
     });
+
+    it('capitalize keeps word context across inline runs', () => {
+      const cap = { textTransform: 'capitalize' };
+      const tree = block('div', [
+        block('p', [
+          inline('span', [textNode('he', cap)], cap),
+          textNode('ll', { textTransform: 'none' }),
+          textNode('o go:', cap),
+          inline('span', [textNode('home', cap)], cap),
+          textNode(' 😀world', cap),
+        ]),
+      ]);
+      const allText = collectTexts(doLayout(tree, 600)).map(t => t.text).join('');
+      expect(allText).toBe('Hello Go:Home 😀World');
+    });
+
+    it('capitalize treats an opening apostrophe as a word boundary', () => {
+      const tree = block('div', [
+        block('p', [textNode("'hello' and o'clock", { textTransform: 'capitalize' })]),
+      ]);
+      const allText = collectTexts(doLayout(tree, 300)).map(t => t.text).join('');
+      expect(allText).toBe("'Hello' And O'clock");
+    });
   });
 
   // ─── Pre-wrap / newlines ───────────────────────────────────────────
