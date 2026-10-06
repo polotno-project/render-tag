@@ -3,7 +3,7 @@ import {
   compareWrapping,
   prepareComparisonFonts,
   warmNativeLayout,
-  UNPAIRABLE_WRAP_CASES,
+  SWEEP_WRAP_SKIPS,
 } from './helpers/compare.ts';
 import {
   loadBasicCases,
@@ -26,7 +26,7 @@ const CASE_FILTER: Set<string> | null = null;
 const WIDTH_MODE: 'coarse' | 'fine' | string = 'coarse';
 
 // Measured but flagged "known" so they don't pollute the actionable list.
-const KNOWN_HARD = UNPAIRABLE_WRAP_CASES;
+const KNOWN_HARD = SWEEP_WRAP_SKIPS;
 
 /** Width sweep for a case based on its natural width. */
 function widthsFor(tc: BenchmarkCase): number[] {

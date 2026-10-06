@@ -4,14 +4,26 @@
  * These test deterministic algorithms (line breaking, margin collapsing,
  * hyphen splitting, etc.) without browser dependencies. The mock context
  * uses a fixed character width so tests are predictable and fast.
+ *
+ * Runs in Node (`npm run test:node`), not a browser: the few cases that go
+ * through `layout({ html })` parse with linkedom, which tests/node/parity
+ * pins against the browser parser. Node has no Gecko/WebKit UA, so the engine
+ * flags (BLINK_SUPER_SUB, ...) always take the Blink branch here — the same
+ * branch the Chromium lane, this file's old home, exercised. A case that
+ * needs real font metrics belongs in a browser suite instead (the block-strut
+ * baseline case lives in tests/line-baseline-parity.test.ts).
  */
-import { describe, it, expect } from 'vitest';
-import { buildLayoutTree, sameDecorationBand, BLINK_SUPER_SUB } from '../src/layout.ts';
-import { layout } from '../src/index.ts';
-import { mockCtx, CHAR_WIDTH } from './helpers/mock-ctx.ts';
-import type { StyledNode, ResolvedStyle, LayoutBox, LayoutText, DecorationEntry } from '../src/types.ts';
-import { collectInlineBoxes, collectTexts } from './helpers/layout-tree.ts';
-import { styleFixture as defaultStyle } from './helpers/style-fixture.ts';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { DOMParser as LinkedomDOMParser } from 'linkedom';
+import { buildLayoutTree, sameDecorationBand, BLINK_SUPER_SUB } from '../../src/layout.ts';
+import { layout, setDOMParser } from '../../src/index.node.ts';
+import { mockCtx, CHAR_WIDTH } from '../helpers/mock-ctx.ts';
+import type { StyledNode, ResolvedStyle, LayoutBox, LayoutText, DecorationEntry } from '../../src/types.ts';
+import { collectInlineBoxes, collectTexts } from '../helpers/layout-tree.ts';
+import { styleFixture as defaultStyle } from '../helpers/style-fixture.ts';
+
+beforeAll(() => setDOMParser(new LinkedomDOMParser()));
+afterAll(() => setDOMParser(null));
 
 // ─── Test helpers ──────────────────────────────────────────────────────
 
@@ -1053,27 +1065,6 @@ describe('Layout logic (mocked measureText)', () => {
       ]);
       const { height } = buildLayoutTree(ctx, tree, 600, false);
       expect(height).toBeCloseTo(91, 0); // content wins over the 50px strut
-    });
-
-    // The strut is a BASELINE participant, not only a height floor: a smaller
-    // inline sits on the block-font baseline (lower in the taller line box),
-    // not centered in it. This needs real font metrics (they must scale with
-    // font-size — the mock ctx returns a fixed ascent/descent), so it runs the
-    // full layout() with a system font. Guards the maxAscent/maxDescent strut
-    // seed; without it the small glyph rides ~12px too high.
-    it('aligns smaller-only inline text to the block-font baseline (real fonts)', () => {
-      const baselineOf = (html: string): number => {
-        const res = layout({
-          html: `<div style="font-family:Arial;font-size:76px;line-height:1.2">${html}</div>`,
-          width: 600,
-        });
-        // LayoutText.y is the baseline.
-        return collectTexts(res.layoutRoot).find((t) => t.text === 'x')!.y;
-      };
-      // A 42px span and a full-size 76px glyph share the same strut baseline.
-      const small = baselineOf('<span style="font-size:42px">x</span>');
-      const full = baselineOf('x');
-      expect(Math.abs(small - full)).toBeLessThan(1.5);
     });
   });
 

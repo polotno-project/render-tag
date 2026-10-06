@@ -104,3 +104,28 @@ describe('line-box baseline', () => {
     },
   );
 });
+
+describe('block strut baseline', () => {
+  // The strut is a BASELINE participant, not only a height floor: a smaller
+  // inline sits on the block-font baseline (lower in the taller line box),
+  // not centered in it. This needs real font metrics (they must scale with
+  // font-size — the mock ctx returns a fixed ascent/descent), so it runs the
+  // full layout() with a system font, here rather than with the mocked
+  // strut cases in tests/node/layout-logic.test.ts. Guards the
+  // maxAscent/maxDescent strut seed; without it the small glyph rides ~12px
+  // too high.
+  it('aligns smaller-only inline text to the block-font baseline (real fonts)', () => {
+    const baselineOf = (html: string): number => {
+      const res = layout({
+        html: `<div style="font-family:Arial;font-size:76px;line-height:1.2">${html}</div>`,
+        width: 600,
+      });
+      // LayoutText.y is the baseline.
+      return collectTexts(res.layoutRoot).find((t) => t.text === 'x')!.y;
+    };
+    // A 42px span and a full-size 76px glyph share the same strut baseline.
+    const small = baselineOf('<span style="font-size:42px">x</span>');
+    const full = baselineOf('x');
+    expect(Math.abs(small - full)).toBeLessThan(1.5);
+  });
+});

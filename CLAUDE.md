@@ -77,9 +77,10 @@ regression there caches a wrong reference rather than failing. Native reference
 PNGs persist in
 `node_modules/.cache/render-tag/native-dom/`, which is already git-ignored.
 The cache key includes the complete fixture, viewport, DPR, browser build, OS,
-package lock, and capture implementation; references captured under a
-superseded environment are pruned. A render-tag source change does not
-invalidate the independent reference. Run `npm run test:clear-native-cache` to
+the installed Playwright and `@fontsource*` versions, and the capture
+implementation; references captured under a superseded environment are pruned.
+A render-tag source change does not invalidate the independent reference, and
+neither does any other dependency bump (vitest, vite, TypeScript). Run `npm run test:clear-native-cache` to
 force a cold reference run.
 
 All corpus fonts are pinned `@fontsource` dev dependencies. The fallback stack
@@ -90,7 +91,11 @@ contact Google Fonts or depend on system fallback selection.
 `tests/helpers/compare.ts` registers every unique rule in a stable order and
 warms the actual fixture text before measuring. Native captures keep only faces
 that cover that fixture, then load them sequentially. A load error throws before
-pixels or wrapping can be recorded.
+pixels or wrapping can be recorded. The canvas side gets the fixture CSS through
+`canvasFixtureHtml`, with every `@font-face` stripped: the faces are already in
+`document.fonts`, and parsing ~370 KB of them cost about 3 ms per `layout()`
+call against ~0.4 ms for the layout itself (the 1px sweep went from ~100 s to
+~20 s, with every score, wrap and sweep result byte-identical).
 
 Unicode-range fonts often put spaces and punctuation in a different face from
 the letters. Fixture pruning keeps those neutral faces for the active
@@ -112,18 +117,19 @@ cross-browser structure, and width-sweep checks.
 
 ### Running tests
 ```bash
-npm test                                      # baseline pixel/wrap tests (vitest + Chromium)
+npm test                                      # baseline pixel/wrap tests (Chromium) + Node suites
 npm run test:firefox                          # full Firefox + cross-browser + stress gates
 npm run test:webkit                           # full WebKit + cross-browser + stress gates
 npm run test:safari-native                    # manual visible Safari diagnostic (macOS; non-core)
 npm run test:svg-oracle                       # optional SVG demo-path canary; not a core gate
 npm run test:clear-native-cache               # remove local native-reference PNGs
-npx vitest run tests/layout-logic.test.ts     # layout unit tests (mocked measureText, fast)
+npx vitest run -c vitest.node.config.ts tests/node/layout-logic.test.ts  # layout unit tests (Node, mocked measureText, <1s)
 npx vitest run tests/wrapping-parity.test.ts  # focused Chrome DOM-wrap regressions
 npx vitest run tests/flex-parity.test.ts      # flex item geometry vs the DOM (all 3 lanes)
+npx vitest run tests/geometry-oracle.test.ts  # line/token geometry vs the DOM, report-only (Chromium + WebKit)
 npx vitest run tests/render.test.ts           # render quality tests
 npm run test:stress                           # native-DOM layout width sweep (7 cases, 10px)
-npm run test:wrap-sweep                       # full corpus x all fonts at 1px (rare, ~13 min)
+npm run test:wrap-sweep                       # full corpus at 1px, default font (rare, ~20 s)
 ```
 
 ### CI vs local deep testing (portable mode)
@@ -190,9 +196,20 @@ image update flakes them, move that gate behind the flag too.
   - `npm run test:update-cross-browser-baseline:{firefox,webkit}` — structural residuals
   - `npm run test:update-stress-baseline[:firefox|:webkit]` — width-sweep residuals
   - `npm run test:update-wrap-sweep-baseline[:firefox|:webkit]` — full-corpus 1px sweep bands
+  - `npm run test:update-perf-counters` — Node work-counter bounds (`tests/perf-counters-baseline.json`)
 
-### Unit tests for layout logic (`tests/layout-logic.test.ts`)
+### Unit tests for layout logic (`tests/node/layout-logic.test.ts`)
 Unit tests cover deterministic layout algorithms directly — no browser, no fonts, no pixels. They mock `ctx.measureText` to return predictable widths (e.g., 10px per character), then assert the output of layout functions.
+
+They run in **Node** under `npm run test:node` (part of `npm test`), so a
+focused run takes under a second — pass `-c vitest.node.config.ts`, or the
+default config runs the file in Chromium. Cases that go through
+`layout({ html })` parse with linkedom (`setDOMParser`), which
+`tests/node/parity.test.ts` pins against the browser parser. Node has no
+Gecko/WebKit user agent, so the engine flags always take the Blink branch
+there. A case that needs real font metrics or the DOM does not belong here:
+put it in a browser suite (the real-font block-strut baseline case lives in
+`tests/line-baseline-parity.test.ts`).
 
 **Good candidates:** hyphen breaking, margin collapsing, line breaking, whitespace handling (`pre-wrap`, `nowrap`, tabs, newlines), CJK breaking, text transform, inline-block atomic wrapping, flex/table column distribution.
 
@@ -205,12 +222,47 @@ Unit tests cover deterministic layout algorithms directly — no browser, no fon
 4. Run it — confirm it **passes** (green)
 5. Then run baseline tests (`npm test`) to check for regressions
 
+### Determinism and work-counter gates (`tests/node/`) — Tier 0, in `npm test`
+Both run in Node on `tests/helpers/recording-ctx.ts`: a Canvas stand-in whose
+widths follow the WHOLE measuring state (size, face, `letterSpacing`,
+`wordSpacing`, `fontKerning` as a pair term) and which records paint as
+effective operations — each fillText/stroke/drawImage with the state it reads.
+`tests/helpers/node-corpus.ts` loads the browser corpus in Node with inert
+`@font-face` rules. Neither gate is environment-pinned, so CI runs both at
+full strictness.
+
+- **`determinism.test.ts`** — every corpus case (own width, 0.6× width, and
+  the same text re-stated under letter-spacing, word-spacing and
+  `font-kerning: none` — one property per variant, so a cache key missing
+  any single one collides) laid out and drawn in
+  a FRESH module graph, then again forward and in reverse through ONE module
+  graph and ONE shared ctx. The serialized `LayoutResult` (including object
+  sharing, `paintBounds`) and the paint stream must be identical; text-on-path
+  likewise. Any cache that outlives a call must keep this green — add it
+  before the cache, not after.
+- **`perf-counters.test.ts`** — exact work counts on four fixtures (2000-word
+  paragraph, 2000-char CJK paragraph, the `perf.test` document, a 4000-item
+  `<ol>`): measureText calls and characters, `ctx.font` sets, fillText/save/
+  restore per draw, LayoutText count. `tests/perf-counters-baseline.json`
+  holds them as a ratchet: UP fails as a regression, DOWN fails until
+  promoted with `npm run test:update-perf-counters`. The recorded
+  `measuredChars` are quadratic today (~2000× the source on the long
+  paragraph); the measurement-core work is what should lower them.
+
 ### Full-corpus 1px width sweep (`tests/wrap-sweep.test.ts`) — rare milestone gate
 
 The wide net for line-breaking bugs. Not in `npm test`: it sweeps every corpus
-case (plus the polotno cases) across every width from 100px to the case's own
-width in **1px** steps, in all six font variants — ~195k line-membership
-comparisons per lane, ~13 minutes. Run it deliberately, like a baseline.
+case (plus the polotno cases, minus `SWEEP_WRAP_SKIPS`) across every width from
+100px to the case's own width in **1px** steps. The recorded gate is
+`FONT_MODE = 'default'` — the corpus font only: 89 keys, ~31.7k line-membership
+comparisons per lane, ~20 s in Chrome, ~65 s in WebKit. Run it deliberately,
+like a baseline.
+
+`FONT_MODE = 'all'` adds the 5 font variants (519 keys, ~184k comparisons,
+~2 min in Chrome). It completes now that the sweep yields inside each case,
+but `wrap-sweep-baseline.json` records only default-font keys, so an `'all'`
+run fails the gate on every `@<font>` key — use it to explore, and record it
+before gating on it.
 
 ```bash
 npm run test:wrap-sweep[:firefox|:webkit]
@@ -249,13 +301,47 @@ all other widths — `Non-Latin text alignment`, `Simplified Chinese text` and
 Tune `FONT_MODE` / `CASE_FILTER` at the top of the file for a fast subset run
 (plain constants — the browser context has no `process.env`).
 
-Browser console output does not stream from this runner, and a long run can
-kill the page mid-sweep — with vitest sometimes still exiting 0. The sweep
+Browser console output does not stream from this runner, and a long
+synchronous loop can kill the page mid-sweep ("rpc is closed") — with vitest
+sometimes still exiting 0. `sweepWrapWidths` therefore yields the page's task
+queue every 200ms of work, inside a case and not only between keys (a sweep
+with no yields died after 26 s; with them it completes). The sweep also
 writes `tests/wrap-sweep-progress.<browser>.log` (git-ignored) before each
-key; on a silent death that file names the key that was running. The write's
-RPC round-trip also yields the page's task queue between keys — multi-font
-runs died without it and completed with it. A completed run always writes
-`tests/wrap-sweep-report.<browser>.json`; no report file means the run died.
+key; on a silent death that file names the key that was running. A completed
+run always writes `tests/wrap-sweep-report.<browser>.json`; no report file
+means the run died.
+
+### Geometry oracle (`tests/geometry-oracle.test.ts`) — shadow mode, report-only
+
+Tier-2 geometry: WHERE render-tag puts each line and word, against the
+browser's own layout of the same fixture, instead of how many pixels differ.
+`compareGeometry` (`tests/helpers/geometry.ts`) runs the corpus x all six
+fonts at each case's own width (~4 s Chromium, ~17 s WebKit) and writes
+`tests/geometry-report.<browser>.json` (git-ignored): per key, order-aware
+line membership, per-line visual order, and signed per-token x / baseline /
+advance and per-line baseline / x-range errors. It asserts nothing about the
+numbers yet; only an exception fails it. It is in the Chromium and WebKit
+lanes; Firefox has not been run.
+
+- Same mount and word walk as the wrap oracle (`mountFixture`,
+  `collectDomWords`, LAST character rect); both sides are cut into lines by
+  the one rule, `groupDomLines`, which `collectDomLines` also uses. Its
+  membership verdict equals the recorded `wrap` bit on every key in both
+  lanes.
+- Membership compares each line's glyphs in LOGICAL order (wrap-comparison
+  sorts code points). Visual order is checked separately; that is how it
+  finds `Mixed scripts with formatting` painting two adjacent RTL words in
+  logical order inside an LTR line. RTL bidi-override runs are stored
+  visually reversed, so their lines compare order-insensitively.
+- Tokens pair through a character alignment: the DOM tokenizes per word,
+  render-tag per run.
+- The DOM has no baseline. It is the word rect's top plus that engine's
+  content-area ascent, measured once per computed font outside the fixture
+  with a zero-size inline-block probe. Blink rounds that ascent to a whole
+  px, so `canvas fontBoundingBoxAscent` would put the baseline up to ~0.5px
+  off. `dAscent` keeps the difference visible.
+- WebKit Range rects are pixel-snapped, so its token x and advance have a
+  ~1px floor. Baselines are not affected.
 
 ### Wrap-accuracy debugging harness (`tests/wrap-debug.test.ts`)
 A maintainer tool (not part of `npm test`) for hunting text-wrapping divergences
@@ -493,7 +579,7 @@ improvement." The Chrome baseline improved (bullets: ~8px→<1.3px vs native).
 
 ## Commands
 - `npm run dev` — demo page with side-by-side comparison
-- `npm test` — vitest in Chromium
+- `npm test` — vitest in Chromium, then the Node suites (`npm run test:node`)
 - `npm run test:firefox` — vitest in Firefox (own baselines)
 - `npm run test:webkit` — full WebKit suite (own baselines; not branded Safari)
 - `npm run test:safari-native` — manual visible Safari canaries through safaridriver (non-core)

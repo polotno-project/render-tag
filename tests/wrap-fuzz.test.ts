@@ -20,7 +20,9 @@ import { PORTABLE_GATES_ONLY } from './helpers/portable-mode.ts';
  * mid-word) under different text-align / white-space / overflow-wrap.
  *
  * The seeded PRNG makes the generated corpus deterministic, so this can fail
- * the build. It asserts two things:
+ * the build. It asserts three things:
+ *   • HARD: nothing throws — an exception in render() or the comparison is a
+ *     failure with its reproducer, never a skipped width.
  *   • HARD: zero box-overflow (a canvas line wider than its container) — the
  *     clear render-bug class; robust (tens of px, never sub-pixel).
  *   • No NEW structural (line-count) divergence CLASS beyond the signatures in
@@ -124,13 +126,15 @@ function generate(rng: () => number): GenCase {
 
 // ─── Report types ─────────────────────────────────────────────────────────
 interface Finding {
-  kind: 'linecount' | 'overflow';
+  kind: 'linecount' | 'overflow' | 'exception';
   sig: string;
   html: string;
   width: number;
   canvasLines: number;
   domLines: number;
   overflowPx?: number;
+  /** `exception` only: which call threw, and its message. */
+  error?: string;
   sample: { i: number; canvas: string; dom: string }[];
 }
 
@@ -144,6 +148,16 @@ describe('Wrap fuzz (generative differential)', () => {
     let totalRuns = 0;
     const bySig = new Map<string, { linecount: number; overflow: number }>();
     const seenSig = new Set<string>(); // first reproducer per (sig, kind)
+    // A throw is a failure, never a skipped width: every one is recorded, with
+    // its reproducer, and gated below. Swallowing them hid crashes in
+    // render() and compareWrapping behind a green run.
+    const recordException = (gc: GenCase, width: number, call: string, error: unknown) => {
+      findings.push({
+        kind: 'exception', sig: gc.sig, html: gc.html, width, canvasLines: -1, domLines: -1,
+        error: `${call}: ${error instanceof Error ? error.message : String(error)}`,
+        sample: [],
+      });
+    };
 
     // Fixed width ladder. The canvas .lines layout is independent of canvas
     // height, so we render onto a tiny canvas (H) — only the layout matters.
@@ -163,7 +177,10 @@ describe('Wrap fuzz (generative differential)', () => {
         let res;
         try {
           res = compareWrapping(gc.html, '', width, H);
-        } catch { continue; }
+        } catch (error) {
+          recordException(gc, width, 'compareWrapping', error);
+          continue;
+        }
         if (!res.wrappingMatch && res.canvasLineCount !== res.domLineCount) {
           const rec = bySig.get(gc.sig) || { linecount: 0, overflow: 0 };
           rec.linecount++; bySig.set(gc.sig, rec);
@@ -200,14 +217,17 @@ describe('Wrap fuzz (generative differential)', () => {
               });
             }
           }
-        } catch { /* ignore */ }
+        } catch (error) {
+          recordException(gc, width, 'render', error);
+        }
       }
     }
 
     const lc = findings.filter((f) => f.kind === 'linecount').length;
     const ov = findings.filter((f) => f.kind === 'overflow').length;
+    const ex = findings.filter((f) => f.kind === 'exception').length;
     console.log(`\n=== WRAP FUZZ [${browserName}] cases=${NUM_CASES} runs=${totalRuns} ===`);
-    console.log(`Unique signatures with: line-count divergence=${lc} | overflow=${ov}`);
+    console.log(`Unique signatures with: line-count divergence=${lc} | overflow=${ov} | exceptions=${ex}`);
     console.log('\n-- top signatures (linecount / overflow instance counts) --');
     const sorted = [...bySig.entries()].sort((a, b) => (b[1].linecount + b[1].overflow) - (a[1].linecount + a[1].overflow));
     for (const [sig, rec] of sorted.slice(0, 25)) {
@@ -216,7 +236,7 @@ describe('Wrap fuzz (generative differential)', () => {
 
     const report = JSON.stringify({
       browser: browserName, seed: SEED, numCases: NUM_CASES, totalRuns,
-      uniqueLinecount: lc, uniqueOverflow: ov,
+      uniqueLinecount: lc, uniqueOverflow: ov, exceptions: ex,
       bySig: Object.fromEntries(sorted.map(([s, r]) => [s, r])),
       findings,
     }, null, 2);
@@ -226,6 +246,15 @@ describe('Wrap fuzz (generative differential)', () => {
     console.log(`\nReport written to ${out}`);
 
     // ─── Regression gate ───────────────────────────────────────────────────
+    // 0) HARD: nothing may throw. Not environment-pinned, so portable mode
+    //    keeps it too.
+    const exceptions = findings.filter((f) => f.kind === 'exception');
+    expect(
+      exceptions.length,
+      `Exceptions while laying out or comparing (${exceptions.length}):\n` +
+        exceptions.slice(0, 8).map((f) => `  [${f.sig}] w${f.width} ${f.error}  ${f.html}`).join('\n'),
+    ).toBe(0);
+
     // 1) HARD: no canvas line may overflow its container (the clear render bug
     //    class — e.g. the "last glyph outside the box" report). Robust: tens of
     //    px, never sub-pixel. This must always be zero.

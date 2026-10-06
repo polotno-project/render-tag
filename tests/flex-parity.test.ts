@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { layout } from '../src/index.ts';
 import type { LayoutBox, LayoutNode } from '../src/types.ts';
 import {
+  canvasFixtureHtml,
   compareWrapping,
   extractDomBoxes,
   prepareComparisonFonts,
@@ -27,7 +28,7 @@ function canvasItemBoxes(
   width: number,
   height: number,
 ): { x: number; width: number }[] {
-  const { layoutRoot } = layout({ html: `<style>${css}</style>${html}`, width, height });
+  const { layoutRoot } = layout({ html: canvasFixtureHtml(html, css), width, height });
   const boxes: { x: number; width: number }[] = [];
   const walk = (node: LayoutNode) => {
     if (node.type !== 'box') return;

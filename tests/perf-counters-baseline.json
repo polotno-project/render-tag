@@ -1,0 +1,50 @@
+{
+  "long paragraph (2000 words)": {
+    "sourceChars": 12886,
+    "layoutTexts": 3791,
+    "layout.measureText": 4036,
+    "layout.measuredChars": 25773925,
+    "layout.fontSets": 4,
+    "draw.measureText": 0,
+    "draw.fontSets": 209,
+    "draw.fillText": 209,
+    "draw.save": 209,
+    "draw.restore": 209
+  },
+  "CJK paragraph (2000 chars)": {
+    "sourceChars": 2000,
+    "layoutTexts": 2000,
+    "layout.measureText": 2003,
+    "layout.measuredChars": 2003002,
+    "layout.fontSets": 5,
+    "draw.measureText": 0,
+    "draw.fontSets": 2000,
+    "draw.fillText": 2000,
+    "draw.save": 2000,
+    "draw.restore": 2000
+  },
+  "large rich document (perf.test)": {
+    "sourceChars": 17245,
+    "layoutTexts": 4575,
+    "layout.measureText": 97,
+    "layout.measuredChars": 414,
+    "layout.fontSets": 1006,
+    "draw.measureText": 0,
+    "draw.fontSets": 3625,
+    "draw.fillText": 3625,
+    "draw.save": 3675,
+    "draw.restore": 3675
+  },
+  "ordered list (4000 items)": {
+    "sourceChars": 102890,
+    "layoutTexts": 48000,
+    "layout.measureText": 52007,
+    "layout.measuredChars": 651812,
+    "layout.fontSets": 12002,
+    "draw.measureText": 0,
+    "draw.fontSets": 8000,
+    "draw.fillText": 8000,
+    "draw.save": 8000,
+    "draw.restore": 8000
+  }
+}

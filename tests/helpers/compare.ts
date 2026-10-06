@@ -6,6 +6,7 @@ import {
 } from './wrap-comparison.ts';
 import { keepUsedFontFaces } from './test-cases.ts';
 import { matchFontFaces, stripFontFaces } from './css-text.ts';
+import { isFirefox } from './browser-name.ts';
 
 /**
  * Point a fixture's `html`/`body` rules at the offscreen container instead, so
@@ -137,6 +138,20 @@ export interface ComparisonResult extends PixelComparisonResult {
 }
 
 /**
+ * The html render-tag receives on the canvas side of every comparison: the
+ * fixture CSS inlined as a `<style>`, minus its `@font-face` rules. The faces
+ * reach the canvas through `document.fonts` (prepareComparisonFonts registers
+ * every one before a comparison runs) and the CSS parser skips @-rules, so
+ * they cannot change layout or paint. Embedded, they only cost time: ~370 KB
+ * of face text put through DOMParser and `parseCSS` on every call, about 3 ms
+ * against ~0.4 ms for the layout itself. The native DOM side keeps its faces
+ * untouched.
+ */
+export function canvasFixtureHtml(html: string, css: string): string {
+  return css ? `<style>${stripFontFaces(css)}</style>${html}` : html;
+}
+
+/**
  * Render HTML using our library.
  */
 export function renderToCanvas(
@@ -146,9 +161,8 @@ export function renderToCanvas(
   height: number,
   pixelRatio = 1,
 ): { canvas: HTMLCanvasElement; lines: { y: number; text: string }[] } {
-  const fullHtml = css ? `<style>${css}</style>${html}` : html;
   const result = render({
-    html: fullHtml,
+    html: canvasFixtureHtml(html, css),
     width,
     height,
     pixelRatio,
@@ -157,27 +171,35 @@ export function renderToCanvas(
 }
 
 /**
- * Corpus cases whose wrapping cannot be compared through `extractDomLines`.
- * It produces ONE global line stream, but these layouts contain independent
- * cell/column flows whose rows cannot be paired against a single stream — a
- * mismatch here is the comparison method, not a render-tag bug. Shared so the
- * sweep gates and the debug harness agree on what is out of scope.
+ * Corpus cases whose wrapping no gate compares — the one home of every wrap
+ * skip. render.test and generate-baselines read it directly; wrap-sweep and
+ * wrap-debug through `SWEEP_WRAP_SKIPS`, which extends it.
  */
-export const UNPAIRABLE_WRAP_CASES = new Set<string>([
+export const WRAP_SKIPS: ReadonlySet<string> = new Set([
   'Very narrow container', // 1ch container, browser-specific min-content
+  ...(isFirefox ? ['Long unbroken word overflow-wrap'] : []), // Firefox only
+]);
+
+/**
+ * What a width SWEEP skips: `WRAP_SKIPS` plus the cases `extractDomLines`
+ * cannot pair in general. It produces ONE global line stream, but these
+ * layouts contain independent cell/column flows whose rows cannot be paired
+ * against a single stream — a mismatch across widths is the comparison method,
+ * not a render-tag bug. At their natural width the streams do pair (in every
+ * lane and font), so the per-case baselines keep gating them there.
+ */
+export const SWEEP_WRAP_SKIPS: ReadonlySet<string> = new Set([
+  ...WRAP_SKIPS,
   'Styled table',
   'Multi-column layout',
 ]);
-
-/** Cases whose wrapping only Firefox gets to skip — one home, three gates. */
-export const FIREFOX_WRAP_SKIPS = ['Long unbroken word overflow-wrap'];
 
 /**
  * Mount a fixture off-screen at a fixed width, laid out by the browser itself.
  * Callers must ensure fonts are loaded first (prepareComparisonFonts), and
  * must remove the returned container when done.
  */
-function mountFixture(
+export function mountFixture(
   html: string,
   css: string,
   width: number,
@@ -250,12 +272,43 @@ function trailingEdge(wp: { x: number; width: number }, rtl: boolean): number {
   return rtl ? wp.x : wp.x + wp.width;
 }
 
+/** A positioned box the line grouping can place: a DOM word or a canvas run. */
+export interface LineToken {
+  /** Left edge, in the caller's x frame (only differences are read). */
+  x: number;
+  /** Top of the content area, relative to the fixture's content top. */
+  y: number;
+  width: number;
+  height: number;
+  /** Painted text (text-transform applied, invisible characters removed). */
+  text: string;
+}
+
+/** A word as the browser laid it out, in document order. */
+export interface DomWord extends LineToken {
+  /** The text node it was read from; its parent's computed font is the run's. */
+  node: Text;
+}
+
 /**
  * Read the browser's own line membership out of an already-mounted fixture.
  * Separate from the mount so a width sweep can mount once and reflow per
  * width instead of re-parsing the fixture ~30k times.
  */
 function collectDomLines(content: HTMLElement): { y: number; text: string }[] {
+  return groupDomLines(collectDomWords(content)).map((line) => ({
+    y: Math.round(line.top),
+    text: line.words.map((w) => w.text).join(' '),
+  }));
+}
+
+/**
+ * Every word of a mounted fixture with its Range rect, in DOCUMENT order. A
+ * word the engine wrapped mid-word comes back as one entry per line fragment,
+ * each placed by its characters' LAST rect (see CLAUDE.md: a break emits a
+ * spurious leading rect on the previous line).
+ */
+export function collectDomWords(content: HTMLElement): DomWord[] {
   const cTop = content.getBoundingClientRect().top;
 
   const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT, {
@@ -274,13 +327,7 @@ function collectDomLines(content: HTMLElement): { y: number; text: string }[] {
   // Collect word positions using getClientRects() on word-level ranges.
   // getClientRects() returns one rect per visual line when a word wraps
   // mid-word (overflow-wrap: break-word), handling long unbroken words.
-  const wordPositions: {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-    text: string;
-  }[] = [];
+  const wordPositions: DomWord[] = [];
   const range = document.createRange();
   for (const textNode of textNodes) {
     const text = textNode.textContent || '';
@@ -382,6 +429,7 @@ function collectDomLines(content: HTMLElement): { y: number; text: string }[] {
               width: g.right - g.x,
               height: g.height,
               text: g.chars,
+              node: textNode,
             });
           }
         }
@@ -395,13 +443,25 @@ function collectDomLines(content: HTMLElement): { y: number; text: string }[] {
             width: rect.width,
             height: rect.height,
             text: clean,
+            node: textNode,
           });
         }
       }
       offset += w.length;
     }
   }
+  return wordPositions;
+}
 
+/**
+ * Group positioned words into visual lines, top to bottom, each line's words
+ * sorted by x. The one line-grouping rule of every DOM oracle; the geometry
+ * oracle runs render-tag's own runs through it too, so both sides of a
+ * comparison are cut into lines by the same rule.
+ */
+export function groupDomLines<T extends LineToken>(
+  wordPositions: T[],
+): { top: number; words: T[] }[] {
   // Group words into lines by Y position. Words on the same visual line
   // can have different Y values due to mixed font sizes (baseline alignment).
   // Use the word's vertical midpoint for grouping, with a tolerance based
@@ -430,7 +490,7 @@ function collectDomLines(content: HTMLElement): { y: number; text: string }[] {
     bottom: number;
     lastX: number;
     rtl: boolean;
-    words: typeof wordPositions;
+    words: T[];
   }[] = [];
   for (const wp of wordPositions) {
     const top = wp.y;
@@ -501,10 +561,7 @@ function collectDomLines(content: HTMLElement): { y: number; text: string }[] {
   merged.sort((a, b) => a.top - b.top);
   return merged.map((l) => {
     l.words.sort((a, b) => a.x - b.x);
-    return {
-      y: Math.round(l.top),
-      text: l.words.map((w) => w.text).join(' '),
-    };
+    return { top: l.top, words: l.words };
   });
 }
 
@@ -519,6 +576,9 @@ export function warmNativeLayout(html: string, css: string, width: number): void
   extractDomLines(html, css, width);
 }
 
+/** Longest stretch of synchronous sweep work before yielding the page. */
+const SWEEP_YIELD_MS = 200;
+
 /**
  * Sweep one fixture across container widths and return the widths where the
  * canvas and the DOM disagree on line membership. The fixture is mounted ONCE
@@ -526,23 +586,35 @@ export function warmNativeLayout(html: string, css: string, width: number): void
  * width-independent and dominated the sweep's runtime when repeated ~30k
  * times. The DOM is read before the canvas at every width: some font
  * backends finalize a face on its first DOM use.
+ *
+ * It yields the page's task queue every `SWEEP_YIELD_MS` of synchronous work,
+ * INSIDE a case, not only between cases: one wide multi-font case is seconds
+ * of uninterrupted layout. Long synchronous loops kill the vitest page
+ * ("Browser connection was closed … rpc is closed"); a sweep with no yields
+ * died after 26 s and the same sweep with yields finished. Starving the
+ * runner's RPC is the likely mechanism, not a proven one.
  */
-export function sweepWrapWidths(
+export async function sweepWrapWidths(
   html: string,
   css: string,
   maxWidth: number,
   height: number,
   options: { minWidth?: number; step?: number } = {},
-): number[] {
+): Promise<number[]> {
   const { minWidth = 100, step = 1 } = options;
   const failed: number[] = [];
   const { container, content } = mountFixture(html, css, maxWidth);
+  let sliceStart = performance.now();
   try {
     for (let width = Math.min(minWidth, maxWidth); width <= maxWidth; width += step) {
+      if (performance.now() - sliceStart > SWEEP_YIELD_MS) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        sliceStart = performance.now();
+      }
       container.style.width = `${width}px`;
       const domLines = collectDomLines(content);
       const canvasLines = layout({
-        html: css ? `<style>${css}</style>${html}` : html,
+        html: canvasFixtureHtml(html, css),
         width,
         height,
       }).lines;
@@ -581,7 +653,7 @@ export function compareWrapping(
     precomputedCanvasLines ||
     // layout() over render(): only the lines are wanted, and the sweeps that
     // call this run thousands of widths — painting each one is pure waste.
-    layout({ html: css ? `<style>${css}</style>${html}` : html, width, height })
+    layout({ html: canvasFixtureHtml(html, css), width, height })
       .lines;
   return compareLineMembership(rawCanvasLines, rawDomLines);
 }

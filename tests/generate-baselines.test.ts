@@ -7,19 +7,14 @@
  */
 import { describe, it, expect } from 'vitest';
 import { commands } from 'vitest/browser';
-import { compareWrapping, FIREFOX_WRAP_SKIPS } from './helpers/compare.ts';
+import { compareWrapping, WRAP_SKIPS } from './helpers/compare.ts';
 import { compareNativeRenders as compareRenders } from './helpers/native-compare.ts';
 import { loadBasicCases, polotnoCase, polotnoListsCase, negativeListMarginsCase, FONT_VARIANTS, loadMultiFontCss } from './helpers/test-cases.ts';
 import type { BenchmarkCase } from './helpers/test-cases.ts';
 
 const PIXEL_RATIO = 2;
-import { browserName, isFirefox } from './helpers/browser-name.ts';
+import { browserName } from './helpers/browser-name.ts';
 const baselineFile = `./tests/baselines.${browserName}.json`;
-
-const SKIP_WRAPPING = new Set([
-  'Very narrow container',
-  ...(isFirefox ? FIREFOX_WRAP_SKIPS : []),
-]);
 
 function baselineKey(caseName: string, fontName?: string): string {
   return fontName ? `${caseName}@${fontName}` : caseName;
@@ -35,7 +30,7 @@ describe('Generate baselines', () => {
     for (const tc of defaultCases) {
       const key = baselineKey(tc.name);
       const r = await compareRenders(tc.html, tc.css, tc.width, tc.height, 0.1, PIXEL_RATIO);
-      const wrap = SKIP_WRAPPING.has(tc.name)
+      const wrap = WRAP_SKIPS.has(tc.name)
         ? { wrappingMatch: true }
         : compareWrapping(tc.html, tc.css, tc.width, tc.height, r.canvasLines);
       const score = Math.round(r.contentMismatchPercentage * 100) / 100;
@@ -50,7 +45,7 @@ describe('Generate baselines', () => {
         const css = multiFontCss + '\n' + tc.css + `\nbody { font-family: ${font.family} !important; }`;
         const key = baselineKey(tc.name, font.name);
         const r = await compareRenders(tc.html, css, tc.width, tc.height, 0.1, PIXEL_RATIO);
-        const wrap = SKIP_WRAPPING.has(tc.name)
+        const wrap = WRAP_SKIPS.has(tc.name)
           ? { wrappingMatch: true }
           : compareWrapping(tc.html, css, tc.width, tc.height, r.canvasLines);
         const score = Math.round(r.contentMismatchPercentage * 100) / 100;

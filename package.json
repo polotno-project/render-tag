@@ -50,6 +50,7 @@
     "test:browser": "vitest run --exclude='tests/node/**' --exclude='tests/generate-baselines.test.ts' --exclude='tests/cross-browser.compare.test.ts' --exclude='tests/cross-browser.record.test.ts' --exclude='tests/wrap-debug.test.ts' --exclude='tests/wrap-sweep.test.ts' --exclude='tests/perf.test.ts' --exclude='tests/list-marker-parity.test.ts' --exclude='tests/svg-oracle-parity.test.ts'",
     "test:svg-oracle": "vitest run tests/svg-oracle-parity.test.ts",
     "test:node": "vitest run -c vitest.node.config.ts",
+    "test:update-perf-counters": "vitest run -c vitest.node.config.ts tests/node/perf-counters.test.ts --mode update-perf-counters",
     "test:update-baselines": "vitest run tests/generate-baselines.test.ts",
     "test:update-baselines:firefox": "vitest run tests/generate-baselines.test.ts -c vitest.firefox.config.ts",
     "test:update-baselines:webkit": "vitest run tests/generate-baselines.test.ts -c vitest.webkit.config.ts",

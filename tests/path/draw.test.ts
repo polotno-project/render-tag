@@ -591,7 +591,7 @@ describe('drawTextOnPath (integration)', () => {
   });
 
   // ─── Regression: ellipsis preserves boxStyle (only path module tests
-  //     can't easily prove this — covered in layout-logic.test.ts) ───────
+  //     can't easily prove this — covered in node/layout-logic.test.ts) ──
 
   // ─── Regression: gradient + justify don't snap to gradient last stop ─
 

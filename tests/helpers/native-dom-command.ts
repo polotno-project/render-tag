@@ -65,28 +65,62 @@ function splitCss(css: string): { fontCss: string; fixtureCss: string } {
 
 let environmentKey: Promise<string> | undefined;
 
+const NODE_MODULES = new URL('../../node_modules/', import.meta.url);
+
+/** Installed version of each package, keyed by name. */
+async function installedVersions(names: string[]): Promise<Record<string, string>> {
+  const versions = await Promise.all(names.map(async (name) => {
+    const manifest = await readFile(new URL(`${name}/package.json`, NODE_MODULES), 'utf8');
+    return [name, (JSON.parse(manifest) as { version: string }).version] as const;
+  }));
+  return Object.fromEntries(versions);
+}
+
+/**
+ * The packages whose bytes reach a reference PNG: Playwright drives the
+ * capture, and every pinned font face the fixtures load comes from an
+ * `@fontsource` package served out of node_modules (its URL carries no
+ * version, so the fixture digest cannot see a font update). Enumerated from
+ * disk so a newly added font package joins the key without an edit here.
+ */
+async function pixelDependencyVersions(): Promise<Record<string, string>> {
+  const scopes = ['@fontsource', '@fontsource-variable'];
+  const fonts = await Promise.all(scopes.map(async (scope) =>
+    (await readdir(new URL(`${scope}/`, NODE_MODULES)))
+      .filter((entry) => !entry.startsWith('.'))
+      .map((entry) => `${scope}/${entry}`),
+  ));
+  return installedVersions(['playwright', 'playwright-core', ...fonts.flat().sort()]);
+}
+
 /**
  * Everything outside the fixture that can change what the engine paints. A
  * render-tag source change deliberately does NOT appear here: the reference
- * has to stay independent of the library it judges.
+ * has to stay independent of the library it judges. Neither does the rest of
+ * the dependency tree — a vitest, vite or TypeScript bump cannot change a
+ * native screenshot, and keying on the whole package-lock made each one
+ * re-capture every reference (minutes for a cold WebKit lane).
  */
 function environmentDigest(
   browserName: string,
   browser: Browser,
 ): Promise<string> {
   environmentKey ||= Promise.all([
-    readFile(new URL('../../package-lock.json', import.meta.url)),
-    readFile(new URL('../../vitest.browser.config.ts', import.meta.url)),
-    readFile(new URL(import.meta.url)),
-    readFile(new URL('./css-text.ts', import.meta.url)),
-  ]).then(async (implementation) => {
+    Promise.all([
+      readFile(new URL('../../vitest.browser.config.ts', import.meta.url)),
+      readFile(new URL(import.meta.url)),
+      readFile(new URL('./css-text.ts', import.meta.url)),
+    ]),
+    pixelDependencyVersions(),
+  ]).then(async ([implementation, dependencies]) => {
     const key = digest(JSON.stringify({
-      schema: 1,
+      schema: 2,
       browserName,
       browserVersion: browser.version(),
       platform: process.platform,
       architecture: process.arch,
       osRelease: release(),
+      dependencies,
       implementation: digest(Buffer.concat(implementation)),
     }));
     await pruneSupersededEnvironments(path.join(NATIVE_DOM_CACHE_ROOT, browserName), key);

@@ -1,7 +1,7 @@
 /**
  * Unit tests for LayoutLine.bounds — per-line geometry.
  *
- * Reuses the mocked-measureText helpers from layout-logic.test.ts conventions:
+ * Reuses the mocked-measureText helpers from tests/node/layout-logic.test.ts conventions:
  * 10px per character, fontSize=16, lineHeight=20.
  */
 import { describe, it, expect } from 'vitest';

@@ -19,7 +19,7 @@ const MIN_WIDTH = 100;
 async function stressTestCase(tc: BenchmarkCase): Promise<{ name: string; failures: number[] }> {
   await prepareComparisonFonts(tc.html, tc.css);
   warmNativeLayout(tc.html, tc.css, tc.width);
-  const failures = sweepWrapWidths(tc.html, tc.css, tc.width, tc.height, {
+  const failures = await sweepWrapWidths(tc.html, tc.css, tc.width, tc.height, {
     minWidth: MIN_WIDTH,
     step: STEP,
   });

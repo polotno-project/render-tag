@@ -24,10 +24,9 @@
 import { describe, it, expect } from 'vitest';
 import { commands } from 'vitest/browser';
 import {
-  FIREFOX_WRAP_SKIPS,
   prepareComparisonFonts,
   sweepWrapWidths,
-  UNPAIRABLE_WRAP_CASES,
+  SWEEP_WRAP_SKIPS,
   warmNativeLayout,
 } from './helpers/compare.ts';
 import {
@@ -35,7 +34,7 @@ import {
   polotnoCase, polotnoListsCase, negativeListMarginsCase,
 } from './helpers/test-cases.ts';
 import type { BenchmarkCase } from './helpers/test-cases.ts';
-import { browserName, isFirefox } from './helpers/browser-name.ts';
+import { browserName } from './helpers/browser-name.ts';
 import { gateResidualBaseline } from './helpers/baselines.ts';
 import sweepBaseline from './wrap-sweep-baseline.json';
 
@@ -50,11 +49,6 @@ const FONT_MODE: 'default' | 'all' = 'default';
 /** Restrict to these case names for a quick subset run; `null` sweeps all. */
 const CASE_FILTER: string[] | null = null;
 
-const SKIP_WRAPPING = new Set([
-  ...UNPAIRABLE_WRAP_CASES,
-  ...(isFirefox ? FIREFOX_WRAP_SKIPS : []),
-]);
-
 interface CaseFinding {
   key: string;
   span: number;
@@ -63,8 +57,8 @@ interface CaseFinding {
   structural: Array<[number, number]>;
 }
 
-function sweepOne(key: string, tc: BenchmarkCase, css: string): CaseFinding {
-  const failedWidths = sweepWrapWidths(tc.html, css, tc.width, tc.height, {
+async function sweepOne(key: string, tc: BenchmarkCase, css: string): Promise<CaseFinding> {
+  const failedWidths = await sweepWrapWidths(tc.html, css, tc.width, tc.height, {
     minWidth: MIN_WIDTH,
   });
 
@@ -89,7 +83,7 @@ describe('Full-corpus 1px width sweep', () => {
   it('finds no unrecorded line-breaking divergence', async () => {
     const allCases = await loadBasicCases();
     const wanted = (tc: BenchmarkCase) =>
-      !SKIP_WRAPPING.has(tc.name) && (!CASE_FILTER || CASE_FILTER.includes(tc.name));
+      !SWEEP_WRAP_SKIPS.has(tc.name) && (!CASE_FILTER || CASE_FILTER.includes(tc.name));
 
     const work: Array<{ key: string; tc: BenchmarkCase; css: string }> = [];
     for (const tc of [...allCases, polotnoCase, polotnoListsCase, negativeListMarginsCase]) {
@@ -114,20 +108,18 @@ describe('Full-corpus 1px width sweep', () => {
     let failures = 0;
 
     for (const [index, unit] of work.entries()) {
-      // Per-key breadcrumb through the server, for two reasons. Browser
-      // console output does not stream to the terminal here, and a killed
-      // page can make vitest exit silently (even with code 0) — on a crash
-      // this file is the only record of which key was running. The RPC
-      // round-trip is also a real task-queue yield between the long
-      // synchronous sweeps; multi-font runs reproducibly killed the page
-      // without it and completed with it (mitigation, mechanism unproven).
+      // Per-key breadcrumb through the server. Browser console output does
+      // not stream to the terminal here, and a killed page can make vitest
+      // exit silently (even with code 0) — on a crash this file is the only
+      // record of which key was running. Keeping the page alive is
+      // sweepWrapWidths' job: it yields the task queue inside each case.
       await commands.writeFile(
         `./tests/wrap-sweep-progress.${browserName}.log`,
         `[${index + 1}/${work.length}] ${unit.key}\n`,
       );
       await prepareComparisonFonts(unit.tc.html, unit.css);
       warmNativeLayout(unit.tc.html, unit.css, unit.tc.width);
-      const finding = sweepOne(unit.key, unit.tc, unit.css);
+      const finding = await sweepOne(unit.key, unit.tc, unit.css);
       points += finding.span;
       failures += finding.failed;
       if (finding.failed > 0) findings.push(finding);

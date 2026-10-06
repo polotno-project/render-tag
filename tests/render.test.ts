@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { compareWrapping, FIREFOX_WRAP_SKIPS } from './helpers/compare.ts';
+import { compareWrapping, WRAP_SKIPS } from './helpers/compare.ts';
 import { compareNativeRenders as compareRenders } from './helpers/native-compare.ts';
 import { loadBasicCases, polotnoCase, polotnoListsCase, negativeListMarginsCase, FONT_VARIANTS, loadMultiFontCss } from './helpers/test-cases.ts';
 import type { BenchmarkCase } from './helpers/test-cases.ts';
@@ -11,7 +11,7 @@ import {
 import chromeBaselines from './baselines.chrome.json';
 import firefoxBaselines from './baselines.firefox.json';
 import webkitBaselines from './baselines.webkit.json';
-import { browserName, isFirefox } from './helpers/browser-name.ts';
+import { browserName } from './helpers/browser-name.ts';
 import { PORTABLE_GATES_ONLY } from './helpers/portable-mode.ts';
 
 // Each browser has its own baseline file — no cross-browser tolerance needed.
@@ -24,12 +24,6 @@ const baselineFiles: Record<string, Record<string, BaselineEntry>> = {
   webkit: webkitBaselines as Record<string, BaselineEntry>,
 };
 const baselineMap = baselineFiles[browserName];
-
-// Known wrapping limitations that are skipped from wrap checks
-const SKIP_WRAPPING = new Set([
-  'Very narrow container',
-  ...(isFirefox ? FIREFOX_WRAP_SKIPS : []),
-]);
 
 function formatResult(name: string, score: number, wrap: boolean, baseline?: BaselineEntry): string {
   const scoreDelta = baseline ? (score - baseline.score) : 0;
@@ -48,7 +42,7 @@ async function runCase(
   css: string,
 ): Promise<{ score: number; wrap: boolean }> {
   const result = await compareRenders(tc.html, css, tc.width, tc.height, 0.1, PIXEL_RATIO);
-  const wrap = SKIP_WRAPPING.has(tc.name)
+  const wrap = WRAP_SKIPS.has(tc.name)
     ? { wrappingMatch: true } // skipped = treat as passing
     : compareWrapping(tc.html, css, tc.width, tc.height, result.canvasLines);
   return { score: result.contentMismatchPercentage, wrap: wrap.wrappingMatch };
