@@ -131,7 +131,10 @@ export function layoutTextOnPath(config: LayoutTextOnPathConfig): TextOnPathLayo
   if (!ownsCtx) measureCtx.save();
   try {
     const segments = flattenSegments(tree);
-    const result = layoutGlyphsOnPath({ segments, path, ctx: measureCtx, align, textBaseline });
+    const result = layoutGlyphsOnPath({
+      segments, path, ctx: measureCtx, align, textBaseline,
+      direction: tree.style.direction === 'rtl' ? 'rtl' : 'ltr',
+    });
     let paintBounds: PaintBounds | undefined;
     return {
       ...result,

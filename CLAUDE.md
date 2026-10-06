@@ -90,7 +90,16 @@ all three engines accept; the other families remain variable. Tests do not
 contact Google Fonts or depend on system fallback selection.
 `tests/helpers/compare.ts` registers every unique rule in a stable order and
 warms the actual fixture text before measuring. Native captures keep only faces
-that cover that fixture, then load them sequentially. A load error throws before
+that cover that fixture, then load them sequentially. The canvas side of a pixel
+comparison then renders beside EXACTLY that pruned set: every rule has its own
+`<style>`, and `compareRendersWithReference` disables the ones the fixture's
+pruned CSS lacks (`useOnlyFontFaces`) until the next `prepareComparisonFonts`.
+Beside the full catalog, WebKit picked a different CJK face on the canvas than
+in the isolated capture: Simplified Chinese, Korean, CJK formatting/lists and
+Long CJK paragraph read 12-38% with identical layout, and 0.00-0.62 once the
+sets matched (Chromium: Subscript and superscript and Numbers and currency in
+RTL, up to 10%, the same way). An earlier note blamed WebKit for painting CJK
+glyphs 1px below its own baseline; that was this harness effect. A load error throws before
 pixels or wrapping can be recorded. The canvas side gets the fixture CSS through
 `canvasFixtureHtml`, with every `@font-face` stripped: the faces are already in
 `document.fonts`, and parsing ~370 KB of them cost about 3 ms per `layout()`
@@ -126,6 +135,7 @@ npm run test:clear-native-cache               # remove local native-reference PN
 npx vitest run -c vitest.node.config.ts tests/node/layout-logic.test.ts  # layout unit tests (Node, mocked measureText, <1s)
 npx vitest run tests/wrapping-parity.test.ts  # focused Chrome DOM-wrap regressions
 npx vitest run tests/flex-parity.test.ts      # flex item geometry vs the DOM (all 3 lanes)
+npx vitest run tests/margin-collapse-parity.test.ts  # block margins vs the DOM (Chromium + WebKit)
 npx vitest run tests/geometry-oracle.test.ts  # line/token geometry vs the DOM, report-only (Chromium + WebKit)
 npx vitest run tests/render.test.ts           # render quality tests
 npm run test:stress                           # native-DOM layout width sweep (7 cases, 10px)
@@ -329,9 +339,11 @@ lanes; Firefox has not been run.
   membership verdict equals the recorded `wrap` bit on every key in both
   lanes.
 - Membership compares each line's glyphs in LOGICAL order (wrap-comparison
-  sorts code points). Visual order is checked separately; that is how it
-  finds `Mixed scripts with formatting` painting two adjacent RTL words in
-  logical order inside an LTR line. RTL bidi-override runs are stored
+  sorts code points), which is why bidi lines EMIT their runs in logical
+  order. Visual order (run order by x) is checked separately; that is how it
+  found `Mixed scripts with formatting` painting two adjacent RTL words in
+  logical order inside an LTR line (fixed: 0 keys in both lanes, see "Bidi").
+  It cannot see order INSIDE one run. RTL bidi-override runs are stored
   visually reversed, so their lines compare order-insensitively.
 - Tokens pair through a character alignment: the DOM tokenizes per word,
   render-tag per run.
@@ -406,11 +418,53 @@ configs.
 3. If a test improves, verify it and update baselines deliberately
 4. The stress test (`tests/stress.test.ts`) sweeps widths and gates exact line membership against the native DOM — run it for wrapping changes. It no longer screenshots, so a vertical shift that leaves line membership intact is caught only by the pixel baselines, at each case's natural width.
 
-### Margin collapsing rules
-- Sibling margins: `max(prevMarginBottom, nextMarginTop)` (positive case)
-- First child margin-top collapses through parent: **only for block/list-item `li`/`ul`/`ol`/`dd`/`dt`** (never flex/table; not general divs — the native DOM reference prevents this)
-- Last child margin-bottom: included in parent height when parent has padding/border or a nonzero min-height (can't collapse through)
-- Last child margin-bottom: passed as `marginBottomOut` when it CAN collapse through
+### Margin collapsing rules (`layoutBlock`, `leadingStrut`, `collapsesThrough`)
+CSS 2.1 §8.3.1, for EVERY block in normal flow — there is no tag allowlist.
+`tests/margin-collapse-parity.test.ts` checks each rule against the browser's
+own box geometry (Chromium and WebKit lanes).
+
+- **Adjoining margins collapse as a set**: largest positive + most negative
+  (`MarginStrut`). Do not fold them two at a time: 10, -5 and 20 give 15, not 20.
+- **Which margins adjoin**: siblings; a box's top and its first in-flow child's
+  top; a box's bottom and its last in-flow child's bottom. Padding, border, or
+  a line box between them separates them. So does a BFC root: flex, table,
+  `flow-root`, `overflow` other than `visible`/`clip`, and by position the
+  layout root, flex items and table cells (`bfcRoot`).
+- **Empty blocks collapse through**: a block with no line box, padding, border
+  or min-height (all its children empty too) joins its top and bottom margins
+  to the run around it. ONE predicate, `createsLineBox` (CSS 2.1 §9.4.2),
+  decides both the collapse and the height: text, `<br>`, an atomic inline,
+  or an inline with non-zero inline-axis margin/border/padding makes a line
+  box (at the strut height even with no words — `<span style="padding:0
+  3px"></span>` is a 20px line in both engines); collapsible whitespace and an
+  empty `<span>` do not.
+- **A visible marker is content.** An empty `<li>` has the marker's line box.
+  An `<li>` whose children all collapse through does not collapse through
+  itself: their margins adjoin its top AND its bottom, and the item is the
+  marker's line tall in Blink, 0 in WebKit (`MARKER_LINE_WITHOUT_CONTENT`;
+  Gecko gets WebKit's answer, unverified). `list-style-position: inside` is
+  not supported at all (its marker would be an inline line box that stops the
+  li > p first-child collapse).
+- **What the resolver must hand layout**: `display: none` subtrees are dropped
+  (they used to be laid out, margins and text included); a border whose style
+  is `none`/`hidden` has width 0; `overflow-x`/`overflow-y` count like the
+  shorthand (kept in private `_overflowX`/`_overflowY`, NOT on the public
+  `ResolvedStyle`); a percentage `min-height` computes to none, because no
+  containing block here has a definite height.
+- **The root holds its children's margins**, like the capture harness's
+  `overflow:hidden` content div. The first child's top margin and the last
+  child's bottom margin stay inside the content height.
+- **min-height on a parent is an engine rule** (`MIN_HEIGHT_END_MARGINS`).
+  Blink: a min-height that raises the box drops the last child's margins.
+  WebKit: they always collapse out (CSS 2.1 as written). Gecko: render-tag's
+  old rule (any min-height holds them inside). This is unverified, because
+  Firefox cannot run here. The parity test is not in the Firefox lane yet.
+
+The old claim "only `li`/`ul`/`ol`/`dd`/`dt` collapse through a parent, the
+native reference prevents it for divs" came from the retired html-to-svg
+reference. That reference wrapped content in a `<body>`. The native harness
+does not. The allowlist cost ~25% of Chrome's pixel mass ("Non-Latin text
+alignment", "Pre-wrap preserved whitespace").
 
 ### Flex sizing (`layoutFlex`, `flexBaseSize`, `resolveFlexibleLengths`)
 Every flex item has a **base size** before any space is shared, and that is the
@@ -474,19 +528,107 @@ sits deeper than the strut alone would put it. Do not collapse this back to one
 leading over the line's max metrics — that was the old rule, and it was wrong on
 every mixed line.
 
-Three of the numbers involved are the ENGINE's, not ours, and each was measured
+Four of the numbers involved are the ENGINE's, not ours, and each was measured
 off the DOM rather than guessed (the branch is picked by user agent):
 
 | | Blink | WebKit | Gecko |
 | --- | --- | --- | --- |
-| half-leading + ascent | floored to a whole px | exact | exact |
+| used line-height | 1/64px grid: a number floors, a length rounds | `floor(float32 value)`; a number floors the font-size to 1/64px first | exact |
+| percentage line-height | integer percentage (162.9% is 162%) | integer percentage | exact (unverified) |
+| half-leading + ascent | half truncated to 1/64px toward zero, then floored | floored to a whole px | exact |
 | `vertical-align: super` | `fontSize / 3 + 1` | `fontSize / 3 + 1` | `0.34 × fontSize` |
 | `vertical-align: sub` | `fontSize / 5 + 1` | `fontSize / 5 + 1` | `0.2 × fontSize` |
 
-The two questions are separate, and WebKit answers them differently: it rounds
-like nobody and shifts like Blink, so `FLOORS_LINE_BASELINE` and
-`BLINK_SUPER_SUB` are two flags, not one. Never gate one on the other — a test
-that did asserted Gecko's shift against Blink's everywhere but Chrome.
+Each question is separate, and each has its own flag: `TRUNCATES_LINE_HEIGHT`
+(WebKit), `LAYOUT_UNIT_LINE_HEIGHT` (Blink: the line-height grid AND the
+LayoutUnit half-leading — one mechanism, Blink's 1/64px arithmetic),
+`INTEGER_PERCENT_LINE_HEIGHT` (Blink and WebKit; in `src/engine.ts` because
+the resolver applies it), `FLOORS_LINE_BASELINE` (Blink and WebKit),
+`BLINK_SUPER_SUB` (Blink and WebKit). UA detection lives in `src/engine.ts`. Never gate one on another. A
+test that did that asserted Gecko's shift against Blink's in every engine
+except Chrome.
+
+The Blink line-height rule (`LAYOUT_UNIT_LINE_HEIGHT`, measured as the DOM's
+line pitch over 64 lines):
+- A NUMBER rounds the font-size onto the 1/64px grid, multiplies, and floors
+  the product onto the grid: 14px × 1.6 is 22.390625, not 22.4. 20 × 1.15 is
+  23 (an epsilon keeps the double product, a hair under, on the grid).
+- A LENGTH (px, em, %) rounds to the nearest grid line: 22.4px is 22.40625.
+  A PERCENTAGE is first truncated to an integer percentage (in WebKit too):
+  133.3% of 16px is 21.28, 162.5% of 8px is 12.96 (on the grid 12.953125).
+  That also explains the old "133.06% / 133.09% land one step lower" note.
+- The half-leading is halved in LayoutUnits, truncating toward ZERO, and only
+  then floored: a line an odd number of 64ths SHORT of ascent+descent puts the
+  baseline a pixel lower than flooring the exact half (Verdana 13.6px × 1.25:
+  16.984375 over 14 + 3 → baseline 14, not 13).
+- An older note called this drift sub-pixel and pixel-neutral. It was, until
+  the paint snap below: ~0.01px a line moves a line across a rounding point
+  after a few dozen lines (Long document: 3.2% → 0.00 in all six fonts).
+- `lineBaselineOffset` applies the LENGTH rule (rounding to the grid,
+  idempotent) and the LayoutUnit half-leading. It cannot apply the NUMBER rule
+  (it sees a px value, not the multiplier): a caller with a unitless
+  line-height must pass the grid value, `floor(round64(fontSize) × n × 64) / 64`.
+
+**Paint is not layout (Blink).** Blink keeps the fractional layout above, but
+PAINTS each line box at a whole CSS pixel: the line top rounds (`Math.round`,
+half up) and everything inside the line keeps its laid-out offset — the
+baseline, a `super`/`sub`/length shift. `SNAPS_LINE_PAINT` and
+`paintLineSnap` (layout.ts) model it at paint time only: `LayoutText.y` stays
+the fractional layout baseline, `render.ts` adds `round(lineTop) - lineTop` to
+the glyphs, every decoration, the shadow pass and `paintBounds`. The line top
+is paint bookkeeping kept off the public node (a WeakMap keyed by node
+identity); a hand-built or cloned node falls back to its line baseline.
+- Measured on Chromium's DOM raster with the line top at k/16px, six fonts:
+  pixel-identical at DPR 1, 2 AND 3 (576 of 576 plain lines), so it is a CSS
+  pixel, not a device pixel. A canvas lands `fillText` on a device pixel
+  itself, which is why DPR 1 looked right before.
+- Rounding each RUN's own baseline instead puts `sub` and length shifts a
+  pixel off (and was worse than no snap for `super` at DPR 2-3): the shift is
+  not snapped, the line is. Text inside an inline-block snaps by its OWN inner line box.
+- Chromium pixel mass 1076.9 → 458.6 (-57%), with the line-height grid above.
+- The auto underline hangs `ceil(fontSize / 20)` px below the SNAPPED baseline
+  (`BLINK_UNDERLINE_GAP`) — half the auto thickness, rounded up, the same rule
+  an explicit `text-decoration-thickness` follows. Measured 672 of 672 bands
+  (six pinned fonts, 8-72px, DPR 1-2) plus 198 of 198 across eleven system
+  families. The old `0.105em - 0.2` formula was fitted to Chrome at fractional
+  baselines before the snap was modelled; WebKit and Gecko keep it.
+- WebKit snaps its text baseline to a DEVICE pixel instead (192 of 192 at
+  DPR 1 and 2, 176 of 192 at DPR 3). That needs the device scale at paint
+  time; not modelled. Gecko: unmeasured, keeps the unsnapped paint.
+- Known residual exposed by the snap: `double` and `wavy` decoration shapes
+  are not Blink's (Blink's double is two FULL-thickness bands, the second
+  `round(fontSize/10) + 1` px below — above for an overline — and `floor(...)
+  + 1` for a line-through). The unsnapped paint hid part of that error on
+  `Text decorations & shadows`, which reads 0.1-0.5% worse in five fonts.
+  The DOM band itself follows the snap (measured).
+- Under `line-height: normal`, a font with a line gap (Arial) puts Chromium's
+  baseline below render-tag's — 2px at 160px. Canvas metrics cannot see the
+  gap. Pre-existing; not this rule.
+
+The WebKit line-height rule:
+- WebKit lays every line box out at a whole-pixel line-height. 16px × 1.6 is a
+  25px line, and 20px × 1.15 is 23. The double product is
+  22.999999999999996, so `Math.floor` alone gives 22: round through
+  `Math.fround` first. `23.99999px` is 23.
+- A unitless NUMBER floors the font-size to 1/64px BEFORE it multiplies:
+  13.6px × 1.25 is a 16px line (13.59375 × 1.25), not 17; 17.3 × 1.85 is 31.
+  (`multipliedLineHeight`.)
+- The baseline sits `floor(half-leading)` below the line top, plus the ascent.
+- Measured in Playwright WebKit: 1,768 of 1,768 configurations matched
+  (eight families, 8-56px, seventeen line-heights including `normal`, %, em
+  and px), but that sweep used whole sizes and whole percentages. A review
+  sweep at fractional sizes found 33 of 2,898 unitless rows a pixel off until
+  the 1/64 font-size floor above, and non-integer percentages off until the
+  integer-percentage rule; `line-baseline-parity` pins rows of each. The system
+  `monospace` is excluded: its DOM content area is 1px taller than its canvas
+  metrics.
+- A percentage `vertical-align` still resolves against the EXACT value (50% of
+  25.6px moves 12.796875). That is why `Measurer` has `computedLineHeight` next
+  to `lineHeight` (the used value).
+- Before this rule, render-tag drifted 0.4-0.8px further down per line in
+  WebKit: 83% of that lane's pixel mass.
+- An old corpus run rejected the floor for Safari (214 wins, 223 losses). It
+  tested the floor WITHOUT the truncation. Only both together match.
 
 The super/sub rules fit 8-56px across sans-serif/serif/monospace to within
 0.06px, and no engine reads the font's own metrics — the family does not move
@@ -494,13 +636,31 @@ the number. `layout.ts` carries the corpus measurement behind each branch.
 
 `lineBaselineOffset` is the PUBLIC export, not the flag: every renderer that
 places a baseline beside a render-tag canvas (`@polotno/svg-export`, the
-editor's list marker) calls it, so the rule has one home.
+editor's list marker) calls it, so the rule has one home. It takes the
+COMPUTED line-height and applies the engine's LENGTH rule itself (WebKit's
+truncation, Blink's grid rounding) plus each engine's half-leading rounding.
+It cannot see a unitless multiplier, so for a NUMBER line-height WebKit's
+1/64 font-size floor and Blink's floored product are the caller's job (see
+the two rule lists above); the line box it heads is the used line-height tall,
+and a caller that steps lines steps by that used value. The Blink paint snap
+(`paintLineSnap`) is not public either: a vector exporter positioning glyphs
+from `LayoutText.y` is up to 0.5px off Chromium's raster. Exposing either is
+a public-API decision, deliberately not taken in Stage 1.5.
 
-Safari still cannot assert DOM parity: its canvas metrics disagree with its own
-layout metrics (30px/1 lands at 25.59375 in the DOM against 25.5 from the
-canvas), so no rule stated in canvas terms can reach it. The exact value is the
-closest branch, not a match, which is why the baseline parity suite asserts
-against the DOM only in Chrome and Firefox.
+Playwright WebKit now asserts DOM parity like the other engines: its canvas
+font metrics are whole pixels and equal to its layout metrics for the pinned
+fonts and the system sans-serif/serif. An older note said Safari's canvas and
+layout metrics disagree (30px/1 at 25.59375 in the DOM against 25.5); that does
+not reproduce in Playwright WebKit, where the line lands at 25. Branded Safari
+has NOT been re-measured.
+
+**Unverified in Firefox:** Gecko keeps the exact line-height, the exact
+percentage and the exact half-leading. Firefox could not launch where this was
+measured, so the Firefox lane was NOT run at all in Stage 1.5 — no Firefox
+score moved because none was taken. If Gecko also truncates, the Firefox
+geometry oracle will show the same 0.4-0.8px per-line slope. The four Stage 1.5
+parity tests (line-box, line-baseline, margin-collapse, bidi-order) are in
+`vitest.firefox.config.ts` so they gate once Firefox runs.
 
 Detecting the engine is UA-only (`accuracy: 'performance'` promises no DOM
 probe): Gecko is the one that sends a real `Gecko/<date>` token, Blink the one
@@ -509,11 +669,79 @@ says `HeadlessChrome/`. Safari sends neither.
 
 `vertical-align: text-top` / `text-bottom` align the box's LEADED edge with the
 parent's CONTENT-area edge (bare ascent/descent, no leading). Mixing those two
-up is worth 25px on a line carrying both.
+up is worth 25px on a line carrying both. `middle` centres the LEADED box too,
+not the content area. Where the half-leading is floored, the two midpoints are
+up to 0.5px apart (DOM 34.70, content area 34.0, leaded 34.5 in both Blink and
+WebKit). The remaining 0.2px comes from the x-height, which render-tag
+approximates as 0.5em.
 
-Parity tests: `tests/line-baseline-parity.test.ts` (baseline vs the DOM) and
-`tests/line-box-parity.test.ts` (line box height vs the DOM), both in `npm test`,
-both asserting against the browser's own numbers rather than a constant.
+Parity tests: `tests/line-baseline-parity.test.ts` (first-line baseline, the
+baseline of every line — exact, not within a LayoutUnit per line — and
+`middle`) and `tests/line-box-parity.test.ts` (line box height). Both run in
+`npm test` and in the WebKit lane. `tests/line-paint-snap-parity.test.ts`
+gates the paint snap against Chromium's raster (Chromium only). Both assert against the
+browser's own numbers, not against a constant. One line-box case is skipped
+in WebKit only, for a residual that comes from another rule (see its
+`webkitResidual`): `font-size: smaller` is 0.83em in render-tag but /1.2 in
+both engines.
+
+### Bidi (`src/bidi.ts`, `resolveLineBidi`, `bidiLineItems`)
+Canvas reorders only INSIDE one `fillText`. A line with several runs (two
+styles, a box, a shifted span) is several calls, and their order is layout's
+job. Placing runs in logical order painted `<b>العربية الغامقة</b>` in an
+English line left to right; every engine paints it right to left.
+
+- `src/bidi.ts` is UAX #9: levels for the whole PARAGRAPH (X1–X10, W1–W7,
+  N0–N2, I1–I2), then L1 and L2 per line. Levels are paragraph-wide because a
+  neutral or number at a soft wrap takes its type from the other line.
+  Bidi_Class comes from General_Category + Script plus explicit weak/neutral
+  tables (JS regex has no `\p{Bidi_Class}`). The paragraph level is the
+  block's CSS `direction`, not P2/P3.
+- CSS reaches it as control characters (`BidiTextBuilder`, CSS Writing Modes
+  §2.4.2): inline `unicode-bidi: isolate/embed/*-override` wraps its text in
+  RLI/LRI…PDI, RLE/LRE…PDF, RLO/LRO…PDF. A forced break is a paragraph
+  separator (Blink feeds `<br>` to ICU as U+000A); an atomic inline is U+FFFC.
+  `[dir]` computes `unicode-bidi: isolate` and `<bdo>` `isolate-override`,
+  measured in Blink and WebKit. `dir="auto"` takes the direction of the first
+  strong character (HTML auto directionality; skipping `[dir]`/`<bdi>`
+  descendants), so `<p dir="auto">שלום world</p>` is an RTL, right-aligned
+  paragraph.
+- Paint direction is the bidi LEVEL's, never the inherited CSS `direction`:
+  every emitted run gets `withDirection(level parity)`. `<span
+  style="direction:rtl">` over LTR words (unicode-bidi: normal) reorders
+  nothing, and painting those words right-anchored drew them a run-width left. An RTL override is still reversed in
+  `collectTextRuns` and painted LTR, so it enters as an LTR override.
+- Each line is cut into LEVEL-UNIFORM pieces, ordered by L2, and painted in
+  the direction of the level. Inside such a piece, Canvas's own bidi pass
+  agrees with ours (mirroring and shaping stay Canvas's). Adjacent pieces of
+  one non-zero level and one paint merge into one run whose width is the sum
+  of the flow advances. Level-0 words are never merged: LTR stays
+  word-granular.
+- Padding markers are not characters. Content is reordered without them;
+  then each box's open marker (padding-LEFT) goes before its leftmost piece
+  and the close marker after its rightmost. Riding a neighbour's level moved
+  the padding inside `<code>render()</code>` in Arabic.
+- Nodes are placed left to right, then EMITTED in logical order (`emitKeys`).
+  `layoutRoot` keeps document order, and the geometry oracle depends on it.
+- `CANVAS_BIDI_LINE` (engine flag, `!IS_SAFARI`): a line in ONE paint, whose
+  levels Canvas would resolve the same from the line text alone, stays ONE
+  run in the paragraph direction. Canvas then shapes the whole line as the
+  layout does. In Blink that is exact: every token is at dx 0 against the DOM.
+  Per-word placement lost up to 0.5px of space kerning (Playfair, +2.6% on
+  `Mixed LTR and RTL@Playfair`). WebKit must not use it: the same single-run
+  lines scored 6–16% against its DOM and 0.00 once split. Gecko keeps the
+  single run it always had; this is unmeasured, because Firefox cannot run
+  here.
+- Text-on-path (`src/path`) uses the same module: levels over all segments,
+  shaped runs cut at level changes and at neutrals, L2 over the placements.
+  The old per-segment reversal put a second RTL span on the wrong side and
+  reversed Latin inside `dir=rtl`.
+
+Gates: `tests/node/bidi.test.ts` (algorithm), `Bidi visual order` in
+`tests/node/layout-logic.test.ts`, `tests/bidi-order-parity.test.ts` (run
+order and extent against per-character DOM Range rects; Chromium and WebKit
+lanes), `tests/path/glyph-layout.test.ts`, and the geometry oracle's
+visual-order count (0 in both lanes).
 
 ### Text measurement
 - **One measuring primitive.** Every layout measurement goes through the

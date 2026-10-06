@@ -1,4 +1,6 @@
 import type { BorderRadius, DecorationEntry, ResolvedStyle, StyledNode } from './types.js';
+import { INTEGER_PERCENT_LINE_HEIGHT } from './engine.js';
+import { bidiClass } from './bidi.js';
 
 // Node.TEXT_NODE / Node.ELEMENT_NODE without the ambient `Node` global
 // (unavailable in non-browser environments).
@@ -397,7 +399,9 @@ const TAG_DEFAULTS: Record<string, Partial<ResolvedStyle>> = {
   sup: { display: 'inline', verticalAlign: 'super', fontSize: 0.83 },
   code: { display: 'inline', fontFamily: 'monospace' },
   cite: { display: 'inline', fontStyle: 'italic' },
-  bdo: { display: 'inline', unicodeBidi: 'bidi-override' },
+  // The HTML rendering rules (and Blink/WebKit's computed style) give <bdo>
+  // `isolate-override`, not `bidi-override`.
+  bdo: { display: 'inline', unicodeBidi: 'isolate-override' },
   bdi: { display: 'inline', unicodeBidi: 'isolate' },
   p: { display: 'block', marginTop: -1, marginBottom: -1 }, // -1 = 1em, resolved later
   div: { display: 'block' },
@@ -784,6 +788,8 @@ function applyDeclaration(
     case 'font-kerning': style.fontKerning = value.trim(); break;
     case 'line-height': {
       const v = value.trim();
+      // A later declaration replaces an earlier unitless one.
+      delete (style as any)._lineHeightMultiplier;
       if (v === 'normal') {
         style.lineHeight = 0; // 0 signals "normal"
       } else if (v.endsWith('px')) {
@@ -796,9 +802,10 @@ function applyDeclaration(
         // same as the em branch. Without this branch "120%" used to fall
         // into the unitless path as parseFloat("120%") = 120, producing a
         // 120x line height.
+        // Blink and WebKit use an INTEGER percentage (INTEGER_PERCENT_LINE_HEIGHT).
         const num = parseFloat(v);
         if (!isNaN(num)) {
-          style.lineHeight = (num / 100) * fontSize;
+          style.lineHeight = ((INTEGER_PERCENT_LINE_HEIGHT ? Math.trunc(num) : num) / 100) * fontSize;
         }
       } else {
         // Unitless multiplier — compute for this element's font size
@@ -808,6 +815,11 @@ function applyDeclaration(
           style.lineHeight = num * fontSize;
           (style as any)._lineHeightMultiplier = num;
         }
+      }
+      // `lineHeight: 0` means `normal`, so a real zero line-height (any unit)
+      // is carried as the multiplier 0 — which also inherits as 0.
+      if (v !== 'normal' && style.lineHeight === 0 && parseFloat(v) === 0) {
+        (style as any)._lineHeightMultiplier = 0;
       }
       break;
     }
@@ -846,7 +858,22 @@ function applyDeclaration(
       style.minWidth = v === 'auto' ? null : parseValue(v, fontSize, containerWidth);
       break;
     }
-    case 'min-height': style.minHeight = parseValue(value, fontSize, containerWidth); break;
+    // A percentage resolves against the containing block's HEIGHT, which is
+    // never definite here (no box has a height): it computes to none (CSS 2.1
+    // §10.7), not to a share of the width.
+    case 'min-height':
+      style.minHeight = value.trim().endsWith('%') ? 0 : parseValue(value, fontSize, containerWidth);
+      break;
+    // Only read to find block formatting context roots (`establishesBfc`);
+    // render-tag does not clip. Private, like `_lineHeightMultiplier`.
+    case 'overflow': {
+      const [x, y = x] = value.trim().split(/\s+/);
+      (style as any)._overflowX = x;
+      (style as any)._overflowY = y;
+      break;
+    }
+    case 'overflow-x': (style as any)._overflowX = value.trim(); break;
+    case 'overflow-y': (style as any)._overflowY = value.trim(); break;
     case 'padding-top': style.paddingTop = parseValue(value, fontSize, containerWidth); break;
     case 'padding-right': style.paddingRight = parseValue(value, fontSize, containerWidth); break;
     case 'padding-bottom': style.paddingBottom = parseValue(value, fontSize, containerWidth); break;
@@ -945,7 +972,6 @@ function applyDeclaration(
     case 'counter-increment':
     case 'cursor':
     case 'opacity':
-    case 'overflow':
     case 'box-sizing':
     case 'outline':
     case 'transition':
@@ -1249,6 +1275,33 @@ function parseInlineStyle(styleAttr: string): CSSDeclaration[] {
 }
 
 /**
+ * `dir="auto"`: the direction of the first strong character in the element's
+ * text (HTML "auto directionality", UAX #9 P2/P3), skipping descendants that
+ * set their own direction (`[dir]`, `<bdi>`) and non-rendered text. null when
+ * there is none; the element then keeps its parent's direction. Measured in
+ * Chromium and WebKit: `<p dir="auto">שלום world 123</p>` is an RTL paragraph.
+ */
+function autoDirection(el: Element): 'ltr' | 'rtl' | null {
+  for (const child of el.childNodes) {
+    if (child.nodeType === TEXT_NODE) {
+      for (const ch of child.textContent ?? '') {
+        const cls = bidiClass(ch.codePointAt(0)!);
+        if (cls === 'L') return 'ltr';
+        if (cls === 'R' || cls === 'AL') return 'rtl';
+      }
+    } else if (child.nodeType === ELEMENT_NODE) {
+      const e = child as Element;
+      const tag = e.tagName.toLowerCase();
+      if (tag === 'bdi' || tag === 'script' || tag === 'style' || tag === 'textarea' ||
+          e.hasAttribute('dir')) continue;
+      const found = autoDirection(e);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+/**
  * Resolve styles for a DOM tree without inserting into the document.
  * Parses CSS rules, matches selectors, resolves cascade + inheritance.
  */
@@ -1460,15 +1513,31 @@ export function resolveStylesFromCSS(
     }
 
     // Handle `dir` attribute
-    const dirAttr = el.getAttribute('dir');
-    if (dirAttr) {
-      style.direction = dirAttr;
+    const dirAttr = el.getAttribute('dir')?.trim().toLowerCase();
+    if (dirAttr === 'ltr' || dirAttr === 'rtl' || dirAttr === 'auto') {
+      style.direction = dirAttr === 'auto'
+        ? autoDirection(el) ?? parentStyle.direction
+        : dirAttr;
       setProps.add('direction');
+      // HTML's UA sheet: any element with `dir` isolates its content
+      // (Blink and WebKit compute `isolate` for span[dir]; <bdo> keeps its
+      // own override). An author `unicode-bidi` still wins.
+      if (!setProps.has('unicode-bidi') && style.unicodeBidi === 'normal') {
+        style.unicodeBidi = 'isolate';
+      }
     }
 
     // Inherit from parent for properties not explicitly set
     setProps.add('font-size'); // already resolved
     inheritFrom(style, parentStyle, setProps);
+
+    // A border whose style is none or hidden computes to width 0 (CSS
+    // Backgrounds 3): `border-top: 3px none red` takes no space and does not
+    // stop a margin collapse.
+    for (const side of ['Top', 'Right', 'Bottom', 'Left'] as const) {
+      const borderStyle = style[`border${side}Style`];
+      if (borderStyle === 'none' || borderStyle === 'hidden') style[`border${side}Width`] = 0;
+    }
 
     // Auto-set currentColor defaults (browser default behavior).
     // An automatic HTML decoration uses the text stroke color when a visible
@@ -1683,7 +1752,9 @@ export function resolveStylesFromCSS(
       };
     }
 
-    return resolveElement(el, parentStyle, parentCtx);
+    const resolved = resolveElement(el, parentStyle, parentCtx);
+    // display:none generates no box: no text, no margins, no line box.
+    return resolved.style.display === 'none' ? null : resolved;
   }
 
   const rootStyle = defaultStyle();

@@ -13,6 +13,10 @@
 import type { ResolvedStyle, StyledNode } from '../types.js';
 import { Measurer, type MeasureState, hasTextClip, transformTextRuns } from '../layout.js';
 import { stringToArray } from './grapheme.js';
+import {
+  BidiTextBuilder, bidiClass, bidiContextFor, lineLevels, resolveBidi, visualOrder,
+  type BidiContext,
+} from '../bidi.js';
 import type { PathLike, Point } from './svg-path.js';
 
 export interface Segment {
@@ -20,8 +24,12 @@ export interface Segment {
   style: ResolvedStyle;
   /** An atomic or block element starts a new CSS word for capitalize. */
   wordBoundaryBefore?: boolean;
-  /** True when this segment should be laid out right-to-left. */
-  rtl: boolean;
+  /**
+   * Innermost `unicode-bidi` context around this text (an isolate, embedding
+   * or override); null/absent = the path's own paragraph. Visual order comes
+   * from UAX #9 over ALL segments together (src/bidi.ts), not per segment.
+   */
+  bidi?: BidiContext | null;
   /** Nearest ancestor-or-self element declaring background-clip:text + background.
    * Threaded because background-image/clip don't inherit, so text in a nested
    * inline child wouldn't carry them (mirrors the main renderer). */
@@ -81,6 +89,8 @@ export type TextBaseline =
 
 export interface LayoutInput {
   segments: Segment[];
+  /** The paragraph direction (UAX #9 paragraph level); default `ltr`. */
+  direction?: 'ltr' | 'rtl';
   path: PathLike;
   ctx: CanvasRenderingContext2D;
   align: AlignMode;
@@ -150,23 +160,29 @@ export function flattenSegments(root: StyledNode): Segment[] {
   let wordBoundaryBefore = false;
   function walk(
     node: StyledNode,
-    inheritedRtl: boolean,
+    bidi: BidiContext | null,
     clipStyle?: ResolvedStyle,
     strokeImageStyle?: ResolvedStyle,
   ) {
     if (node.style.display === 'none') return;
-    const rtl = node.style.direction === 'rtl' || inheritedRtl;
     if (node.tagName === '#text' && node.textContent) {
       out.push({
-        text: node.textContent, style: node.style, rtl, clipStyle, strokeImageStyle,
+        text: node.textContent, style: node.style, bidi, clipStyle, strokeImageStyle,
         wordBoundaryBefore,
       });
       wordBoundaryBefore = false;
       return;
     }
-    if (node !== root && node.style.display !== 'inline' && node.style.display !== 'contents') {
+    const block = node !== root && node.style.display !== 'inline' && node.style.display !== 'contents';
+    if (block) {
       wordBoundaryBefore = true;
     }
+    // A path is ONE line, so a nested block cannot start a paragraph of its
+    // own; it isolates its content in its own direction instead (HTML gives
+    // blocks `unicode-bidi: isolate`). An inline element opens what its
+    // `unicode-bidi` says.
+    const ownBidi = node === root ? bidi
+      : bidiContextFor(block ? 'isolate' : node.style.unicodeBidi, node.style.direction, bidi);
     // Track the nearest element declaring a background-clip:text background or
     // a --rt-text-stroke-image — those paints propagate to descendant glyphs
     // even though the properties don't inherit.
@@ -174,9 +190,9 @@ export function flattenSegments(root: StyledNode): Segment[] {
     const newStroke =
       node.style.webkitTextStrokeImage && node.style.webkitTextStrokeImage !== 'none'
         ? node.style : strokeImageStyle;
-    for (const child of node.children) walk(child, rtl, newClip, newStroke);
+    for (const child of node.children) walk(child, ownBidi, newClip, newStroke);
   }
-  walk(root, false);
+  walk(root, null);
   return transformTextRuns(out);
 }
 
@@ -248,24 +264,34 @@ interface PreGlyph {
   shaped: boolean;
   clipStyle?: ResolvedStyle;
   strokeImageStyle?: ResolvedStyle;
+  /** UAX #9 level (uniform over the placement). */
+  level: number;
 }
 
 /**
- * Split a single styled segment into PreGlyphs.
+ * Classes a shaped run may hold: strong letters, marks and digits. A neutral
+ * (Arabic comma, ؟) or a level change ends it, so every shaped run is
+ * level-uniform AND free of neutrals — then fillText's own bidi pass, under any
+ * base direction, orders its inside exactly as UAX #9 does, and L2 orders the
+ * placements.
+ */
+const SHAPED_RUN_CLASSES = new Set(['L', 'R', 'AL', 'NSM', 'EN', 'AN']);
+
+/**
+ * Split a single styled segment into PreGlyphs, in LOGICAL order.
  *
  * Non-joining graphemes (Latin, CJK, …) emit one PreGlyph per grapheme so the
  * curve can drive per-glyph rotation. Joining-script graphemes are grouped
- * into runs (split at whitespace + style boundaries) so the browser can shape
- * them correctly when we later call fillText on the run as a whole.
- *
- * For RTL segments, the RUN ORDER is reversed (not the graphemes inside a
- * shaped run) — that way Arabic words still shape correctly while flowing in
- * visual right-to-left order along an LTR path walk.
+ * into runs (split at whitespace, style, level and neutral boundaries) so the
+ * browser can shape them correctly when we later call fillText on the run as
+ * a whole. `levels` are the segment's UAX #9 levels per UTF-16 unit; the
+ * caller reorders the placements (L2) across ALL segments.
  */
 function preGlyphsForSegment(
   m: Measurer,
   state: MeasureState,
   seg: Segment,
+  levels: Uint8Array,
 ): PreGlyph[] {
   const graphemes = stringToArray(seg.text);
   if (graphemes.length === 0) return [];
@@ -273,28 +299,32 @@ function preGlyphsForSegment(
   const { ascent, descent } = m.metrics(seg.style);
 
   // Group graphemes into (shaped run | single non-shaped grapheme).
-  // Boundaries: shape-status change, ASCII whitespace.
-  const runs: { text: string; shaped: boolean; isSpace: boolean }[] = [];
+  const runs: { text: string; shaped: boolean; isSpace: boolean; level: number }[] = [];
   let currentShapedRun = '';
+  let currentLevel = -1;
+  let offset = 0;
+  const flush = () => {
+    if (currentShapedRun) {
+      runs.push({ text: currentShapedRun, shaped: true, isSpace: false, level: currentLevel });
+      currentShapedRun = '';
+    }
+  };
   for (const g of graphemes) {
     const isSpace = g === ' ';
-    if (needsShaping(g) && !isSpace) {
+    const level = levels[offset];
+    offset += g.length;
+    const shapes = needsShaping(g) && !isSpace &&
+      SHAPED_RUN_CLASSES.has(bidiClass(g.codePointAt(0)!));
+    if (shapes) {
+      if (currentShapedRun && level !== currentLevel) flush();
       currentShapedRun += g;
+      currentLevel = level;
     } else {
-      if (currentShapedRun) {
-        runs.push({ text: currentShapedRun, shaped: true, isSpace: false });
-        currentShapedRun = '';
-      }
-      runs.push({ text: g, shaped: false, isSpace });
+      flush();
+      runs.push({ text: g, shaped: false, isSpace, level });
     }
   }
-  if (currentShapedRun) {
-    runs.push({ text: currentShapedRun, shaped: true, isSpace: false });
-  }
-
-  // RTL: reverse run order. Don't reverse graphemes inside a shaped run —
-  // the browser will lay them out right-to-left during fillText.
-  if (seg.rtl) runs.reverse();
+  flush();
 
   // Measure each run under the segment's font, kerning and letter-spacing.
   const out: PreGlyph[] = [];
@@ -310,6 +340,7 @@ function preGlyphsForSegment(
       shaped: r.shaped,
       clipStyle: seg.clipStyle,
       strokeImageStyle: seg.strokeImageStyle,
+      level: r.level,
     });
   }
   return out;
@@ -334,20 +365,29 @@ export function layoutGlyphsOnPath(input: LayoutInput): LayoutOutput {
   // The outer drawTextOnPath/drawTextOnPathLayout calls ctx.save before this
   // and ctx.restore after, so the leak doesn't reach the caller.
   const m = new Measurer(ctx);
-  const preGlyphs: PreGlyph[] = [];
+  // Bidi levels over the whole text: the path is one line of one paragraph.
+  const builder = new BidiTextBuilder();
+  const starts = segments.map((seg) => builder.push(seg.text, seg.bidi ?? null));
+  builder.enter(null);
+  const paragraph = resolveBidi(builder.text, input.direction === 'rtl' ? 1 : 0);
+  const levels = lineLevels(paragraph, 0, builder.text.length);
+  const logical: PreGlyph[] = [];
   let measuredWholeWidth = 0;
   let maxLineHeight = 0;
-  for (const seg of segments) {
-    if (!seg.text) continue;
+  segments.forEach((seg, i) => {
+    if (!seg.text) return;
     const lh = seg.style.lineHeight > 0 ? seg.style.lineHeight : seg.style.fontSize;
     if (lh > maxLineHeight) maxLineHeight = lh;
     const state = m.stateOf(seg.style);
-    const segGlyphs = preGlyphsForSegment(m, state, seg);
-    if (segGlyphs.length === 0) continue;
-    preGlyphs.push(...segGlyphs);
+    const segGlyphs = preGlyphsForSegment(
+      m, state, seg, levels.subarray(starts[i], starts[i] + seg.text.length));
+    if (segGlyphs.length === 0) return;
+    logical.push(...segGlyphs);
     // Whole-segment width — kerning makes this < sum of per-glyph widths.
     measuredWholeWidth += m.measureText(state, seg.text).width;
-  }
+  });
+  // UAX #9 L2: placements in visual order, across segments.
+  const preGlyphs = visualOrder(logical.map((g) => g.level)).map((i) => logical[i]);
 
   // 2. Sum natural width. `g.width` came out of measureText with
   // ctx.letterSpacing ALREADY applied, so it carries one letter-space per

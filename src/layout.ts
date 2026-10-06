@@ -1,5 +1,11 @@
 import type { StyledNode, LayoutNode, LayoutBox, LayoutText, ResolvedStyle, LayoutLine, LayoutLineBox, DecorationEntry } from './types.js';
 import { isTransparent } from './css-resolver.js';
+import { IS_GECKO, IS_SAFARI } from './engine.js';
+export { INTEGER_PERCENT_LINE_HEIGHT } from './engine.js';
+import {
+  bidiContextFor, BidiTextBuilder, lineLevels, mayNeedBidi, resolveBidi, visualOrder,
+  type BidiContext,
+} from './bidi.js';
 
 // Module-level flag controlling DOM measurement usage.
 // Set by buildLayoutTree() based on the useDomMeasurements option.
@@ -244,19 +250,36 @@ export class Measurer {
   }
 
   /**
-   * The effective line height for a style. DOM-probed under `accuracy:
-   * 'balanced'` (Firefox and Chrome differ); otherwise the CSS value, or for
-   * `normal` the font bounding box, which already is the full line box.
+   * The height a line box built from this style takes: the computed value
+   * below, as the engine uses it (`multipliedLineHeight` for a number,
+   * `usedLineHeight` for a length — WebKit truncates it;
+   * Blink puts it on its LayoutUnit grid, `LAYOUT_UNIT_LINE_HEIGHT`). A DOM
+   * probe already answers with the engine's used value.
    */
   lineHeight(style: ResolvedStyle, useBulletProbe = false): number {
+    const computed = this.computedLineHeight(style, useBulletProbe);
+    const multiplier = lineHeightMultiplier(style);
+    if (multiplier !== undefined && !_useDomMeasurements) {
+      return multipliedLineHeight(style.fontSize, multiplier);
+    }
+    return usedLineHeight(computed);
+  }
+
+  /**
+   * The computed line height for a style. DOM-probed under `accuracy:
+   * 'balanced'` (Firefox and Chrome differ); otherwise the CSS value, or for
+   * `normal` the font bounding box, which already is the full line box. A
+   * percentage `vertical-align` resolves against this, not the used value.
+   */
+  computedLineHeight(style: ResolvedStyle, useBulletProbe = false): number {
     const fs = this.font(style);
     const slot = useBulletProbe && _useDomMeasurements ? 1 : 0;
     let lineHeight = fs.lineHeights[slot];
     if (lineHeight === undefined) {
       if (_useDomMeasurements) {
         lineHeight = measureDomLineHeight(
-          fs.measure.font, style.lineHeight > 0 ? `${style.lineHeight}px` : 'normal', slot === 1);
-      } else if (style.lineHeight > 0) {
+          fs.measure.font, hasLineHeight(style) ? `${style.lineHeight}px` : 'normal', slot === 1);
+      } else if (hasLineHeight(style)) {
         lineHeight = style.lineHeight;
       } else {
         const { ascent, descent } = this.metrics(style);
@@ -365,60 +388,237 @@ function fontBox(m: TextMetrics): FontBox {
   };
 }
 
-/**
- * Which engine's line rules to follow. Only the UA string can say, because
- * `accuracy: 'performance'` promises not to touch the DOM.
- *
- * Blink is the DEFAULT, and the other two are what we detect: a server-side
- * render (no navigator, or jsdom) targets headless Chrome, so anything we
- * cannot positively identify has to round the way Chrome does.
- *
- * - Gecko is the one engine that still sends a real `Gecko/<date>` product
- *   token; Blink and WebKit carry only the "like Gecko" comment, no slash.
- * - Safari is WebKit that says neither `Chrome/` nor `jsdom/`. jsdom borrows
- *   WebKit's UA and would otherwise be mistaken for it.
- * - `Chrome/` is matched with NO word boundary, because headless Chrome sends
- *   `HeadlessChrome/`.
- */
-const UA = typeof navigator === 'undefined' ? '' : navigator.userAgent;
-const IS_GECKO = /\bGecko\/\d/.test(UA);
-const IS_SAFARI =
-  /AppleWebKit/.test(UA) && !/Chrome\/\d/.test(UA) && !/\bjsdom\//.test(UA);
-
 /** Blink (and server-side rendering, whose documented target is Blink) can
  * paint ordinary LTR words as one shaped source run without moving its DOM
  * raster. Gecko and WebKit keep the established word paint path. */
 export const BLINK_TEXT_RUN_SHAPING = !IS_GECKO && !IS_SAFARI;
 
 /**
+ * True where one `fillText` of a whole bidi line paints it in the order and at
+ * the advances the engine's own layout gives it, so a line in ONE paint can
+ * stay one run (`bidiLineItems`). Blink: measured exact (Mixed LTR and RTL,
+ * Multi-script single paragraph — every token at dx 0 against the DOM).
+ * WebKit: not — the same single-run lines scored 6-16% against WebKit's DOM
+ * and 0.00 once split into ordered level runs. Gecko keeps the single run it
+ * always had; its Canvas runs the full UBA too, but that is not measured here.
+ */
+export const CANVAS_BIDI_LINE = !IS_SAFARI;
+
+/**
  * True where the engine floors a line's baseline onto a whole CSS pixel.
  *
- * Blink alone does (`FontHeight::AddLeading`). Gecko and WebKit both lay the
- * exact half-leading out — measured over the whole 530-case corpus, giving
- * Safari the Blink branch cost 214 wins against 223 losses (avg 7.50% ->
- * 9.21%) where the exact value wins 48 against 3 (7.50% -> 6.52%).
+ * Blink does (`FontHeight::AddLeading`), and so does WebKit — over the
+ * line-height it has already truncated (`TRUNCATES_LINE_HEIGHT`). Gecko lays
+ * the exact half-leading out. An older corpus run gave Safari the exact value
+ * because the floor ALONE lost there (214 wins against 223 losses): it was
+ * tried over the untruncated line-height. Floor and truncation together match
+ * WebKit's DOM (measured in Playwright WebKit, 1,768 of
+ * 1,768 configurations: eight families, 8-56px, seventeen line-heights; the
+ * system monospace is off by its own canvas metrics — see CLAUDE.md).
  */
-export const FLOORS_LINE_BASELINE = !IS_GECKO && !IS_SAFARI;
+export const FLOORS_LINE_BASELINE = !IS_GECKO;
 
 /**
  * `super` and `sub` are engine constants, not CSS. Blink and WebKit share
  * theirs (`fontSize/3 + 1`, `fontSize/5 + 1`); Gecko raises by 0.34em and
- * lowers by 0.20em. A SEPARATE question from the rounding above — Safari
- * rounds like nobody and shifts like Blink — so never gate one on the other.
+ * lowers by 0.20em. A SEPARATE question from the rounding above — the two
+ * flags happen to select the same engines today, which is no reason to read
+ * one for the other.
  */
 export const BLINK_SUPER_SUB = !IS_GECKO;
 
 /**
+ * True where the engine lays a line box out at a WHOLE-pixel line-height.
+ *
+ * WebKit alone does: it floors the computed line-height, a float32 product —
+ * 16px x 1.6 is a 25px line, 20px x 1.15 is 23 (the double product is a hair
+ * under), 23.99999px is 23. Blink keeps the fraction (on its 1/64px grid) and
+ * so does Gecko. A unitless number floors the font-size to 1/64px before it
+ * multiplies (`multipliedLineHeight`): 13.6px x 1.25 is 16, not 17.
+ * Exact, render-tag drifted 0.4-0.8px further down per line in
+ * WebKit — about 83% of that lane's pixel residual. A separate question from
+ * the floor above — Blink floors the baseline and keeps the line-height — so
+ * never gate one on the other. A percentage `vertical-align` still resolves
+ * against the exact value (measured: 50% of 25.6px moves 12.796875).
+ */
+export const TRUNCATES_LINE_HEIGHT = IS_SAFARI;
+
+/**
+ * True where the engine PAINTS each line box at a whole CSS pixel while its
+ * layout stays fractional. Blink does: it rounds the line box's top
+ * (`Math.round`, half up) and keeps every offset inside the line — the
+ * baseline, a `vertical-align` shift — as laid out. Layout numbers are not
+ * moved (the DOM's own layout baseline stays fractional; render-tag matches it
+ * to ~0.01px), so this is a PAINT rule: see `paintLineSnap`.
+ *
+ * Measured against Chromium's DOM raster over fractional line tops (k/16 px),
+ * six fonts, DPR 1, 2 and 3: a plain line matches pixel for pixel in 576 of
+ * 576 configurations, at every DPR — so it is a CSS-pixel rule, not a device
+ * pixel one (a canvas already lands `fillText` on a device pixel, which is why
+ * DPR 1 looked right before). `super`/`sub`/length shifts follow the LINE's
+ * snap, not their own: rounding each run's baseline instead puts `sub` and a
+ * -2.7px shift a pixel off, and was worse than no snap at all for `super` at
+ * DPR 2-3. Text in an inline-block snaps by its own inner line box.
+ *
+ * WebKit does NOT do this: it rounds the baseline to a DEVICE pixel (192 of
+ * 192 at DPR 1 and 2, 176 of 192 at DPR 3), which needs the device scale at
+ * paint time and is not modelled. Gecko keeps the unsnapped paint; UNVERIFIED
+ * (Firefox cannot be measured here).
+ */
+export const SNAPS_LINE_PAINT = !IS_GECKO && !IS_SAFARI;
+
+/**
+ * Blink's auto underline position, measured from the SNAPPED baseline above:
+ * the band's top edge sits `ceil(fontSize / 20)` px below it — half the auto
+ * thickness (`fontSize / 10`) rounded up, the same rule an explicit
+ * `text-decoration-thickness: T` follows (`ceil(T / 2)`). Font-independent:
+ * 672 of 672 bands (six pinned fonts, 8-72px, DPR 1 and 2, fractional line
+ * tops) and 198 of 198 across eleven system families up to 160px. WebKit's
+ * gap is not this (1-3px, font-dependent); WebKit and Gecko keep the 0.105em
+ * approximation.
+ */
+export const BLINK_UNDERLINE_GAP = !IS_GECKO && !IS_SAFARI;
+
+/**
+ * The top of the line box each run was laid out on, for `paintLineSnap`.
+ * Kept off the public `LayoutText` shape: it is paint bookkeeping, keyed by the
+ * node's identity the way the rest of the tree is.
+ */
+const runLineTops = new WeakMap<LayoutText, number>();
+
+/**
+ * How far the engine moves a run's paint off its layout position
+ * (`SNAPS_LINE_PAINT`): `round(lineTop) - lineTop`, the same for every run on
+ * the line. 0 where the engine does not snap. A node this layout did not
+ * produce (a hand-built or cloned tree) falls back to its line baseline, which
+ * sits a whole number of pixels below the line top unless something on the
+ * line raised it.
+ */
+export function paintLineSnap(node: LayoutText): number {
+  if (!SNAPS_LINE_PAINT) return 0;
+  const top = runLineTops.get(node) ?? node.lineBaselineY ?? node.y;
+  return Math.round(top) - top;
+}
+
+/**
+ * What a min-height does to the margins leaving a block through its bottom
+ * edge from its last child (measured with `margin-collapse-parity`):
+ *
+ * - `'drop'` (Blink): a min-height at or below the content height changes
+ *   nothing. One that RAISES the box ends the run, and those margins are
+ *   lost — neither added inside the box nor passed out (`min-height:30px`
+ *   over a 20px line with a 16px child margin: the box is 30px, and the next
+ *   sibling sits only its own margin below).
+ * - `'collapse'` (WebKit): CSS 2.1 §8.3.1 to the letter — the condition is an
+ *   'auto' height, and min-height is not part of it; the margins always pass
+ *   out (`min-height:80px`, 40px child margin: next sibling 40px below).
+ * - `'contain'` (Gecko): any nonzero min-height keeps the margins inside the
+ *   box. render-tag's rule before the general collapse landed — kept because
+ *   Firefox cannot be measured here; UNVERIFIED.
+ */
+/**
+ * A list item whose children all collapse through (`<li><div style="margin:
+ * 10px 0"></div></li>`) is not empty: its outside marker is content. Both
+ * engines keep the children's margins adjoining the item's top AND bottom
+ * (they do not join each other); Blink then gives the item the marker's line
+ * box (20px at a 20px line-height), WebKit gives it no height. Measured in
+ * Chromium and Playwright WebKit (margin-collapse-parity). Gecko gets
+ * WebKit's answer, which is render-tag's rule from before the general
+ * collapse; UNVERIFIED.
+ */
+export const MARKER_LINE_WITHOUT_CONTENT = !IS_GECKO && !IS_SAFARI;
+
+export const MIN_HEIGHT_END_MARGINS: 'drop' | 'collapse' | 'contain' =
+  IS_GECKO ? 'contain' : IS_SAFARI ? 'collapse' : 'drop';
+
+/**
+ * True where the engine lays a line-height out on its 1/64px grid: Blink's
+ * LayoutUnit. Measured over 60+ font-size x line-height pairs in Chromium's
+ * DOM (line pitch over 64 lines):
+ *
+ * - a NUMBER rounds the font-size onto the grid, multiplies, and rounds the
+ *   product DOWN: 14px x 1.6 is a 22.390625px line, not 22.4; 15.31px x 1.15
+ *   is 17.609375;
+ * - a LENGTH (px, em, %) rounds to the NEAREST grid line: 22.4px is 22.40625
+ *   (a percentage is an integer percentage first: INTEGER_PERCENT_LINE_HEIGHT);
+ * - the half-leading is halved in LayoutUnits, truncating toward zero, before
+ *   the baseline floor (`lineBaselineOffset`): Verdana 13.6px x 1.25 has its
+ *   baseline at 14, where flooring the exact half gives 13.
+ *
+ * Exact, render-tag drifted ~0.01px a line from the DOM — invisible until
+ * `SNAPS_LINE_PAINT` rounds every line top, where 45 lines of it move a line
+ * across the rounding point (Long document: 3.2% -> 0). WebKit's whole-pixel
+ * truncation (`TRUNCATES_LINE_HEIGHT`) is a separate rule of a separate
+ * engine. Gecko lays out on its own 1/60px grid, not modelled (UNVERIFIED).
+ */
+export const LAYOUT_UNIT_LINE_HEIGHT = !IS_GECKO && !IS_SAFARI;
+
+/** Not `normal`: a length, or zero (carried as the multiplier 0; css-resolver). */
+function hasLineHeight(style: ResolvedStyle): boolean {
+  return style.lineHeight > 0 || lineHeightMultiplier(style) === 0;
+}
+
+/** The line-height multiplier of a unitless `line-height` (css-resolver). */
+function lineHeightMultiplier(style: ResolvedStyle): number | undefined {
+  return (style as { _lineHeightMultiplier?: number })._lineHeightMultiplier;
+}
+
+/**
+ * The line box height of a UNITLESS line-height, the way the engine multiplies
+ * it. Both Blink and WebKit put the font-size on the 1/64px grid first —
+ * Blink rounds it, WebKit floors it — and then:
+ *
+ * - Blink floors the product onto the grid (14px x 1.6 is 22.390625);
+ * - WebKit floors the float32 product to a whole pixel (13.6px x 1.25 is
+ *   16, where floor(fround(13.6 x 1.25)) would give 17; 20 x 1.15 is 23).
+ *
+ * Gecko keeps the exact product. Measured in Chromium and Playwright WebKit
+ * (line-baseline-parity; WebKit: 2898 of 2898 sizes x ratios x families).
+ */
+function multipliedLineHeight(fontSize: number, multiplier: number): number {
+  if (LAYOUT_UNIT_LINE_HEIGHT) {
+    // The epsilon keeps a double product one ulp under a grid line (20 x 1.15
+    // is 22.999999999999996) on it, as Blink's own arithmetic does.
+    return Math.floor((Math.round(fontSize * 64) / 64) * multiplier * 64 + 1e-6) / 64;
+  }
+  if (TRUNCATES_LINE_HEIGHT) {
+    return Math.floor(Math.fround((Math.floor(fontSize * 64) / 64) * multiplier));
+  }
+  return fontSize * multiplier;
+}
+
+/**
+ * The height a line box built from `lineHeight` (a computed CSS LENGTH, px)
+ * actually takes in this engine: WebKit truncates it to a whole pixel
+ * (`TRUNCATES_LINE_HEIGHT`), Blink rounds it onto its 1/64px grid
+ * (`LAYOUT_UNIT_LINE_HEIGHT`), Gecko keeps it. Idempotent, so a value that
+ * already is the engine's used value passes through unchanged.
+ */
+function usedLineHeight(lineHeight: number): number {
+  if (TRUNCATES_LINE_HEIGHT) return Math.floor(Math.fround(lineHeight));
+  if (LAYOUT_UNIT_LINE_HEIGHT) return Math.round(lineHeight * 64) / 64;
+  return lineHeight;
+}
+
+/**
  * Baseline offset from the top of a line box, the way the engine places it:
  * the half-leading `(lineHeight - (ascent + descent)) / 2` below the line top,
- * plus the ascent, rounded as `FLOORS_LINE_BASELINE` says.
+ * plus the ascent — over the line-height the engine actually uses
+ * (`TRUNCATES_LINE_HEIGHT`), rounded as `FLOORS_LINE_BASELINE` says. Pass the
+ * computed CSS line-height; the box it heads is that engine's used
+ * line-height tall (in WebKit, `Math.floor` of it).
  *
  * Public API, because this is the ONE rule every renderer that places a
  * baseline beside a render-tag canvas has to share (@polotno/svg-export, the
  * editor's list marker). Call it rather than restate it, or the two drift.
  */
 export function lineBaselineOffset(lineHeight: number, ascent: number, descent: number): number {
-  const exact = (lineHeight - (ascent + descent)) / 2 + ascent;
+  let halfLeading = (usedLineHeight(lineHeight) - (ascent + descent)) / 2;
+  // Blink halves the leading in LayoutUnits, truncating toward zero: a
+  // negative leading an odd number of 64ths short floors one pixel LOWER than
+  // the exact half would (Verdana 13.6px x 1.25: 14, not 13).
+  if (LAYOUT_UNIT_LINE_HEIGHT) halfLeading = Math.trunc(halfLeading * 64) / 64;
+  const exact = halfLeading + ascent;
   return FLOORS_LINE_BASELINE ? Math.floor(exact) : exact;
 }
 
@@ -551,7 +751,7 @@ export function getFontMetrics(ctx: CanvasRenderingContext2D, style: ResolvedSty
  *  - text-top/-bottom the box's LEADED edge against the parent's CONTENT-area
  *                     edge (bare ascent/descent, no leading). Taking the box's
  *                     bare metrics instead costs 25px on a line holding both.
- *  - middle           box midpoint at parent baseline + half the x-height
+ *  - middle           LEADED box midpoint at parent baseline + half the x-height
  *  - <length>/<%>     raise (positive value) by the length / % of line-height
  */
 function verticalAlignShift(
@@ -586,8 +786,14 @@ function verticalAlignShift(
       const m = measurerFor(ctx);
       return m.metrics(parentStyle).descent - m.leadedBox(style, useBulletProbe).descent;
     }
+    // The midpoint of the LEADED box (CSS 2.1 §10.8.1 aligns "the vertical
+    // midpoint of the box" — the box with its half-leading). Where the engine
+    // floors the half-leading that is up to 0.5px off the content area's
+    // midpoint — measured in Chrome and WebKit alike, a 30px/60px middle on an
+    // 18px/2 line: DOM 34.70, content-area
+    // midpoint 34.0, leaded 34.5. (The rest is x-height, approximated 0.5em.)
     case 'middle': {
-      const { ascent, descent } = measurerFor(ctx).metrics(style);
+      const { ascent, descent } = measurerFor(ctx).leadedBox(style, useBulletProbe);
       return -(parentStyle.fontSize * 0.25) - (descent - ascent) / 2;
     }
     default: {
@@ -599,7 +805,7 @@ function verticalAlignShift(
       // §10.8.1), not the line's. Measured against Chrome: the line's put the
       // box 10px out on a line whose tallest run was not this one.
       return va.endsWith('%')
-        ? -(n / 100) * measurerFor(ctx).lineHeight(style, useBulletProbe)
+        ? -(n / 100) * measurerFor(ctx).computedLineHeight(style, useBulletProbe)
         : -n;
     }
   }
@@ -717,6 +923,8 @@ interface TextRun {
   strokeImageStyle?: ResolvedStyle;
   /** Source element for an atomic inline-block with its own inner line flow. */
   inlineBlock?: StyledNode;
+  /** Innermost inline `unicode-bidi` context (isolate/embed/override); none = the paragraph. */
+  bidi?: BidiContext | null;
 }
 
 interface InlineBlockLayout {
@@ -758,6 +966,8 @@ interface Word {
   strokeImageStyle?: ResolvedStyle;
   inlineBlock?: StyledNode;
   inlineBlockLayout?: InlineBlockLayout;
+  /** See `TextRun.bidi`. */
+  bidi?: BidiContext | null;
 }
 
 interface PositionedLine {
@@ -875,6 +1085,7 @@ function collectTextRuns(node: StyledNode): TextRun[] {
     clipStyle?: ResolvedStyle,
     strokeImageStyle?: ResolvedStyle,
     parentStyle?: ResolvedStyle,
+    bidi: BidiContext | null = null,
   ) {
     if (n.tagName === '#text' && n.textContent) {
       // A #text node carries its parent ELEMENT's style, so the element that
@@ -882,7 +1093,7 @@ function collectTextRuns(node: StyledNode): TextRun[] {
       // measures against is ITS parent, which is the `parentStyle` handed to
       // this element's walk.
       runs.push({
-        text: n.textContent, style: n.style, parentStyle, boxStyle, clipStyle, strokeImageStyle,
+        text: n.textContent, style: n.style, parentStyle, boxStyle, clipStyle, strokeImageStyle, bidi,
       });
       return;
     }
@@ -917,6 +1128,7 @@ function collectTextRuns(node: StyledNode): TextRun[] {
         boxOpen: n.style,  // signals this is a boxed element
         boxClose: n.style,
         inlineBlock: n,
+        bidi,
       });
       return;
     }
@@ -928,9 +1140,13 @@ function collectTextRuns(node: StyledNode): TextRun[] {
     const overrideRtl = (ub === 'bidi-override' || ub === 'isolate-override') &&
       n.style.direction === 'rtl';
     const overrideStart = runs.length;
+    // The element's own bidi context (CSS Writing Modes 3 §2.4.2). An RTL
+    // override's runs are reversed into visual order just below and painted
+    // left to right, so to the bidi algorithm they are an LTR override.
+    const childBidi = bidiContextFor(ub, overrideRtl ? 'ltr' : n.style.direction, bidi);
 
     if (hasHorizSpacing) {
-      runs.push({ text: '', style: n.style, boxStyle: newBoxStyle, boxOpen: n.style });
+      runs.push({ text: '', style: n.style, boxStyle: newBoxStyle, boxOpen: n.style, bidi });
     }
 
     for (const child of n.children) {
@@ -940,11 +1156,12 @@ function collectTextRuns(node: StyledNode): TextRun[] {
         // vertical-align belongs to this element, so it measures against what
         // this element measures against.
         child.tagName === '#text' ? parentStyle : n.style,
+        childBidi,
       );
     }
 
     if (hasHorizSpacing) {
-      runs.push({ text: '', style: n.style, boxStyle: newBoxStyle, boxClose: n.style });
+      runs.push({ text: '', style: n.style, boxStyle: newBoxStyle, boxClose: n.style, bidi });
     }
 
     if (overrideRtl && runs.length > overrideStart) {
@@ -1149,6 +1366,7 @@ function tokenizeString(m: Measurer, text: string, run: TextRun, allWords: Word[
           boxStyle: run.boxStyle,
           clipStyle: run.clipStyle,
           strokeImageStyle: run.strokeImageStyle,
+          bidi: run.bidi,
         });
         continue;
       }
@@ -1162,6 +1380,7 @@ function tokenizeString(m: Measurer, text: string, run: TextRun, allWords: Word[
         boxStyle: run.boxStyle,
         clipStyle: run.clipStyle,
         strokeImageStyle: run.strokeImageStyle,
+        bidi: run.bidi,
       });
     }
   } else {
@@ -1210,6 +1429,7 @@ function tokenizeString(m: Measurer, text: string, run: TextRun, allWords: Word[
           boxStyle: run.boxStyle,
           clipStyle: run.clipStyle,
           strokeImageStyle: run.strokeImageStyle,
+          bidi: run.bidi,
         });
         continue;
       }
@@ -1229,6 +1449,7 @@ function tokenizeString(m: Measurer, text: string, run: TextRun, allWords: Word[
               boxStyle: run.boxStyle,
               clipStyle: run.clipStyle,
               strokeImageStyle: run.strokeImageStyle,
+              bidi: run.bidi,
             });
           }
           continue;
@@ -1255,6 +1476,7 @@ function tokenizeString(m: Measurer, text: string, run: TextRun, allWords: Word[
         boxStyle: run.boxStyle,
         clipStyle: run.clipStyle,
         strokeImageStyle: run.strokeImageStyle,
+        bidi: run.bidi,
       });
     }
   }
@@ -1298,6 +1520,7 @@ function tokenizeRuns(ctx: CanvasRenderingContext2D, runs: TextRun[]): Word[] {
         boxClose: run.boxClose,
         clipStyle: run.clipStyle,
         strokeImageStyle: run.strokeImageStyle,
+        bidi: run.bidi,
         inlineBlock: run.inlineBlock,
       });
       continue;
@@ -1307,14 +1530,14 @@ function tokenizeRuns(ctx: CanvasRenderingContext2D, runs: TextRun[]): Word[] {
     if (run.boxOpen) {
       const pad = run.boxOpen.paddingLeft + run.boxOpen.borderLeftWidth;
       if (pad > 0) {
-        allWords.push({ text: '', width: pad, style: run.style, isSpace: false, boxStyle: run.boxStyle, boxOpen: run.boxOpen });
+        allWords.push({ text: '', width: pad, style: run.style, isSpace: false, boxStyle: run.boxStyle, boxOpen: run.boxOpen, bidi: run.bidi });
       }
       continue;
     }
     if (run.boxClose) {
       const pad = run.boxClose.paddingRight + run.boxClose.borderRightWidth;
       if (pad > 0) {
-        allWords.push({ text: '', width: pad, style: run.style, isSpace: false, boxStyle: run.boxStyle, boxClose: run.boxClose });
+        allWords.push({ text: '', width: pad, style: run.style, isSpace: false, boxStyle: run.boxStyle, boxClose: run.boxClose, bidi: run.bidi });
       }
       continue;
     }
@@ -1667,6 +1890,7 @@ function flowWordsIntoLines(
           // word's clip/stroke-image declarer (else it paints transparent).
           clipStyle: lastWord.clipStyle,
           strokeImageStyle: lastWord.strokeImageStyle,
+          bidi: lastWord.bidi,
         });
         currentLine.totalWidth += hyphenWidth;
       }
@@ -1755,6 +1979,7 @@ function flowWordsIntoLines(
           parentStyle?: ResolvedStyle;
           clipStyle?: ResolvedStyle;
           strokeImageStyle?: ResolvedStyle;
+          bidi?: BidiContext | null;
         };
         const cells: Cell[] = [];
         for (let j = wordIndex; j <= end; j++)
@@ -1765,6 +1990,7 @@ function flowWordsIntoLines(
               parentStyle: words[j].parentStyle,
               clipStyle: words[j].clipStyle,
               strokeImageStyle: words[j].strokeImageStyle,
+              bidi: words[j].bidi,
             });
         const combinedText = cells.map((c) => c.ch).join('');
         // Hyphen break opportunities (same rule as the single-word hyphen path).
@@ -1797,6 +2023,7 @@ function flowWordsIntoLines(
               // word), so capturing it at the run start covers every push below.
               const clipStyle = cs[i].clipStyle;
               const strokeImageStyle = cs[i].strokeImageStyle;
+              const bidi = cs[i].bidi;
               const parentStyle = cs[i].parentStyle;
               const state = m.stateOf(st);
               const lh = m.lineHeight(st, useBulletProbe);
@@ -1809,7 +2036,7 @@ function flowWordsIntoLines(
                 if (chars && currentLine.totalWidth + candW > effWidth() &&
                     (currentLine.words.length > 0 || cur)) {
                   if (cur) {
-                    currentLine.words.push({ text: cur, width: curW, style: st, isSpace: false, parentStyle, clipStyle, strokeImageStyle });
+                    currentLine.words.push({ text: cur, width: curW, style: st, isSpace: false, parentStyle, clipStyle, strokeImageStyle, bidi });
                     currentLine.totalWidth += curW;
                     currentLine.lineHeight = Math.max(currentLine.lineHeight, lh);
                   }
@@ -1824,7 +2051,7 @@ function flowWordsIntoLines(
                 i++;
               }
               if (cur) {
-                currentLine.words.push({ text: cur, width: curW, style: st, isSpace: false, parentStyle, clipStyle, strokeImageStyle });
+                currentLine.words.push({ text: cur, width: curW, style: st, isSpace: false, parentStyle, clipStyle, strokeImageStyle, bidi });
                 currentLine.totalWidth += curW;
                 currentLine.lineHeight = Math.max(currentLine.lineHeight, lh);
                 afterHardBreak = false;
@@ -2138,6 +2365,287 @@ function prepareInlineBlocks(
   }
 }
 
+// ─── Bidi reordering ───────────────────────────────────────────────────
+
+/**
+ * Per committed line, per word, the word's UAX #9 levels after L1 (`null` for
+ * a padding marker) — or `null` for a line that needs no reordering. `null`
+ * overall for a paragraph with nothing right-to-left in it, which costs one
+ * scan: every plain LTR paragraph keeps its word-by-word emission untouched.
+ *
+ * Levels are resolved over the WHOLE paragraph, not per line: a neutral at a
+ * line end, or a number after a wrapped Arabic word (W2/W7), takes its type
+ * from text on another line. A forced break separates paragraphs; an atomic
+ * inline is one U+FFFC (CSS Writing Modes 3 §2.4.2).
+ */
+function resolveLineBidi(
+  lines: PositionedLine[], rtl: boolean,
+): Array<Array<Uint8Array | null> | null> | null {
+  let needed = rtl;
+  for (let i = 0; !needed && i < lines.length; i++) {
+    for (const w of lines[i].words) {
+      let rtlContext = false;
+      for (let c = w.bidi; c && !rtlContext; c = c.parent) rtlContext = mayNeedBidi(c.open);
+      if (rtlContext || mayNeedBidi(w.text)) { needed = true; break; }
+    }
+  }
+  if (!needed) return null;
+
+  const builder = new BidiTextBuilder();
+  const starts = lines.map((line) => {
+    const at = line.words.map((w) => w.text === ''
+      ? -1
+      : builder.push(isAtomicInlineBlock(w) ? '\uFFFC' : w.text, w.bidi ?? null));
+    if (line.endedByHardBreak) builder.paragraphBreak();
+    return at;
+  });
+  builder.enter(null);
+  const par = resolveBidi(builder.text, rtl ? 1 : 0);
+
+  return lines.map((line, li) => {
+    const at = starts[li];
+    const lengthOf = (k: number) => isAtomicInlineBlock(line.words[k]) ? 1 : line.words[k].text.length;
+    let first = -1;
+    let end = -1;
+    at.forEach((start, k) => {
+      if (start < 0) return;
+      if (first < 0) first = start;
+      end = start + lengthOf(k);
+    });
+    if (first < 0) return null;
+    const levels = lineLevels(par, first, end);
+    if (!rtl && levels.every((level) => level === 0)) return null;
+    return at.map((start, k) => start < 0
+      ? null
+      : levels.subarray(start - first, start - first + lengthOf(k)));
+  });
+}
+
+/** `style` with `direction` set; one shared copy per style, so pieces of a run batch by identity. */
+const directionCopies = {
+  ltr: new WeakMap<ResolvedStyle, ResolvedStyle>(),
+  rtl: new WeakMap<ResolvedStyle, ResolvedStyle>(),
+};
+function withDirection(style: ResolvedStyle, direction: 'ltr' | 'rtl'): ResolvedStyle {
+  if (style.direction === direction) return style;
+  let copy = directionCopies[direction].get(style);
+  if (!copy) {
+    copy = { ...style, direction };
+    directionCopies[direction].set(style, copy);
+  }
+  return copy;
+}
+
+/** Can two visually adjacent pieces of one level paint as ONE fillText? */
+function sameBidiRun(a: Word, b: Word): boolean {
+  if (a.boxStyle !== b.boxStyle || a.clipStyle !== b.clipStyle ||
+    a.strokeImageStyle !== b.strokeImageStyle || a.parentStyle !== b.parentStyle) return false;
+  const p = a.style;
+  const q = b.style;
+  return p === q || (sameTextStyle(p, q) &&
+    p.letterSpacing === q.letterSpacing && p.wordSpacing === q.wordSpacing &&
+    p.verticalAlign === q.verticalAlign && p.textShadow === q.textShadow &&
+    p.webkitTextStrokeWidth === q.webkitTextStrokeWidth &&
+    p.webkitTextStrokeColor === q.webkitTextStrokeColor);
+}
+
+/**
+ * A line in ONE paint (style, box, declarers and bidi context all shared; no
+ * padding, atomic inline, tab or justification) as a single run in the
+ * paragraph direction — the engine's Canvas then shapes the whole line as its
+ * layout does (`CANVAS_BIDI_LINE`). Only when Canvas, resolving the line's
+ * text on its own, reaches the levels the paragraph gave it: a line whose
+ * neutrals or numbers take their type from another line (W2/W7, N1 across a
+ * soft wrap) goes through the ordered runs instead. `null` otherwise.
+ */
+function singlePaintLine(
+  words: Word[],
+  wordLevels: Array<Uint8Array | null>,
+  paragraphLevel: 0 | 1,
+  justifying: boolean,
+): { words: Word[]; levels: number[]; keys: number[] } | null {
+  if (words.length === 0 || justifying) return null;
+  const first = words[0];
+  for (const w of words) {
+    if (w.text === '' || w.isTab || isAtomicInlineBlock(w) || w.inlineBlockLayout ||
+      w.bidi !== first.bidi || !sameBidiRun(first, w)) return null;
+  }
+  const text = words.map((w) => w.text).join('');
+  const own = resolveBidi(text, paragraphLevel);
+  const ownLevels = lineLevels(own, 0, text.length);
+  let at = 0;
+  for (let k = 0; k < words.length; k++) {
+    const lv = wordLevels[k]!;
+    for (let i = 0; i < lv.length; i++) if (lv[i] !== ownLevels[at + i]) return null;
+    at += lv.length;
+  }
+  return {
+    words: [{ ...first, text, width: words.reduce((sum, w) => sum + w.width, 0), isSpace: false }],
+    levels: [paragraphLevel],
+    keys: [0],
+  };
+}
+
+/**
+ * One line's words as level-uniform pieces in VISUAL order (UAX #9 L2), each
+ * with its level.
+ *
+ * - A word whose characters resolve to different levels (`abc:` before RTL
+ *   text, `(123)` in Arabic) is cut where the level changes; the pieces share
+ *   the word's flow width in proportion to their own measure.
+ * - Padding markers are not characters: content is reordered without them,
+ *   then each box's open marker (it carries padding-LEFT) goes before the
+ *   visually leftmost piece of that box and its close marker after the
+ *   rightmost — the physical edges, whatever the box's content direction.
+ * - Visually adjacent pieces of one non-zero level and one paint merge into a
+ *   single run (one fillText, so Canvas shapes and kerns it as the engine
+ *   does); its logical text is its pieces right to left at an odd level, and
+ *   its width the sum of their flow advances. Level-0 (LTR paragraph) words
+ *   are never merged, so LTR stays word-granular.
+ * - `keys` give each output piece its logical position (the first item it
+ *   holds), so the caller can emit nodes in document order.
+ */
+function bidiLineItems(
+  m: Measurer,
+  words: Word[],
+  wordLevels: Array<Uint8Array | null>,
+  paragraphLevel: 0 | 1,
+  justifying: boolean,
+): { words: Word[]; levels: number[]; keys: number[] } {
+  const single = CANVAS_BIDI_LINE && singlePaintLine(words, wordLevels, paragraphLevel, justifying);
+  if (single) return single;
+
+  const items: Word[] = [];
+  const levels: number[] = [];
+  words.forEach((word, k) => {
+    const lv = wordLevels[k];
+    if (!lv) {
+      items.push(word);
+      levels.push(-1); // a marker: resolved below
+      return;
+    }
+    let start = 0;
+    const cuts: Array<[number, number]> = [];
+    for (let i = 1; i <= lv.length; i++) {
+      if (i === lv.length || lv[i] !== lv[start]) {
+        cuts.push([start, i]);
+        start = i;
+      }
+    }
+    if (cuts.length === 1 || isAtomicInlineBlock(word)) {
+      items.push(word);
+      levels.push(lv[0]);
+      return;
+    }
+    const state = m.stateOf(word.style);
+    const measured = cuts.map(([a, b]) => m.width(state, word.text.slice(a, b)));
+    const sum = measured.reduce((x, y) => x + y, 0);
+    cuts.forEach(([a, b], i) => {
+      items.push({
+        ...word,
+        text: word.text.slice(a, b),
+        width: sum > 0 ? word.width * measured[i] / sum : 0,
+      });
+      levels.push(lv[a]);
+    });
+  });
+
+  // Content in visual order; padding markers are put back afterwards at the
+  // VISUAL edges of their box's content. A marker is not a character, and
+  // letting it ride on a neighbour's level moved it inside the box whenever a
+  // deeper level was reversed (`<code>render()</code>` in Arabic: the open
+  // padding landed between "()" and "render").
+  const content: number[] = [];
+  items.forEach((_, i) => { if (levels[i] >= 0) content.push(i); });
+  const order = visualOrder(content.map((i) => levels[i]));
+  const visualPos = new Map<number, number>(); // item index → visual slot
+  order.forEach((k, v) => visualPos.set(content[k], v));
+  const before: number[][] = order.map(() => []);
+  const after: number[][] = order.map(() => []);
+  const trailing: number[] = [];
+  for (let i = 0; i < items.length; i++) {
+    if (levels[i] >= 0) continue;
+    const marker = items[i];
+    const closing = !!marker.boxClose && !marker.boxOpen;
+    // The box's content on this line: between the marker and its partner
+    // (or the line edge when the partner is on another line).
+    let from = i + 1;
+    let to = items.length;
+    if (closing) {
+      from = 0;
+      to = i;
+      for (let j = i - 1; j >= 0; j--) {
+        if (levels[j] < 0 && items[j].boxOpen === marker.boxClose && !items[j].boxClose) { from = j + 1; break; }
+      }
+    } else if (marker.boxOpen) {
+      for (let j = i + 1; j < items.length; j++) {
+        if (levels[j] < 0 && items[j].boxClose === marker.boxOpen && !items[j].boxOpen) { to = j; break; }
+      }
+    } else {
+      to = from + 1; // an inline-block's margin: it belongs to the next item
+    }
+    const slots: number[] = [];
+    for (let j = from; j < to; j++) {
+      const v = visualPos.get(j);
+      if (v !== undefined) slots.push(v);
+    }
+    if (slots.length > 0) {
+      if (closing) after[Math.max(...slots)].push(i);
+      else before[Math.min(...slots)].push(i);
+      continue;
+    }
+    // An empty box: stay beside the logically nearest content.
+    let near: number | undefined;
+    for (let j = i + 1; near === undefined && j < items.length; j++) near = visualPos.get(j);
+    if (near !== undefined) before[near].push(i);
+    else {
+      for (let j = i - 1; near === undefined && j >= 0; j--) near = visualPos.get(j);
+      if (near !== undefined) after[near].push(i);
+      else trailing.push(i);
+    }
+  }
+  // Item indices (logical order) in visual order.
+  const sequence: number[] = [];
+  order.forEach((k, v) => sequence.push(...before[v], content[k], ...after[v]));
+  sequence.push(...trailing);
+  const visual = sequence.map((i) => items[i]);
+  const visualLevels = sequence.map((i) => levels[i] >= 0 ? levels[i] : paragraphLevel);
+
+  const mergeable = (w: Word) => w.text !== '' && !w.isTab && !isAtomicInlineBlock(w) &&
+    !(justifying && w.isSpace);
+  const outWords: Word[] = [];
+  const outLevels: number[] = [];
+  const outKeys: number[] = [];
+  for (let i = 0; i < visual.length;) {
+    const level = visualLevels[i];
+    let j = i + 1;
+    if (level > 0 && mergeable(visual[i])) {
+      while (j < visual.length && visualLevels[j] === level && mergeable(visual[j]) &&
+        sameBidiRun(visual[i], visual[j])) j++;
+    }
+    if (j === i + 1) {
+      outWords.push(visual[i]);
+    } else {
+      const run = visual.slice(i, j);
+      if (level % 2) run.reverse(); // back to logical order
+      outWords.push({
+        ...run[0],
+        text: run.map((w) => w.text).join(''),
+        // The flow's own advances, not a fresh measure of the joined text:
+        // they were taken with the text before them as context (kerning,
+        // and the font a fallback-script space resolves to), so the run
+        // ends where the wrap decision and the DOM put it.
+        width: run.reduce((sum, w) => sum + w.width, 0),
+        isSpace: run.every((w) => w.isSpace),
+      });
+    }
+    outLevels.push(level);
+    outKeys.push(Math.min(...sequence.slice(i, j)));
+    i = j;
+  }
+  return { words: outWords, levels: outLevels, keys: outKeys };
+}
+
 /**
  * Layout inline content: text wrapping + positioning using pure canvas measurement.
  * Returns layout nodes and the total height consumed.
@@ -2167,7 +2675,9 @@ function layoutInlineContent(
     return { nodes: results, height: 0, lines: emittedLines, lineBoxes };
   }
   const runs = collectTextRuns(node);
-  if (runs.length === 0) return { nodes: results, height: 0, lines: emittedLines, lineBoxes };
+  if (runs.length === 0 && !node.children.some(createsLineBox)) {
+    return { nodes: results, height: 0, lines: emittedLines, lineBoxes };
+  }
 
   const words = tokenizeRuns(ctx, runs);
   prepareInlineBlocks(ctx, words, contentWidth, useBulletProbe);
@@ -2177,6 +2687,11 @@ function layoutInlineContent(
   // every line box, even a line holding only smaller inline content.
   const strutLineHeight = m.lineHeight(node.style, useBulletProbe);
   const lines = flowWordsIntoLines(ctx, words, contentWidth, node.style.whiteSpace, useBulletProbe, textIndent, tabMetrics, strutLineHeight);
+  // Content with no words can still make a line box (an empty inline with
+  // inline-axis padding, an empty inline-block): it stands at the strut.
+  if (lines.length === 0 && node.children.some(createsLineBox)) {
+    lines.push({ words: [], totalWidth: 0, lineHeight: strutLineHeight });
+  }
 
   // `-webkit-line-clamp` / `line-clamp`: truncate to N lines and append a
   // CSS-style ellipsis ("…") to the Nth line, back-trimming trailing words
@@ -2203,6 +2718,7 @@ function layoutInlineContent(
   }
 
   const isRTL = node.style.direction === 'rtl';
+  const bidiLines = resolveLineBidi(lines, isRTL);
   const resolveDir = (a: string) => {
     if (a === 'start') return isRTL ? 'right' : 'left';
     if (a === 'end') return isRTL ? 'left' : 'right';
@@ -2393,8 +2909,27 @@ function layoutInlineContent(
       });
     };
 
-    // LTR: emit inline background boxes (Pass 1) before text.
-    if (!isRTL) {
+    // Bidi: the line's words cut into level-uniform pieces in VISUAL order
+    // (UAX #9 L2), so both passes below walk the line left to right whatever
+    // its direction. A plain LTR line keeps its own words.
+    let emitWords = line.words;
+    let emitLevels: number[] | null = null;
+    let emitKeys: number[] | null = null;
+    const wordLevels = bidiLines?.[lineIdx];
+    if (wordLevels) {
+      ({ words: emitWords, levels: emitLevels, keys: emitKeys } = bidiLineItems(
+        m, line.words, wordLevels, isRTL ? 1 : 0, justifyExtraPerSpace > 0));
+      if (isRTL) {
+        // An RTL line is anchored at its right edge (curX + totalWidth); its
+        // pieces may measure a little differently from the words they came from.
+        let total = 0;
+        for (const w of emitWords) total += w.width + (w.isSpace ? justifyExtraPerSpace : 0);
+        curX = curX + line.totalWidth - total;
+      }
+    }
+
+    // Emit inline background boxes (Pass 1) before text.
+    {
       let scanX = curX;
       let boxStartX = scanX;
       let currentBoxStyle: ResolvedStyle | undefined;
@@ -2403,7 +2938,7 @@ function layoutInlineContent(
       // the band's baseline sits (the same pair the text emit shifts by).
       let boxTextWord: Word | undefined;
 
-      for (const word of line.words) {
+      for (const word of emitWords) {
         if (word.boxOpen && word.boxClose && word.text) {
           if (currentBoxStyle) {
             if (boxTextWord) emitInlineBox(currentBoxStyle, boxStartX, scanX - boxStartX, boxTextWord);
@@ -2456,218 +2991,130 @@ function layoutInlineContent(
       }
     }
 
-    // Emit text nodes.
-    const textWords = line.words.filter(w => w.text !== '');
-    const allSameStyle = textWords.length > 0 && textWords.every(w =>
-      sameTextStyle(w.style, textWords[0].style)
-    );
-
-    if (isRTL) {
-      // RTL: build groups, compute positions, emit boxes then text.
-      // Groups join consecutive same-style words for proper glyph shaping.
-      // Padding markers between groups create spacing.
-      interface StyledGroup {
-        text: string; style: ResolvedStyle; width: number;
-        boxStyle?: ResolvedStyle; clipStyle?: ResolvedStyle;
-        strokeImageStyle?: ResolvedStyle; x: number;
-        padBefore: number; // padding before this group (from boxOpen/boxClose markers)
-      }
-      const groups: StyledGroup[] = [];
-      let currentGroup: StyledGroup | null = null;
-      let pendingPad = 0;
-
-      for (const word of line.words) {
-        if (word.text === '') {
-          // Padding marker — accumulate for the next group boundary
-          if (currentGroup) { groups.push(currentGroup); currentGroup = null; }
-          pendingPad += word.width;
-          continue;
-        }
-        if (word.isSpace && justifyExtraPerSpace > 0) {
-          // Justify only: break the shaping group at the space and fold the
-          // expansion into the inter-group advance so the line fills the width.
-          // (Arabic does not join across spaces, so this is shaping-safe.)
-          // When not justifying, spaces stay merged into the group text below
-          // so the canvas BiDi engine can reorder embedded LTR runs/numbers.
-          if (currentGroup) { groups.push(currentGroup); currentGroup = null; }
-          pendingPad += word.width + justifyExtraPerSpace;
-          continue;
-        }
-        if (currentGroup && sameTextStyle(currentGroup.style, word.style)) {
-          currentGroup.text += word.text;
-          currentGroup.width += word.width;
-        } else {
-          if (currentGroup) groups.push(currentGroup);
-          currentGroup = { text: word.text, style: word.style, width: word.width, boxStyle: word.boxStyle, clipStyle: word.clipStyle, strokeImageStyle: word.strokeImageStyle, x: 0, padBefore: pendingPad };
-          pendingPad = 0;
-        }
-      }
-      if (currentGroup) groups.push(currentGroup);
-
-      // Compute positions right-to-left: group-level measureText for accuracy,
-      // with padding markers creating spacing between groups.
-      let rtlX = curX + line.totalWidth;
-      for (const group of groups) {
-        rtlX -= group.padBefore; // spacing from padding markers
-        const measuredWidth = m.width(m.stateOf(group.style), group.text);
-        rtlX -= measuredWidth;
-        group.x = rtlX;
-        group.width = measuredWidth;
+    // Emit text nodes, placed left to right. A bidi line's nodes are then put
+    // back in LOGICAL order (`emitKeys`): layoutRoot keeps document order, as
+    // every consumer walking it (and the geometry oracle) expects.
+    const textStart = results.length;
+    const nodeKeys: number[] = [];
+    const keyNodes = (key: number) => {
+      while (textStart + nodeKeys.length < results.length) nodeKeys.push(key);
+    };
+    for (let wordIndex = 0; wordIndex < emitWords.length; wordIndex++) {
+      if (emitKeys && wordIndex > 0) keyNodes(emitKeys[wordIndex - 1]);
+      const word = emitWords[wordIndex];
+      if (word.text === '') {
+        curX += word.width;
+        continue;
       }
 
-      // Emit inline boxes first (behind text).
-      // Include padding/border from boxStyle in box dimensions.
-      for (const group of groups) {
-        if (group.boxStyle && hasVisibleBoxStyles(group.boxStyle)) {
-          const bs = group.boxStyle;
-          const padLeft = bs.paddingLeft + bs.borderLeftWidth;
-          const padRight = bs.paddingRight + bs.borderRightWidth;
-          emitInlineBox(bs, group.x - padLeft, group.width + padLeft + padRight);
-        }
-      }
-
-      // Emit text groups
-      for (const group of groups) {
-        const node: LayoutText = {
-          type: 'text',
-          text: group.text,
-          x: group.x + group.width, // x = right edge for RTL textAlign
-          y: lineBaselineY,
-          width: group.width,
-          style: { ...group.style, direction: 'rtl' },
-        };
-        results.push(node);
-        if (group.clipStyle) clipRuns.set(node, group.clipStyle);
-        if (group.strokeImageStyle) strokeImageRuns.set(node, group.strokeImageStyle);
-      }
-    } else {
-      // LTR with mixed BiDi scripts: emit the entire line as one fillText call
-      // so the canvas engine handles BiDi reordering (Arabic/Hebrew in LTR).
-      // Only do this when the line contains RTL characters — pure LTR lines
-      // are more accurate with word-by-word positioning.
-      const lineText = line.words.map(w => w.text).join('');
-      const hasBidiMix = allSameStyle && /[\u0590-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/.test(lineText) &&
-        !line.words.some(w => w.boxOpen || w.boxClose ||
-          w.style.verticalAlign === 'super' || w.style.verticalAlign === 'sub');
-      if (hasBidiMix) {
-        const measuredWidth = m.width(m.stateOf(textWords[0].style), lineText);
-        // This line belongs to an LTR block (we're in the !isRTL branch), so it
-        // must be painted with an LTR base direction even when its first word is
-        // RTL (an RTL span that wrapped onto this line). Without forcing LTR the
-        // node inherits the first word's direction:'rtl' and the paint path
-        // right-aligns the whole line at the left edge (x=curX), drawing it
-        // off-screen. The canvas BiDi engine still reorders the embedded
-        // Arabic/Hebrew runs within the LTR line.
-        const node: LayoutText = {
-          type: 'text',
-          text: lineText,
-          x: curX,
-          y: lineBaselineY,
-          width: measuredWidth,
-          style: { ...textWords[0].style, direction: 'ltr' },
-        };
-        results.push(node);
-        if (textWords[0].clipStyle) clipRuns.set(node, textWords[0].clipStyle);
-        if (textWords[0].strokeImageStyle) strokeImageRuns.set(node, textWords[0].strokeImageStyle);
-      } else {
-        // Mixed styles: word by word
-        for (const word of line.words) {
-          if (word.text === '') {
-            curX += word.width;
-            continue;
-          }
-
-          // Atomic inline-block: position text inside the box (after margin + padding)
-          if (word.boxOpen && word.boxClose) {
-            const s = word.style;
-            const textX = curX + s.marginLeft + s.borderLeftWidth + s.paddingLeft;
-            if (word.inlineBlockLayout) {
-              const ib = word.inlineBlockLayout;
-              const contentY = lineBaselineY - ib.baselineOffset + s.marginTop +
-                s.borderTopWidth + s.paddingTop;
-              const move = (layoutNode: LayoutNode): void => {
-                layoutNode.x += textX;
-                layoutNode.y += contentY;
-                if (layoutNode.type === 'text') {
-                  if (layoutNode.lineBaselineY !== undefined) layoutNode.lineBaselineY += contentY;
-                  if (layoutNode.clip) {
-                    layoutNode.clip.x += textX;
-                    layoutNode.clip.y += contentY;
-                  }
-                  if (layoutNode.strokeImage) {
-                    layoutNode.strokeImage.x += textX;
-                    layoutNode.strokeImage.y += contentY;
-                  }
-                } else {
-                  for (const line of layoutNode.lineBoxes ?? []) {
-                    line.x += textX;
-                    line.y += contentY;
-                  }
-                  for (const child of layoutNode.children) move(child);
-                }
-              };
-              for (const innerNode of ib.nodes) {
-                move(innerNode);
-                results.push(innerNode);
+      // Atomic inline-block: position text inside the box (after margin + padding)
+      if (word.boxOpen && word.boxClose) {
+        const s = word.style;
+        const textX = curX + s.marginLeft + s.borderLeftWidth + s.paddingLeft;
+        if (word.inlineBlockLayout) {
+          const ib = word.inlineBlockLayout;
+          const contentY = lineBaselineY - ib.baselineOffset + s.marginTop +
+            s.borderTopWidth + s.paddingTop;
+          const move = (layoutNode: LayoutNode): void => {
+            layoutNode.x += textX;
+            layoutNode.y += contentY;
+            if (layoutNode.type === 'text') {
+              if (layoutNode.lineBaselineY !== undefined) layoutNode.lineBaselineY += contentY;
+              const lineTop = runLineTops.get(layoutNode);
+              if (lineTop !== undefined) runLineTops.set(layoutNode, lineTop + contentY);
+              if (layoutNode.clip) {
+                layoutNode.clip.x += textX;
+                layoutNode.clip.y += contentY;
               }
-              for (const innerLine of ib.lines.slice(0, -1)) {
-                const translated: LayoutLine = {
-                  y: Math.round(innerLine.y + contentY),
-                  text: innerLine.text,
-                  bounds: {
-                    x: innerLine.bounds.x + textX,
-                    y: innerLine.bounds.y + contentY,
-                    width: innerLine.bounds.width,
-                    height: innerLine.bounds.height,
-                  },
-                };
-                emittedLines.push(translated);
+              if (layoutNode.strokeImage) {
+                layoutNode.strokeImage.x += textX;
+                layoutNode.strokeImage.y += contentY;
               }
-              curX += word.width;
-              continue;
+            } else {
+              for (const line of layoutNode.lineBoxes ?? []) {
+                line.x += textX;
+                line.y += contentY;
+              }
+              for (const child of layoutNode.children) move(child);
             }
-            const node: LayoutText = {
-              type: 'text',
-              text: word.text,
-              x: textX,
-              y: lineBaselineY,
-              width: m.width(m.stateOf(word.style), word.text),
-              style: word.style,
-            };
-            results.push(node);
-            if (word.clipStyle) clipRuns.set(node, word.clipStyle);
-            if (word.strokeImageStyle) strokeImageRuns.set(node, word.strokeImageStyle);
-            curX += word.width;
-            continue;
-          }
-
-          // Adjust baseline for vertical-align
-          let baselineY = lineBaselineY;
-          const va = word.style.verticalAlign;
-          if (isShiftedVAlign(va)) {
-            baselineY += verticalAlignShift(
-              va, ctx, word.style, word.parentStyle ?? blockStyle, useBulletProbe);
-          }
-          const effectiveWidth = word.width + (word.isSpace ? justifyExtraPerSpace : 0);
-
-          const node: LayoutText = {
-            type: 'text',
-            text: word.text,
-            x: curX,
-            y: baselineY,
-            width: effectiveWidth,
-            style: word.style,
-            // Only when vertical-align moved this run off the line — an
-            // underline from an unshifted declarer still hangs off the line.
-            ...(baselineY !== lineBaselineY ? { lineBaselineY } : {}),
           };
-          results.push(node);
-          if (word.clipStyle) clipRuns.set(node, word.clipStyle);
-          if (word.strokeImageStyle) strokeImageRuns.set(node, word.strokeImageStyle);
-
-          curX += effectiveWidth;
+          for (const innerNode of ib.nodes) {
+            move(innerNode);
+            results.push(innerNode);
+          }
+          for (const innerLine of ib.lines.slice(0, -1)) {
+            const translated: LayoutLine = {
+              y: Math.round(innerLine.y + contentY),
+              text: innerLine.text,
+              bounds: {
+                x: innerLine.bounds.x + textX,
+                y: innerLine.bounds.y + contentY,
+                width: innerLine.bounds.width,
+                height: innerLine.bounds.height,
+              },
+            };
+            emittedLines.push(translated);
+          }
+          curX += word.width;
+          continue;
         }
+        const textWidth = m.width(m.stateOf(word.style), word.text);
+        const node: LayoutText = {
+          type: 'text',
+          text: word.text,
+          // An RTL run is anchored at its right edge (renderText's textAlign).
+          x: word.style.direction === 'rtl' ? textX + textWidth : textX,
+          y: lineBaselineY,
+          width: textWidth,
+          style: word.style,
+        };
+        results.push(node);
+        runLineTops.set(node, curY);
+        if (word.clipStyle) clipRuns.set(node, word.clipStyle);
+        if (word.strokeImageStyle) strokeImageRuns.set(node, word.strokeImageStyle);
+        curX += word.width;
+        continue;
       }
+
+      // Adjust baseline for vertical-align
+      let baselineY = lineBaselineY;
+      const va = word.style.verticalAlign;
+      if (isShiftedVAlign(va)) {
+        baselineY += verticalAlignShift(
+          va, ctx, word.style, word.parentStyle ?? blockStyle, useBulletProbe);
+      }
+      const effectiveWidth = word.width + (word.isSpace ? justifyExtraPerSpace : 0);
+      // A bidi piece paints in its level's direction; an RTL one is anchored
+      // at its right edge (renderText's textAlign).
+      const rtlPiece = emitLevels !== null && emitLevels[wordIndex] % 2 === 1;
+
+      const node: LayoutText = {
+        type: 'text',
+        text: word.text,
+        x: rtlPiece ? curX + effectiveWidth : curX,
+        y: baselineY,
+        width: effectiveWidth,
+        // Paint direction is the bidi LEVEL's, never the inherited CSS
+        // `direction`: `<span style="direction:rtl">` (unicode-bidi: normal)
+        // over LTR words reorders nothing, and painting them right-anchored
+        // at their left edge drew them a run-width too far left.
+        style: withDirection(word.style, rtlPiece ? 'rtl' : 'ltr'),
+        // Only when vertical-align moved this run off the line — an
+        // underline from an unshifted declarer still hangs off the line.
+        ...(baselineY !== lineBaselineY ? { lineBaselineY } : {}),
+      };
+      results.push(node);
+      runLineTops.set(node, curY);
+      if (word.clipStyle) clipRuns.set(node, word.clipStyle);
+      if (word.strokeImageStyle) strokeImageRuns.set(node, word.strokeImageStyle);
+
+      curX += effectiveWidth;
+    }
+    if (emitKeys && emitWords.length > 0) {
+      keyNodes(emitKeys[emitWords.length - 1]);
+      const placed = results.splice(textStart).map((node, i) => ({ node, key: nodeKeys[i] }));
+      placed.sort((a, b) => a.key - b.key); // stable: an inline-block keeps its inner order
+      for (const { node } of placed) results.push(node);
     }
 
     // Emit a public LayoutLine record for this committed line.
@@ -2773,54 +3220,145 @@ function assignInlineFragmentBoxes(
 // ─── Block layout ──────────────────────────────────────────────────────
 
 /**
- * Collapse margins between two adjacent block elements.
- * Returns the effective spacing (max of the two margins, not sum).
+ * A set of adjoining vertical margins (CSS 2.1 §8.3.1). However many margins
+ * collapse together, the result is the largest positive one plus the most
+ * negative one — which pairwise folding does not give once three margins of
+ * mixed sign meet (10, -5, 20 is 15, not 20).
  */
-function collapseMargins(prevMarginBottom: number, nextMarginTop: number): number {
-  // Both positive: take the larger
-  if (prevMarginBottom >= 0 && nextMarginTop >= 0) {
-    return Math.max(prevMarginBottom, nextMarginTop);
-  }
-  // Both negative: take the more negative
-  if (prevMarginBottom < 0 && nextMarginTop < 0) {
-    return Math.min(prevMarginBottom, nextMarginTop);
-  }
-  // One positive, one negative: sum them
-  return prevMarginBottom + nextMarginTop;
+interface MarginStrut { positive: number; negative: number }
+
+const NO_MARGIN: MarginStrut = { positive: 0, negative: 0 };
+
+function withMargin(strut: MarginStrut, margin: number): MarginStrut {
+  return {
+    positive: Math.max(strut.positive, margin),
+    negative: Math.min(strut.negative, margin),
+  };
+}
+
+function joinStruts(a: MarginStrut, b: MarginStrut): MarginStrut {
+  return {
+    positive: Math.max(a.positive, b.positive),
+    negative: Math.min(a.negative, b.negative),
+  };
+}
+
+function strutSize(strut: MarginStrut): number {
+  return strut.positive + strut.negative;
 }
 
 /**
- * Check if a node is a block-level display.
+ * Does this box establish a block formatting context of its own? A BFC root's
+ * margins never collapse with its children's. Flex items, table cells and the
+ * layout root are BFC roots by position and are told so by their caller.
  */
-function isBlock(node: StyledNode): boolean {
-  const d = node.style.display;
-  return d === 'block' || d === 'list-item' || d === 'flex' || d === 'table' ||
-    d === 'table-row' || d === 'table-cell' || d === 'table-row-group' ||
-    d === 'table-header-group' || d === 'table-footer-group';
+function establishesBfc(style: ResolvedStyle): boolean {
+  const d = style.display;
+  if (d !== 'block' && d !== 'list-item') return true; // flex, table, flow-root, ...
+  // `overflow` (either axis) other than visible/clip. Private resolver fields.
+  const { _overflowX: x, _overflowY: y } = style as { _overflowX?: string; _overflowY?: string };
+  const scrolls = (v: string | undefined) => v === 'hidden' || v === 'auto' || v === 'scroll';
+  return scrolls(x) || scrolls(y);
 }
 
-function allowsMarginCollapseThrough(node: StyledNode): boolean {
-  const display = node.style.display;
-  return (display === 'block' || display === 'list-item') &&
-    (node.tagName === 'li' || node.tagName === 'ul' || node.tagName === 'ol' ||
-      node.tagName === 'dd' || node.tagName === 'dt');
+/**
+ * Whitespace that collapses away and so produces no line box. A newline that
+ * reaches layout is always a forced break — `<br>` becomes a `'\n'` text node,
+ * and the resolver already turned source newlines into spaces where they
+ * collapse — so it makes a line box.
+ */
+function isCollapsibleWhitespace(node: StyledNode): boolean {
+  if (node.tagName !== '#text') return false;
+  const ws = node.style.whiteSpace;
+  const text = node.textContent ?? '';
+  if (ws === 'pre' || ws === 'pre-wrap' || ws === 'break-spaces') return text === '';
+  return /^[ \t\f]*$/.test(text);
 }
 
-function collapsibleMarginTop(node: StyledNode): number {
-  const marginTop = node.style.marginTop;
-  if (!allowsMarginCollapseThrough(node) || node.style.paddingTop !== 0 ||
-      node.style.borderTopWidth !== 0) {
-    return marginTop;
+/**
+ * Does this inline content make a line box? CSS 2.1 §9.4.2: a line box with
+ * no text, no preserved white space, no atomic inline and no inline element
+ * with a non-zero inline-axis margin, border or padding is treated as zero
+ * height — for margin collapsing, as if it did not exist. An empty `<span>`
+ * makes none; `<span style="padding:0 3px">` or an empty inline-block does
+ * (measured, Chromium and WebKit: a 20px line box).
+ */
+function createsLineBox(node: StyledNode): boolean {
+  if (node.tagName === '#text') return !isCollapsibleWhitespace(node);
+  const s = node.style;
+  if (s.display !== 'inline') return true; // an atomic inline
+  if (s.marginLeft !== 0 || s.marginRight !== 0 || s.paddingLeft !== 0 ||
+      s.paddingRight !== 0 || s.borderLeftWidth !== 0 || s.borderRightWidth !== 0) {
+    return true;
   }
-  const firstChild = node.children[0];
-  return firstChild && isBlock(firstChild)
-    ? collapseMargins(marginTop, collapsibleMarginTop(firstChild))
-    : marginTop;
+  return node.children.some(createsLineBox);
+}
+
+/** A list item whose marker is painted: the marker is content of its own. */
+function hasVisibleMarker(node: StyledNode): boolean {
+  return node.style.display === 'list-item' && !!node.listMarker && !node.markerHidden;
+}
+
+/** An empty list item still holds a line box: its marker's. */
+function hasMarkerLine(node: StyledNode): boolean {
+  return hasVisibleMarker(node) && node.children.length === 0;
+}
+
+/** A block's top margin adjoins its first in-flow child's. */
+function topAdjoinsChildren(style: ResolvedStyle): boolean {
+  return !establishesBfc(style) && style.paddingTop === 0 && style.borderTopWidth === 0;
+}
+
+/** A block's bottom margin can adjoin its last in-flow child's. */
+function bottomAdjoinsChildren(style: ResolvedStyle): boolean {
+  return !establishesBfc(style) && style.paddingBottom === 0 &&
+    style.borderBottomWidth === 0;
+}
+
+/**
+ * A block whose top and bottom margins adjoin each other: no line box, no
+ * padding, border or min-height, and every in-flow child collapses through
+ * too. Its margins join the run of margins around it.
+ */
+function collapsesThrough(node: StyledNode): boolean {
+  const s = node.style;
+  if (establishesBfc(s) || hasVisibleMarker(node) || s.paddingTop !== 0 || s.paddingBottom !== 0 ||
+      s.borderTopWidth !== 0 || s.borderBottomWidth !== 0 || s.minHeight > 0) {
+    return false;
+  }
+  return node.children.every((child) =>
+    isInline(child) ? !createsLineBox(child) : collapsesThrough(child));
+}
+
+/**
+ * Every margin that adjoins this block's top margin: its own, and — unless
+ * padding, border or a BFC separates them — its first in-flow child's,
+ * recursively, continuing past children that collapse through.
+ */
+function leadingStrut(node: StyledNode, strut: MarginStrut = NO_MARGIN): MarginStrut {
+  strut = withMargin(strut, node.style.marginTop);
+  if (!topAdjoinsChildren(node.style)) return strut;
+  for (const child of node.children) {
+    if (isInline(child)) {
+      if (!createsLineBox(child)) continue;
+      return strut;
+    }
+    strut = leadingStrut(child, strut);
+    if (!collapsesThrough(child)) return strut;
+    strut = withMargin(strut, child.style.marginBottom);
+  }
+  return strut;
 }
 
 /**
  * Layout a block-level element and all its children.
- * Returns the LayoutBox and total height consumed (including margins).
+ *
+ * `y` is the border-box top: the caller has already resolved the margins
+ * above it (`leadingStrut`). Returns the border-box height and the margins
+ * that leave through the bottom edge (`marginBottomOut`) for the caller to
+ * collapse with whatever follows. `bfcRoot` marks a box that is a block
+ * formatting context root by position (the layout root, a flex item, a table
+ * cell), so its margins never collapse with its children's.
  */
 function layoutBlock(
   ctx: CanvasRenderingContext2D,
@@ -2829,7 +3367,8 @@ function layoutBlock(
   y: number,
   availableWidth: number,
   clamp?: LineClampState,
-): { box: LayoutBox; height: number; marginBottomOut: number } {
+  bfcRoot = false,
+): { box: LayoutBox; height: number; marginBottomOut: MarginStrut } {
   const style = node.style;
 
   // `-webkit-line-clamp` on a block container: start a shared line budget
@@ -2880,7 +3419,7 @@ function layoutBlock(
     const result = layoutFlex(ctx, node, contentX, contentStartY, contentWidth);
     box.children = result.children;
     box.height = borderTop + padTop + result.height + padBottom + borderBottom;
-    return { box, height: box.height, marginBottomOut: style.marginBottom };
+    return { box, height: box.height, marginBottomOut: withMargin(NO_MARGIN, style.marginBottom) };
   }
 
   // Table layout
@@ -2888,15 +3427,19 @@ function layoutBlock(
     const result = layoutTable(ctx, node, contentX, contentStartY, contentWidth);
     box.children = result.children;
     box.height = borderTop + padTop + result.height + padBottom + borderBottom;
-    return { box, height: box.height, marginBottomOut: style.marginBottom };
+    return { box, height: box.height, marginBottomOut: withMargin(NO_MARGIN, style.marginBottom) };
   }
 
   // Empty block elements: zero content height (CSS spec — no line boxes created).
-  // Only min-height or padding/border contribute to height.
+  // Only min-height or padding/border contribute to height — except a list
+  // item's outside marker, which makes a line box of its own (Chrome, WebKit).
   if (node.children.length === 0) {
-    box.height = borderTop + padTop + padBottom + borderBottom;
+    const markerLine = hasMarkerLine(node)
+      ? _measurer!.lineHeight(style, BULLET_MARKERS.has(style.listStyleType))
+      : 0;
+    box.height = borderTop + padTop + markerLine + padBottom + borderBottom;
     if (style.minHeight > 0) box.height = Math.max(box.height, style.minHeight);
-    return { box, height: box.height, marginBottomOut: style.marginBottom };
+    return { box, height: box.height, marginBottomOut: withMargin(NO_MARGIN, style.marginBottom) };
   }
 
   // Layout children
@@ -2909,12 +3452,19 @@ function layoutBlock(
     box.lineBoxes = lineBoxes;
     box.height = borderTop + padTop + height + padBottom + borderBottom;
   } else {
-    // Block formatting context — stack children vertically
+    // Block formatting context — stack children vertically, collapsing the
+    // margins between them (CSS 2.1 §8.3.1).
     let curY = contentStartY;
-    let prevMarginBottom = 0;
-    let hasContent = false; // tracks whether we've placed any content
-    // Margin collapsing through parent: only for list elements.
-    const allowCollapseThrough = allowsMarginCollapseThrough(node);
+    // Margins collapsed so far and not yet placed: a previous child's bottom
+    // margins plus any child that collapsed through since.
+    let pending = NO_MARGIN;
+    // While no content separates them, the children's top margins adjoin this
+    // box's own. The caller folded those into this box's position
+    // (`leadingStrut`), so such a child sits at the content top.
+    let atTop = !bfcRoot && topAdjoinsChildren(style);
+    // The margins of children that collapsed through while `atTop`: they
+    // adjoin this box's top, and — when nothing else is in flow — its bottom.
+    let throughStrut = NO_MARGIN;
 
     for (let ci = 0; ci < node.children.length; ci++) {
       const child = node.children[ci];
@@ -2923,7 +3473,7 @@ function layoutBlock(
       // including the margin trailing the cut line.
       if (clamp && (clamp.exhausted || clamp.remaining <= 0)) {
         clamp.exhausted = true;
-        prevMarginBottom = 0;
+        pending = NO_MARGIN;
         break;
       }
 
@@ -2939,10 +3489,14 @@ function layoutBlock(
             break;
           }
         }
+        // Content that makes no line box (collapsible whitespace, an empty
+        // inline), so margins keep collapsing across it.
+        if (!inlineChildren.some(createsLineBox)) continue;
 
         // Apply pending margin before inline content
-        curY += prevMarginBottom;
-        prevMarginBottom = 0;
+        if (!atTop) curY += strutSize(pending);
+        pending = NO_MARGIN;
+        atTop = false;
 
         const inlineGroup: StyledNode = {
           element: null,
@@ -2957,47 +3511,56 @@ function layoutBlock(
         box.children.push(...nodes);
         (box.lineBoxes ??= []).push(...lineBoxes);
         curY += height;
-        prevMarginBottom = 0;
-        hasContent = true;
         continue;
       }
 
-      // Block child — collapse margins
-      const childMarginTop = collapsibleMarginTop(child);
-
-      // First child margin-top collapses through parent if parent has no
-      // top padding/border and doesn't establish a new BFC.
-      if (!hasContent && padTop === 0 && borderTop === 0 && allowCollapseThrough) {
-        // Skip — margin collapses with parent's margin
-      } else {
-        const collapsed = collapseMargins(prevMarginBottom, childMarginTop);
-        curY += collapsed;
+      // Block child
+      const top = leadingStrut(child);
+      if (collapsesThrough(child)) {
+        // Its top and bottom margins adjoin: they join the pending run. Its
+        // border box sits where it would with a bottom border (§8.3.1) — or
+        // at this box's top when its margins collapse with this box's.
+        const childY = atTop ? curY : curY + strutSize(joinStruts(pending, top));
+        const { box: childBox } = layoutBlock(ctx, child, contentX, childY, contentWidth, clamp);
+        box.children.push(childBox);
+        if (!atTop) pending = withMargin(joinStruts(pending, top), child.style.marginBottom);
+        else throughStrut = withMargin(joinStruts(throughStrut, top), child.style.marginBottom);
+        continue;
       }
 
-      const { box: childBox, height: childTotalHeight, marginBottomOut } = layoutBlock(
-        ctx, child, contentX, curY, contentWidth, clamp,
+      const childY = atTop ? curY : curY + strutSize(joinStruts(pending, top));
+      atTop = false;
+      const { box: childBox, height: childHeight, marginBottomOut } = layoutBlock(
+        ctx, child, contentX, childY, contentWidth, clamp,
       );
       box.children.push(childBox);
-      curY += childTotalHeight;
+      curY = childY + childHeight;
       // A child truncated by line-clamp clips its trailing margin too.
-      prevMarginBottom = clamp?.exhausted ? 0 : marginBottomOut;
-      hasContent = true;
+      pending = clamp?.exhausted ? NO_MARGIN : marginBottomOut;
     }
 
-    // Last child's margin-bottom collapses through parent if no bottom border/padding.
-    // Root container does NOT collapse last-child margin (it defines the content height).
-    let marginBottomOut = style.marginBottom;
-    const canCollapseThrough = padBottom === 0 && borderBottom === 0 &&
-      style.minHeight === 0 && allowCollapseThrough;
-    if (canCollapseThrough) {
-      // Last child's margin passes through to become parent's effective margin-bottom
-      marginBottomOut = collapseMargins(style.marginBottom, prevMarginBottom);
-    }
-
-    // Include last child's margin-bottom in parent height when it can't collapse through
+    // The last child's bottom margins leave through this box's bottom edge
+    // unless padding, border or a BFC holds them inside (the layout root
+    // holds them: it defines the content height). What a min-height does
+    // here is an engine rule: MIN_HEIGHT_END_MARGINS.
+    let marginBottomOut = withMargin(NO_MARGIN, style.marginBottom);
     let contentEnd = curY - contentStartY;
-    if (!canCollapseThrough) {
-      contentEnd += prevMarginBottom;
+    // A list item with nothing in flow but its marker (MARKER_LINE_WITHOUT_CONTENT).
+    if (atTop && hasVisibleMarker(node)) {
+      if (!bfcRoot && bottomAdjoinsChildren(style)) pending = throughStrut;
+      if (MARKER_LINE_WITHOUT_CONTENT) {
+        contentEnd = Math.max(contentEnd,
+          _measurer!.lineHeight(style, BULLET_MARKERS.has(style.listStyleType)));
+      }
+    }
+    const raisesBox = style.minHeight > Math.max(0, contentEnd);
+    if (!bfcRoot && bottomAdjoinsChildren(style) &&
+        !(MIN_HEIGHT_END_MARGINS === 'contain' && style.minHeight > 0)) {
+      if (MIN_HEIGHT_END_MARGINS === 'collapse' || !raisesBox) {
+        marginBottomOut = withMargin(pending, style.marginBottom);
+      }
+    } else {
+      contentEnd += strutSize(pending);
     }
     contentEnd = Math.max(0, contentEnd);
     box.height = borderTop + padTop + contentEnd + padBottom + borderBottom;
@@ -3006,7 +3569,7 @@ function layoutBlock(
   }
 
   if (style.minHeight > 0) box.height = Math.max(box.height, style.minHeight);
-  return { box, height: box.height, marginBottomOut: style.marginBottom };
+  return { box, height: box.height, marginBottomOut: withMargin(NO_MARGIN, style.marginBottom) };
 }
 
 // ─── Table layout ──────────────────────────────────────────────────────
@@ -3052,7 +3615,7 @@ function layoutTable(
       const cell = cells[i];
       const cellX = contentX + i * colWidth;
 
-      const { box: cellBox, height: cellHeight } = layoutBlock(ctx, cell, cellX, curY, colWidth);
+      const { box: cellBox, height: cellHeight } = layoutBlock(ctx, cell, cellX, curY, colWidth, undefined, true);
       cellBoxes.push(cellBox);
       maxCellHeight = Math.max(maxCellHeight, cellHeight);
     }
@@ -3350,7 +3913,7 @@ function layoutFlex(
       const child = flexChildren[index];
       const childWidth = widths[index];
 
-      const { box, height } = layoutBlock(ctx, child, curX, contentY, childWidth);
+      const { box, height } = layoutBlock(ctx, child, curX, contentY, childWidth, undefined, true);
       children.push(box);
       maxHeight = Math.max(maxHeight, height);
       curX += childWidth + gap;
@@ -3362,7 +3925,7 @@ function layoutFlex(
   // Column layout (fallback)
   let curY = contentY;
   for (const child of flexChildren) {
-    const { box, height } = layoutBlock(ctx, child, contentX, curY, contentWidth);
+    const { box, height } = layoutBlock(ctx, child, contentX, curY, contentWidth, undefined, true);
     children.push(box);
     curY += height + gap;
   }
@@ -3473,14 +4036,17 @@ function addListMarker(
     }
   }
 
-  box.children.unshift({
+  const marker: LayoutText = {
     type: 'text',
     text: node.listMarker,
     x: markerX,
     y: markerY,
     width: markerDrawWidth,
     style: { ...markerDrawStyle, textDecorationLine: 'none', textDecorations: [], fontWeight: ms?.fontWeight ?? 400, fontStyle: ms?.fontStyle ?? 'normal', direction: markerDirection },
-  });
+  };
+  // The marker sits on the item's first line, whose top is the content top.
+  runLineTops.set(marker, box.y + style.borderTopWidth + style.paddingTop);
+  box.children.unshift(marker);
 
   // Also publish the marker through the LayoutLine stream so result.lines
   // sees the bullet/number alongside the item text. Markers are added AFTER
@@ -3535,7 +4101,7 @@ export function buildLayoutTree(
   let height: number;
   try {
     // The styledTree root is our container div — layout its children as a block flow
-    ({ box, height } = layoutBlock(ctx, styledTree, 0, 0, containerWidth));
+    ({ box, height } = layoutBlock(ctx, styledTree, 0, 0, containerWidth, undefined, true));
 
     // Add list markers post-layout
     addListMarkersRecursive(ctx, box, styledTree);

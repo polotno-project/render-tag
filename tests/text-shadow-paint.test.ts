@@ -198,7 +198,12 @@ for (const curved of [false, true]) {
       actual.shadowColor = 'rgba(0,200,0,.8)'; actual.shadowBlur = 12;
       actual.shadowOffsetX = -8; actual.shadowOffsetY = 10;
       paint(actual, style, '<b>He</b>ader');
-      expectSameImage(pixels(actual), pixels(expected));
+      // 3, not 2: how the browser rounds a blur over two different source
+      // extents depends on where the glyphs sit inside a pixel. Translating
+      // this same layout by k/16px in Playwright WebKit moves the largest
+      // difference between 0 and 2.29; at the whole-pixel baseline WebKit's
+      // own layout uses (FLOORS_LINE_BASELINE) it is 2.29.
+      expectSameImage(pixels(actual), pixels(expected), 3);
     });
 
     it('CSS shadows never paint over opaque foreground in another run', () => {

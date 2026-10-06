@@ -23,12 +23,15 @@ const SAFARI =
 const JSDOM = 'Mozilla/5.0 (darwin) AppleWebKit/537.36 (KHTML, like Gecko) jsdom/30.0.1';
 const NODE = 'Node.js/25.6.1';
 
-async function floorsUnder(userAgent: string | null): Promise<boolean> {
+async function layoutUnder(userAgent: string | null) {
   vi.resetModules();
   if (userAgent === null) vi.stubGlobal('navigator', undefined);
   else vi.stubGlobal('navigator', { userAgent });
-  const { FLOORS_LINE_BASELINE } = await import('../../src/layout.ts');
-  return FLOORS_LINE_BASELINE;
+  return import('../../src/layout.ts');
+}
+
+async function floorsUnder(userAgent: string | null): Promise<boolean> {
+  return (await layoutUnder(userAgent)).FLOORS_LINE_BASELINE;
 }
 
 afterEach(() => vi.unstubAllGlobals());
@@ -41,8 +44,125 @@ describe('engine branch', () => {
     ['Node', NODE, true],
     ['no navigator', null, true],
     ['Firefox', FIREFOX, false],
-    ['Safari', SAFARI, false],
+    ['Safari', SAFARI, true],
   ] as const)('%s floors the line baseline: %s -> %s', async (_name, ua, expected) => {
     expect(await floorsUnder(ua)).toBe(expected);
+  });
+
+  // A separate question from the floor: only WebKit lays a line box out at a
+  // whole-pixel line-height. Gecko and Blink keep the fraction.
+  it.each([
+    ['Chrome', CHROME, false],
+    ['headless Chrome', HEADLESS, false],
+    ['jsdom', JSDOM, false],
+    ['Node', NODE, false],
+    ['no navigator', null, false],
+    ['Firefox', FIREFOX, false],
+    ['Safari', SAFARI, true],
+  ] as const)('%s truncates the line-height: %s -> %s', async (_name, ua, expected) => {
+    expect((await layoutUnder(ua)).TRUNCATES_LINE_HEIGHT).toBe(expected);
+  });
+
+  // A single-paint bidi line stays one fillText where the engine's Canvas
+  // lays it out like its DOM (Blink, measured; Gecko, its old path,
+  // unmeasured). WebKit's Canvas does not, so WebKit gets ordered level runs.
+  it.each([
+    ['Chrome', CHROME, true],
+    ['headless Chrome', HEADLESS, true],
+    ['jsdom', JSDOM, true],
+    ['Node', NODE, true],
+    ['no navigator', null, true],
+    ['Firefox', FIREFOX, true],
+    ['Safari', SAFARI, false],
+  ] as const)('%s paints a single-paint bidi line as one run: %s -> %s', async (_name, ua, expected) => {
+    expect((await layoutUnder(ua)).CANVAS_BIDI_LINE).toBe(expected);
+  });
+
+  // Margins leaving a block with a min-height: three engine answers. Gecko's
+  // is render-tag's pre-existing rule, not a measurement (Firefox cannot run
+  // here).
+  it.each([
+    ['Chrome', CHROME, 'drop'],
+    ['headless Chrome', HEADLESS, 'drop'],
+    ['jsdom', JSDOM, 'drop'],
+    ['no navigator', null, 'drop'],
+    ['Firefox', FIREFOX, 'contain'],
+    ['Safari', SAFARI, 'collapse'],
+  ] as const)('%s min-height end margins: %s -> %s', async (_name, ua, expected) => {
+    expect((await layoutUnder(ua)).MIN_HEIGHT_END_MARGINS).toBe(expected);
+  });
+
+  // Blink keeps the fraction on its 1/64px grid; WebKit's whole-pixel
+  // truncation is a separate flag; Gecko is not modelled.
+  it.each([
+    ['Chrome', CHROME, true],
+    ['Node', NODE, true],
+    ['Firefox', FIREFOX, false],
+    ['Safari', SAFARI, false],
+  ] as const)('%s keeps line-height on the LayoutUnit grid: %s -> %s', async (_name, ua, expected) => {
+    expect((await layoutUnder(ua)).LAYOUT_UNIT_LINE_HEIGHT).toBe(expected);
+  });
+
+  // Paint, not layout: Blink paints each line box at a whole CSS pixel.
+  // WebKit snaps to a DEVICE pixel instead (not modelled); Gecko is unmeasured
+  // and keeps the unsnapped paint.
+  it.each([
+    ['Chrome', CHROME, true],
+    ['headless Chrome', HEADLESS, true],
+    ['jsdom', JSDOM, true],
+    ['Node', NODE, true],
+    ['no navigator', null, true],
+    ['Firefox', FIREFOX, false],
+    ['Safari', SAFARI, false],
+  ] as const)('%s snaps line paint: %s -> %s', async (_name, ua, expected) => {
+    const engine = await layoutUnder(ua);
+    expect(engine.SNAPS_LINE_PAINT).toBe(expected);
+    // A run on a line whose top is 10.3 paints 0.3px higher in Blink.
+    const run = { type: 'text', text: 'a', x: 0, y: 27.3, width: 1, style: {} } as never;
+    expect(engine.paintLineSnap(run)).toBeCloseTo(expected ? -0.3 : 0, 9);
+  });
+
+  // A separate question from the snap: where Blink hangs the auto underline
+  // below it. WebKit's gap is font-dependent and measured not to match.
+  it.each([
+    ['Chrome', CHROME, true],
+    ['Node', NODE, true],
+    ['Firefox', FIREFOX, false],
+    ['Safari', SAFARI, false],
+  ] as const)('%s uses Blink\'s underline gap: %s -> %s', async (_name, ua, expected) => {
+    expect((await layoutUnder(ua)).BLINK_UNDERLINE_GAP).toBe(expected);
+  });
+
+  // The public helper other renderers call must follow the same rule: in
+  // WebKit a 25.6px line is 25px, so its baseline is floor((25 - 22) / 2) + 17.
+  it.each([
+    ['Chrome', CHROME, 18],
+    ['Firefox', FIREFOX, 18.8],
+    ['Safari', SAFARI, 18],
+  ] as const)('%s lineBaselineOffset(25.6, 17, 5) -> %s', async (_name, ua, expected) => {
+    expect((await layoutUnder(ua)).lineBaselineOffset(25.6, 17, 5)).toBeCloseTo(expected, 9);
+  });
+
+  // Blink halves a negative leading in LayoutUnits, truncating toward zero,
+  // before the floor: a line one 64th short of its 17px content area keeps
+  // the ascent (Verdana 13.6px x 1.25 = 16.984375 over 14 + 3), where the
+  // exact half (-1/128) would floor a whole pixel higher. WebKit's line is
+  // whole pixels, Gecko's exact.
+  it.each([
+    ['Chrome', CHROME, 14],
+    ['Firefox', FIREFOX, 14 - 1 / 128],
+    ['Safari', SAFARI, 13],
+  ] as const)('%s lineBaselineOffset(16.984375, 14, 3) -> %s', async (_name, ua, expected) => {
+    expect((await layoutUnder(ua)).lineBaselineOffset(16.984375, 14, 3)).toBeCloseTo(expected, 9);
+  });
+
+  // A percentage line-height is an integer percentage outside Gecko.
+  it.each([
+    ['Chrome', CHROME, true],
+    ['Node', NODE, true],
+    ['Firefox', FIREFOX, false],
+    ['Safari', SAFARI, true],
+  ] as const)('%s truncates a line-height percentage: %s -> %s', async (_name, ua, expected) => {
+    expect((await layoutUnder(ua)).INTEGER_PERCENT_LINE_HEIGHT).toBe(expected);
   });
 });

@@ -23,8 +23,10 @@ export type { LayoutComparisonResult } from './wrap-comparison.ts';
 
 // Font faces are document-scoped. Keep each unique rule registered for the
 // browser test session so a pixel comparison and its following DOM wrap check
-// cannot observe different font sets.
-const registeredFontFaces = new Set<string>();
+// cannot observe different font sets. One <style> per rule, so a pixel
+// comparison can switch the shared document to EXACTLY the face set its
+// isolated native capture receives (`useOnlyFontFaces`).
+const registeredFontFaces = new Map<string, HTMLStyleElement>();
 let fontLoadQueue = Promise.resolve();
 let fontWarmId = 0;
 
@@ -36,13 +38,15 @@ async function registerFonts(css: string): Promise<void> {
   if (newBlocks.length === 0) return;
 
   const existingFaces = new Set(document.fonts);
-  const style = document.createElement('style');
-  style.dataset.renderTagComparisonFonts = '';
-  style.textContent = newBlocks.join('\n');
-  document.head.appendChild(style);
-
-  // Force CSSOM registration before taking the FontFaceSet snapshot.
-  void style.sheet?.cssRules.length;
+  const styles = newBlocks.map((block) => {
+    const style = document.createElement('style');
+    style.dataset.renderTagComparisonFonts = '';
+    style.textContent = block;
+    document.head.appendChild(style);
+    // Force CSSOM registration before taking the FontFaceSet snapshot.
+    void style.sheet?.cssRules.length;
+    return style;
+  });
   const addedFaces = [...document.fonts].filter((face) => !existingFaces.has(face));
 
   // Load through CSS selection instead of FontFace.load(). A variable family
@@ -79,13 +83,30 @@ async function registerFonts(css: string): Promise<void> {
     .filter((face) => face.status === 'error')
     .map((face) => `${face.family} ${face.weight} ${face.style}`);
   if (failed.length > 0) {
-    style.remove();
+    for (const style of styles) style.remove();
     throw new Error(
       `prepareComparisonFonts: @font-face failed to load: ${failed.join(', ')}`,
     );
   }
 
-  for (const block of newBlocks) registeredFontFaces.add(block);
+  newBlocks.forEach((block, i) => registeredFontFaces.set(block, styles[i]));
+}
+
+/**
+ * Enable only the registered faces that `css` declares (null: all of them).
+ * The isolated native capture loads the fixture's PRUNED faces
+ * (`keepUsedFontFaces`); a canvas rendered beside the full catalog can select
+ * a different face for the same text. WebKit does exactly that for CJK — its
+ * script face owns the punctuation, and overlapping neutral faces change the
+ * selection (Simplified Chinese scored 28.35 beside the catalog, 0.00 beside
+ * the pruned set, with identical layout).
+ */
+function useOnlyFontFaces(css: string | null): void {
+  const wanted = css === null ? null : new Set(matchFontFaces(css));
+  for (const [block, style] of registeredFontFaces) {
+    const disabled = wanted !== null && !wanted.has(block);
+    if (style.disabled !== disabled) style.disabled = disabled;
+  }
 }
 
 function ensureFontsLoaded(css: string): Promise<void> {
@@ -94,10 +115,15 @@ function ensureFontsLoaded(css: string): Promise<void> {
   return result;
 }
 
-export async function prepareComparisonFonts(html: string, css: string): Promise<void> {
-  const inlineCss = (html.match(/<style[^>]*>([\s\S]*?)<\/style>/gi) || [])
+function inlineStyles(html: string): string {
+  return (html.match(/<style[^>]*>([\s\S]*?)<\/style>/gi) || [])
     .map((style) => style.replace(/<\/?style[^>]*>/gi, ''))
     .join('\n');
+}
+
+export async function prepareComparisonFonts(html: string, css: string): Promise<void> {
+  useOnlyFontFaces(null);
+  const inlineCss = inlineStyles(html);
   await ensureFontsLoaded(`${css || ''}\n${inlineCss}`);
 
   const containerId = `__font_warm_${fontWarmId++}__`;
@@ -782,6 +808,11 @@ export async function compareRendersWithReference(
   // native page gets the pruned CSS below, but incrementally adding subsets to
   // the shared canvas document makes face selection depend on test-file order.
   await prepareComparisonFonts(html, css);
+  // ...then render the canvas beside exactly the faces the isolated reference
+  // gets. Left in place for the caller's wrap check on the same fixture; the
+  // next prepareComparisonFonts re-enables the catalog.
+  useOnlyFontFaces(`${fixtureCss}\n${inlineStyles(html)}`);
+  await document.fonts.ready;
 
   // A reference renderer can resolve glyph paint lazily. One throwaway render
   // down each path keeps the measurement independent of which path happened

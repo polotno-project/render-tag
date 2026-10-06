@@ -506,6 +506,19 @@ describe('drawTextOnPath (integration)', () => {
     expect(layout.glyphs[2].char).toBe('مرحبا');
   });
 
+  it('a multi-span RTL paragraph orders its spans visually (review bug)', () => {
+    const layout = layoutTextOnPath({
+      html: '<div dir="rtl" style="font-size:24px;font-family:sans-serif">\u05E9\u05DC\u05D5\u05DD <b>\u05E2\u05D5\u05DC\u05DD</b></div>',
+      path: 'M0,50 L800,50',
+      align: 'left',
+    });
+    // Visual left to right: the bold second word, the space, the first word.
+    expect(layout.glyphs.map((g) => g.char)).toEqual([
+      '\u05E2\u05D5\u05DC\u05DD', ' ', '\u05E9\u05DC\u05D5\u05DD',
+    ]);
+    expect(layout.glyphs[0].style.fontWeight).toBe(700);
+  });
+
   it('Thai is also recognised as a shaping script', () => {
     const layout = layoutTextOnPath({
       html: '<span style="font-size:24px;font-family:sans-serif">สวัสดี</span>',

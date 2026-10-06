@@ -13,14 +13,15 @@
  * needs real font metrics belongs in a browser suite instead (the block-strut
  * baseline case lives in tests/line-baseline-parity.test.ts).
  */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { DOMParser as LinkedomDOMParser } from 'linkedom';
 import { buildLayoutTree, buildCanvasFont, sameDecorationBand, BLINK_SUPER_SUB } from '../../src/layout.ts';
-import { layout, setDOMParser } from '../../src/index.node.ts';
+import { layout, drawLayout, setDOMParser } from '../../src/index.node.ts';
 import { mockCtx, CHAR_WIDTH } from '../helpers/mock-ctx.ts';
 import { recordingCtx } from '../helpers/recording-ctx.ts';
 import type { StyledNode, ResolvedStyle, LayoutBox, LayoutText, DecorationEntry } from '../../src/types.ts';
 import { collectInlineBoxes, collectTexts } from '../helpers/layout-tree.ts';
+import { resolveBidi, lineLevels, visualOrder } from '../../src/bidi.ts';
 import { styleFixture as defaultStyle } from '../helpers/style-fixture.ts';
 
 beforeAll(() => setDOMParser(new LinkedomDOMParser()));
@@ -701,6 +702,50 @@ describe('Layout logic (mocked measureText)', () => {
       // pulls that anonymous inline line, and therefore B, upward by 6px.
       expect(yB - yA).toBe(34);
     });
+
+    // CSS 2.1 §8.3.1 applies to every block in normal flow, not to a tag
+    // allowlist. tests/margin-collapse-parity.test.ts proves each rule
+    // against the browser; these pin the arithmetic.
+    function gap(tree: StyledNode): number {
+      const texts = collectTexts(doLayout(tree, 200));
+      return texts.find(t => t.text === 'B')!.y - texts.find(t => t.text === 'A')!.y;
+    }
+
+    it("a last child's bottom margin collapses through a plain div", () => {
+      expect(gap(block('div', [
+        block('div', [block('p', [textNode('A')], { marginBottom: 16 })]),
+        block('p', [textNode('B')], { marginTop: 16 }),
+      ]))).toBe(36); // 20 line + 16, not 32
+    });
+
+    it("a first child's top margin collapses through a plain div", () => {
+      expect(gap(block('div', [
+        block('p', [textNode('A')], { marginBottom: 10 }),
+        block('div', [block('p', [textNode('B')], { marginTop: 30 })], { marginTop: 5 }),
+      ]))).toBe(50); // 20 + max(10, 5, 30)
+    });
+
+    it('an empty block collapses its own margins with its neighbours', () => {
+      expect(gap(block('div', [
+        block('p', [textNode('A')], { marginBottom: 16 }),
+        block('p', [], { marginTop: 16, marginBottom: 16 }),
+        block('p', [textNode('B')], { marginTop: 16 }),
+      ]))).toBe(36); // one 16px margin, not 48
+    });
+
+    it('padding on the parent stops the collapse', () => {
+      expect(gap(block('div', [
+        block('div', [block('p', [textNode('A')], { marginBottom: 16 })], { paddingBottom: 1 }),
+        block('p', [textNode('B')], { marginTop: 16 }),
+      ]))).toBe(53); // 20 + 16 inside + 1 padding + 16
+    });
+
+    it('collapses a set of margins to max positive plus min negative', () => {
+      expect(gap(block('div', [
+        block('p', [textNode('A')], { marginBottom: 10 }),
+        block('div', [block('p', [textNode('B')], { marginTop: 20 })], { marginTop: -5 }),
+      ]))).toBe(35); // 20 + (20 - 5); pairwise folding gave 40
+    });
   });
 
   // ─── Padding and borders ───────────────────────────────────────────
@@ -1375,6 +1420,8 @@ describe('Layout logic (mocked measureText)', () => {
   });
 
   // ─── RTL inline boxes and decorations ────────────────────────────────
+  // Hebrew letters (א ב ג …), not Latin: Latin in an RTL paragraph is LTR
+  // text (UAX #9 level 2) and keeps its own left-to-right order.
 
   describe('RTL inline boxes', () => {
     it('positions background box on correct RTL word', () => {
@@ -1382,11 +1429,11 @@ describe('Layout logic (mocked measureText)', () => {
       // RTL visual order: ccc bbb[bg] aaa (right to left)
       const tree = block('div', [
         block('p', [
-          textNode('aaa ', { direction: 'rtl' }),
+          textNode('אאא ', { direction: 'rtl' }),
           inline('span', [
-            textNode('bbb', { direction: 'rtl', backgroundColor: '#fef08a' }),
+            textNode('בבב', { direction: 'rtl', backgroundColor: '#fef08a' }),
           ], { backgroundColor: '#fef08a', direction: 'rtl' }),
-          textNode(' ccc', { direction: 'rtl' }),
+          textNode(' גגג', { direction: 'rtl' }),
         ], { direction: 'rtl' }),
       ], { direction: 'rtl' });
 
@@ -1395,7 +1442,7 @@ describe('Layout logic (mocked measureText)', () => {
       const boxes = collectInlineBoxes(root);
 
       // Find the "bbb" text and the background box
-      const bbbText = texts.find(t => t.text.includes('bbb'));
+      const bbbText = texts.find(t => t.text.includes('בבב'));
       expect(bbbText).toBeDefined();
       expect(boxes.length).toBeGreaterThan(0);
 
@@ -1417,9 +1464,9 @@ describe('Layout logic (mocked measureText)', () => {
       // (which would happen if box scan used LTR order for RTL text)
       const tree = block('div', [
         block('p', [
-          textNode('aaa ', { direction: 'rtl' }),
+          textNode('אאא ', { direction: 'rtl' }),
           inline('span', [
-            textNode('bbb', { direction: 'rtl', backgroundColor: '#fef08a' }),
+            textNode('בבב', { direction: 'rtl', backgroundColor: '#fef08a' }),
           ], { backgroundColor: '#fef08a', direction: 'rtl' }),
         ], { direction: 'rtl' }),
       ], { direction: 'rtl' });
@@ -1444,13 +1491,13 @@ describe('Layout logic (mocked measureText)', () => {
     it('underline spans correct width for RTL text', () => {
       const tree = block('div', [
         block('p', [
-          textNode('abcd', { direction: 'rtl', textDecorationLine: 'underline' }),
+          textNode('אבגד', { direction: 'rtl', textDecorationLine: 'underline' }),
         ], { direction: 'rtl' }),
       ], { direction: 'rtl' });
 
       const root = doLayout(tree, 200);
       const texts = collectTexts(root);
-      const textNode_ = texts.find(t => t.text === 'abcd');
+      const textNode_ = texts.find(t => t.text === 'אבגד');
       expect(textNode_).toBeDefined();
       expect(textNode_!.style.direction).toBe('rtl');
       expect(textNode_!.style.textDecorationLine).toBe('underline');
@@ -1463,9 +1510,9 @@ describe('Layout logic (mocked measureText)', () => {
       // If sameTextStyle ignores textDecorationLine, they'd merge and lose the underline.
       const tree = block('div', [
         block('p', [
-          textNode('aaa ', { direction: 'rtl' }),
-          textNode('bbb', { direction: 'rtl', textDecorationLine: 'underline' }),
-          textNode(' ccc', { direction: 'rtl' }),
+          textNode('אאא ', { direction: 'rtl' }),
+          textNode('בבב', { direction: 'rtl', textDecorationLine: 'underline' }),
+          textNode(' גגג', { direction: 'rtl' }),
         ], { direction: 'rtl' }),
       ], { direction: 'rtl' });
 
@@ -1477,18 +1524,18 @@ describe('Layout logic (mocked measureText)', () => {
       expect(underlinedTexts.length).toBeGreaterThan(0);
       // The underlined text should contain "bbb" but NOT "aaa" or "ccc"
       const underlinedContent = underlinedTexts.map(t => t.text).join('');
-      expect(underlinedContent).toContain('bbb');
-      expect(underlinedContent).not.toContain('aaa');
-      expect(underlinedContent).not.toContain('ccc');
+      expect(underlinedContent).toContain('בבב');
+      expect(underlinedContent).not.toContain('אאא');
+      expect(underlinedContent).not.toContain('גגג');
     });
 
     it('does not merge different background colors in RTL groups', () => {
       // "normal <bg>highlighted</bg> normal" in RTL
       const tree = block('div', [
         block('p', [
-          textNode('aaa ', { direction: 'rtl' }),
-          textNode('bbb', { direction: 'rtl', backgroundColor: 'yellow' }),
-          textNode(' ccc', { direction: 'rtl' }),
+          textNode('אאא ', { direction: 'rtl' }),
+          textNode('בבב', { direction: 'rtl', backgroundColor: 'yellow' }),
+          textNode(' גגג', { direction: 'rtl' }),
         ], { direction: 'rtl' }),
       ], { direction: 'rtl' });
 
@@ -1499,8 +1546,8 @@ describe('Layout logic (mocked measureText)', () => {
       const bgTexts = texts.filter(t => t.style.backgroundColor === 'yellow');
       expect(bgTexts.length).toBeGreaterThan(0);
       const bgContent = bgTexts.map(t => t.text).join('');
-      expect(bgContent).toContain('bbb');
-      expect(bgContent).not.toContain('aaa');
+      expect(bgContent).toContain('בבב');
+      expect(bgContent).not.toContain('אאא');
     });
   });
 
@@ -1509,9 +1556,9 @@ describe('Layout logic (mocked measureText)', () => {
   describe('RTL text alignment', () => {
     // RTL text nodes use x = right edge of the run. Container = 200, "abc" = 30px.
     const rtlRightEdge = (textAlign: string, extra: Partial<ResolvedStyle> = {}) => {
-      const tree = block('div', [textNode('abc', { direction: 'rtl' })],
+      const tree = block('div', [textNode('אבג', { direction: 'rtl' })],
         { direction: 'rtl', textAlign, ...extra });
-      const t = collectTexts(doLayout(tree, 200)).find(t => t.text === 'abc')!;
+      const t = collectTexts(doLayout(tree, 200)).find(t => t.text === 'אבג')!;
       return t.x;
     };
 
@@ -1543,7 +1590,7 @@ describe('Layout logic (mocked measureText)', () => {
 
     it('justify expands spaces so non-last lines fill the width', () => {
       // "aaa bbb ccc ddd eee" wraps in a 100px box; non-last lines justify.
-      const tree = block('div', [textNode('aaa bbb ccc ddd eee', { direction: 'rtl' })],
+      const tree = block('div', [textNode('אאא בבב גגג דדד ההה', { direction: 'rtl' })],
         { direction: 'rtl', textAlign: 'justify', width: 100 });
       const texts = collectTexts(doLayout(tree, 100));
       // Group by line (y); RTL node x = right edge, left edge = x - width.
@@ -1708,11 +1755,12 @@ describe('Layout logic (mocked measureText)', () => {
       expect(textsOf(html, 200).find((t) => t.text === 'abc')?.width).toBe(45);
     });
 
-    it('a mixed-bidi LTR line is measured at its letter-spacing', () => {
-      // One fillText for the whole line: its width is the line's own measure.
-      const html = '<p style="margin:0"><span style="letter-spacing:5px">ab مر</span>' +
+    it('a single-paint bidi line is one run at its own letter-spacing', () => {
+      // One fillText for the whole line: its width is the line's own advances
+      // (2 + 1 + 2 + 1 + 2 characters at 10 + 5px), not the trailing run's.
+      const html = '<p style="margin:0"><span style="letter-spacing:5px">ab مر مر</span>' +
         '<br><span style="letter-spacing:0">x</span></p>';
-      expect(textsOf(html, 200).find((t) => t.text === 'ab مر')?.width).toBe(75);
+      expect(textsOf(html, 200).find((t) => t.text === 'ab مر مر')?.width).toBe(120);
     });
 
     it('a list marker is measured at the marker\'s letter-spacing', () => {
@@ -1924,8 +1972,8 @@ describe('Layout logic (mocked measureText)', () => {
       // Blink and WebKit shift by fontSize/3 + 1 and fontSize/5 + 1, Gecko by
       // 0.34em and 0.2em. These are not tunable constants — they are what the
       // browser does, and the parity suites check them against it.
-      // BLINK_SUPER_SUB, never FLOORS_LINE_BASELINE: the two disagree exactly
-      // in Safari, where the baseline is exact but the shift is Blink's.
+      // BLINK_SUPER_SUB, never FLOORS_LINE_BASELINE: separate engine
+      // questions, even where they pick the same engines.
       const superShift = BLINK_SUPER_SUB ? 16 / 3 + 1 : 16 * 0.34;
       const subShift = BLINK_SUPER_SUB ? 16 / 5 + 1 : 16 * 0.2;
       expect(yDelta('sub')).toBeCloseTo(subShift, 5);
@@ -2298,5 +2346,234 @@ describe('sameDecorationBand (run merging)', () => {
     expect(
       sameDecorationBand(entry({ verticalAlign: 'baseline' }), entry({ verticalAlign: 'super' })),
     ).toBe(false);
+  });
+});
+
+// ─── WebKit line-height truncation ─────────────────────────────────────
+//
+// The engine flags are module-level consts read off the UA, so this block
+// re-imports layout.ts under a Safari UA (Node otherwise takes the Blink
+// branch). Measured in Playwright WebKit (see CLAUDE.md "Line boxes and the
+// baseline"): a line box is `floor(line-height)` tall, the line-height being
+// WebKit's float32 product — 16px x 1.6 stands 25px, 20px x 1.15 stands 23
+// even though `20 * 1.15` is 22.999999999999996 in double — and the baseline
+// sits `floor(half-leading)` below the line top plus the ascent.
+// Node's empty user agent selects Blink, which PAINTS each line box at a whole
+// CSS pixel: the line top rounds (half up) and the line's contents keep their
+// laid-out offsets. Layout itself stays fractional. See SNAPS_LINE_PAINT.
+describe('Blink line paint snap', () => {
+  /** Lay out `html`, draw it, and record every fillText baseline and band center. */
+  function paint(html: string, width = 400) {
+    const result = layout({ html, width, ctx: mockCtx() });
+    const fills: { text: string; y: number }[] = [];
+    const bands: number[] = [];
+    const ctx = Object.assign(mockCtx(), {
+      fillText: (text: string, _x: number, y: number) => { fills.push({ text, y }); },
+      moveTo: (_x: number, y: number) => { bands.push(y); },
+    });
+    drawLayout({ layout: result, width, ctx });
+    return { texts: collectTexts(result.layoutRoot).filter((t) => t.text.trim()), fills, bands };
+  }
+
+  it('paints each line at its rounded top; layout keeps the fraction', () => {
+    // Mock font: ascent 12, descent 4. A 25.6px line is 25.59375 on Blink's
+    // 1/64 grid, and (25.59375 - 16) / 2 floors to 4, so each baseline is 16px
+    // below a line top of 0.3125, 25.90625 and 51.5.
+    const { texts, fills } = paint(
+      '<p style="margin:0;padding-top:0.3125px;font-size:16px;line-height:25.6px">aaa bbb ccc</p>', 35);
+    expect(texts.map((t) => t.y)).toEqual([16.3125, 41.90625, 67.5]);
+    // round(0.3125) + 16, round(25.90625) + 16, round(51.5) + 16 — half rounds up.
+    expect(fills.filter((f) => f.text.trim()).map((f) => f.y)).toEqual([16, 42, 68]);
+  });
+
+  it('moves a shifted run with its line, not by rounding its own baseline', () => {
+    const { texts, fills } = paint(
+      '<p style="margin:0;padding-top:0.3px;font-size:16px;line-height:30px">a<sub>b</sub></p>');
+    const shift = (text: string) =>
+      fills.find((f) => f.text === text)!.y - texts.find((t) => t.text === text)!.y;
+    const sub = texts.find((t) => t.text === 'b')!;
+    expect(shift('a')).toBeCloseTo(-0.3, 9);
+    expect(shift('b')).toBeCloseTo(-0.3, 9);
+    // The fixture is only a test if rounding the run itself would differ.
+    expect(Math.round(sub.y) - sub.y).not.toBeCloseTo(-0.3, 3);
+  });
+
+  it('hangs an auto underline ceil(fontSize / 20) below the painted baseline', () => {
+    // Baseline floor((30 - 16) / 2) + 12 = 19 below the 0.3 top, painted at 19.
+    // A 23px underline is 2px thick and starts ceil(1.15) = 2px below: rows
+    // 21-22, a stroke centered at 22.
+    const { fills, bands } = paint(
+      '<p style="margin:0;padding-top:0.3px;font-size:23px;line-height:30px"><u>abc</u></p>');
+    expect(fills[0].y).toBe(19);
+    expect(bands).toEqual([22]);
+  });
+});
+
+// Blink keeps a line-height on its 1/64px LayoutUnit grid, rounded down — the
+// pitch the DOM steps lines by (LAYOUT_UNIT_LINE_HEIGHT). Node selects Blink.
+describe('Blink LayoutUnit line-height', () => {
+  const baselines = (style: string) =>
+    collectTexts(layout({ html: `<p style="margin:0;${style}">aaa bbb ccc</p>`, width: 35, ctx: mockCtx() }).layoutRoot)
+      .filter((t) => t.text.trim()).map((t) => t.y);
+
+  it('steps 14px x 1.6 lines by 22.390625, not 22.4', () => {
+    const ys = baselines('font-size:14px;line-height:1.6');
+    expect(ys[1] - ys[0]).toBe(22.390625);
+    expect(ys[2] - ys[1]).toBe(22.390625);
+  });
+
+  it('rounds a length to the nearest grid line: 22.4px is 22.40625', () => {
+    const ys = baselines('font-size:14px;line-height:22.4px');
+    expect(ys[1] - ys[0]).toBe(22.40625);
+  });
+
+  it('puts a fractional font-size on the grid before multiplying (15.31 x 1.15)', () => {
+    // round(15.31 * 64) / 64 = 15.3125; x 1.15 = 17.609375 floored. Chromium's
+    // DOM steps 17.609375; flooring 15.31 x 1.15 directly gives 17.59375.
+    const ys = baselines('font-size:15.31px;line-height:1.15');
+    expect(ys[1] - ys[0]).toBe(17.609375);
+  });
+
+  it('keeps a product one ulp under the grid on it (20 x 1.15 = 23)', () => {
+    const ys = baselines('font-size:20px;line-height:1.15');
+    expect(ys[1] - ys[0]).toBe(23);
+  });
+});
+
+describe('WebKit truncates the line-height (Safari UA)', () => {
+  const SAFARI =
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15';
+
+  async function safariLayout(tree: StyledNode, width: number) {
+    vi.resetModules();
+    vi.stubGlobal('navigator', { userAgent: SAFARI });
+    try {
+      const mod = await import('../../src/layout.ts');
+      return mod.buildLayoutTree(mockCtx(), tree, width, false).root;
+    } finally {
+      vi.unstubAllGlobals();
+      vi.resetModules();
+    }
+  }
+
+  // Three 3-char words at 30px each wrap one per line in a 35px box. The mock
+  // font is 12 + 4 = 16px tall at every size.
+  const threeLines = (style: Partial<ResolvedStyle>) =>
+    block('div', [block('p', [textNode('aaa bbb ccc', style)], style)]);
+
+  it('steps each line by the truncated line-height (25.6 -> 25)', async () => {
+    const root = await safariLayout(threeLines({ fontSize: 16, lineHeight: 25.6 }), 35);
+    const ys = collectTexts(root).filter((t) => t.text.trim()).map((t) => t.y);
+    // floor((25 - 16) / 2) + 12 = 16, then +25 per line.
+    expect(ys).toEqual([16, 41, 66]);
+    expect(root.height).toBe(75);
+  });
+
+  it('truncates the float32 product, not the double one (20 x 1.15 = 23)', async () => {
+    const root = await safariLayout(
+      threeLines({ fontSize: 20, lineHeight: 20 * 1.15 }), 35);
+    // floor((23 - 16) / 2) + 12 = 15. A double-precision floor makes it 22.
+    expect(collectTexts(root).filter((t) => t.text.trim()).map((t) => t.y)).toEqual([15, 38, 61]);
+    expect(root.height).toBe(69);
+  });
+
+  it('resolves a percentage vertical-align against the exact line-height', async () => {
+    // WebKit's DOM: 50% of 25.6px moves the box 12.796875 (25.6 on the 1/64
+    // grid, halved) — the untruncated value, not 12.5.
+    const tree = block('div', [block('p', [
+      textNode('base', { lineHeight: 25.6 }),
+      textNode('X', { lineHeight: 25.6, verticalAlign: '50%' }),
+    ], { lineHeight: 25.6 })]);
+    const texts = collectTexts(await safariLayout(tree, 400));
+    const delta = texts.find((t) => t.text === 'X')!.y - texts.find((t) => t.text === 'base')!.y;
+    expect(delta).toBeCloseTo(-12.8, 5);
+  });
+});
+
+// ─── Bidi visual order (UAX #9 L2 across runs) ─────────────────────────
+//
+// Canvas reorders only inside ONE fillText, so the order of a line's runs is
+// layout's job. `paintedOrder` reads what Canvas would paint: each run is
+// level-uniform after layout, so an RTL run's characters sit right to left
+// from its right edge (x), an LTR run's left to right from x. The mock font
+// is 10px per character. Hebrew letters: א=05D0 …
+describe('Bidi visual order', () => {
+  const HE = (s: string) =>
+    s.replace(/[A-Z]/g, (c) => String.fromCharCode(0x05D0 + c.charCodeAt(0) - 65));
+
+  /** Painted characters per line, left to right, spaces dropped. */
+  function paintedOrder(root: LayoutBox): string[] {
+    const lines = new Map<number, Array<{ x: number; c: string }>>();
+    for (const t of collectTexts(root)) {
+      const rtl = t.style.direction === 'rtl';
+      // Inside one run Canvas orders the text itself (UAX #9 in the run's
+      // direction) — reversed for a level-uniform RTL run, as-is for LTR.
+      const own = resolveBidi(t.text, rtl ? 1 : 0);
+      const chars = visualOrder(lineLevels(own, 0, t.text.length)).map((i) => t.text[i]);
+      const left = rtl ? t.x - t.width : t.x;
+      const line = lines.get(Math.round(t.y)) ?? [];
+      chars.forEach((c, i) => {
+        if (c.trim()) line.push({ x: left + i * CHAR_WIDTH, c });
+      });
+      lines.set(Math.round(t.y), line);
+    }
+    return [...lines.entries()].sort((a, b) => a[0] - b[0]).map(([, chars]) =>
+      chars.sort((a, b) => a.x - b.x).map((p) => p.c).join(''));
+  }
+  const html = (h: string, width = 600) =>
+    layout({ html: h, width, ctx: mockCtx() }).layoutRoot as LayoutBox;
+
+  it('two RTL words in one bold span read right to left inside an LTR line', () => {
+    // The "Mixed scripts with formatting" shape.
+    const root = html(`<p>This <strong>${HE('ABC DEF')}</strong> with</p>`);
+    expect(paintedOrder(root)).toEqual([`This${HE('FEDCBA')}with`]);
+  });
+
+  it('RTL words split across formatting elements still form one RTL run', () => {
+    const root = html(`<p>x <b>${HE('ABC')}</b> <i>${HE('DEF')}</i> end</p>`);
+    expect(paintedOrder(root)).toEqual([`x${HE('FEDCBA')}end`]);
+  });
+
+  it('a number inside an RTL run stays left to right and keeps its place', () => {
+    const root = html(`<p>x <b>${HE('ABC')}</b> 123 ${HE('DEF')} y</p>`);
+    expect(paintedOrder(root)).toEqual([`x${HE('FED')}123${HE('CBA')}y`]);
+  });
+
+  it('neutrals between RTL words take the RTL direction', () => {
+    const root = html(`<p>abc <b>${HE('AB')},</b> ${HE('CD')}! xyz</p>`);
+    // ", " sits between two R → R; "!" before " xyz" → the paragraph's LTR.
+    expect(paintedOrder(root)).toEqual([`abc${HE('DC')},${HE('BA')}!xyz`]);
+  });
+
+  it('LTR words in an RTL paragraph keep their own order', () => {
+    const root = html(`<p dir="rtl">${HE('ABC')} <code>abc def</code> ${HE('DEF')}.</p>`);
+    expect(paintedOrder(root)).toEqual([`.${HE('FED')}abcdef${HE('CBA')}`]);
+  });
+
+  it('a dir="rtl" span is an isolate: the numbers around it stay put', () => {
+    const root = html(`<p>x 1 <span dir="rtl">${HE('AB')} cd</span> 2</p>`);
+    // Inside the RTL isolate "cd" (level 2) sits LEFT of the Hebrew word.
+    expect(paintedOrder(root)).toEqual([`x1cd${HE('BA')}2`]);
+  });
+
+  it('box padding stays at the visual edges of a reordered box', () => {
+    // "render()" in RTL: "()" is level 1, "render" level 2, so the content
+    // reads "()render" — the padding must hug that, not sit between them.
+    const root = html(`<p dir="rtl">${HE('AB')} <code style="padding:0 6px;background:#eee">render()</code> ${HE('CD')}</p>`);
+    const texts = collectTexts(root);
+    const parens = texts.find((t) => t.text === '()')!;
+    const render = texts.find((t) => t.text === 'render')!;
+    const box = collectInlineBoxes(root)[0];
+    expect(parens.x).toBe(render.x); // "()" right edge = "render" left edge
+    expect(box.x + 6).toBe(parens.x - parens.width);
+    expect(box.x + box.width - 6).toBe(render.x + render.width);
+  });
+
+  it('an RTL run starts at the right x after LTR words', () => {
+    const root = html(`<p>ab <b>${HE('CD')}</b></p>`);
+    const run = collectTexts(root).find((t) => t.text.includes(HE('C')))!;
+    expect(run.style.direction).toBe('rtl');
+    // "ab " is 30px; the RTL run "CD" spans [30, 50], anchored at its right edge.
+    expect(run.x).toBe(50);
   });
 });

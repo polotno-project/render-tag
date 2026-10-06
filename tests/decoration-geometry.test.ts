@@ -7,7 +7,9 @@
  *
  * Tuned invariants (see renderText in src/render.ts):
  * - thickness: max(1, floor(fontSize / 10)) — matches Chrome exactly
- * - underline: centered 0.105em below baseline, pixel-snapped — exact
+ * - underline: Blink hangs the band's top ceil(fontSize / 20) px below the
+ *   painted (whole-pixel) baseline — exact (BLINK_UNDERLINE_GAP); other
+ *   engines keep the 0.105em approximation
  * - line-through: 0.33em above baseline — Chrome uses the font's OS/2
  *   strikeout metric, which canvas can't read; ±3px is the achievable bound
  *   for a font-agnostic formula (Lobster at 64px is the worst native-raster

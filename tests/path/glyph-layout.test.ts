@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { layoutGlyphsOnPath, type Segment, type AlignMode } from '../../src/path/glyph-layout.ts';
+import { bidiContextFor, type BidiContext } from '../../src/bidi.ts';
 import type { PathLike } from '../../src/path/svg-path.ts';
 import type { ResolvedStyle } from '../../src/types.ts';
 import { styleFixture } from '../helpers/style-fixture.ts';
@@ -66,8 +67,10 @@ function semicirclePath(radius: number): PathLike {
   };
 }
 
-function seg(text: string, style: Partial<ResolvedStyle> = {}, rtl = false): Segment {
-  return { text, style: mockStyle(style), rtl };
+function seg(
+  text: string, style: Partial<ResolvedStyle> = {}, bidi: BidiContext | null = null,
+): Segment {
+  return { text, style: mockStyle(style), bidi };
 }
 
 describe('layoutGlyphsOnPath', () => {
@@ -173,17 +176,59 @@ describe('layoutGlyphsOnPath', () => {
     expect(out.glyphs[3].style.fontWeight).toBe(700);
   });
 
-  it('rtl segment reverses the grapheme order', () => {
+  it('an RTL override reverses the grapheme order', () => {
     const ctx = mockCtx();
     const path = horizontalPath(200);
     const out = layoutGlyphsOnPath({
-      segments: [seg('ABC', {}, true)],
+      segments: [seg('ABC', { direction: 'rtl' }, bidiContextFor('bidi-override', 'rtl', null))],
       path,
       ctx,
       align: 'left',
     });
     // Reversed: C at x=0, B at x=10, A at x=20
     expect(out.glyphs.map(g => g.char)).toEqual(['C', 'B', 'A']);
+  });
+
+  it('Latin in an RTL isolate keeps its own order (UAX #9 level 2)', () => {
+    const out = layoutGlyphsOnPath({
+      segments: [seg('ABC', { direction: 'rtl' }, bidiContextFor('isolate', 'rtl', null))],
+      path: horizontalPath(200),
+      ctx: mockCtx(),
+      align: 'left',
+    });
+    expect(out.glyphs.map(g => g.char)).toEqual(['A', 'B', 'C']);
+  });
+
+  it('RTL text across two spans is ordered across the spans, not inside each', () => {
+    // <div dir="rtl">שלום <b>עולם</b></div>: the bold word is LEFT of the
+    // plain one, and the space sits between them.
+    const rtl = bidiContextFor('isolate', 'rtl', null);
+    const out = layoutGlyphsOnPath({
+      segments: [
+        seg('\u05E9\u05DC\u05D5\u05DD ', { direction: 'rtl' }, rtl),
+        seg('\u05E2\u05D5\u05DC\u05DD', { direction: 'rtl', fontWeight: 700 }, rtl),
+      ],
+      path: horizontalPath(200),
+      ctx: mockCtx(),
+      align: 'left',
+    });
+    expect(out.glyphs.map(g => g.char)).toEqual([
+      '\u05E2\u05D5\u05DC\u05DD', ' ', '\u05E9\u05DC\u05D5\u05DD',
+    ]);
+    expect(out.glyphs[0].style.fontWeight).toBe(700);
+    expect(out.glyphs.map(g => g.x)).toEqual([0, 40, 50]);
+  });
+
+  it('an RTL word between LTR words is reversed in place', () => {
+    const out = layoutGlyphsOnPath({
+      segments: [seg('ab \u05D0\u05D1 \u05D2\u05D3 cd')],
+      path: horizontalPath(200),
+      ctx: mockCtx(),
+      align: 'left',
+    });
+    expect(out.glyphs.map(g => g.char)).toEqual([
+      'a', 'b', ' ', '\u05D2\u05D3', ' ', '\u05D0\u05D1', ' ', 'c', 'd',
+    ]);
   });
 
   it('overflow: stops emitting once a glyph would extend past the path', () => {

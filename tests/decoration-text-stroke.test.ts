@@ -49,7 +49,10 @@ describe('HTML decorations with text stroke (Chromium oracle)', () => {
       const height = 300;
       // Keep declarations in a stylesheet so inline CSSOM cannot normalize
       // hex/slash alpha into rgba() before render-tag parses the input.
-      const html = `<style>div { padding: 30px; font-size: ${fixture.size}px; font-weight: bold; ` +
+      // An explicit line-height: under `normal`, Arial's line gap puts
+      // Chromium's baseline 2px below render-tag's at 160px (canvas metrics
+      // cannot see the gap), which is a line-height question, not this one.
+      const html = `<style>div { padding: 30px; font-size: ${fixture.size}px; line-height: 1.2; font-weight: bold; ` +
         `font-family: Arial; color: #6a0dad; -webkit-text-stroke: ${fixture.stroke}px rgb(220,186,186); ` +
         `paint-order: ${fixture.order}; text-decoration: underline; ${fixture.extra || ''} }</style><div>H H</div>`;
       const result = layout({ html, width, height });

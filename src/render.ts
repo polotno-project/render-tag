@@ -1,12 +1,14 @@
 import type { ShadowOptions, DecorationEntry, LayoutNode, LayoutBox, LayoutText, ResolvedStyle } from './types.js';
 import {
   BLINK_TEXT_RUN_SHAPING,
+  BLINK_UNDERLINE_GAP,
   buildCanvasFont,
   canvasKerning,
   formatLetterSpacing,
   getFontMetrics,
   hasTextClip,
   isShiftedVAlign,
+  paintLineSnap,
 } from './layout.js';
 import { isTransparent, paintOrderHasStrokeFirst } from './css-resolver.js';
 import { paintTextShadows, shadowBounds, textPaintBounds, unionBounds, withCanvasShadow, withoutCanvasShadow, type PaintBounds } from './shadow.js';
@@ -298,14 +300,19 @@ function applyTextState(ctx: CanvasRenderingContext2D, style: ResolvedStyle): vo
  * Render a single text node to canvas.
  * @param gradientFill — pre-computed gradient for background-clip:text spanning full element
  * @param strokeGradient — pre-computed gradient for -webkit-text-stroke-image spanning full element
+ * @param snap — how far the engine paints this run's line off its layout
+ *   position (`paintLineSnap`); glyphs and every decoration move with it
  */
 function renderText(
   ctx: CanvasRenderingContext2D,
   node: LayoutText,
   gradientFill?: CanvasGradient | string | null,
   strokeGradient?: CanvasGradient | null,
+  snap = 0,
 ): void {
   const { style } = node;
+  const y = node.y + snap;
+  const lineBaselineY = node.lineBaselineY === undefined ? undefined : node.lineBaselineY + snap;
   ctx.save();
   applyTextState(ctx, style);
 
@@ -356,14 +363,14 @@ function renderText(
     if (isGradientText) {
       ctx.save();
       ctx.fillStyle = effectiveGradient || style.color;
-      ctx.fillText(node.text, node.x, node.y);
+      ctx.fillText(node.text, node.x, y);
       ctx.restore();
     } else if (!isFillTransparent) {
       // Normal text fill. A transparent fill paints NOTHING, stroked or not —
       // Chrome hides the glyphs entirely for `-webkit-text-fill-color:
       // transparent` (or `color: transparent`) even without a stroke.
       ctx.fillStyle = textFillColor(style);
-      ctx.fillText(node.text, node.x, node.y);
+      ctx.fillText(node.text, node.x, y);
     }
   };
 
@@ -371,7 +378,7 @@ function renderText(
     if (!isStrokedText) return;
     ctx.save();
     applyTextStroke(ctx, style, effectiveStrokeGradient);
-    ctx.strokeText(node.text, node.x, node.y);
+    ctx.strokeText(node.text, node.x, y);
     ctx.restore();
   };
 
@@ -440,19 +447,21 @@ function renderText(
         // vertical-align and the DECLARER stayed behind; `node.lineBaselineY`
         // is set only on a shifted run.
         const baseline =
-          node.lineBaselineY !== undefined && !isShiftedVAlign(deco.declarer.verticalAlign)
-            ? node.lineBaselineY
-            : node.y;
+          lineBaselineY !== undefined && !isShiftedVAlign(deco.declarer.verticalAlign)
+            ? lineBaselineY
+            : y;
         const explicitDelta = explicitUnderlineDelta(deco, decoWidth);
         if (explicitDelta !== null) {
           paintBand(baseline + explicitDelta);
+        } else if (BLINK_UNDERLINE_GAP) {
+          // Blink: the band's top sits half the auto thickness (fontSize/10),
+          // rounded up, below the painted baseline — see BLINK_UNDERLINE_GAP.
+          paintBand(baseline + Math.ceil(deco.declarer.fontSize / 20) + decoWidth / 2);
         } else {
-          // Chrome centers the underline ~0.105em below the baseline for every
-          // font tested (measured against the DOM raster sweep). The -0.2px is a
-          // rounding tiebreak: at fractional baselines (line-height 1.6/1.8/2.0)
-          // Chrome resolves the pixel row downward less often than plain
-          // rounding; empirically this cuts row-off-by-one cases 39 → 12 across
-          // the sweep without disturbing integer baselines.
+          // A Chrome-tuned approximation for engines whose paint baseline is
+          // not Blink's whole-pixel one: ~0.105em below the baseline. The
+          // -0.2px tiebreak was fitted against Chrome at fractional baselines
+          // before the line snap was modelled.
           paintBand(baseline + deco.declarer.fontSize * 0.105 - 0.2);
         }
       } else if (deco.line === 'line-through') {
@@ -460,13 +469,13 @@ function renderText(
         // which canvas can't read. 0.33em above the baseline is the closest
         // single-formula fit (tuned against the native DOM raster sweep; ±1px
         // for most fonts, 3px worst case for Lobster at 64px).
-        paintBand(node.y - style.fontSize * 0.33);
+        paintBand(y - style.fontSize * 0.33);
       } else if (deco.line === 'overline') {
         // Chrome hangs the overline band above the ascent line: its bottom
         // edge sits on the floored ascent pixel row, growing upward. The
         // ascent is the crossed run's, not the declarer's.
         const { ascent: decoAscent } = getFontMetrics(ctx, style);
-        const overlineY = Math.floor(node.y - decoAscent) - decoWidth / 2;
+        const overlineY = Math.floor(y - decoAscent) - decoWidth / 2;
         paintBand(overlineY);
       }
     }
@@ -632,7 +641,7 @@ function paintNode(
   if (node.type === 'text') {
     if (!pass?.runs || pass.runs.has(node)) {
       pass?.beforeText?.(ctx, original as LayoutText);
-      renderText(ctx, node, gradientFill, strokeGradient);
+      renderText(ctx, node, gradientFill, strokeGradient, paintLineSnap(original as LayoutText));
     }
   } else {
     renderBox(ctx, node, gradientFill, strokeGradient, pass);
@@ -667,15 +676,20 @@ function collectShadowPasses(node: LayoutNode) {
   return passes;
 }
 
-function foregroundBounds(ctx: CanvasRenderingContext2D, node: LayoutNode): PaintBounds {
+function foregroundBounds(
+  ctx: CanvasRenderingContext2D, node: LayoutNode, original: LayoutNode = node,
+): PaintBounds {
   if (node.type === 'box') {
     let bounds = { x: node.x, y: node.y, width: node.width, height: node.height };
-    forEachPaintedChild(node, child => { bounds = unionBounds(bounds, foregroundBounds(ctx, child)); });
+    forEachPaintedChild(node, (child, childOriginal) => {
+      bounds = unionBounds(bounds, foregroundBounds(ctx, child, childOriginal));
+    });
     return bounds;
   }
+  const y = node.y + paintLineSnap(original as LayoutText);
   ctx.save();
   applyTextState(ctx, node.style);
-  let bounds = textPaintBounds(ctx, node.text, node.style, node.x, node.y, node.width, node.style.direction === 'rtl');
+  let bounds = textPaintBounds(ctx, node.text, node.style, node.x, y, node.width, node.style.direction === 'rtl');
   ctx.restore();
   if (node.lineBaselineY !== undefined) {
     bounds = unionBounds(bounds, { ...bounds, y: bounds.y + node.lineBaselineY - node.y });

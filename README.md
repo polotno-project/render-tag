@@ -169,7 +169,7 @@ drawTextOnPathLayout({ layout: result, ctx: canvas1.getContext('2d')! });
 drawTextOnPathLayout({ layout: result, ctx: canvas2.getContext('2d')! });
 ```
 
-Not supported: full mixed-script BiDi shaping (pure-RTL via `direction: rtl` works).
+Mixed-direction text is ordered by the Unicode Bidirectional Algorithm across spans (`dir`, `<bdi>` and `<bdo>` included); each shaped run is drawn as one unit.
 
 ## Node.js / server-side
 
