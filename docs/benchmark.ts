@@ -389,7 +389,7 @@ async function showDetail(tc: BenchmarkCase, fontFamily: string, container: HTML
       debugText += `  DOM probe height (normal LH): ${domNormalLH.toFixed(2)}\n`;
 
       // Baseline calculation (mirrors layout.ts computeBaselineY)
-      const lineHeight = domNormalLH; // this is what getLineHeight returns with DOM measurement
+      const lineHeight = domNormalLH; // this is what Measurer.lineHeight returns with DOM measurement
       const textBlockHeight = canvasAscent + canvasDescent;
       const baselineY = (canvasAscent - canvasDescent) / 2 + lineHeight / 2;
       const baselineY2 = (lineHeight - textBlockHeight) / 2 + canvasAscent;

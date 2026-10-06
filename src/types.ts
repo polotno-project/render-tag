@@ -62,7 +62,8 @@ export interface LayoutConfig {
   /**
    * 2D context used for text measurement. Optional in the browser (a hidden
    * canvas is created); required in non-browser environments. render-tag
-   * mutates its font/fontKerning state and performs no save/restore.
+   * mutates its font, fontKerning and letterSpacing state, resets a non-zero
+   * wordSpacing to 0px, and performs no save/restore.
    */
   ctx?: AnyContext;
   /**

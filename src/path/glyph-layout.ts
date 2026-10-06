@@ -11,7 +11,7 @@
  */
 
 import type { ResolvedStyle, StyledNode } from '../types.js';
-import { applyFont, getFontMetrics, hasTextClip, transformTextRuns } from '../layout.js';
+import { Measurer, type MeasureState, hasTextClip, transformTextRuns } from '../layout.js';
 import { stringToArray } from './grapheme.js';
 import type { PathLike, Point } from './svg-path.js';
 
@@ -263,17 +263,14 @@ interface PreGlyph {
  * visual right-to-left order along an LTR path walk.
  */
 function preGlyphsForSegment(
-  ctx: CanvasRenderingContext2D,
+  m: Measurer,
+  state: MeasureState,
   seg: Segment,
 ): PreGlyph[] {
   const graphemes = stringToArray(seg.text);
   if (graphemes.length === 0) return [];
 
-  applyFont(ctx, seg.style);
-  // Always assign — when the current segment's letterSpacing is 0/unset,
-  // we still need to reset the previous segment's value.
-  ctx.letterSpacing = `${seg.style.letterSpacing || 0}px` as any;
-  const { ascent, descent } = getFontMetrics(ctx, seg.style);
+  const { ascent, descent } = m.metrics(seg.style);
 
   // Group graphemes into (shaped run | single non-shaped grapheme).
   // Boundaries: shape-status change, ASCII whitespace.
@@ -299,10 +296,10 @@ function preGlyphsForSegment(
   // the browser will lay them out right-to-left during fillText.
   if (seg.rtl) runs.reverse();
 
-  // Measure each run with the current ctx font/letterSpacing.
+  // Measure each run under the segment's font, kerning and letter-spacing.
   const out: PreGlyph[] = [];
   for (const r of runs) {
-    const width = ctx.measureText(r.text).width;
+    const width = m.measureText(state, r.text).width;
     out.push({
       text: r.text,
       width,
@@ -332,9 +329,11 @@ export function layoutGlyphsOnPath(input: LayoutInput): LayoutOutput {
   const { segments, path, ctx, align, textBaseline } = input;
 
   // 1. Pre-measure all placements (one per grapheme or shaped run).
-  // Caller's ctx state is mutated here (font, fontKerning, letterSpacing).
+  // Caller's ctx state is mutated here (font, fontKerning, letterSpacing, and
+  // a non-zero wordSpacing reset to 0px).
   // The outer drawTextOnPath/drawTextOnPathLayout calls ctx.save before this
   // and ctx.restore after, so the leak doesn't reach the caller.
+  const m = new Measurer(ctx);
   const preGlyphs: PreGlyph[] = [];
   let measuredWholeWidth = 0;
   let maxLineHeight = 0;
@@ -342,11 +341,12 @@ export function layoutGlyphsOnPath(input: LayoutInput): LayoutOutput {
     if (!seg.text) continue;
     const lh = seg.style.lineHeight > 0 ? seg.style.lineHeight : seg.style.fontSize;
     if (lh > maxLineHeight) maxLineHeight = lh;
-    const segGlyphs = preGlyphsForSegment(ctx, seg);
+    const state = m.stateOf(seg.style);
+    const segGlyphs = preGlyphsForSegment(m, state, seg);
     if (segGlyphs.length === 0) continue;
     preGlyphs.push(...segGlyphs);
     // Whole-segment width — kerning makes this < sum of per-glyph widths.
-    measuredWholeWidth += ctx.measureText(seg.text).width;
+    measuredWholeWidth += m.measureText(state, seg.text).width;
   }
 
   // 2. Sum natural width. `g.width` came out of measureText with

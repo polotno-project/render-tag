@@ -2,6 +2,8 @@ import type { ShadowOptions, DecorationEntry, LayoutNode, LayoutBox, LayoutText,
 import {
   BLINK_TEXT_RUN_SHAPING,
   buildCanvasFont,
+  canvasKerning,
+  formatLetterSpacing,
   getFontMetrics,
   hasTextClip,
   isShiftedVAlign,
@@ -280,13 +282,12 @@ export function applyTextStroke(
 function applyTextState(ctx: CanvasRenderingContext2D, style: ResolvedStyle): void {
   ctx.font = buildCanvasFont(style);
   ctx.textBaseline = 'alphabetic';
-  ctx.fontKerning = style.fontKerning === 'none' ? 'none' : 'normal';
-  if (Number.isFinite(style.letterSpacing) && style.letterSpacing !== 0) {
-    ctx.letterSpacing = `${style.letterSpacing}px`;
-  }
-  if (style.wordSpacing) {
-    (ctx as any).wordSpacing = `${style.wordSpacing}px`;
-  }
+  ctx.fontKerning = canvasKerning(style);
+  // Both spacings are written even at 0: `render({ ctx })` paints on the ctx
+  // layout just measured with, and a 0px run must not take the spacing of
+  // whatever was measured last (a list marker's, say).
+  ctx.letterSpacing = formatLetterSpacing(style.letterSpacing);
+  (ctx as any).wordSpacing = `${style.wordSpacing || 0}px`;
   if (style.direction === 'rtl') {
     ctx.direction = 'rtl';
     ctx.textAlign = 'right';

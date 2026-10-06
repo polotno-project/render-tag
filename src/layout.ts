@@ -12,39 +12,23 @@ let _lines: LayoutLine[] = [];
 const _minContentCache = new Map<StyledNode, number>();
 const _maxContentCache = new Map<StyledNode, number>();
 
-// ─── measureText width cache ──────────────────────────────────────────
-// Caches ctx.measureText(text).width keyed by "font\0text".
-// Cleared at the start of each buildLayoutTree() call.
-const _measureCache = new Map<string, number>();
-
-function cachedMeasureWidth(ctx: CanvasRenderingContext2D, text: string): number {
-  // ctx.font and ctx.letterSpacing must already be set by caller.
-  // letterSpacing is part of the key because it changes measured width.
-  const key = ctx.font + '\0' + (ctx.letterSpacing || '') + '\0' + text;
-  const cached = _measureCache.get(key);
-  if (cached !== undefined) return cached;
-  const w = ctx.measureText(text).width;
-  _measureCache.set(key, w);
-  return w;
-}
-
-
 /**
- * Would every glyph on this line be measured under one canvas state? Only then
- * can the line be re-measured as a single string. Keyed on what `applyFont`
- * and `formatLetterSpacing` actually set, not on the raw declarations —
- * `font-kerning: auto` and `normal` are one state on the canvas.
+ * The one canvas state every glyph on this line is measured under — only then
+ * can the line be re-measured as a single string. `'mixed'` when the glyphs
+ * need more than one, `null` when the line holds no glyph at all. Compared on
+ * the interned `MeasureState`, i.e. on what the canvas is actually set to, not
+ * on the raw declarations — `font-kerning: auto` and `normal` are one state.
+ * Spaces do not count; the re-measure keeps their own widths where they differ.
  */
-function hasMixedTextMetrics(words: Word[]): boolean {
-  let metrics = '';
+function lineMeasureState(m: Measurer, words: Word[]): MeasureState | null | 'mixed' {
+  let shared: MeasureState | null = null;
   for (const w of words) {
     if (!w.text || w.isSpace) continue;
-    const key = `${buildCanvasFont(w.style)}|${formatLetterSpacing(w.style.letterSpacing)}` +
-      `|${canvasKerning(w.style)}`;
-    if (metrics && key !== metrics) return true;
-    metrics = key;
+    const state = m.stateOf(w.style);
+    if (shared && state !== shared) return 'mixed';
+    shared = state;
   }
-  return false;
+  return shared;
 }
 
 // ─── Canvas font helpers ───────────────────────────────────────────────
@@ -58,12 +42,12 @@ export function applyFont(ctx: CanvasRenderingContext2D, style: ResolvedStyle): 
 }
 
 /** The `ctx.fontKerning` value a style resolves to. */
-function canvasKerning(style: ResolvedStyle): CanvasFontKerning {
+export function canvasKerning(style: ResolvedStyle): CanvasFontKerning {
   return style.fontKerning === 'none' ? 'none' : 'normal';
 }
 
 /** Format a letter-spacing value (px) as a canvas `ctx.letterSpacing` string. */
-function formatLetterSpacing(value: number): string {
+export function formatLetterSpacing(value: number): string {
   // Negative letter-spacing is valid and narrows text — Chrome applies it per
   // character (trailing included). Clamping it to 0 measured text wider than
   // the browser renders it, causing earlier/extra line wraps. Guard against
@@ -157,31 +141,228 @@ function measureDomLineHeight(font: string, lineHeight: string, useBulletProbe =
   return height;
 }
 
+// ─── Measurement ───────────────────────────────────────────────────────
+//
+// A measured width depends on more canvas state than the font: kerning and
+// letter-spacing move it too. That state used to be set by hand at each
+// measuring site, and several sites set only the font, so they measured under
+// whatever letter-spacing or kerning the previous run had left on the ctx — a
+// line re-measured that way kept an overflowing word. `Measurer` is now the
+// only layout code that writes measuring state: a measurement names the state
+// it wants, and the measurer writes all of it, skipping what the ctx already
+// holds.
+//
+// Everything here lives for ONE layout call. A caller's ctx is the measuring
+// oracle (a PDF proxy, node-canvas, a test mock), and fonts can load between
+// calls, so no width or metric is carried into the next call.
+
 /**
- * Get the effective line height for a style.
- * Uses DOM measurement for accuracy across browsers (Firefox vs Chrome).
- * Falls back to canvas metrics for "normal" line-height.
+ * The canvas state a width depends on. Interned per call by value, so every
+ * style that measures the same way shares one entry — and one width cache.
  */
-function getLineHeight(ctx: CanvasRenderingContext2D, style: ResolvedStyle, useBulletProbe = false): number {
-  if (style.lineHeight > 0) {
-    if (_useDomMeasurements) {
-      const font = buildCanvasFont(style);
-      return measureDomLineHeight(font, `${style.lineHeight}px`, useBulletProbe);
+export interface MeasureState {
+  readonly font: string;
+  readonly kerning: CanvasFontKerning;
+  readonly letterSpacing: string;
+  /** `measureText` widths under this state, by text. */
+  readonly widths: Map<string, number>;
+}
+
+type FontBox = Readonly<{ ascent: number; descent: number }>;
+type TabStops = Readonly<{ interval: number; halfSpace: number }>;
+
+/**
+ * What one style's text needs from the canvas, derived once per call instead
+ * of once per word. Keyed by style identity; never stored on the style.
+ * Line heights and leaded boxes are indexed by `useBulletProbe` (it only
+ * changes them when the DOM probes run).
+ */
+interface FontState {
+  readonly measure: MeasureState;
+  metrics: FontBox | undefined;
+  readonly lineHeights: [number | undefined, number | undefined];
+  readonly boxes: [FontBox | undefined, FontBox | undefined];
+  tabStops: TabStops | undefined;
+}
+
+export class Measurer {
+  /** What this measurer last wrote to the ctx; null = unknown. */
+  private current: MeasureState | null = null;
+  private readonly states = new Map<string, MeasureState>();
+  private readonly fonts = new Map<ResolvedStyle, FontState>();
+
+  /**
+   * Spaces carry `word-spacing` in their own measured width, so the canvas
+   * must not add any: a caller's ctx (or a paint left on a reused one) may
+   * hold some. Cleared here, so no entry point can measure without it.
+   */
+  constructor(readonly ctx: CanvasRenderingContext2D) {
+    const spacing = ctx as CanvasRenderingContext2D & { wordSpacing?: string };
+    if (spacing.wordSpacing && spacing.wordSpacing !== '0px') spacing.wordSpacing = '0px';
+  }
+
+  /** Something other than this measurer may have set the ctx. */
+  invalidate(): void {
+    this.current = null;
+  }
+
+  /** A style's own measuring state: its font, kerning and letter-spacing. */
+  stateOf(style: ResolvedStyle): MeasureState {
+    return this.font(style).measure;
+  }
+
+  /** Width of `text` under `state`, measured once per call. */
+  width(state: MeasureState, text: string): number {
+    let width = state.widths.get(text);
+    if (width === undefined) {
+      width = this.measureText(state, text).width;
+      state.widths.set(text, width);
     }
-    // Canvas-only: use the CSS line-height value directly
-    return style.lineHeight;
+    return width;
   }
 
-  if (_useDomMeasurements) {
-    const font = buildCanvasFont(style);
-    return measureDomLineHeight(font, 'normal', useBulletProbe);
+  /** Uncached — for one-off strings and ink metrics. */
+  measureText(state: MeasureState, text: string): TextMetrics {
+    this.use(state);
+    return this.ctx.measureText(text);
   }
 
-  // Canvas-only fallback for "normal" line-height: use font bounding box
-  // fontBoundingBoxAscent + fontBoundingBoxDescent already represents the
-  // full line box height, no multiplier needed.
-  const { ascent, descent } = getFontMetrics(ctx, style);
-  return ascent + descent;
+  /** The font's ascent and descent (font bounding box). */
+  metrics(style: ResolvedStyle): FontBox {
+    const fs = this.font(style);
+    if (!fs.metrics) {
+      // Shared with `getFontMetrics`, which paint calls after layout.
+      const font = fs.measure.font;
+      let metrics = _fontMetricsCache.get(font);
+      if (!metrics) {
+        metrics = fontBox(this.measureText(fs.measure, 'M'));
+        _fontMetricsCache.set(font, metrics);
+      }
+      fs.metrics = metrics;
+    }
+    return fs.metrics;
+  }
+
+  /**
+   * The effective line height for a style. DOM-probed under `accuracy:
+   * 'balanced'` (Firefox and Chrome differ); otherwise the CSS value, or for
+   * `normal` the font bounding box, which already is the full line box.
+   */
+  lineHeight(style: ResolvedStyle, useBulletProbe = false): number {
+    const fs = this.font(style);
+    const slot = useBulletProbe && _useDomMeasurements ? 1 : 0;
+    let lineHeight = fs.lineHeights[slot];
+    if (lineHeight === undefined) {
+      if (_useDomMeasurements) {
+        lineHeight = measureDomLineHeight(
+          fs.measure.font, style.lineHeight > 0 ? `${style.lineHeight}px` : 'normal', slot === 1);
+      } else if (style.lineHeight > 0) {
+        lineHeight = style.lineHeight;
+      } else {
+        const { ascent, descent } = this.metrics(style);
+        lineHeight = ascent + descent;
+      }
+      fs.lineHeights[slot] = lineHeight;
+    }
+    return lineHeight;
+  }
+
+  /**
+   * One box's half of a line: how far it reaches above its own baseline and
+   * how far below, over its OWN line-height. This is the inline box CSS 2.1
+   * §10.8 talks about — the font's content area plus its half-leading — not
+   * the bare font metrics. `vertical-align: text-top` and `text-bottom` align
+   * THIS box's edges, and the line box is the union of these over everything
+   * on the line. Shared: callers must not mutate it.
+   */
+  leadedBox(style: ResolvedStyle, useBulletProbe = false): FontBox {
+    const fs = this.font(style);
+    const slot = useBulletProbe && _useDomMeasurements ? 1 : 0;
+    let box = fs.boxes[slot];
+    if (!box) {
+      const { ascent, descent } = this.metrics(style);
+      const lineHeight = this.lineHeight(style, useBulletProbe);
+      const boxAscent = lineBaselineOffset(lineHeight, ascent, descent);
+      box = fs.boxes[slot] = { ascent: boxAscent, descent: lineHeight - boxAscent };
+    }
+    return box;
+  }
+
+  /** See `tabStopMetrics`. */
+  tabStops(style: ResolvedStyle): TabStops {
+    const fs = this.font(style);
+    if (!fs.tabStops) {
+      // The space advance is measured with letter-spacing OFF; the block's
+      // spacing is added per stop instead.
+      const spaceless = this.intern(fs.measure.font, fs.measure.kerning, '0px');
+      const spaceWidth = this.width(spaceless, ' ');
+      fs.tabStops = {
+        interval: (spaceWidth + (style.letterSpacing || 0) + (style.wordSpacing || 0)) * 8,
+        halfSpace: spaceWidth / 2,
+      };
+    }
+    return fs.tabStops;
+  }
+
+  private font(style: ResolvedStyle): FontState {
+    let fs = this.fonts.get(style);
+    if (!fs) {
+      fs = {
+        measure: this.intern(
+          buildCanvasFont(style), canvasKerning(style), formatLetterSpacing(style.letterSpacing)),
+        metrics: undefined,
+        lineHeights: [undefined, undefined],
+        boxes: [undefined, undefined],
+        tabStops: undefined,
+      };
+      this.fonts.set(style, fs);
+    }
+    return fs;
+  }
+
+  private intern(font: string, kerning: CanvasFontKerning, letterSpacing: string): MeasureState {
+    const key = font + '\0' + kerning + '\0' + letterSpacing;
+    let state = this.states.get(key);
+    if (!state) {
+      state = { font, kerning, letterSpacing, widths: new Map() };
+      this.states.set(key, state);
+    }
+    return state;
+  }
+
+  /** Write `state` to the ctx — all of it, but only what differs. */
+  private use(state: MeasureState): void {
+    const prev = this.current;
+    if (prev === state) return;
+    const ctx = this.ctx;
+    if (prev?.font !== state.font) ctx.font = state.font;
+    if (prev?.kerning !== state.kerning) ctx.fontKerning = state.kerning;
+    if (prev?.letterSpacing !== state.letterSpacing) ctx.letterSpacing = state.letterSpacing;
+    this.current = state;
+  }
+}
+
+/** The measurer of the layout call in progress. */
+let _measurer: Measurer | null = null;
+
+/**
+ * The running layout call's measurer. Layout code only ever runs inside
+ * `buildLayoutTree`; anything else measuring through here would get no
+ * per-call cache and no idea of the ctx's state, so it throws instead.
+ * (The public helpers `getFontMetrics` and `tabStopMetrics` have their own
+ * path for a call outside layout.)
+ */
+function measurerFor(ctx: CanvasRenderingContext2D): Measurer {
+  if (_measurer?.ctx !== ctx) throw new Error('render-tag: layout measured outside its layout call');
+  return _measurer;
+}
+
+/** A font's ascent and descent, from any TextMetrics measured in it. */
+function fontBox(m: TextMetrics): FontBox {
+  return {
+    ascent: m.fontBoundingBoxAscent ?? m.actualBoundingBoxAscent,
+    descent: m.fontBoundingBoxDescent ?? m.actualBoundingBoxDescent,
+  };
 }
 
 /**
@@ -253,21 +434,21 @@ export function lineBaselineOffset(lineHeight: number, ascent: number, descent: 
  *
  * Public API for the same reason as `lineBaselineOffset`: a renderer that
  * re-flows text beside a render-tag canvas needs identical stops. Call it
- * rather than restate it, or the two drift. Mutates ctx font state.
+ * rather than restate it, or the two drift. Mutates ctx font state (its
+ * letter- and word-spacing are put back).
  */
 export function tabStopMetrics(
   ctx: CanvasRenderingContext2D,
   style: ResolvedStyle,
 ): { interval: number; halfSpace: number } {
-  applyFont(ctx, style);
+  if (_measurer?.ctx === ctx) return { ..._measurer.tabStops(style) };
+  const spacing = ctx as CanvasRenderingContext2D & { wordSpacing?: string };
   const prevLetterSpacing = ctx.letterSpacing;
-  ctx.letterSpacing = '0px';
-  const spaceWidth = cachedMeasureWidth(ctx, ' ');
+  const prevWordSpacing = spacing.wordSpacing;
+  const stops = new Measurer(ctx).tabStops(style);
   ctx.letterSpacing = prevLetterSpacing;
-  return {
-    interval: (spaceWidth + (style.letterSpacing || 0) + (style.wordSpacing || 0)) * 8,
-    halfSpace: spaceWidth / 2,
-  };
+  if (prevWordSpacing !== undefined) spacing.wordSpacing = prevWordSpacing;
+  return { ...stops };
 }
 
 /**
@@ -280,24 +461,6 @@ function inlineBlockExtra(bs: ResolvedStyle): { top: number; bottom: number } {
     top: bs.marginTop + bs.borderTopWidth + bs.paddingTop,
     bottom: bs.paddingBottom + bs.borderBottomWidth + bs.marginBottom,
   };
-}
-
-/**
- * One box's half of a line: how far it reaches above its own baseline and how
- * far below, over its OWN line-height. This is the inline box CSS 2.1 §10.8
- * talks about — the font's content area plus its half-leading — not the bare
- * font metrics. `vertical-align: text-top` and `text-bottom` align THIS box's
- * edges, and the line box is the union of these over everything on the line.
- */
-function leadedBox(
-  ctx: CanvasRenderingContext2D,
-  style: ResolvedStyle,
-  useBulletProbe = false,
-): { ascent: number; descent: number } {
-  const { ascent, descent } = getFontMetrics(ctx, style);
-  const lineHeight = getLineHeight(ctx, style, useBulletProbe);
-  const boxAscent = lineBaselineOffset(lineHeight, ascent, descent);
-  return { ascent: boxAscent, descent: lineHeight - boxAscent };
 }
 
 /** Transform source text before measuring it, while keeping CSS word context
@@ -354,24 +517,21 @@ function hasOnlyInlineChildren(node: StyledNode): boolean {
 
 /**
  * Get font ascent and descent metrics. Results are cached per font string.
+ * Inside a layout call, the call's own measurer answers.
  */
 const _fontMetricsCache = new Map<string, { ascent: number; descent: number }>();
 export function getFontMetrics(ctx: CanvasRenderingContext2D, style: ResolvedStyle): { ascent: number; descent: number } {
+  if (_measurer?.ctx === ctx) return _measurer.metrics(style);
   const font = buildCanvasFont(style);
   const cached = _fontMetricsCache.get(font);
   if (cached) return cached;
-  // Restore what the caller had set: this measures with its OWN font, and a
-  // measurement must not move the ctx. Leaving it moved made the function
-  // behave differently on a cache miss than on a hit, so a caller that set a
-  // font and then measured through this was correct only while the cache was
-  // warm — `addListMarker` measured its marker on the li's face on a cold one.
+  // Outside layout (paint, path decorations, the public API) the caller owns
+  // the ctx's font: a measurement must not move it, or a cache miss would
+  // leave different state behind than a hit.
   const prev = ctx.font;
   ctx.font = font;
-  const m = ctx.measureText('M');
+  const result = fontBox(ctx.measureText('M'));
   ctx.font = prev;
-  const ascent = m.fontBoundingBoxAscent ?? m.actualBoundingBoxAscent;
-  const descent = m.fontBoundingBoxDescent ?? m.actualBoundingBoxDescent;
-  const result = { ascent, descent };
   _fontMetricsCache.set(font, result);
   return result;
 }
@@ -418,12 +578,16 @@ function verticalAlignShift(
     // Against the PARENT's content area (CSS 2.1 §10.8.1) — its bare
     // ascent/descent, no leading. Measured against Chrome, taking the line's
     // tallest box instead of the real parent put this 14px out.
-    case 'text-top':
-      return leadedBox(ctx, style, useBulletProbe).ascent - getFontMetrics(ctx, parentStyle).ascent;
-    case 'text-bottom':
-      return getFontMetrics(ctx, parentStyle).descent - leadedBox(ctx, style, useBulletProbe).descent;
+    case 'text-top': {
+      const m = measurerFor(ctx);
+      return m.leadedBox(style, useBulletProbe).ascent - m.metrics(parentStyle).ascent;
+    }
+    case 'text-bottom': {
+      const m = measurerFor(ctx);
+      return m.metrics(parentStyle).descent - m.leadedBox(style, useBulletProbe).descent;
+    }
     case 'middle': {
-      const { ascent, descent } = getFontMetrics(ctx, style);
+      const { ascent, descent } = measurerFor(ctx).metrics(style);
       return -(parentStyle.fontSize * 0.25) - (descent - ascent) / 2;
     }
     default: {
@@ -435,7 +599,7 @@ function verticalAlignShift(
       // §10.8.1), not the line's. Measured against Chrome: the line's put the
       // box 10px out on a line whose tallest run was not this one.
       return va.endsWith('%')
-        ? -(n / 100) * getLineHeight(ctx, style, useBulletProbe)
+        ? -(n / 100) * measurerFor(ctx).lineHeight(style, useBulletProbe)
         : -n;
     }
   }
@@ -647,11 +811,8 @@ function applyEllipsisToLine(
   // The ellipsis takes the trimmed run's style, so it has to take the parent
   // that style's vertical-align measures against too.
   const parentStyle = line.words[styleIdx].parentStyle;
-  applyFont(ctx, lastStyle);
-  // ALWAYS assign (don't gate on truthy) — otherwise a previous segment's
-  // non-zero letter-spacing leaks into the ellipsis measurement.
-  ctx.letterSpacing = `${lastStyle.letterSpacing || 0}px` as any;
-  const ellipsisWidth = cachedMeasureWidth(ctx, '…');
+  const m = measurerFor(ctx);
+  const ellipsisWidth = m.width(m.stateOf(lastStyle), '…');
 
   // Helper: pop trailing isSpace words. Box markers (text === '' with
   // boxOpen/boxClose) are NOT popped — they carry inline-box padding the
@@ -838,16 +999,103 @@ function getSegmenter(): Intl.Segmenter | null {
 }
 
 /**
+ * How much left context a cumulative measurement keeps, in UTF-16 units.
+ *
+ * A piece of a run is measured as the difference of two measurements taken
+ * WITH the text before it — `w(context + piece) - w(context)` — because a sum
+ * of pieces measured alone loses the kerning across their edges: in Chromium
+ * 3.5px over a 2,286px Arial run, mostly against the space. Taking the whole
+ * run so far as the context was quadratic (a 2000-word paragraph sent 25.7M
+ * characters to measureText). Once the context passes this many units it
+ * restarts at the last word (`Cumulative`), or for a character split
+ * (`breakWordIfNeeded`) at the last character.
+ *
+ * Chosen from the full-corpus 1px wrap sweep in all six fonts: at 32 not one
+ * width moved against the whole-run context in Chromium or WebKit. Shorter
+ * contexts did move, all on RTL and fallback-font lines (Arabic with digits
+ * and Hebrew in Merriweather): the engine resolves a space's font and bidi
+ * level from more than its neighbours, so pairs alone are not enough there.
+ */
+const MEASURE_CONTEXT = 32;
+
+/**
+ * Cumulative measuring over one run. `text` is the measured context and
+ * `width` its width. `word` is where the last non-space piece starts in
+ * `text`: the context restarts there (or at a bracket still open before it,
+ * `contextStart`), so the space after a word is always measured with that
+ * word on its left — a bare `' '` resolves to the primary
+ * font, but between two fallback-font words (Hebrew in Merriweather) the
+ * engine sets it in the fallback, and a context of `' '` alone mis-measured
+ * every RTL word after it.
+ */
+interface Cumulative {
+  text: string;
+  width: number;
+  word: number;
+}
+
+/**
+ * How far back an open bracket still holds the context (`contextStart`).
+ * Past this the bracket is let go, so a stray "(" cannot make a paragraph's
+ * measuring quadratic again.
+ */
+const MEASURE_BRACKET = 256;
+
+/**
+ * Where a context restart may cut `text`: at `word`, or earlier, when a
+ * bracket is still open there. A bracket pair's direction (UBA N0) comes
+ * from the strong type inside it and the one BEFORE the opener, and its
+ * glyphs (mirrored or not, and in whose font) follow. So the context keeps
+ * the opener and the word holding the nearest LETTER before it — not a digit:
+ * a number takes its own type from the letter before it (UBA W7). In
+ * Lobster, `)` in `<Arabic>: $42.99 (<Arabic> … ₪158.50)` measured 0.38px
+ * narrower with the context cut at the last word, and that moved a wrap.
+ */
+function contextStart(text: string, word: number): number {
+  const open: number[] = [];
+  for (let i = 0; i < word; i++) {
+    const c = text[i];
+    if (OPEN_BRACKET.test(c)) open.push(i);
+    else if (CLOSE_BRACKET.test(c)) open.pop();
+  }
+  if (open.length === 0) return word;
+  let start = open[0];
+  while (start > 0 && !LETTER.test(text[start - 1])) start--;
+  while (start > 0 && text[start - 1] !== ' ') start--;
+  return word - start <= MEASURE_BRACKET ? start : word;
+}
+const OPEN_BRACKET = /\p{Ps}/u;
+const CLOSE_BRACKET = /\p{Pe}/u;
+const LETTER = /\p{L}/u;
+
+/** The width `piece` adds after what `cum` holds; appends it. */
+function measureAfter(m: Measurer, state: MeasureState, cum: Cumulative, piece: string): number {
+  const isSpace = piece === ' ';
+  if (!isSpace && cum.word > 0 && cum.text.length > MEASURE_CONTEXT) {
+    const start = contextStart(cum.text, cum.word);
+    if (start > 0) {
+      cum.text = cum.text.slice(start);
+      cum.width = m.width(state, cum.text);
+    }
+  }
+  const before = cum.width;
+  if (!isSpace) cum.word = cum.text.length;
+  cum.text += piece;
+  cum.width = m.width(state, cum.text);
+  return cum.width - before;
+}
+
+/**
  * Tokenize a single string into words based on whitespace mode.
  */
-function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRun, allWords: Word[], cumState?: { cumText: string; cumWidth: number }): void {
+function tokenizeString(m: Measurer, text: string, run: TextRun, allWords: Word[], cumState?: Cumulative): void {
   // Split on zero-width spaces and soft hyphens (break opportunities).
   // Pass cumulative state through so pieces are measured as one text run
   // (preserving kerning accuracy across break points).
   if (text.includes('\u200B') || text.includes('\u00AD')) {
     const parts = text.split(/(\u200B|\u00AD)/);
     // Share cumulative state across all sub-parts for accurate measurement
-    const sharedState = cumState ?? { cumText: '', cumWidth: 0 };
+    const sharedState = cumState ?? { text: '', width: 0, word: 0 };
     let nextIsSoftHyphen = false;
     for (const part of parts) {
       if (part === '\u00AD') {
@@ -859,7 +1107,7 @@ function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRu
         continue;
       }
       const prevLen = allWords.length;
-      tokenizeString(ctx, part, run, allWords, sharedState);
+      tokenizeString(m, part, run, allWords, sharedState);
       if (nextIsSoftHyphen && prevLen > 0) {
         allWords[prevLen - 1].isSoftHyphenBreak = true;
       }
@@ -870,6 +1118,9 @@ function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRu
     }
     return;
   }
+
+  // Every width below is the run's own: its font, kerning and letter-spacing.
+  const state = m.stateOf(run.style);
 
   // `pre-line` preserves newlines (handled by the \n pre-split in
   // tokenizeRuns) but collapses spaces and tabs — so it goes through the
@@ -883,7 +1134,7 @@ function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRu
     const words = text
       .split(/( +|\t)/)
       .flatMap((word) => /^( +|\t)$/.test(word) ? [word] : splitHyphenated(word));
-    const tabStopInterval = cachedMeasureWidth(ctx, ' ') * 8; // CSS default: 8 spaces
+    const tabStopInterval = m.width(state, ' ') * 8; // CSS default: 8 spaces
     for (const w of words) {
       if (w === '') continue;
       if (w === '\t') {
@@ -904,7 +1155,7 @@ function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRu
       const isSpace = /^ +$/.test(w);
       allWords.push({
         text: w,
-        width: cachedMeasureWidth(ctx, w),
+        width: m.width(state, w),
         style: run.style,
         parentStyle: run.parentStyle,
         isSpace,
@@ -939,22 +1190,17 @@ function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRu
         /^[ \t\n\r\f\v]+$/.test(word) ? [word] : splitHyphenated(word),
       );
 
-    // Use cumulative measurement to avoid rounding error accumulation
-    // within a single text run. When cumState is provided (from \u200B/\u00AD
-    // split), continue from the previous cumulative position to preserve
-    // kerning accuracy across break points.
-    let cumText = cumState?.cumText ?? '';
-    let cumWidth = cumState?.cumWidth ?? 0;
+    // Measure each piece after its left context (`measureAfter`), so kerning
+    // across word and space edges survives. When cumState is provided (from
+    // a \u200B/\u00AD split), continue from the previous part's context.
+    const cum: Cumulative = cumState ?? { text: '', width: 0, word: 0 };
 
     for (const w of words) {
       if (w === '') continue;
       const isSpace = /^[ \t\n\r\f\v]+$/.test(w);
 
       if (isSpace) {
-        const prevCum = cumWidth;
-        cumText += ' ';
-        cumWidth = ctx.measureText(cumText).width;
-        const spaceWidth = cumWidth - prevCum + (run.style.wordSpacing || 0);
+        const spaceWidth = measureAfter(m, state, cum, ' ') + (run.style.wordSpacing || 0);
         allWords.push({
           text: ' ',
           width: spaceWidth,
@@ -974,12 +1220,9 @@ function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRu
         if (segmenter) {
           for (const seg of segmenter.segment(w)) {
             const s = seg.segment;
-            const prevCum = cumWidth;
-            cumText += s;
-            cumWidth = ctx.measureText(cumText).width;
             allWords.push({
               text: s,
-              width: cumWidth - prevCum,
+              width: measureAfter(m, state, cum, s),
               style: run.style,
               parentStyle: run.parentStyle,
               isSpace: false,
@@ -992,16 +1235,15 @@ function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRu
         }
       }
 
-      const prevCum = cumWidth;
-      cumText += w;
-      cumWidth = ctx.measureText(cumText).width;
-      let width = cumWidth - prevCum;
-      const directWidth = cachedMeasureWidth(ctx, w);
+      const width = measureAfter(m, state, cum, w);
       if (_debug) {
+        // The word measured on its own, against its cumulative delta — a
+        // measurement only the debug callback reads.
+        const directWidth = m.width(state, w);
         _debug({
           type: 'measure-word',
-          message: `"${w}" delta=${width.toFixed(2)} direct=${directWidth.toFixed(2)} diff=${(width - directWidth).toFixed(2)} cumText="${cumText}"`,
-          data: { text: w, deltaWidth: width, directWidth, cumWidth, prevCum, font: run.style.fontFamily, fontSize: run.style.fontSize },
+          message: `"${w}" delta=${width.toFixed(2)} direct=${directWidth.toFixed(2)} diff=${(width - directWidth).toFixed(2)} context="${cum.text}"`,
+          data: { text: w, deltaWidth: width, directWidth, contextWidth: cum.width, contextBefore: cum.width - width, font: run.style.fontFamily, fontSize: run.style.fontSize },
         });
       }
       allWords.push({
@@ -1015,12 +1257,6 @@ function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRu
         strokeImageStyle: run.strokeImageStyle,
       });
     }
-
-    // Propagate cumulative state back to caller (for \u200B/\u00AD splits)
-    if (cumState) {
-      cumState.cumText = cumText;
-      cumState.cumWidth = cumWidth;
-    }
   }
 }
 
@@ -1028,6 +1264,7 @@ function tokenizeString(ctx: CanvasRenderingContext2D, text: string, run: TextRu
  * Tokenize text runs into words for line wrapping.
  */
 function tokenizeRuns(ctx: CanvasRenderingContext2D, runs: TextRun[]): Word[] {
+  const m = measurerFor(ctx);
   const allWords: Word[] = [];
 
   for (const run of transformTextRuns(runs)) {
@@ -1045,11 +1282,9 @@ function tokenizeRuns(ctx: CanvasRenderingContext2D, runs: TextRun[]): Word[] {
     // Atomic inline-block: entire element (margin + padding + text) is one word
     // Must check before boxOpen/boxClose handlers since atomic has both set.
     if (run.boxOpen && run.boxClose && run.text) {
-      applyFont(ctx, run.style);
-      ctx.letterSpacing = formatLetterSpacing(run.style.letterSpacing);
       const text = run.text;
       const s = run.style;
-      const textWidth = cachedMeasureWidth(ctx, text);
+      const textWidth = m.width(m.stateOf(s), text);
       const totalWidth = s.marginLeft + s.borderLeftWidth + s.paddingLeft +
         textWidth + s.paddingRight + s.borderRightWidth + s.marginRight;
       allWords.push({
@@ -1084,8 +1319,6 @@ function tokenizeRuns(ctx: CanvasRenderingContext2D, runs: TextRun[]): Word[] {
       continue;
     }
 
-    applyFont(ctx, run.style);
-    ctx.letterSpacing = formatLetterSpacing(run.style.letterSpacing);
     const text = run.text;
 
     // Mark the first word produced from `startLen` as having no soft-wrap
@@ -1129,13 +1362,13 @@ function tokenizeRuns(ctx: CanvasRenderingContext2D, runs: TextRun[]): Word[] {
         }
         if (parts[i]) {
           const startLen = allWords.length;
-          tokenizeString(ctx, parts[i], run, allWords);
+          tokenizeString(m, parts[i], run, allWords);
           markGlue(startLen);
         }
       }
     } else {
       const startLen = allWords.length;
-      tokenizeString(ctx, text, run, allWords);
+      tokenizeString(m, text, run, allWords);
       markGlue(startLen);
     }
   }
@@ -1251,13 +1484,15 @@ function breakWordIfNeeded(
   const emergency = needsBreak && !hasCJK && !hasEmoji &&
     word.style.wordBreak !== 'break-all';
 
-  // Split into characters using cumulative measurement for accuracy.
-  // Measuring each char individually ignores kerning — the sum of individual
-  // widths diverges from the true string width over many characters.
-  ctx.font = buildCanvasFont(word.style);
-  // Re-assert letter-spacing: tokenizeRuns may have left ctx at a later run's
-  // value, but break points must use THIS word's letter-spacing.
-  ctx.letterSpacing = formatLetterSpacing(word.style.letterSpacing);
+  // Split into characters, each measured after its left context like the
+  // tokenizer's pieces (`MEASURE_CONTEXT`): measuring each char alone ignores
+  // kerning, and the sum of individual widths diverges from the true string
+  // width over many characters. Positions below (`measuredWidth`,
+  // `currentStartWidth`) are offsets in the context's coordinates, so a
+  // context restart shifts them together. Break points use THIS word's state,
+  // whatever run was measured last.
+  const m = measurerFor(ctx);
+  const state = m.stateOf(word.style);
   // When the word contains emoji, iterate by GRAPHEME cluster so multi-codepoint
   // emoji (ZWJ families, skin tones, flags) are never split mid-cluster.
   const chars = hasEmoji ? graphemes(word.text) : [...word.text];
@@ -1268,10 +1503,18 @@ function breakWordIfNeeded(
   let measuredText = '';
   let measuredWidth = 0;
   let currentStartWidth = 0;
+  let previous = '';
 
   for (const char of chars) {
+    if (measuredText.length > MEASURE_CONTEXT && previous) {
+      const restart = m.width(state, previous);
+      currentStartWidth -= measuredWidth - restart;
+      measuredText = previous;
+      measuredWidth = restart;
+    }
+    previous = char;
     const nextMeasuredText = measuredText + char;
-    const nextMeasuredWidth = cachedMeasureWidth(ctx, nextMeasuredText);
+    const nextMeasuredWidth = m.width(state, nextMeasuredText);
     const charWidth = nextMeasuredWidth - measuredWidth;
 
     // Emoji clusters each get their own word — a break opportunity between
@@ -1374,6 +1617,7 @@ function flowWordsIntoLines(
   tabMetrics?: { interval: number; halfSpace: number },
   strutLineHeight = 0,
 ): PositionedLine[] {
+  const m = measurerFor(ctx);
   const lines: PositionedLine[] = [];
   // Every line box starts at the block's own "strut" height (its font +
   // line-height), so a line whose only content is a SMALLER inline font is
@@ -1412,8 +1656,7 @@ function flowWordsIntoLines(
     if (isSoftWrap && currentLine.words.length > 0) {
       const lastWord = currentLine.words[currentLine.words.length - 1];
       if (lastWord.isSoftHyphenBreak) {
-        applyFont(ctx, lastWord.style);
-        const hyphenWidth = cachedMeasureWidth(ctx, '-');
+        const hyphenWidth = m.width(m.stateOf(lastWord.style), '-');
         currentLine.words.push({
           text: '-',
           width: hyphenWidth,
@@ -1447,7 +1690,7 @@ function flowWordsIntoLines(
 
   for (let wordIndex = 0; wordIndex < words.length; wordIndex++) {
     const word = words[wordIndex];
-    let wordLineHeight = getLineHeight(ctx, word.style, useBulletProbe);
+    let wordLineHeight = m.lineHeight(word.style, useBulletProbe);
     // Inline-block elements expand line height with their vertical padding+margin
     if (word.inlineBlockLayout) {
       wordLineHeight = Math.max(wordLineHeight, word.inlineBlockLayout.marginBoxHeight);
@@ -1555,15 +1798,14 @@ function flowWordsIntoLines(
               const clipStyle = cs[i].clipStyle;
               const strokeImageStyle = cs[i].strokeImageStyle;
               const parentStyle = cs[i].parentStyle;
-              applyFont(ctx, st);
-              ctx.letterSpacing = formatLetterSpacing(st.letterSpacing);
-              const lh = getLineHeight(ctx, st, useBulletProbe);
+              const state = m.stateOf(st);
+              const lh = m.lineHeight(st, useBulletProbe);
               const run: { ch: string; style: ResolvedStyle }[] = [];
               let cur = '';
               let curW = 0;
               while (i < cs.length && cs[i].style === st) {
                 const ch = cs[i].ch;
-                const candW = cachedMeasureWidth(ctx, cur + ch);
+                const candW = m.width(state, cur + ch);
                 if (chars && currentLine.totalWidth + candW > effWidth() &&
                     (currentLine.words.length > 0 || cur)) {
                   if (cur) {
@@ -1574,7 +1816,7 @@ function flowWordsIntoLines(
                   pushLine(true);
                   afterHardBreak = false;
                   cur = ch;
-                  curW = cachedMeasureWidth(ctx, ch);
+                  curW = m.width(state, ch);
                 } else {
                   cur += ch;
                   curW = candW;
@@ -1596,9 +1838,7 @@ function flowWordsIntoLines(
               const st = cs[i].style;
               let txt = '';
               while (i < cs.length && cs[i].style === st) { txt += cs[i].ch; i++; }
-              applyFont(ctx, st);
-              ctx.letterSpacing = formatLetterSpacing(st.letterSpacing);
-              w += cachedMeasureWidth(ctx, txt);
+              w += m.width(m.stateOf(st), txt);
             }
             return w;
           };
@@ -1721,25 +1961,27 @@ function flowWordsIntoLines(
       // overflows the line (breaking one segment later than the browser).
       let shReserve = 0;
       if (piece.isSoftHyphenBreak) {
-        applyFont(ctx, piece.style);
-        ctx.letterSpacing = formatLetterSpacing(piece.style.letterSpacing);
-        shReserve = cachedMeasureWidth(ctx, '-');
+        shReserve = m.width(m.stateOf(piece.style), '-');
       }
 
       const candidateLineWidth = currentLine.totalWidth + piece.width +
         shReserve + tail + headExtra;
 
       // Would this piece overflow?
-      if (!piece.isSpace && !isTrailingPunct && !isGlued && currentLine.words.length > 0 &&
-        candidateLineWidth > effWidth()) {
+      if (!piece.isSpace && !isTrailingPunct && !isGlued && currentLine.words.length > 0) {
         const overflow = candidateLineWidth - effWidth();
 
-        // For borderline cases (overflow < 1px), word-by-word delta
-        // accumulation may introduce rounding errors. Re-measure the
-        // full candidate line as a single string for accuracy.
-        // Only works for single-font lines — mixed fonts can't be
-        // measured as one string.
-        let reallyOverflows = true;
+        // For borderline overflows (< 1px), word-by-word delta accumulation
+        // may not be what one string measures. Re-measure the full candidate
+        // line as a single string and let that decide. Only works for lines
+        // whose glyphs share one measuring state.
+        //
+        // Over the edge only. A sum UNDER the edge is trusted: re-measuring in
+        // both directions moved wraps both ways across the 1px sweeps — the
+        // one string drops the last glyph's kern against the space after it,
+        // which Blink keeps (the space hangs). Modelling the line ends is
+        // fidelity work, not this.
+        let reallyOverflows = overflow > 0;
         // A preserved tab's advance is position-dependent (tab stops), but
         // measureText('\t') reports a flat control advance — the one-string
         // re-measure would under-count the line by most of a tab stop and
@@ -1747,29 +1989,42 @@ function flowWordsIntoLines(
         // the true tab advance, so trust them on tab lines. (The piece itself
         // is never a tab here: tab words are spaces, and this branch requires
         // a non-space piece.)
-        if (overflow < 1 &&
-            !currentLine.words.some((lineWord) => lineWord.isTab) &&
-            !hasMixedTextMetrics([...currentLine.words, piece])) {
-          applyFont(ctx, piece.style);
-          const fullText = currentLine.words.map(w => w.text).join('') + piece.text +
-            (piece.isSoftHyphenBreak ? '-' : '');
+        const remeasure = overflow > 0 && overflow < 1 &&
+          !currentLine.words.some((lineWord) => lineWord.isTab);
+        const lineState = remeasure
+          ? lineMeasureState(m, [...currentLine.words, piece]) : undefined;
+        if (lineState !== undefined && lineState !== 'mixed') {
+          // Re-measured under the state every glyph on it shares — ALL of it.
+          // Setting only the font measured with the letter-spacing of
+          // whichever run came last, and kept lines that overflow.
+          const state = lineState ?? m.stateOf(piece.style);
           // Empty-text words carry non-glyph advance (inline padding/border
-          // markers, inline-block margins) that measureText(fullText) misses —
-          // add them back so padded inline spans aren't under-measured.
+          // markers, inline-block margins) that the measured text misses —
+          // add them back so padded inline spans aren't under-measured. A
+          // space set in ANOTHER state (`<b style="font-size:.7em"> </b>`)
+          // keeps its own width too: at the line's size it reads wider than
+          // it is. The text either side of it is measured as separate strings.
+          let textWidth = 0;
           let markerWidth = 0;
-          for (const w of currentLine.words) {
-            if (!w.text) markerWidth += w.width;
-            else if (w.isSpace) markerWidth += w.style.wordSpacing;
+          let text = '';
+          for (const w of [...currentLine.words, piece]) {
+            if (!w.text) {
+              markerWidth += w.width;
+            } else if (w.isSpace && m.stateOf(w.style) !== state) {
+              if (text) textWidth += m.width(state, text);
+              text = '';
+              markerWidth += w.width;
+            } else {
+              text += w.text;
+              if (w.isSpace) markerWidth += w.style.wordSpacing;
+            }
           }
-          if (!piece.text) markerWidth += piece.width;
-          else if (piece.isSpace) markerWidth += piece.style.wordSpacing;
-          const fullWidth = cachedMeasureWidth(ctx, fullText) + markerWidth + tail +
-            headExtra;
+          if (piece.isSoftHyphenBreak) text += '-';
+          if (text) textWidth += m.width(state, text);
+          const fullWidth = textWidth + markerWidth + tail + headExtra;
           // Allow only a hair of sub-pixel overflow. A broader tolerance fixes
           // isolated knife-edges but packs extra words in ordinary paragraphs.
-          if (fullWidth <= effWidth() + 0.02) {
-            reallyOverflows = false;
-          }
+          reallyOverflows = fullWidth > effWidth() + 0.02;
         }
 
         if (reallyOverflows) {
@@ -1864,9 +2119,9 @@ function prepareInlineBlocks(
     }
 
     const inner = layoutInlineContent(ctx, source, 0, 0, contentWidth, useBulletProbe);
-    const contentHeight = inner.height || getLineHeight(ctx, s, useBulletProbe);
+    const contentHeight = inner.height || measurerFor(ctx).lineHeight(s, useBulletProbe);
     const lastBaseline = inner.lines.at(-1)?.y ??
-      leadedBox(ctx, s, useBulletProbe).ascent;
+      measurerFor(ctx).leadedBox(s, useBulletProbe).ascent;
     const extra = inlineBlockExtra(s);
     const baselineOffset = extra.top + lastBaseline;
     const marginBoxHeight = extra.top + contentHeight + extra.bottom;
@@ -1896,6 +2151,7 @@ function layoutInlineContent(
   useBulletProbe = false,
   clamp?: LineClampState,
 ): { nodes: LayoutNode[]; height: number; lines: LayoutLine[]; lineBoxes: LayoutLineBox[] } {
+  const m = measurerFor(ctx);
   const results: LayoutNode[] = [];
   const emittedLines: LayoutLine[] = [];
   const lineBoxes: LayoutLineBox[] = [];
@@ -1916,10 +2172,10 @@ function layoutInlineContent(
   const words = tokenizeRuns(ctx, runs);
   prepareInlineBlocks(ctx, words, contentWidth, useBulletProbe);
   const textIndent = node.style.textIndent || 0;
-  const tabMetrics = tabStopMetrics(ctx, node.style);
+  const tabMetrics = m.tabStops(node.style);
   // The block's own font + line-height set the strut: the minimum height of
   // every line box, even a line holding only smaller inline content.
-  const strutLineHeight = getLineHeight(ctx, node.style, useBulletProbe);
+  const strutLineHeight = m.lineHeight(node.style, useBulletProbe);
   const lines = flowWordsIntoLines(ctx, words, contentWidth, node.style.whiteSpace, useBulletProbe, textIndent, tabMetrics, strutLineHeight);
 
   // `-webkit-line-clamp` / `line-clamp`: truncate to N lines and append a
@@ -2043,14 +2299,14 @@ function layoutInlineContent(
     //   lineAscent = max(ascent - shift), lineDescent = max(descent + shift).
     // One font, one line-height and no shift collapse that back to the plain
     // half-leading every single-style line already had.
-    const strutBox = leadedBox(ctx, node.style, useBulletProbe);
+    const strutBox = m.leadedBox(node.style, useBulletProbe);
     let lineAscent = strutBox.ascent;
     let lineDescent = strutBox.descent;
     // A shift moves the box, not the line's baseline: positive is downward, so
     // it lifts the box's demand on the ascent side and adds to the descent one.
-    const grow = (b: { ascent: number; descent: number }, shift: number) => {
-      if (b.ascent - shift > lineAscent) lineAscent = b.ascent - shift;
-      if (b.descent + shift > lineDescent) lineDescent = b.descent + shift;
+    const grow = (ascent: number, descent: number, shift: number) => {
+      if (ascent - shift > lineAscent) lineAscent = ascent - shift;
+      if (descent + shift > lineDescent) lineDescent = descent + shift;
     };
     for (const word of line.words) {
       if (word.text === '') continue;
@@ -2063,13 +2319,16 @@ function layoutInlineContent(
       // the DOM has 40). With the shift it is idempotent — a wrapper with
       // direct text contributes the identical box through its own run.
       if (word.parentStyle) {
+        const parentBox = m.leadedBox(word.parentStyle, useBulletProbe);
         grow(
-          leadedBox(ctx, word.parentStyle, useBulletProbe),
+          parentBox.ascent, parentBox.descent,
           verticalAlignShift(
             word.parentStyle.verticalAlign, ctx, word.parentStyle, blockStyle, useBulletProbe),
         );
       }
-      const box = leadedBox(ctx, word.style, useBulletProbe);
+      const own = m.leadedBox(word.style, useBulletProbe);
+      let ascent = own.ascent;
+      let descent = own.descent;
       // An inline-block joins the line as an ATOMIC box: its own content
       // baseline with its margin box stacked around it. It takes the extra
       // space, but no shift — the emit pass puts its content on the line
@@ -2078,14 +2337,14 @@ function layoutInlineContent(
       const atomic = word.boxStyle?.display === 'inline-block' ? word.boxStyle : null;
       if (word.inlineBlockLayout) {
         const ib = word.inlineBlockLayout;
-        box.ascent = ib.baselineOffset;
-        box.descent = ib.marginBoxHeight - ib.baselineOffset;
+        ascent = ib.baselineOffset;
+        descent = ib.marginBoxHeight - ib.baselineOffset;
       } else if (atomic) {
         const extra = inlineBlockExtra(atomic);
-        box.ascent += extra.top;
-        box.descent += extra.bottom;
+        ascent += extra.top;
+        descent += extra.bottom;
       }
-      grow(box, atomic ? 0 : verticalAlignShift(
+      grow(ascent, descent, atomic ? 0 : verticalAlignShift(
         word.style.verticalAlign, ctx, word.style,
         word.parentStyle ?? blockStyle, useBulletProbe));
     }
@@ -2103,8 +2362,8 @@ function layoutInlineContent(
       // y=6 h=29 where the DOM has y=4 h=33.2.
       const { ascent: boxAscent, descent: boxDescent } =
         style.display === 'inline-block'
-          ? leadedBox(ctx, style, useBulletProbe)
-          : getFontMetrics(ctx, style);
+          ? m.leadedBox(style, useBulletProbe)
+          : m.metrics(style);
       const padTop = style.paddingTop + style.borderTopWidth;
       const padBottom = style.paddingBottom + style.borderBottomWidth;
       const boxHeight = boxAscent + boxDescent + padTop + padBottom;
@@ -2250,8 +2509,7 @@ function layoutInlineContent(
       let rtlX = curX + line.totalWidth;
       for (const group of groups) {
         rtlX -= group.padBefore; // spacing from padding markers
-        applyFont(ctx, group.style);
-        const measuredWidth = cachedMeasureWidth(ctx, group.text);
+        const measuredWidth = m.width(m.stateOf(group.style), group.text);
         rtlX -= measuredWidth;
         group.x = rtlX;
         group.width = measuredWidth;
@@ -2292,8 +2550,7 @@ function layoutInlineContent(
         !line.words.some(w => w.boxOpen || w.boxClose ||
           w.style.verticalAlign === 'super' || w.style.verticalAlign === 'sub');
       if (hasBidiMix) {
-        applyFont(ctx, textWords[0].style);
-        const measuredWidth = cachedMeasureWidth(ctx, lineText);
+        const measuredWidth = m.width(m.stateOf(textWords[0].style), lineText);
         // This line belongs to an LTR block (we're in the !isRTL branch), so it
         // must be painted with an LTR base direction even when its first word is
         // RTL (an RTL span that wrapped onto this line). Without forcing LTR the
@@ -2374,7 +2631,7 @@ function layoutInlineContent(
               text: word.text,
               x: textX,
               y: lineBaselineY,
-              width: cachedMeasureWidth(ctx, word.text),
+              width: m.width(m.stateOf(word.style), word.text),
               style: word.style,
             };
             results.push(node);
@@ -2501,7 +2758,7 @@ function assignInlineFragmentBoxes(
       if (e.right > right) right = e.right;
       j++;
     }
-    const { ascent, descent } = getFontMetrics(ctx, declarer);
+    const { ascent, descent } = measurerFor(ctx).metrics(declarer);
     const box = {
       x: left,
       y: first.y - ascent,
@@ -2875,10 +3132,15 @@ function minimumInlineContentWidth(
   // smallest legal pieces, so run the real line flow with only that
   // last-resort mode disabled — at a width nothing fits in, every soft-wrap
   // opportunity is taken and each line IS one unbreakable unit.
-  const words = tokenizeRuns(ctx, collectTextRuns(node)).map((word) =>
-    word.style.overflowWrap === 'break-word' && word.style.wordBreak !== 'break-all'
-      ? { ...word, style: { ...word.style, overflowWrap: 'normal' } }
-      : word);
+  // One copy per source style, not per word: font state is cached by style
+  // identity, and runs of one style must stay one style to glue.
+  const neutralized = new Map<ResolvedStyle, ResolvedStyle>();
+  const words = tokenizeRuns(ctx, collectTextRuns(node)).map((word) => {
+    if (word.style.overflowWrap !== 'break-word' || word.style.wordBreak === 'break-all') return word;
+    let style = neutralized.get(word.style);
+    if (!style) neutralized.set(word.style, style = { ...word.style, overflowWrap: 'normal' });
+    return { ...word, style };
+  });
   const lines = flowWordsIntoLines(ctx, words, 0, node.style.whiteSpace);
   return lines.reduce((widest, line) => Math.max(widest, line.totalWidth), 0);
 }
@@ -3129,13 +3391,16 @@ function addListMarker(
   const ms = node.markerStyle;
   const markerStyleObj: ResolvedStyle = ms ? { ...style, ...ms } : style;
 
-  ctx.font = buildCanvasFont(markerStyleObj);
+  // The marker measures in its own style — letter-spacing and kerning too,
+  // as it is painted, not in whatever the li's last run left on the ctx.
+  const m = measurerFor(ctx);
+  const markerState = m.stateOf(markerStyleObj);
   // ascent + descent is the li's line-height by construction, so one call
   // gives both the marker's baseline and the box it reports.
-  const strut = leadedBox(ctx, style);
+  const strut = m.leadedBox(style);
   const baselineY = box.y + style.borderTopWidth + style.paddingTop + strut.ascent;
 
-  const markerWidth = cachedMeasureWidth(ctx, node.listMarker);
+  const markerWidth = m.width(markerState, node.listMarker);
   const isRTL = style.direction === 'rtl';
   const isBullet = BULLET_MARKERS.has(style.listStyleType);
   // Gap between marker and content, matching Chrome (measured empirically):
@@ -3159,8 +3424,8 @@ function addListMarker(
   const contentStartX = box.x + style.borderLeftWidth + style.paddingLeft;
   const boxRightEdge = box.x + box.width;
   if (isBullet) {
-    const { ascent } = getFontMetrics(ctx, markerStyleObj);
-    const m = ctx.measureText(node.listMarker);
+    const { ascent } = m.metrics(markerStyleObj);
+    const ink = m.measureText(markerState, node.listMarker);
     // Blink's marker unit: the disc DIAMETER, the variable part of the gap, and
     // the vertical centering all key off this one value (a 2/3·ascent marker
     // box with a half-filling disc → ascent/3). Named once so tuning one keeps
@@ -3172,12 +3437,12 @@ function addListMarker(
     // is ~0.22em vs Chrome's ~0.31em disc). Match it by scaling the glyph so its
     // ink height equals markerUnit. Keeping the marker a text node means fill /
     // stroke / shadow / gradient still apply exactly as before.
-    const inkH = (m.actualBoundingBoxAscent ?? 0) + (m.actualBoundingBoxDescent ?? 0);
+    const inkH = (ink.actualBoundingBoxAscent ?? 0) + (ink.actualBoundingBoxDescent ?? 0);
     const scale = inkH > 0 ? markerUnit / inkH : 1;
-    const inkRight = (m.actualBoundingBoxRight ?? markerWidth) * scale;
-    const inkLeft = (m.actualBoundingBoxLeft ?? 0) * scale;
+    const inkRight = (ink.actualBoundingBoxRight ?? markerWidth) * scale;
+    const inkLeft = (ink.actualBoundingBoxLeft ?? 0) * scale;
     const glyphInkCenter =
-      (((m.actualBoundingBoxAscent ?? 0) - (m.actualBoundingBoxDescent ?? 0)) / 2) * scale;
+      (((ink.actualBoundingBoxAscent ?? 0) - (ink.actualBoundingBoxDescent ?? 0)) / 2) * scale;
     if (isRTL) {
       // actualBoundingBoxLeft is positive when ink extends left of origin
       markerX = boxRightEdge + gap + inkLeft;
@@ -3190,7 +3455,7 @@ function addListMarker(
   } else {
     const gap = explicitGap !== undefined
       ? explicitGap
-      : cachedMeasureWidth(ctx, ' ');
+      : m.width(markerState, ' ');
     if (isRTL) {
       // RTL: marker in the parent's right padding area (outside the li box).
       // Numbered markers ("1.") need RTL direction to display as ".1".
@@ -3258,16 +3523,28 @@ export function buildLayoutTree(
   _lineHeightCache.clear();
   _fontMetricsCache.clear();
   _fontStringCache.clear();
-  _measureCache.clear();
   _minContentCache.clear();
   _maxContentCache.clear();
   _lines = [];
 
-  // The styledTree root is our container div — layout its children as a block flow
-  const { box, height } = layoutBlock(ctx, styledTree, 0, 0, containerWidth);
+  // A fresh measurer per call: its widths, font states and its idea of what
+  // the ctx holds all start empty, since the caller may have touched the ctx.
+  const outer = _measurer;
+  _measurer = new Measurer(ctx);
+  let box: LayoutBox;
+  let height: number;
+  try {
+    // The styledTree root is our container div — layout its children as a block flow
+    ({ box, height } = layoutBlock(ctx, styledTree, 0, 0, containerWidth));
 
-  // Add list markers post-layout
-  addListMarkersRecursive(ctx, box, styledTree);
+    // Add list markers post-layout
+    addListMarkersRecursive(ctx, box, styledTree);
+  } finally {
+    // A call made from inside another (a debug callback) hands the ctx back
+    // in a state the outer measurer did not write.
+    _measurer = outer;
+    outer?.invalidate();
+  }
 
   // Sort by baseline y, then by left edge so cross-cell content merges in
   // reading order (LTR). List markers sit at smaller x than their content

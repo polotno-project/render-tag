@@ -1156,11 +1156,43 @@ function toAlpha(n: number): string {
   return out;
 }
 
+/** Each `<li>`'s ordinal in its list, by list element; built once per list per call. */
+type ListOrdinals = Map<Element, Map<Element, number>>;
+
+/**
+ * The ordinal of every `<li>` child of `list`, honoring <ol start>,
+ * <ol reversed> and <li value>. One pass per list: counting from the first
+ * item again for each `<li>` made a 4,000-item list take 1.2s.
+ */
+function listOrdinals(list: Element, cache: ListOrdinals): Map<Element, number> {
+  let ordinals = cache.get(list);
+  if (!ordinals) {
+    const liItems = Array.from(list.children).filter(c => c.tagName.toLowerCase() === 'li');
+    const startAttr = list.getAttribute('start');
+    const reversed = list.hasAttribute('reversed');
+    const start = startAttr ? parseInt(startAttr, 10) : (reversed ? liItems.length : 1);
+    const step = reversed ? -1 : 1;
+    ordinals = new Map();
+    let n = start;
+    for (const item of liItems) {
+      const valueAttr = item.getAttribute('value');
+      if (valueAttr) {
+        const v = parseInt(valueAttr, 10);
+        if (!Number.isNaN(v)) n = v;
+      }
+      ordinals.set(item, n);
+      n += step;
+    }
+    cache.set(list, ordinals);
+  }
+  return ordinals;
+}
+
 /**
  * Detect list marker text for a <li> element based on tree position,
  * honoring list-style-type, <ol start>, <ol reversed>, and <li value>.
  */
-function getListMarker(el: Element, listStyleType: string): string | undefined {
+function getListMarker(el: Element, listStyleType: string, ordinals: ListOrdinals): string | undefined {
   const tag = el.tagName.toLowerCase();
   if (tag !== 'li') return undefined;
   if (listStyleType === 'none') return '';
@@ -1175,22 +1207,13 @@ function getListMarker(el: Element, listStyleType: string): string | undefined {
 
   // Numbered markers: compute index from siblings + ol attributes + li value.
   if (parentTag === 'ol' || parentTag === 'ul' || !parent) {
-    const liItems = parent
-      ? Array.from(parent.children).filter(c => c.tagName.toLowerCase() === 'li')
-      : [el];
-    const startAttr = parent?.getAttribute('start');
-    const reversed = parent?.hasAttribute('reversed') ?? false;
-    const start = startAttr ? parseInt(startAttr, 10) : (reversed ? liItems.length : 1);
-    const step = reversed ? -1 : 1;
-    let n = start;
-    for (const item of liItems) {
-      const valueAttr = item.getAttribute('value');
-      if (valueAttr) {
-        const v = parseInt(valueAttr, 10);
-        if (!Number.isNaN(v)) n = v;
-      }
-      if (item === el) return formatListMarker(n, listStyleType || 'decimal');
-      n += step;
+    let n: number;
+    if (parent) {
+      // `el` is an <li> child of `parent`, so the pass over it numbered `el`.
+      n = listOrdinals(parent, ordinals).get(el)!;
+    } else {
+      const v = parseInt(el.getAttribute('value') ?? '', 10);
+      n = Number.isNaN(v) ? 1 : v;
     }
     return formatListMarker(n, listStyleType || 'decimal');
   }
@@ -1244,6 +1267,8 @@ export function resolveStylesFromCSS(
   // required (the tree is never inserted into the live document).
   const container = fragment.ownerDocument!.createElement('div');
   container.appendChild(fragment);
+
+  const ordinals: ListOrdinals = new Map();
 
   function buildContext(el: Element, parent: ElementContext | null): ElementContext {
     const classes = new Set<string>();
@@ -1501,7 +1526,7 @@ export function resolveStylesFromCSS(
     }
 
     // List marker
-    const marker = getListMarker(el, style.listStyleType);
+    const marker = getListMarker(el, style.listStyleType, ordinals);
 
     // Resolve `::marker` rules into a Partial<ResolvedStyle> override and a
     // hidden flag. We only do this for `<li>` because `::marker` only applies

@@ -3,8 +3,8 @@
  *
  * Timings are noisy; the WORK behind them is not. With the deterministic
  * `recording-ctx.ts`, each fixture costs an exact number of measureText calls,
- * measured characters, font assignments, fillText/save/restore calls and
- * LayoutText runs, identical on every machine. Those numbers are recorded in
+ * measured characters, font, kerning and letter-spacing assignments,
+ * fillText/save/restore calls and LayoutText runs, identical on every machine. Those numbers are recorded in
  * `tests/perf-counters-baseline.json` as upper bounds, and like every other
  * recorded contract here, ANY change fails:
  *
@@ -85,6 +85,8 @@ function count(fixture: Fixture): Counters {
     'layout.measureText': afterLayout.calls.measureText ?? 0,
     'layout.measuredChars': afterLayout.measuredChars,
     'layout.fontSets': afterLayout.calls['set:font'] ?? 0,
+    'layout.kerningSets': afterLayout.calls['set:fontKerning'] ?? 0,
+    'layout.letterSpacingSets': afterLayout.calls['set:letterSpacing'] ?? 0,
     'draw.measureText': drawn('measureText'),
     'draw.fontSets': drawn('set:font'),
     'draw.fillText': drawn('fillText'),

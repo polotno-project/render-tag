@@ -516,8 +516,62 @@ Parity tests: `tests/line-baseline-parity.test.ts` (baseline vs the DOM) and
 both asserting against the browser's own numbers rather than a constant.
 
 ### Text measurement
-- Use cumulative `measureText` within a font run to avoid rounding accumulation
-- `ctx.fontKerning = 'normal'` — always set for consistency
+- **One measuring primitive.** Every layout measurement goes through the
+  call's `Measurer` (layout.ts): `m.width(m.stateOf(style), text)` (cached) or
+  `m.measureText(state, text)` (uncached: one-off strings, ink metrics). It writes
+  font, `fontKerning` and `letterSpacing` TOGETHER, skipping what it last
+  wrote, and its constructor zeroes a stray `ctx.wordSpacing`. Never set
+  those on the ctx by hand in layout code: a site that set only the font
+  measured under the previous run's letter-spacing or kerning and kept
+  overflowing lines (`Measuring state` in `tests/node/layout-logic.test.ts`).
+  Layout functions reach the call's measurer through `measurerFor(ctx)`, which
+  throws outside a `buildLayoutTree` call; leaf helpers take it as `m`.
+- **Paint writes its whole text state too.** `applyTextState` (render.ts)
+  assigns `letterSpacing` and `wordSpacing` even at 0: `render({ ctx })`
+  paints on the ctx layout just measured with, and a 0px run used to take the
+  last-measured run's spacing. Gated in `tests/node/determinism.test.ts`.
+- **Per-call font state.** The canvas font string, ascent/descent, line
+  height, leaded box and tab stops are derived once per style object per call
+  (`m.metrics` / `m.lineHeight` / `m.leadedBox` / `m.tabStops`), held in the
+  measurer, never on the style. Widths are cached per interned
+  (font, kerning, letter-spacing) state. Widths and font state do not survive
+  the call — the caller's ctx is the oracle and fonts load between calls. The
+  module caches of font strings, font metrics (paint reads them after layout)
+  and DOM-probed line heights live until the next `buildLayoutTree` clears
+  them. Code that derives styles (min-content's `overflow-wrap` neutralizing)
+  makes one copy per source style, not per word, or every copy rebuilds its
+  font state.
+- **Bounded cumulative context.** A word's width is `w(context + word) -
+  w(context)`, never the word alone: a plain per-word sum loses the kerning
+  across the space (Chromium: 3.5px over a 2,286px Arial run). The context is
+  the run so far, but restarts at the last word once it passes
+  `MEASURE_CONTEXT` (32) UTF-16 units; `breakWordIfNeeded`'s CJK/break-word
+  split restarts at the last character the same way. The whole-run prefix it
+  replaces was quadratic (2000 words → 25.7M measured characters). 32 is the
+  smallest window that moved no width of the all-font 1px wrap sweep against
+  the whole-run context in Chromium and WebKit; 16 and below moved RTL and
+  fallback-font lines (Arabic with digits, Hebrew in Merriweather). Restart at
+  a word, never at a bare space: a lone `' '` measures in the primary font,
+  while between two fallback-font words the engine sets it in the fallback.
+  An open bracket holds the restart back to the word with the nearest
+  letter before the opener (`contextStart`, up to 256 units): a bracket pair's
+  direction and glyphs come from that letter (UBA N0/W7), and cutting it off
+  moved a wrap in `Numbers and currency in RTL` (Lobster). With that, the
+  all-font Chromium 1px sweep matches the whole-run context exactly; glyph x
+  still moves by float noise (up to ~5e-3px on the pinned fonts).
+- **Knife-edge re-measure, over the edge only.** When a candidate line
+  overflows by under 1px and its glyphs share one measuring state,
+  `flowWordsIntoLines` re-measures it as one string and that decides (0.02px
+  overflow tolerance). A space in another state keeps its own width
+  (`<b style="font-size:.7em"> </b>` measured at the line's size reads
+  wider). Mixed-state and tab lines trust the sum. A sum UNDER the edge is
+  trusted too: re-measuring in both directions was tried and moved wraps both
+  ways across the 1px sweeps. A review's DOM sweep traced the losses to the
+  one string dropping the last glyph's kern against the space after it (Blink
+  keeps it: the space hangs) and the kern carried across a soft-hyphen/ZWSP
+  break. Modelling those line ends is
+  fidelity work with its own sweep, not a measurement change.
+- `fontKerning` is `'none'` only for `font-kerning: none`, else `'normal'`
 - `ctx.letterSpacing` — use native property, not manual per-character rendering
 - Cross-font boundaries still accumulate errors — inherent canvas API limitation
 - **Kinsoku (CJK punctuation glue)**: a line never STARTS with a fullwidth

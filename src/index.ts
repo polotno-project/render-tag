@@ -52,13 +52,13 @@ export function layout(config: LayoutConfig): LayoutResult {
   const { fragment, css } = parseHTML(html);
   const tree = resolveStylesFromCSS(fragment, css, width);
 
-  // Caller-provided ctx is mutated (font, fontKerning) and intentionally NOT
-  // save/restored — save/restore is not free on all contexts (e.g. PDF
-  // proxies emit stream operators for it).
+  // Caller-provided ctx is mutated (font, fontKerning, letterSpacing, and a
+  // non-zero wordSpacing reset to 0px) and intentionally NOT save/restored —
+  // save/restore is not free on all contexts (e.g. PDF proxies emit stream
+  // operators for it). The layout's `Measurer` is the only writer.
   const measureCtx =
     (config.ctx as CanvasRenderingContext2D | undefined) ??
     (defaultMeasureCtx ??= createFallbackMeasureCtx(true));
-  measureCtx.fontKerning = 'normal';
 
   const { root, height: contentHeight, lines } = buildLayoutTree(measureCtx, tree, width, useDomMeasurements, debug);
   const finalHeight = height || contentHeight;

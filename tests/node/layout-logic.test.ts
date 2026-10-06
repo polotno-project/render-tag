@@ -15,9 +15,10 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { DOMParser as LinkedomDOMParser } from 'linkedom';
-import { buildLayoutTree, sameDecorationBand, BLINK_SUPER_SUB } from '../../src/layout.ts';
+import { buildLayoutTree, buildCanvasFont, sameDecorationBand, BLINK_SUPER_SUB } from '../../src/layout.ts';
 import { layout, setDOMParser } from '../../src/index.node.ts';
 import { mockCtx, CHAR_WIDTH } from '../helpers/mock-ctx.ts';
+import { recordingCtx } from '../helpers/recording-ctx.ts';
 import type { StyledNode, ResolvedStyle, LayoutBox, LayoutText, DecorationEntry } from '../../src/types.ts';
 import { collectInlineBoxes, collectTexts } from '../helpers/layout-tree.ts';
 import { styleFixture as defaultStyle } from '../helpers/style-fixture.ts';
@@ -1661,6 +1662,235 @@ describe('Layout logic (mocked measureText)', () => {
       const root = doLayout(tree, 80);
       const lines = getLines(root);
       expect(lines[0]).toBe('AAAAAAAAAA');
+    });
+  });
+
+  // ─── Measuring state ───────────────────────────────────────────────
+  //
+  // Every measurement runs under its OWN style's font, kerning and
+  // letter-spacing, whatever run was measured before it. Each case below puts
+  // a later run with a different state AFTER the text under test, so a site
+  // that sets only part of the state measures with that run's leftovers.
+
+  describe('Measuring state', () => {
+    const textsOf = (html: string, width: number, ctx = mockCtx()) =>
+      collectTexts(layout({ html, width, ctx }).layoutRoot);
+
+    it('the knife-edge re-measure keeps the line\'s letter-spacing', () => {
+      // 0.12px spacing: "aaaa bbbb" sums to 91.08px, 0.98 over a 90.1px line,
+      // so the one-string re-measure decides. Under the trailing run's 0px it
+      // read 90px and kept an overflowing line. The sweep is the reproducer
+      // from the review: 140 overflowing lines between 60 and 260px.
+      const html = '<p style="margin:0"><span style="letter-spacing:0.12px">aaaa bbbb cccc dddd eeee ffff</span>' +
+        '<br><span style="letter-spacing:0">x</span></p>';
+      const overflowing: string[] = [];
+      for (let width = 60; width < 260; width += 0.05) {
+        for (const line of layout({ html, width, ctx: mockCtx() }).lines) {
+          if (line.bounds.width > width + 0.02) overflowing.push(`${width.toFixed(2)}: ${line.text}`);
+        }
+      }
+      expect(overflowing).toEqual([]);
+    });
+
+    it('a soft-hyphen break draws its hyphen at the word\'s letter-spacing', () => {
+      // 10px glyphs + 5px spacing: the visible '-' is 15px, as the fit test
+      // reserved it. Splitting the 30px-spaced CJK word that wraps next left
+      // the ctx at 30px, and the hyphen was measured at 40px.
+      const html = '<p style="margin:0"><span style="letter-spacing:5px">aaaa</span>' +
+        '<span style="letter-spacing:30px">\u00AD\u6C34\u6C34</span></p>';
+      const hyphen = textsOf(html, 80).find((t) => t.text === '-');
+      expect(hyphen?.width).toBe(15);
+    });
+
+    it('an RTL shaping group is measured at its letter-spacing', () => {
+      const html = '<p style="margin:0;direction:rtl"><span style="letter-spacing:5px">abc</span>' +
+        '<br><span style="letter-spacing:0">x</span></p>';
+      expect(textsOf(html, 200).find((t) => t.text === 'abc')?.width).toBe(45);
+    });
+
+    it('a mixed-bidi LTR line is measured at its letter-spacing', () => {
+      // One fillText for the whole line: its width is the line's own measure.
+      const html = '<p style="margin:0"><span style="letter-spacing:5px">ab مر</span>' +
+        '<br><span style="letter-spacing:0">x</span></p>';
+      expect(textsOf(html, 200).find((t) => t.text === 'ab مر')?.width).toBe(75);
+    });
+
+    it('a list marker is measured at the marker\'s letter-spacing', () => {
+      // The marker takes the li's 5px; the li's content is a 0px span, the
+      // last run measured before the marker. "1." is 2 × 15px, as painted.
+      const html = '<ol style="margin:0;padding-left:60px"><li style="letter-spacing:5px">' +
+        '<span style="letter-spacing:0">x</span></li></ol>';
+      expect(textsOf(html, 200).find((t) => t.text === '1.')?.width).toBe(30);
+    });
+
+    it('a character break is measured at the word\'s own kerning', () => {
+      // recording-ctx kerns pairs, so a kerned and an unkerned prefix differ.
+      // A trailing `font-kerning: normal` run must not reach the break-all
+      // split of the `none` word before it.
+      const word = 'AVAWAYTOVAWATYAVATARWAVY'.repeat(2);
+      const alone = `<p style="margin:0;font-kerning:none;word-break:break-all">${word}</p>`;
+      const followed = `<p style="margin:0;word-break:break-all"><span style="font-kerning:none">${word}</span>` +
+        '<span style="font-kerning:normal"> z</span></p>';
+      const kerned = `<p style="margin:0;word-break:break-all">${word}</p>`;
+      const pieces = (html: string) => textsOf(html, 120, recordingCtx(120, 4000).ctx)
+        .filter((t) => t.text.trim() && t.text !== 'z').map((t) => `${t.text}:${t.width}`);
+      expect(pieces(kerned)).not.toEqual(pieces(alone)); // the text does kern
+      expect(pieces(followed)).toEqual(pieces(alone));
+    });
+
+    it('a width measured under one kerning is not reused under another', () => {
+      // Same font, same letter-spacing, same text: only the kerning differs,
+      // so the second paragraph's character breaks must not take the first's.
+      const word = 'AVAWAYTOVAWATYAVATARWAVY'.repeat(2);
+      const kerned = `<p style="margin:0;word-break:break-all">${word}</p>`;
+      const unkerned = `<p style="margin:0;word-break:break-all;font-kerning:none">${word}</p>`;
+      const widths = (html: string) => textsOf(html, 120, recordingCtx(120, 4000).ctx)
+        .filter((t) => t.text.trim()).map((t) => `${t.text}:${t.width}`);
+      const both = widths(kerned + unkerned);
+      expect(both.slice(widths(kerned).length)).toEqual(widths(unkerned));
+    });
+  });
+
+  // ─── Linear measurement ────────────────────────────────────────────
+  //
+  // A word's width is a difference of two measurements taken WITH its left
+  // context, so kerning against the space before it survives. That context is
+  // bounded: measuring the whole growing prefix of a run made a 2000-word
+  // paragraph send 25.7M characters to measureText.
+
+  describe('Linear measurement', () => {
+    // Text that never repeats, so no width is answered from the per-call
+    // cache and the counts below are the measuring itself.
+    let seed = 7;
+    const random = (n: number) => (seed = (seed * 48271) % 2147483647) % n;
+    const word = () => Array.from({ length: 2 + random(9) }, () => 'abcdefghijklmnopqrstuvwxyzAVTWY'[random(31)]).join('');
+    const longText = Array.from({ length: 2000 }, word).join(' ');
+    const cjkText = Array.from({ length: 2000 }, () => String.fromCharCode(0x4E00 + random(20000))).join('');
+
+    /** Characters measured per source character, and the longest one measure. */
+    function measuring(text: string, width: number) {
+      const rec = recordingCtx(width, 100000);
+      let longest = 0;
+      const ctx = new Proxy(rec.ctx, {
+        get(target, key) {
+          if (key === 'measureText') {
+            return (s: string) => { longest = Math.max(longest, s.length); return target.measureText(s); };
+          }
+          const value = Reflect.get(target, key);
+          return typeof value === 'function' ? value.bind(target) : value;
+        },
+        set: (target, key, value) => Reflect.set(target, key, value),
+      });
+      layout({ html: `<p style="margin:0;font-size:16px">${text}</p>`, width, ctx });
+      return { perChar: rec.counts.measuredChars / text.length, longest };
+    }
+
+    // The bounds scale with MEASURE_CONTEXT (32): a measured string is at
+    // most the context plus one piece. Measuring the whole prefix was ~2000x.
+    it('a long paragraph measures each character a bounded number of times', () => {
+      const { perChar, longest } = measuring(longText, 600);
+      expect(longest).toBeLessThan(200);
+      expect(perChar).toBeLessThan(12);
+    });
+
+    it('a long CJK run measures each character a bounded number of times', () => {
+      // No spaces: the run is one word, measured whole once, then split.
+      expect(measuring(cjkText, 400).perChar).toBeLessThan(24);
+    });
+
+    it('word widths keep the kerning a whole-run measure has', () => {
+      // recording-ctx kerns character PAIRS, so the whole run measured as one
+      // string telescopes: each line's extent must equal the difference of the
+      // run's prefixes at its two ends, however far into the paragraph it sits.
+      const rec = recordingCtx(600, 100000);
+      const result = layout({ html: `<p style="margin:0;font-size:16px">${longText}</p>`, width: 600, ctx: rec.ctx });
+      const texts = collectTexts(result.layoutRoot);
+      const probe = recordingCtx().ctx;
+      probe.font = buildCanvasFont(texts[0].style);
+      probe.fontKerning = 'normal';
+      const prefix = (n: number) => probe.measureText(longText.slice(0, n)).width;
+      const rows = new Map<number, LayoutText[]>();
+      for (const t of texts) rows.set(t.y, [...(rows.get(t.y) ?? []), t]);
+      let cursor = 0;
+      let checked = 0;
+      for (const row of rows.values()) {
+        const lineText = row.map((t) => t.text).join('').trimEnd();
+        const start = longText.indexOf(lineText, cursor);
+        expect(start).toBeGreaterThanOrEqual(0);
+        cursor = start + lineText.length;
+        // From the space before the line's first word: that word keeps its
+        // kerning against it.
+        const expected = prefix(cursor) - prefix(start);
+        const last = row.filter((t) => t.text.trim()).at(-1)!;
+        expect(last.x + last.width - row[0].x).toBeCloseTo(expected, 6);
+        checked++;
+      }
+      expect(checked).toBeGreaterThan(100);
+    });
+
+    it('a closing bracket keeps its opener, and the letter before it, in the measuring context', () => {
+      // A bracket pair's direction comes from the strong type inside it and
+      // the letter BEFORE the opener (UBA N0), and its glyphs follow. In
+      // Lobster, Chrome measured ")" in "<Arabic>: $42.99 (<Arabic> … )"
+      // 0.38px wider than with the context restarted at the last word, which
+      // kept a line the DOM wraps. Here ")" reads 4px wider after "x (".
+      const ctx = mockCtx();
+      const measure = ctx.measureText.bind(ctx);
+      ctx.measureText = (s: string) => {
+        const m = measure(s);
+        return /x \(.*\)/.test(s) ? { ...m, width: m.width + 4 } : m;
+      };
+      const html = '<p style="margin:0">x (aaaa bbbb cccc dddd eeee ffff gggg hhhh)</p>';
+      const last = collectTexts(layout({ html, width: 1000, ctx }).layoutRoot).find((t) => t.text === 'hhhh)');
+      expect(last?.width).toBe(54);
+    });
+
+    it('a line whose summed width fits is kept, whatever the one-string re-measure says', () => {
+      // The words sum to 90px in a 90.5px line; measured as one string the
+      // line reads 93px. The re-measure only overrules a sum OVER the edge:
+      // under it, the one string drops what Blink keeps (the last glyph's kern
+      // against the hanging space) and wrapped lines the DOM keeps.
+      const ctx = mockCtx();
+      const measure = ctx.measureText.bind(ctx);
+      ctx.measureText = (s: string) => {
+        const m = measure(s);
+        return s.includes('a b') ? { ...m, width: m.width + 3 } : m;
+      };
+      const html = '<p style="margin:0">aaaa <span>bbbb</span></p>';
+      expect(layout({ html, width: 90.5, ctx }).lines.map((l) => l.text)).toEqual(['aaaa bbbb']);
+    });
+
+    it('a space in another state keeps its own width in the one-string re-measure', () => {
+      // The words sum to 135px ("aaaa " 50 + "bbbb" 40 + a 5px space + "cccc"
+      // 40), 0.25 over a 134.75px line, so the one-string re-measure decides.
+      // "aaaa bbbb" kerns 0.5px narrower as one string, which fits. The space
+      // between bbbb and cccc is set at -5px letter-spacing: measured inside
+      // one string at the line's spacing it reads 10px and wrapped the line.
+      const ctx = mockCtx();
+      const measure = ctx.measureText.bind(ctx);
+      ctx.measureText = (s: string) => {
+        const m = measure(s);
+        return s.includes(' b') ? { ...m, width: m.width - 0.5 } : m;
+      };
+      const html = '<p style="margin:0">aaaa <span>bbbb</span><span style="letter-spacing:-5px"> </span>cccc</p>';
+      expect(layout({ html, width: 134.75, ctx }).lines.map((l) => l.text)).toEqual(['aaaa bbbb cccc']);
+    });
+  });
+
+  describe('Ordered list numbering', () => {
+    const markers = (html: string) => collectTexts(layout({ html, width: 400, ctx: mockCtx() }).layoutRoot)
+      .filter((t) => /^-?\d+\.$/.test(t.text)).map((t) => t.text);
+
+    it('numbers items in order, honouring start, reversed and value', () => {
+      const li = (n: number, attrs = '') => Array.from({ length: n }, () => `<li${attrs}>x</li>`).join('');
+      expect(markers(`<ol>${li(3)}</ol>`)).toEqual(['1.', '2.', '3.']);
+      expect(markers(`<ol start="5">${li(3)}</ol>`)).toEqual(['5.', '6.', '7.']);
+      expect(markers(`<ol reversed>${li(3)}</ol>`)).toEqual(['3.', '2.', '1.']);
+      expect(markers(`<ol>${li(1)}<li value="10">x</li>${li(2)}</ol>`)).toEqual(['1.', '10.', '11.', '12.']);
+      expect(markers(`<ol reversed start="4">${li(1)}<li value="9">x</li>${li(1)}</ol>`)).toEqual(['4.', '9.', '8.']);
+      // Two lists number independently; a non-li child is skipped.
+      expect(markers(`<ol>${li(2)}</ol><ol>${li(2)}</ol>`)).toEqual(['1.', '2.', '1.', '2.']);
+      expect(markers(`<ol>${li(1)}<div>y</div>${li(1)}</ol>`)).toEqual(['1.', '2.']);
     });
   });
 

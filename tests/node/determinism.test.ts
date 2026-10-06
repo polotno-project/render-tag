@@ -160,6 +160,47 @@ describe('determinism and cache isolation', () => {
     expect(failures, `${failures.length} dirty run(s) diverged from a fresh one:\n${failures.join('\n\n')}`).toEqual([]);
   });
 
+  it('paint on the ctx layout measured with matches paint on a fresh ctx', async () => {
+    // render({ ctx }) lays out and paints on ONE ctx. Layout leaves its last
+    // measuring state there (the list marker's spacing, say), and a paint
+    // that only writes non-default state picks it up: a 0px run painted at
+    // the marker's 3px.
+    const corpus = await loadNodeCorpus();
+    const keys = [
+      ...corpus.flatMap((c) => [
+        { name: c.name, html: caseHtml(c), width: c.width },
+        ...Object.entries(RESTATES).map(([label, style]) => ({
+          name: `${c.name} ${label}`,
+          html: `${c.css ? `<style>${c.css}</style>` : ''}<div style="${style}">${c.html}</div>`,
+          width: c.width,
+        })),
+      ]),
+      {
+        name: 'spaced list, unspaced span',
+        html: '<ol style="letter-spacing:3px"><li>One two</li><li><span style="letter-spacing:0">Two three four</span></li></ol>',
+        width: 300,
+      },
+      {
+        name: 'spaced words, unspaced span',
+        html: '<p style="word-spacing:6px">Some words <span style="word-spacing:0">and some more</span></p>',
+        width: 300,
+      },
+    ];
+    const { api } = await freshApis();
+    const failures: string[] = [];
+    for (const key of keys) {
+      const shared = recordingCtx(key.width, 4000);
+      const result = api.layout({ html: key.html, width: key.width, ctx: shared.ctx });
+      api.drawLayout({ layout: result, width: key.width, ctx: shared.ctx, createCanvas: shared.createCanvas });
+      const fresh = recordingCtx(key.width, 4000);
+      api.drawLayout({ layout: result, width: key.width, ctx: fresh.ctx, createCanvas: fresh.createCanvas });
+      const layout = '';
+      const diff = difference({ layout, paint: fresh.paints }, { layout, paint: shared.paints });
+      if (diff) failures.push(`${key.name}: ${diff}`);
+    }
+    expect(failures, `${failures.length} paint(s) depended on the layout ctx:\n${failures.slice(0, 5).join('\n\n')}`).toEqual([]);
+  });
+
   it('text-on-path layout and paint are independent of earlier calls and ctx state', async () => {
     const corpus = await loadNodeCorpus();
     const fresh = PATH_SNIPPETS.map(() => null as Outcome | null);
