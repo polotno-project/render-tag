@@ -1,21 +1,7 @@
-/**
- * The one CSS tokenizer render-tag has, for stylesheets AND `style=""`
- * attributes. It follows the block structure of CSS Syntax 3 — strings,
- * escapes, comments, `url()` and nested `()`/`[]`/`{}` — so a `;` or `}` is a
- * terminator only where the spec says it is:
- *
- * - `url("data:…;base64,…")`, `"a;b"` and `a\;b` stay one value;
- * - a `}` inside a string does not end a rule;
- * - block @-rules (`@font-face`, `@media`, `@supports`, `@keyframes`, …) are
- *   skipped by block depth in one linear pass, statement @-rules
- *   (`@import …;`) at their `;`;
- * - a nested style rule inside a block is dropped without eating the
- *   declarations after it.
- *
- * It produces strings, not tokens: the resolver's value parsers take text.
- * Values keep their original spelling (minus comments, which become a space,
- * and minus `!important`, which becomes a flag).
- */
+// The one CSS tokenizer, for stylesheets and `style=""`. Follows CSS Syntax 3 block
+// structure (strings, escapes, comments, url(), nested brackets) so `;`/`}` end
+// things only where the spec says; @-rules and nested rules are skipped whole.
+// Produces strings, not tokens: comments become a space, `!important` a flag.
 
 interface CSSDeclaration {
   /** Lower-cased property name. */
@@ -105,15 +91,9 @@ for (const c of [SEMICOLON, OPEN_CURLY, CLOSE_CURLY, OPEN_PAREN, CLOSE_PAREN, OP
 const closers: number[] = [];
 
 /**
- * Scan component values from `i` until a top-level `stop` character (or a
- * top-level `}` that would close the enclosing block, or `end`). Strings,
- * escapes, comments, unquoted urls and balanced `()`/`[]`/`{}` are skipped
- * over, so their contents never stop the scan. Returns the stop index.
- * `stop` must be `;`, `{` or `}`.
- *
- * `stopAfterBlock`: also stop right after a top-level `{…}` block closes —
- * the end of a nested rule or of a block @-rule — and say so in
- * `stoppedAfterBlock`.
+ * Index of the next top-level `stop` (`;`, `{` or `}`) or enclosing `}`, skipping
+ * strings, escapes, comments, urls and balanced brackets. `stopAfterBlock` also
+ * stops just past a top-level `{…}` and sets `stoppedAfterBlock`.
  */
 function scan(s: string, i: number, end: number, stop: number, stopAfterBlock: boolean): number {
   let depth = 0;
@@ -163,10 +143,8 @@ function scan(s: string, i: number, end: number, stop: number, stopAfterBlock: b
 }
 
 /**
- * `s[start, end)` with every comment (outside strings) replaced by
- * `replacement`. A comment is no token at all, so in a selector it must
- * vanish (`.a` comment `.b` is the compound `.a.b`); in a value the resolver's
- * text parsers need the space to keep `1px` comment `2px` two components.
+ * `s[start, end)` with comments (outside strings) replaced: by '' in a selector
+ * (`.a` comment `.b` is `.a.b`), by ' ' in a value (`1px` comment `2px` stays two).
  */
 function withoutComments(s: string, start: number, end: number, replacement: string): string {
   let out = '';
@@ -207,9 +185,7 @@ function declaration(s: string, start: number, end: number, comments: boolean): 
     value = value.slice(0, bang).trim();
   }
   if (!value) return null;
-  // A `!` left in the value (`red !important !important`, the `!ie` hack) is
-  // a delim no standard property accepts: the declaration is invalid. Inside
-  // a string or url() it is text; a custom property may hold one.
+  // A leftover top-level `!` (`!ie` hack) invalidates any non-custom declaration.
   if (value.includes('!') && !property.startsWith('--') && hasTopLevelBang(value)) return null;
   return { property, value, important };
 }
@@ -242,10 +218,8 @@ function skipAtRule(s: string, i: number, end: number): number {
 let declarationsEnd = 0;
 
 /**
- * The declarations of `s[start, end)`: a style attribute, or (`inBlock`) a
- * block's contents, which end at the block's own top-level `}` — the index
- * left in `declarationsEnd`. In a style attribute a stray `}` starts a bad
- * item, which is dropped up to the next top-level `;` (CSS Syntax 3).
+ * Declarations of a style attribute, or (`inBlock`) of a block up to its own `}`
+ * (left in `declarationsEnd`). In an attribute a stray `}` drops up to the next `;`.
  */
 function declarationsIn(s: string, start: number, end: number, inBlock: boolean): CSSDeclaration[] {
   const out: CSSDeclaration[] = [];
@@ -254,15 +228,13 @@ function declarationsIn(s: string, start: number, end: number, inBlock: boolean)
     const c = s.charCodeAt(i);
     if (c === CLOSE_CURLY) {
       if (inBlock) break;
-      // `color:red; } font-size:20px; margin:0` drops `} font-size:20px`.
       i = scan(s, i + 1, end, SEMICOLON, false);
       continue;
     }
     if (isWhitespace(c) || c === SEMICOLON) { i++; continue; }
     if (c === SLASH && s.charCodeAt(i + 1) === STAR) { i = skipComment(s, i, end); continue; }
     if (c === AT) { i = skipAtRule(s, i, end); continue; }
-    // A custom property's value may hold a `{}` block; anything else that
-    // reaches one is a nested rule, which ends with its block and is dropped.
+    // Only a custom property's value may hold `{}`; otherwise it is a nested rule, dropped.
     const custom = c === HYPHEN && s.charCodeAt(i + 1) === HYPHEN;
     const stopAt = scan(s, i, end, SEMICOLON, !custom);
     if (!stoppedAfterBlock) {
@@ -280,10 +252,7 @@ export function parseDeclarationList(text: string): CSSDeclaration[] {
   return declarationsIn(text, 0, text.length, false);
 }
 
-/**
- * Parse a stylesheet into its style rules. @-rules are skipped whole; their
- * contents never reach the cascade.
- */
+/** Parse a stylesheet into its style rules; @-rules are skipped whole. */
 export function parseStylesheet(css: string): CSSStyleRule[] {
   const rules: CSSStyleRule[] = [];
   const end = css.length;
@@ -296,9 +265,7 @@ export function parseStylesheet(css: string): CSSStyleRule[] {
     if (c === LESS && css.startsWith('<!--', i)) { i += 4; continue; }
     if (c === HYPHEN && css.startsWith('-->', i)) { i += 3; continue; }
     if (c === AT) { i = skipAtRule(css, i, end); continue; }
-    // A qualified rule: its prelude runs to the top-level `{`. A stray `}` on
-    // the way is part of the prelude (CSS Syntax 3), which no selector
-    // accepts: `} .b { … }` is dropped, as browsers drop it.
+    // A stray `}` belongs to the prelude (CSS Syntax 3), so `} .b { … }` is dropped.
     let open = scan(css, i, end, OPEN_CURLY, false);
     let comments = sawComment;
     while (open < end && css.charCodeAt(open) === CLOSE_CURLY) {

@@ -13,8 +13,7 @@ import {
   splitTopLevelWhitespace, textDecorationLine, textTransform, verticalAlign,
 } from './css-validate.js';
 
-// Node.TEXT_NODE / Node.ELEMENT_NODE without the ambient `Node` global
-// (unavailable in non-browser environments).
+// No ambient `Node` global outside browsers.
 const ELEMENT_NODE = 1;
 const TEXT_NODE = 3;
 
@@ -22,8 +21,7 @@ export function isTransparent(color: string): boolean {
   if (!color) return true;
   const value = color.trim().toLowerCase();
   if (!value || value === 'transparent' || /^#(?:[\da-f]{3}0|[\da-f]{6}00)$/.test(value)) return true;
-  // Legacy comma alpha and modern slash alpha. Only resolve literal alpha;
-  // computed expressions such as color-mix() need a CSS colour evaluator.
+  // Literal comma or slash alpha only; color-mix() and the like are not evaluated.
   const alpha = value.match(/^(?:rgba?|hsla?)\([^,()]+,[^,()]+,[^,()]+,\s*([^,()\s]+)\s*\)$/)?.[1]
     ?? value.match(/^[a-z-]+\([^()]*\/\s*([^()\s]+)\s*\)$/)?.[1];
   return alpha !== undefined && Number(alpha.replace(/%$/, '')) <= 0;
@@ -40,36 +38,19 @@ interface Declaration extends Longhand {
   important: boolean;
 }
 
-/**
- * Options of one resolve call. The resolver itself touches no ctx: viewport
- * units and font-relative units come from what the caller passes here.
- */
+/** Options of one resolve call; the resolver itself touches no ctx. */
 export interface ResolveOptions {
-  /**
-   * The layout viewport for vw/vh/vmin/vmax. Without one (text on a path has
-   * none) a viewport unit is invalid and its declaration is ignored.
-   */
+  /** Viewport for vw/vh/vmin/vmax; without one, viewport units are invalid. */
   viewport?: Viewport;
-  /**
-   * Measures `ch` (advance of `0`) and `ex` (x-height) for a style's font.
-   * Called only when such a unit occurs. Without it both are 0.5em, the
-   * CSS Values 4 fallback for a font whose metrics are unknown.
-   */
+  /** Measures `ch`/`ex` for a style's font, on demand; without it both are 0.5em. */
   fontUnits?: (style: ResolvedStyle) => FontUnits;
 }
 
 // ─── Style Resolution ────────────────────────────────────────────────
 
-/**
- * The resolver's private per-style fields, under SYMBOL keys. A symbol-keyed
- * own property is copied by every spread layout makes (`{ ...style,
- * direction }`) and declared in `defaultStyle()`'s literal (one hidden class
- * for all styles), yet it is not a public field: `Object.keys`, `for…in` and
- * JSON never show it (tests/node/public-exports.test.ts). String keys could
- * have only one of those: always declared (enumerable on every public style)
- * or added on demand (a hidden-class change per style, measured at +10%
- * layout time on perf50).
- */
+// Private per-style fields under SYMBOL keys: copied by spreads and declared in
+// defaultStyle's literal (one hidden class), yet hidden from Object.keys/JSON
+// (tests/node/public-exports.test.ts).
 /** Unitless line-height multiplier; children re-resolve it (see types.ts). */
 export const LINE_HEIGHT_MULTIPLIER: unique symbol = Symbol('lineHeightMultiplier');
 /** Percentage text-underline-offset; children re-resolve it. */
@@ -91,10 +72,7 @@ interface PrivateStyleFields {
   [PERCENT_LENGTHS]: PercentLengths | undefined;
 }
 
-/**
- * The ResolvedStyle fields a percentage of a WIDTH can set: the containing
- * block's width, except for the `OWN_PERCENT_FIELDS`.
- */
+/** Fields a width percentage can set: of the containing block, except `OWN_PERCENT_FIELDS`. */
 type PercentField =
   | 'marginTop' | 'marginRight' | 'marginBottom' | 'marginLeft'
   | 'paddingTop' | 'paddingRight' | 'paddingBottom' | 'paddingLeft'
@@ -105,41 +83,22 @@ const PERCENT_FIELDS: ReadonlySet<string> = new Set<PercentField>([
   'width', 'minWidth', 'flexBasis', 'gap', 'textIndent',
 ]);
 /**
- * Percentages of the box's OWN content width, not its containing block's:
- * `text-indent` (CSS Text 3 §8.1: the block container's own inner inline
- * size) and a flex container's `gap` (CSS Box Alignment 3 §8.3: its content
- * box). Measured in Chromium and WebKit: `width:300px; text-indent:10%`
- * indents 30px inside a 400px parent, and `gap:10%` there is 30px. An
- * inherited `text-indent` inherits the PERCENTAGE (its computed value), so
- * it resolves against the inheriting block (`inheritPercentages`).
- * `resolvePercentages(style, width, true)` resolves them once the box's width is known.
+ * Percentages of the box's OWN content width (CSS Text 3 §8.1, Box Alignment 3 §8.3);
+ * an inherited text-indent inherits the percentage (`inheritPercentages`).
  */
 const OWN_PERCENT_FIELDS: ReadonlySet<PercentField> = new Set<PercentField>(['textIndent', 'gap']);
 
 /**
- * The side table behind a style's percentage lengths. The resolver threads a
- * containing-block width down the tree (`cbWidth`), exact for block flow;
- * where layout decides the width instead — a flex item, a table cell, a
- * shrink-to-fit inline-block — it re-resolves the declarations kept here
- * against the width it settled on (`resolvePercentages`), and intrinsic
- * sizing reads them with the percentage at 0 (`intrinsicStyle`). Only a
- * style that declared a percentage has one.
+ * Declarations behind a style's percentages, kept so layout can re-resolve them
+ * where it decides the width (flex item, table cell, inline-block). Only on styles
+ * that declared a percentage.
  */
 interface PercentLengths {
-  /** What the declarations resolved against, the percentage aside: a snapshot of the element's basis. */
-  readonly basis: LengthBasis;
-  /**
-   * Field → the (physical) declaration that set it, value as written — and,
-   * for one inherited from an ancestor, the basis of the element that
-   * declared it (its `em` is that element's).
-   */
-  readonly entries: Map<PercentField, PercentEntry>;
-  /** The containing-block width the fields hold values for. */
-  cb: number;
-  /** The own content width the `OWN_PERCENT_FIELDS` hold values for. */
-  own?: number;
-  /** `intrinsicStyle`'s copy, and the style it was made for. */
-  intrinsic?: ResolvedStyle;
+  readonly basis: LengthBasis; // the element's basis, percentage aside
+  readonly entries: Map<PercentField, PercentEntry>; // inherited entries carry the declarer's basis
+  cb: number; // containing-block width the fields hold values for
+  own?: number; // own content width the OWN_PERCENT_FIELDS hold values for
+  intrinsic?: ResolvedStyle; // intrinsicStyle's cached copy, for intrinsicFor
   intrinsicFor?: ResolvedStyle;
 }
 
@@ -147,15 +106,10 @@ type PercentEntry = readonly [property: string, value: string, basis?: LengthBas
 
 type InternalStyle = ResolvedStyle & PrivateStyleFields;
 
-/**
- * Default values for all ResolvedStyle properties, the private (symbol-keyed)
- * ones included, in one literal: all styles then share one hidden class, so
- * the resolver's and layout's property reads stay monomorphic.
- */
+/** Defaults for every field, private ones included, so all styles share one hidden class. */
 function defaultStyle(): ResolvedStyle {
   const style = {
-    // Browsers default unstyled text to the UA serif font (Times). Match it so
-    // HTML without an explicit font-family wraps/positions like the browser.
+    // The UA default font is serif (Times).
     fontFamily: 'serif',
     fontSize: 16,
     fontWeight: 400,
@@ -229,9 +183,7 @@ function defaultStyle(): ResolvedStyle {
     listStyleType: 'disc',
     lineClamp: 0,
   } as InternalStyle;
-  // Assigned, not written as computed keys: a literal with computed keys
-  // loses V8's fast literal path (defaultStyle went from 1% to 12% of resolve
-  // time). Always the same six, in the same order, so the shape is shared.
+  // Assigned, not computed keys: those lose V8's fast literal path.
   style[LINE_HEIGHT_MULTIPLIER] = undefined;
   style[UNDERLINE_OFFSET_PCT] = undefined;
   style[OVERFLOW_X] = undefined;
@@ -242,14 +194,8 @@ function defaultStyle(): ResolvedStyle {
 }
 
 /**
- * The HTML UA stylesheet, as far as render-tag renders it. An element not
- * listed here gets CSS's initial `display: inline` — unknown and custom
- * elements, `<label>`, `<abbr>`, `<time>`, ... — so only real block elements
- * break lines.
- *
- * Encoding (resolved per element in `resolveElement`): a `fontSize` below 10
- * is a multiple of the parent's size, a negative margin is a multiple of the
- * element's own em.
+ * The HTML UA stylesheet as far as render-tag renders it; unlisted tags are inline.
+ * A `fontSize` below 10 is a multiple of the parent's size, a negative margin of own em.
  */
 const BLOCK: Partial<ResolvedStyle> = { display: 'block' };
 const HIDDEN: Partial<ResolvedStyle> = { display: 'none' };
@@ -277,7 +223,6 @@ const TAG_DEFAULTS: Record<string, Partial<ResolvedStyle>> = {
   del: LINE_THROUGH,
   sub: { verticalAlign: 'sub', fontSize: 0.83 },
   sup: { verticalAlign: 'super', fontSize: 0.83 },
-  // `font-size: smaller` / `larger`: the parent's size over / times 1.2.
   small: { fontSize: 1 / 1.2 },
   big: { fontSize: 1.2 },
   mark: { backgroundColor: 'yellow', color: 'black' },
@@ -286,8 +231,7 @@ const TAG_DEFAULTS: Record<string, Partial<ResolvedStyle>> = {
   kbd: MONOSPACE,
   samp: MONOSPACE,
   tt: MONOSPACE,
-  // The HTML rendering rules (and Blink/WebKit's computed style) give <bdo>
-  // `isolate-override`, not `bidi-override`.
+  // HTML rendering rules (and Blink/WebKit) give <bdo> isolate-override, not bidi-override.
   bdo: { unicodeBidi: 'isolate-override' },
   bdi: { unicodeBidi: 'isolate' },
 
@@ -347,10 +291,7 @@ function isInlineSibling(n: Node | null): boolean {
   return d === 'inline' || d === 'inline-block';
 }
 
-/**
- * TAG_DEFAULTS minus fontSize (resolved first, separately), as
- * [field, css property, value] — the kebab-case name precomputed once.
- */
+/** TAG_DEFAULTS minus fontSize (resolved first), as [field, css property, value]. */
 const TAG_DEFAULT_ENTRIES: Record<string, [string, string, unknown][]> = {};
 for (const [tag, def] of Object.entries(TAG_DEFAULTS)) {
   TAG_DEFAULT_ENTRIES[tag] = Object.entries(def)
@@ -379,11 +320,7 @@ function fontHints(el: Element): Declaration[] {
   return out;
 }
 
-/**
- * Resolve `paint-order` to whether stroke is painted before fill.
- * Per CSS spec, missing tokens append in order: fill, stroke, markers.
- * So `stroke` alone implies `stroke fill markers` (stroke first).
- */
+/** Is stroke painted before fill? Missing tokens append as fill, stroke, markers. */
 export function paintOrderHasStrokeFirst(paintOrder: string): boolean {
   const v = paintOrder.trim().toLowerCase();
   if (!v || v === 'normal') return false;
@@ -403,10 +340,7 @@ function flexLonghands(grow: string, shrink: string, basis: string): Longhand[] 
   ];
 }
 
-/**
- * Expand shorthand properties into individual ones.
- * E.g., margin: 10px 20px → marginTop/Right/Bottom/Left
- */
+/** Expand a shorthand into its longhands. */
 export function expandShorthand(property: string, value: string): Longhand[] {
   if (property === 'word-wrap') return [{ property: 'overflow-wrap', value }];
   if (property === '-webkit-background-clip') return [{ property: 'background-clip', value }];
@@ -421,13 +355,7 @@ export function expandShorthand(property: string, value: string): Longhand[] {
 
   if (property === 'border' || property === 'border-top' || property === 'border-right' ||
       property === 'border-bottom' || property === 'border-left') {
-    // Split at paren-depth 0: `rgb(29, 78, 216)` is one token, and the
-    // browser rewrites even hex colors to that form when the shorthand comes
-    // from a style="" attribute. A plain whitespace split truncated the color
-    // to `rgb(29,`, which canvas silently drops — the border then painted
-    // with whatever strokeStyle was left over from the previous box.
-    // Each of width, style and color at most once, in any order; anything
-    // else makes the whole declaration invalid. Unnamed parts reset.
+    // Width, style and color at most once each, any order; unnamed parts reset.
     let width = '', style = '', color = '';
     for (const p of splitTopLevelWhitespace(value.trim())) {
       const lower = p.toLowerCase();
@@ -461,19 +389,13 @@ export function expandShorthand(property: string, value: string): Longhand[] {
   if (property === 'background') return expandBackground(value);
 
   if (property === 'border-radius') {
-    // 1-4 values assign corners as TL, TR, BR, BL (css-backgrounds §4.5).
-    // Elliptical `4px / 2px` keeps only the horizontal radii: BorderRadius
-    // stores ONE component per corner, so an independent vertical set has
-    // nowhere to live. (A bare percentage still paints elliptically — the
-    // renderer resolves it against each axis.)
+    // TL, TR, BR, BL; of `4px / 2px` only the horizontal radii are kept (one per corner).
     return fourSides(value.split('/')[0].trim().split(/\s+/))
       .map((v, i) => ({ property: `border-${CORNERS[i]}-radius`, value: v }));
   }
 
   if (property === 'list-style') {
-    // `<position> || <image> || <type>`: only the type reaches ResolvedStyle.
-    // A `none` with no other type is the type (`list-style: none`); one
-    // beside a type is the image. Unnamed parts reset (the type to disc).
+    // Only the type is kept. A lone `none` is the type; beside a type it is the image.
     let type = '';
     let nones = 0;
     for (const p of splitTopLevelWhitespace(value.trim())) {
@@ -488,13 +410,9 @@ export function expandShorthand(property: string, value: string): Longhand[] {
   }
 
   if (property === 'text-decoration') {
-    // `<line> || <style> || <color> || <thickness>` (css-text-decor-4). The
-    // shorthand RESETS every longhand it does not name — line to none, style
-    // to solid, color to currentcolor, thickness to auto — and a token none
-    // of them accepts makes the whole declaration invalid.
+    // `<line> || <style> || <color> || <thickness>`; unnamed longhands reset.
+    // `inherit` stays `none`: textDecorationLine is the propagated union of lines.
     const v = value.trim();
-    // `inherit` stays `none`: textDecorationLine holds the propagated UNION
-    // of lines, so copying it would declare every ancestor's line again.
     if (v.toLowerCase() === 'inherit') {
       return [
         { property: 'text-decoration-line', value: 'none' },
@@ -526,9 +444,6 @@ export function expandShorthand(property: string, value: string): Longhand[] {
   }
 
   if (property === '-webkit-text-stroke') {
-    // -webkit-text-stroke: 1px #1e40af → width + color
-    // Split on whitespace at paren-depth 0 so colors with internal spaces
-    // (rgb(255, 255, 255), color(srgb 1 0 0), …) survive intact.
     let width = '', color = '';
     for (const p of splitTopLevelWhitespace(value.trim())) {
       if (!width && isWidthToken(p)) width = p;
@@ -545,9 +460,7 @@ export function expandShorthand(property: string, value: string): Longhand[] {
   }
 
   if (property === 'flex') {
-    // The basis is what the shorthand is really for: `flex: 1` is `1 1 0%`,
-    // so the item ignores its own content width, while `flex-grow: 1` alone
-    // leaves the basis `auto` and grows from the content width instead.
+    // `flex: 1` is `1 1 0%`: unlike bare `flex-grow: 1`, it drops the content-width basis.
     const keyword = value.trim().toLowerCase();
     if (keyword === 'none') return flexLonghands('0', '0', 'auto');
     if (keyword === 'auto') return flexLonghands('1', '1', 'auto');
@@ -567,7 +480,6 @@ export function expandShorthand(property: string, value: string): Longhand[] {
   }
 
   if (property === 'border-collapse' || property === 'border-spacing') {
-    // Ignored — table-specific properties we don't handle
     return [];
   }
 
@@ -596,12 +508,8 @@ const FONT_STRETCHES = new Set([
 const isFontSizeKeyword = (v: string) => Object.hasOwn(FONT_SIZE_KEYWORDS, v) || v === 'larger' || v === 'smaller';
 
 /**
- * The `font` shorthand (CSS Fonts 4 §2.8):
- * `[ style || variant-caps || weight || stretch ]? size [ / line-height ]? family`.
- * It RESETS every sub-property it does not name — line-height to normal,
- * weight to 400 and so on — so an inherited value never survives it. Without
- * a size and a family the declaration is invalid and ignored, as is a system
- * font keyword (`caption`, `menu`, ...), which canvas cannot name.
+ * `font` (CSS Fonts 4 §2.8): resets every unnamed sub-property; needs a size and a
+ * family. System font keywords are invalid (canvas cannot name them).
  */
 function expandFont(value: string): Longhand[] {
   const v = value.trim();
@@ -660,12 +568,8 @@ const BACKGROUND_KEYWORDS = new Set([
 const BACKGROUND_BOXES = new Set(['border-box', 'padding-box', 'content-box', 'text']);
 
 /**
- * The `background` shorthand. It RESETS every longhand it does not name, so
- * `background: none` is transparent (not a color called "none") and a color
- * alone clears an earlier image. Only the color, the image list and the clip
- * reach ResolvedStyle; positions, sizes and repeats are parsed past. The
- * color may only come in the final layer; a token nothing accepts makes the
- * whole declaration invalid.
+ * `background`: resets every unnamed longhand. Only color (final layer only), images
+ * and clip are kept; positions, sizes and repeats are parsed past.
  */
 function expandBackground(value: string): Longhand[] {
   const v = value.trim();
@@ -688,7 +592,7 @@ function expandBackground(value: string): Longhand[] {
         boxes.push(lower);
       } else if (BACKGROUND_KEYWORDS.has(lower) || /^[+-]?(?:\d|\.\d)/.test(token) || MATH.test(token) ||
           /^\//.test(token)) {
-        // position / size / repeat / attachment — not rendered
+        // not rendered
       } else if (li === layers.length - 1 && !colorSeen && isColor(token)) {
         color = token;
         colorSeen = true;
@@ -714,11 +618,7 @@ const FONT_VARIANT_CAPS = new Set([
 /** Properties the cascade resolves FIRST: everything else may measure the font (em, ch, ex). */
 const FONT_PROPERTIES = new Set(['font-size', 'font-family', 'font-weight', 'font-style', 'font-variant-caps']);
 
-/**
- * Apply a font declaration. Relative sizes and weights resolve against the
- * PARENT (`parentBasis`: em/%/ch/ex of the parent's font). Returns false for
- * an invalid value, which the cascade then ignores.
- */
+/** Apply a font declaration; relative values use the PARENT's font. False when invalid. */
 function applyFontDeclaration(
   style: ResolvedStyle,
   property: string,
@@ -823,14 +723,9 @@ function physical(property: string, direction: string): string {
   return logical ? logical[direction === 'rtl' ? 1 : 0] : property;
 }
 
-/**
- * The CSS-wide keyword a declaration's value is, or null. `revert` and
- * `revert-layer` act as `unset` (render-tag does not keep the UA's value
- * apart). `color: currentcolor` is the inherited color.
- */
+/** The CSS-wide keyword a value is, or null. `revert(-layer)` acts as `unset`; `color: currentcolor` as `inherit`. */
 function cssWideKeyword(property: string, value: string): string | null {
-  // Every keyword starts with c, i, r or u: most values are rejected without
-  // allocating (values arrive trimmed; a padded one takes the slow path).
+  // Every keyword starts with c, i, r or u: reject most values without allocating.
   const first = value.charCodeAt(0) | 0x20;
   if (first !== 0x63 && first !== 0x69 && first !== 0x72 && first !== 0x75 && first !== 0x20) return null;
   const v = value.trim().toLowerCase();
@@ -841,10 +736,8 @@ function cssWideKeyword(property: string, value: string): string | null {
 }
 
 /**
- * Apply a CSS-wide keyword. An inherited property that inherits is simply
- * left unset, so `inheritFont`/`inheritFrom` copy it (and re-resolve a
- * unitless line-height for this element's font). Returns the canonical
- * property, or null when render-tag does not know it.
+ * Apply a CSS-wide keyword; an inherited property is just left unset for
+ * `inheritFont`/`inheritFrom` to copy. Null for an unknown property.
  */
 function applyKeyword(
   style: ResolvedStyle,
@@ -863,8 +756,7 @@ function applyKeyword(
   }
   const source = (keyword === 'inherit' ? parent : INITIAL) as InternalStyle;
   for (const field of fields) (style as any)[field] = source[field];
-  // A parent's currentcolor computed value is the keyword, not its color:
-  // the child resolves it against its own color.
+  // An inherited currentcolor is the keyword, resolved against the child's color.
   if (keyword === 'inherit' && CURRENTCOLOR_FIELDS.has(fields[0]) && !concrete.get(parent)?.has(fields[0])) {
     (style as any)[fields[0]] = 'currentcolor';
   }
@@ -880,11 +772,7 @@ const CURRENTCOLOR_PROPERTIES: readonly [keyof InternalStyle, string][] = [
 ];
 const CURRENTCOLOR_FIELDS = new Set(CURRENTCOLOR_PROPERTIES.map(([field]) => field));
 
-/**
- * Per resolve call: which CURRENTCOLOR_FIELDS of a style hold a concrete
- * color rather than a resolved `currentcolor`. Absent = all currentcolor.
- * (A side table, not a style field: it is only read for `inherit`.)
- */
+/** Per resolve call: which CURRENTCOLOR_FIELDS of a style hold a concrete color (absent = none). */
 type CurrentColorTable = Map<ResolvedStyle, Set<keyof InternalStyle>>;
 
 /** What phase-2 declarations of one element resolve against. */
@@ -902,11 +790,7 @@ function lengthOf(value: string, env: DeclarationEnv, percentBase: number): numb
   return resolveLength(value, env.b);
 }
 
-/**
- * A `<length-percentage>` of the containing block's width. A percentage is
- * flagged (`env.percent`) so the declaration is kept for layout to resolve
- * again once it knows the width it actually uses (`PercentLengths`).
- */
+/** A `<length-percentage>` of the containing block's width; flags a percentage for `PercentLengths`. */
 function cbLengthOf(value: string, env: DeclarationEnv): number {
   if (value.includes('%')) env.percent = true;
   return lengthOf(value, env, env.containerWidth);
@@ -915,12 +799,7 @@ function cbLengthOf(value: string, env: DeclarationEnv): number {
 /** Atomic inline-level boxes: their content is a formatting context of its own. */
 const ATOMIC_INLINE = new Set(['inline-block', 'inline-flex', 'inline-grid', 'inline-table', '-webkit-inline-box']);
 
-/**
- * Record the cascade's latest word on a containing-block-relative field:
- * `value` when the declaration that set it used a percentage, null when a
- * later one (or a CSS-wide keyword) replaced it with a fixed length.
- * `env.b` (the element's basis, re-aimed per element) is copied on first use.
- */
+/** Record a percent field's latest declaration (`value`), or forget it (null: a fixed length won). */
 function trackPercent(
   style: ResolvedStyle, property: string, value: string | null, env: DeclarationEnv, cbWidth: number,
 ): void {
@@ -940,11 +819,8 @@ function trackPercent(
 }
 
 /**
- * Re-resolve `style`'s percentage lengths against `width` and write the used
- * values into the style: the containing block's width as layout gave it, or
- * (`own`) the box's own content width for `OWN_PERCENT_FIELDS`. A no-op
- * without a percentage, or already at that width (the resolver's own width
- * included, so block flow never moves).
+ * Re-resolve `style`'s percentages against the containing block `width`, or (`own`)
+ * the box's own content width for `OWN_PERCENT_FIELDS`. No-op when already at it.
  */
 export function resolvePercentages(style: ResolvedStyle, width: number, own = false): void {
   const table = (style as InternalStyle)[PERCENT_LENGTHS];
@@ -959,12 +835,7 @@ export function resolvePercentages(style: ResolvedStyle, width: number, own = fa
   }
 }
 
-/**
- * Carry the parent's percentage `text-indent` into `child`, which inherits
- * it (`setProps` has no text-indent of its own): the computed value is the
- * percentage, and it resolves against the CHILD's content width
- * (`resolvePercentages` with `own`), not as the parent's px.
- */
+/** An inherited percentage text-indent resolves against the CHILD's own width. */
 function inheritPercentages(child: ResolvedStyle, parent: ResolvedStyle, cbWidth: number): void {
   const parentTable = (parent as InternalStyle)[PERCENT_LENGTHS];
   const entry = parentTable?.entries.get('textIndent');
@@ -977,12 +848,8 @@ function inheritPercentages(child: ResolvedStyle, parent: ResolvedStyle, cbWidth
 }
 
 /**
- * `style` as intrinsic sizing reads it: a percentage of the containing block
- * is CYCLIC there — that block's width is what is being computed — so it
- * counts as 0, and a percentage width, min-width or flex-basis as `auto`
- * (CSS Sizing 3 §5.2.1; Blink and WebKit measured: a 20% padding inside an
- * inline-block adds nothing to its width, then resolves against it). The
- * style itself when it has no percentage.
+ * `style` for intrinsic sizing: cyclic percentages count as 0, and a percentage
+ * width/min-width/flex-basis as `auto` (CSS Sizing 3 §5.2.1, Blink and WebKit).
  */
 export function intrinsicStyle(style: ResolvedStyle): ResolvedStyle {
   const table = (style as InternalStyle)[PERCENT_LENGTHS];
@@ -1004,12 +871,7 @@ export function intrinsicStyle(style: ResolvedStyle): ResolvedStyle {
   return copy;
 }
 
-/**
- * The border-box size a `width`, `min-width`, `min-height` or `flex-basis`
- * of `size` px gives under `box-sizing` (CSS Box Sizing 3): `content-box`
- * adds `frame` (padding + border on that axis); `border-box` includes it, and
- * never shrinks the box below it.
- */
+/** Border-box size of a `size` px width/min-width/min-height/flex-basis under `box-sizing`; `frame` = padding + border. */
 export function borderBoxSize(style: ResolvedStyle, size: number, frame: number): number {
   return isBorderBox(style) ? Math.max(size, frame) : size + frame;
 }
@@ -1019,21 +881,14 @@ export function contentBoxSize(style: ResolvedStyle, size: number, frame: number
   return isBorderBox(style) ? Math.max(0, size - frame) : size;
 }
 
-/**
- * The style of an anonymous block box inside an element styled `style`
- * (CSS 2.1 §9.2.1.1): what it inherits, and every other property at its
- * initial value — no margins, padding, border, background or sizes of its
- * own, and no percentages to re-resolve.
- */
+/** An anonymous block box's style (CSS 2.1 §9.2.1.1): inherited properties, all else initial. */
 export function anonymousBlockStyle(style: ResolvedStyle): ResolvedStyle {
   const anonymous = { ...style } as InternalStyle;
   for (const [property, fields] of Object.entries(PROPERTY_FIELDS)) {
-    // Decorations propagate into the anonymous box's text: keep them whole
-    // (`textDecorations` and its `textDecorationLine` union go together).
+    // Decorations propagate into the anonymous box's text.
     if (INHERITED_PROPERTIES.has(property) || property.startsWith('text-decoration')) continue;
     for (const field of fields) (anonymous as any)[field] = INITIAL[field];
   }
-  // Initial currentcolor, resolved as the resolver resolves every style's.
   for (const [field] of CURRENTCOLOR_PROPERTIES) (anonymous as any)[field] = anonymous.color;
   anonymous.display = 'block';
   anonymous[PERCENT_LENGTHS] = undefined;
@@ -1147,9 +1002,7 @@ for (const side of SIDES) {
   PARSERS[`border-${side}-width`] = lineWidth;
   PARSERS[`border-${side}-color`] = color;
 }
-// Percentages are of the border box, unknown until paint: they stay
-// symbolic (`BorderRadius`). Negatives are 0; a second (elliptical)
-// component on a longhand is ignored.
+// Percentages (of the border box) stay symbolic until paint; a second component is ignored.
 for (const corner of CORNERS) {
   PARSERS[`border-${corner}-radius`] = (value, env) => {
     const v = MATH.test(value.trim()) ? value.trim() : value.trim().split(/\s+/)[0];
@@ -1162,11 +1015,7 @@ for (const corner of CORNERS) {
   };
 }
 
-/**
- * Apply a (non-font) CSS declaration to a ResolvedStyle, resolving units.
- * Returns false when the value is invalid: the declaration is then ignored,
- * as a browser ignores it, instead of overwriting the cascaded value.
- */
+/** Apply a (non-font) declaration. False when invalid: the cascaded value then survives. */
 function applyDeclaration(style: ResolvedStyle, property: string, value: string, env: DeclarationEnv): boolean {
   const parse = PARSERS[property];
   if (parse) {
@@ -1179,8 +1028,7 @@ function applyDeclaration(style: ResolvedStyle, property: string, value: string,
   const fontSize = style.fontSize;
   switch (property) {
     case 'text-underline-offset': {
-      // px, or null for `auto`; a % also lives in UNDERLINE_OFFSET_PCT for
-      // inheritFrom to re-resolve per child.
+      // A % is also kept in UNDERLINE_OFFSET_PCT for children to re-resolve.
       const v = value.trim();
       let pct: number | undefined;
       if (v.toLowerCase() === 'auto') style.textUnderlineOffset = null;
@@ -1196,7 +1044,6 @@ function applyDeclaration(style: ResolvedStyle, property: string, value: string,
       return true;
     }
     case 'text-decoration-thickness': {
-      // px, or null for `auto`/`from-font`; a % is of the own font size.
       const v = value.trim();
       const lower = v.toLowerCase();
       if (lower === 'auto' || lower === 'from-font') {
@@ -1262,11 +1109,7 @@ function applyDeclaration(style: ResolvedStyle, property: string, value: string,
   return false;
 }
 
-/**
- * The inherited font properties, resolved before any other declaration (so
- * em, ch and ex see the element's final font): font-family, font-weight,
- * font-style, font-variant-caps. (font-size is resolved with them.)
- */
+/** Inherit the font properties, before any other declaration measures the font. */
 function inheritFont(child: ResolvedStyle, parent: ResolvedStyle, setProps: Set<string>): void {
   if (!setProps.has('font-size')) child.fontSize = parent.fontSize;
   if (!setProps.has('font-family')) child.fontFamily = parent.fontFamily;
@@ -1275,25 +1118,7 @@ function inheritFont(child: ResolvedStyle, parent: ResolvedStyle, setProps: Set<
   if (!setProps.has('font-variant-caps')) child.fontVariantCaps = parent.fontVariantCaps;
 }
 
-/**
- * Inherit properties from parent style to child style for properties
- * not explicitly set (tracked via setProps). The inherited properties
- * (the font ones are inherited earlier, by `inheritFont`):
- *
- *   color, text-align, text-align-last, text-indent,
- *   text-transform, white-space, word-break, overflow-wrap, direction,
- *   letter-spacing, word-spacing, line-height, text-shadow, font-kerning,
- *   list-style-type, vertical-align, text-underline-offset, paint-order,
- *   stroke-linejoin, -webkit-text-stroke-width, -webkit-text-stroke-color,
- *   -webkit-text-fill-color.
- *
- * Written out field by field rather than looped over a key table: a keyed
- * `child[key] = parent[key]` over ~26 names is megamorphic and was a quarter
- * of all resolve time.
- *
- * A CSS-wide `inherit`/`unset` never reaches a field: `applyKeyword` leaves
- * the property unset, so it is copied here like any other.
- */
+// Unrolled per field: a keyed copy over a table is megamorphic (was a quarter of resolve time).
 function inheritFrom(child: ResolvedStyle, parent: ResolvedStyle, setProps: Set<string>): void {
   const c = child as InternalStyle, p = parent as InternalStyle;
   if (!setProps.has('color')) c.color = p.color;
@@ -1308,7 +1133,6 @@ function inheritFrom(child: ResolvedStyle, parent: ResolvedStyle, setProps: Set<
   if (!setProps.has('letter-spacing')) c.letterSpacing = p.letterSpacing;
   if (!setProps.has('word-spacing')) c.wordSpacing = p.wordSpacing;
   if (!setProps.has('line-height')) {
-    // Unitless line-height: re-compute relative to child's font-size
     const multiplier = p[LINE_HEIGHT_MULTIPLIER];
     if (multiplier !== undefined) {
       c.lineHeight = multiplier * c.fontSize;
@@ -1322,8 +1146,7 @@ function inheritFrom(child: ResolvedStyle, parent: ResolvedStyle, setProps: Set<
   if (!setProps.has('list-style-type')) c.listStyleType = p.listStyleType;
   if (!setProps.has('vertical-align')) c.verticalAlign = p.verticalAlign;
   if (!setProps.has('text-underline-offset')) {
-    // Percentage offset: re-resolve against the child's own font size
-    // (Chrome-measured), same pattern as the line-height multiplier.
+    // A percentage re-resolves against the child's font size (Chrome-measured).
     const pct = p[UNDERLINE_OFFSET_PCT];
     if (pct !== undefined) {
       c.textUnderlineOffset = (pct / 100) * c.fontSize;
@@ -1366,14 +1189,9 @@ function addTo(map: Map<string, ProcessedRule[]>, key: string, rule: ProcessedRu
 }
 
 /**
- * Build an index of processed rules, each in ONE bucket by its rightmost
- * compound's most selective part: id, else first class, else tag (an
- * html/body/:root compound targets the root and goes to `universal`).
- * The index is shared between calls (see `ruleIndexFor`): nothing reachable
- * from it is ever written after this returns, and nothing from it reaches a
- * result — the cascade copies declaration strings out. (Not frozen: freezing
- * ~1k objects cost a quarter of a cold build. tests/node/determinism.test.ts
- * gates the isolation instead.)
+ * Index rules by their rightmost compound's id, else first class, else tag (root
+ * compounds go to `universal`). Shared between calls and never written afterwards.
+ * Not frozen (too slow); tests/node/determinism.test.ts gates the isolation.
  */
 function buildRuleIndex(css: string): RuleIndex {
   const byId = new Map<string, ProcessedRule[]>();
@@ -1384,7 +1202,6 @@ function buildRuleIndex(css: string): RuleIndex {
   let cost = 0;
 
   for (const rule of parseStylesheet(css)) {
-    // Pre-expand declarations once
     const expandedDecls: Declaration[] = [];
     for (const decl of rule.declarations) {
       for (const exp of expandShorthand(decl.property, decl.value)) {
@@ -1414,29 +1231,9 @@ function byCascadeOrder(a: ProcessedRule, b: ProcessedRule): number {
 }
 
 /**
- * Rule indexes of the most recently used stylesheets, by their exact text.
- *
- * Safe to keep across calls because the index is a pure function of the css
- * string: it reads no ctx, font or DOM state, and nothing in it is mutable or
- * reaches a LayoutResult (declarations are copied out as strings). It pays off
- * in fit loops and re-renders, which resolve the same sheet many times.
- *
- * A sheet's index is admitted on the SECOND sighting of its text (the first
- * only records the key): a one-off sheet then never retains an index, whose
- * ~1k objects would otherwise be promoted and collected as old-generation
- * garbage — measured at +70 µs per call on a stream of distinct 300-rule
- * sheets.
- *
- * Bounded three ways, so memory cannot grow with use: at most
- * RULE_CACHE_ENTRIES sheets, RULE_CACHE_CHARS characters of key text (the key
- * is retained) and RULE_CACHE_COST index entries + declarations in total. The
- * last is the one that bounds the heap: an index is far bigger than its key
- * (a selector-heavy sheet retains ~85x its text; one unit costs ~0.3-0.55 KB).
- * Measured with `node --expose-gc` filling the budget with distinct sheets of
- * long selector chains, of plain selector lists, and of many declarations,
- * the cache retains at most ~5.6 MB (it was ~86 MB under the key-chars bound
- * alone). A sheet whose own index is over the budget is never cached; a
- * 300-rule sheet costs ~1,200.
+ * Rule indexes of recent stylesheets, by exact text: the index is a pure function
+ * of the css text. A sheet is admitted on its second sighting, and the cache is
+ * bounded by sheets, key chars and index cost. Gated by tests/node/determinism.test.ts.
  */
 const RULE_CACHE_ENTRIES = 16;
 const RULE_CACHE_CHARS = 1 << 20;
@@ -1458,7 +1255,7 @@ function ruleIndexFor(css: string): RuleIndex {
     const index = cached ?? buildRuleIndex(css);
     forget(css);
     if (index.cost > RULE_CACHE_COST) return index; // too big to keep: never cached
-    // Most recently used last: Map keeps insertion order.
+    // Most recently used last (Map insertion order).
     ruleCache.set(css, index);
     ruleCacheChars += css.length;
     ruleCacheCost += index.cost;
@@ -1532,11 +1329,7 @@ const MARKER_FIELDS: readonly (keyof ResolvedStyle)[] = [
 /** Each `<li>`'s ordinal in its list, by list element; built once per list per call. */
 type ListOrdinals = Map<Element, Map<Element, number>>;
 
-/**
- * The ordinal of every `<li>` child of `list`, honoring <ol start>,
- * <ol reversed> and <li value>. One pass per list: counting from the first
- * item again for each `<li>` made a 4,000-item list take 1.2s.
- */
+/** The ordinal of every `<li>` child of `list`, honoring <ol start>, <ol reversed> and <li value>. */
 function listOrdinals(list: Element, cache: ListOrdinals): Map<Element, number> {
   let ordinals = cache.get(list);
   if (!ordinals) {
@@ -1580,11 +1373,8 @@ function getListMarker(el: Element, listStyleType: string, ordinals: ListOrdinal
 const NO_DECLARATIONS: readonly Declaration[] = Object.freeze([]);
 
 /**
- * The element's `style=""` declarations as longhands, read from the attribute
- * itself (not the CSSOM's re-serialized `style.cssText`), parsed ONCE by the
- * shared tokenizer and expanded once. The attribute is the same string in
- * every DOM — browser, linkedom, jsdom — so no environment rewrites, expands
- * or drops a value before render-tag sees it.
+ * `style=""` as longhands, read from the attribute (not the CSSOM's re-serialized
+ * cssText) so no DOM implementation rewrites a value first.
  */
 function inlineDeclarations(el: Element): readonly Declaration[] {
   const attr = el.getAttribute('style');
@@ -1599,11 +1389,8 @@ function inlineDeclarations(el: Element): readonly Declaration[] {
 }
 
 /**
- * `dir="auto"`: the direction of the first strong character in the element's
- * text (HTML "auto directionality", UAX #9 P2/P3), skipping descendants that
- * set their own direction (`[dir]`, `<bdi>`) and non-rendered text. null when
- * there is none; the element then keeps its parent's direction. Measured in
- * Chromium and WebKit: `<p dir="auto">שלום world 123</p>` is an RTL paragraph.
+ * `dir="auto"`: the first strong character's direction (UAX #9 P2/P3), skipping
+ * `[dir]`, `<bdi>` and non-rendered text; null keeps the parent's direction.
  */
 function autoDirection(el: Element): 'ltr' | 'rtl' | null {
   for (const child of el.childNodes) {
@@ -1625,12 +1412,7 @@ function autoDirection(el: Element): 'ltr' | 'rtl' | null {
   return null;
 }
 
-/**
- * `<q>`'s quotation marks by nesting depth: `quotes: auto` for an element
- * with no language, as Blink and WebKit render it (English curly quotes).
- * Language-specific quotes (`lang="fr"`) and the `quotes` property are not
- * supported.
- */
+/** `<q>` marks by nesting depth: Blink/WebKit `quotes: auto` with no language. `lang` is not supported. */
 const QUOTES: readonly [string, string][] = [['“', '”'], ['‘', '’']];
 
 /** Rules of `rules` that match `ctx`, sorted into element and `::marker` lists. */
@@ -1650,11 +1432,8 @@ function collectMatches(
 }
 
 /**
- * An element's declarations in ascending cascade precedence (CSS Cascade 4),
- * into `out` (reused; `inlineFrom` marks where `style=""` ones start in each
- * importance): presentational hints, then normal declarations by
- * specificity and order with `style=""` above every rule, then `!important`
- * ones, where `style=""` again wins. Later entries win. Returns `out.length`.
+ * An element's declarations in ascending precedence (CSS Cascade 4) into `out`:
+ * hints, normal rules, `style=""`, then the same for `!important`. Returns the count.
  */
 function cascadeOrder(
   hints: readonly Declaration[],
@@ -1673,16 +1452,11 @@ function cascadeOrder(
 }
 
 function textNode(text: string, style: ResolvedStyle): StyledNode {
-  // A text node matches no rule and declares nothing: its style IS its
-  // parent element's, so it shares the object rather than copying it
-  // (41% of a styled tree's heap). Nothing downstream writes to a style.
+  // Shares its parent's style object: nothing downstream writes to a style.
   return { element: null, tagName: '#text', style, children: [], textContent: text };
 }
 
-/**
- * Resolve styles for a DOM tree without inserting into the document.
- * Parses CSS rules, matches selectors, resolves cascade + inheritance.
- */
+/** Resolve styles for a DOM tree (never inserted into the document): cascade and inheritance. */
 export function resolveStylesFromCSS(
   fragment: DocumentFragment,
   css: string,
@@ -1693,9 +1467,7 @@ export function resolveStylesFromCSS(
   const viewport = options.viewport ?? null;
   const measureUnits = options.fontUnits;
 
-  // Wrap fragment in a container div so resolveElement has a single root
-  // Element. Created from the fragment's own document so no ambient DOM is
-  // required (the tree is never inserted into the live document).
+  // A single root element, from the fragment's own document (no ambient DOM needed).
   const container = fragment.ownerDocument!.createElement('div');
   container.appendChild(fragment);
 
@@ -1705,10 +1477,7 @@ export function resolveStylesFromCSS(
   /** What `rem` resolves against: the root's font-size once it is known, the initial 16px before. */
   let rootFontSize = 16;
 
-  /**
-   * Lengths against `style`'s font (em, ch, ex). ONE object per call, re-aimed
-   * per use: an element finishes its cascade before its children start.
-   */
+  /** Lengths against `style`'s font; one object re-aimed per use (an element finishes before its children). */
   const basis: LengthBasis = {
     em: 16, rem: 16, percent: NaN, viewport, fontStyle: null, measure: measureUnits,
   };
@@ -1724,11 +1493,7 @@ export function resolveStylesFromCSS(
   const order: Declaration[] = [];
   const orderInline: boolean[] = [];
 
-  /**
-   * The root's font-size as `html`/`:root` rules alone set it: what `rem`
-   * means. The root container also stands for `body`, whose font-size is
-   * not the root font-size.
-   */
+  /** The root font-size (`rem`) as `html`/`:root` rules alone set it; the container is also `body`. */
   function htmlFontSize(matched: readonly ProcessedRule[]): number {
     const base: LengthBasis = { em: 16, rem: 16, percent: 16, viewport, fontStyle: null, measure: undefined };
     let size = 16;
@@ -1747,10 +1512,7 @@ export function resolveStylesFromCSS(
     return size;
   }
 
-  /**
-   * `cbWidth`: the width of the element's containing block, which its
-   * percentages (margin, padding, width, text-indent, ...) resolve against.
-   */
+  /** `cbWidth`: the containing block width that percentages resolve against. */
   function resolveElement(
     el: Element,
     parentStyle: ResolvedStyle,
@@ -1760,13 +1522,9 @@ export function resolveStylesFromCSS(
     const tag = el.tagName.toLowerCase();
     const ctx = matcher.context(el, parentCtx);
 
-    // Start with defaults
     const style = defaultStyle();
-
-    // Track which properties are explicitly set (tag defaults, CSS rules, inline styles)
     const setProps = new Set<string>();
 
-    // Matching rules, in cascade order. Each rule sits in one index bucket.
     const matched: ProcessedRule[] = [];
     const matchedMarker: ProcessedRule[] = [];
     if (ruleIndex.byId.size > 0) {
@@ -1795,8 +1553,7 @@ export function resolveStylesFromCSS(
     }
     // HTML's UA sheet: `[hidden] { display: none }` (an author display wins).
     if (el.hasAttribute('hidden')) style.display = 'none';
-    // `:any-link { color: LinkText; text-decoration: underline }` — LinkText
-    // is #0000ee in Blink, WebKit and Gecko.
+    // `:any-link`: LinkText is #0000ee in Blink, WebKit and Gecko.
     if ((tag === 'a' || tag === 'area') && el.hasAttribute('href')) {
       style.color = '#0000ee';
       style.textDecorationLine = 'underline';
@@ -1820,14 +1577,10 @@ export function resolveStylesFromCSS(
     const elemFontSize = style.fontSize;
 
     // --- Step 3: everything else, against the element's final font ---
-
     if (tagDef) {
-      // Resolve negative margin values (em multipliers from tag defaults)
       if (style.marginTop < 0) style.marginTop = Math.abs(style.marginTop) * elemFontSize;
       if (style.marginBottom < 0) style.marginBottom = Math.abs(style.marginBottom) * elemFontSize;
 
-      // Default padding-inline-start for lists, margin-inline-start for
-      // <dd> (direction-aware).
       const rtl = parentStyle.direction === 'rtl';
       if (tag === 'ul' || tag === 'ol' || tag === 'menu' || tag === 'dir') {
         style[rtl ? 'paddingRight' : 'paddingLeft'] = 40;
@@ -1857,44 +1610,35 @@ export function resolveStylesFromCSS(
       if (d.property === 'width') widthFromSheet = !orderInline[i];
     }
 
-    // Only keep explicit width from inline styles (match DOM resolver behavior)
+    // Only an inline-style width is kept.
     if (widthFromSheet) {
       style.width = 0;
       (style as InternalStyle)[PERCENT_LENGTHS]?.entries.delete('width');
     }
 
-    // Handle `dir` attribute
     const dirAttr = el.getAttribute('dir')?.trim().toLowerCase();
     if (dirAttr === 'ltr' || dirAttr === 'rtl' || dirAttr === 'auto') {
       style.direction = dirAttr === 'auto'
         ? autoDirection(el) ?? parentStyle.direction
         : dirAttr;
       setProps.add('direction');
-      // HTML's UA sheet: any element with `dir` isolates its content
-      // (Blink and WebKit compute `isolate` for span[dir]; <bdo> keeps its
-      // own override). An author `unicode-bidi` still wins.
+      // UA sheet: `[dir]` isolates (Blink/WebKit); <bdo>'s override and author values win.
       if (!setProps.has('unicode-bidi') && style.unicodeBidi === 'normal') {
         style.unicodeBidi = 'isolate';
       }
     }
 
-    // Inherit from parent for properties not explicitly set
     inheritFrom(style, parentStyle, setProps);
     if (!setProps.has('text-indent')) inheritPercentages(style, parentStyle, cbWidth);
 
-    // A border whose style is none or hidden computes to width 0 (CSS
-    // Backgrounds 3): `border-top: 3px none red` takes no space and does not
-    // stop a margin collapse.
+    // A none/hidden border style computes to width 0 (CSS Backgrounds 3).
     if (style.borderTopStyle === 'none' || style.borderTopStyle === 'hidden') style.borderTopWidth = 0;
     if (style.borderRightStyle === 'none' || style.borderRightStyle === 'hidden') style.borderRightWidth = 0;
     if (style.borderBottomStyle === 'none' || style.borderBottomStyle === 'hidden') style.borderBottomWidth = 0;
     if (style.borderLeftStyle === 'none' || style.borderLeftStyle === 'hidden') style.borderLeftWidth = 0;
 
-    // Auto-set currentColor defaults (browser default behavior).
-    // An automatic HTML decoration uses the text stroke color when a visible
-    // stroke is enabled, otherwise the text fill color, falling back to `color`.
-    // This selects the band's paint; it does not outline or widen the band.
-    // Resolve it on the declarer so descendant runs and path text agree.
+    // currentcolor defaults. An automatic decoration color is the visible stroke color,
+    // else the fill color, else `color` — resolved on the declarer so descendants agree.
     for (const [field, prop] of CURRENTCOLOR_PROPERTIES) {
       if (setProps.has(prop) && String((style as InternalStyle)[field]).toLowerCase() !== 'currentcolor') {
         let set = concreteColors.get(style);
@@ -1915,12 +1659,8 @@ export function resolveStylesFromCSS(
     if (!setProps.has('border-left-color') || style.borderLeftColor.toLowerCase() === 'currentcolor') style.borderLeftColor = style.color;
     if (style.backgroundColor.toLowerCase() === 'currentcolor') style.backgroundColor = style.color;
 
-    // Handle text-decoration inheritance (propagates visually, not via normal
-    // inheritance). Each decoration keeps the color/style of the element that
-    // DECLARED it (Chrome: a parent's red underline stays red across a blue
-    // child <s>): ancestor entries ride along in `textDecorations`, own
-    // entries are appended after them so they paint on top.
-    // `textDecorationLine` stays the union of lines for cheap checks.
+    // Decorations propagate visually: each keeps its declarer's color/style, ancestors'
+    // first so own ones paint on top. `textDecorationLine` is the union of lines.
     const ownEntries: DecorationEntry[] = [];
     if (style.textDecorationLine && style.textDecorationLine !== 'none') {
       for (const d of style.textDecorationLine.split(/\s+/)) {
@@ -1929,17 +1669,12 @@ export function resolveStylesFromCSS(
             line: d,
             color: style.textDecorationColor,
             style: style.textDecorationStyle,
-            // This element is the decorating box for every descendant the
-            // entry rides down to.
             declarer: style,
           });
         }
       }
     }
-    // An atomic inline (inline-block, inline-flex, ...) is a box of its own:
-    // no ancestor's decoration reaches its content (CSS Text Decoration 3
-    // §2.1), and the ancestor's band leaves a gap where it sits — both
-    // engines, measured (tests/decoration-shape-parity.test.ts).
+    // No ancestor decoration reaches an atomic inline's content (CSS Text Decoration 3 §2.1).
     const atomic = ATOMIC_INLINE.has(style.display);
     style.textDecorations = parentStyle.textDecorations.length && !atomic
       ? [...parentStyle.textDecorations, ...ownEntries]
@@ -1954,11 +1689,9 @@ export function resolveStylesFromCSS(
       style.textDecorationLine = [...decoSet].join(' ');
     }
 
-    // List marker
     const marker = getListMarker(el, style.listStyleType, ordinals);
 
-    // `::marker` (only `<li>` is a list-item here): the MARKER_FIELDS its
-    // rules change from the <li> style, and a hidden flag.
+    // `::marker` (only on `<li>`): the MARKER_FIELDS its rules change, and a hidden flag.
     let markerStyle: Partial<ResolvedStyle> | undefined;
     let markerHidden = false;
     if (tag === 'li' && matchedMarker.length > 0) {
@@ -1968,13 +1701,10 @@ export function resolveStylesFromCSS(
       const markerCount = cascadeOrder(NO_DECLARATIONS, matchedMarker, NO_DECLARATIONS, order, orderInline);
       for (let i = 0; i < markerCount; i++) {
         const m = order[i];
-        // `content: none` (and `content: ''`) suppresses the marker entirely,
-        // matching DOM `::marker` behavior. `content` isn't part of
-        // ResolvedStyle, so we handle it inline.
+        // `content: none` or `''` hides the marker.
         if (m.property === 'content') {
           const v = m.value.trim().toLowerCase();
           if (v === 'none' || v === '""' || v === "''" || v === 'normal') {
-            // 'normal' is the initial value — no override
             markerHidden = (v === 'none' || v === '""' || v === "''");
           }
           continue;
@@ -1992,11 +1722,7 @@ export function resolveStylesFromCSS(
       for (const k of MARKER_FIELDS) if (scratch[k] !== style[k]) (markerStyle ??= {} as any)[k] = scratch[k];
     }
 
-    // Walk children, against this element's content box — or, for an
-    // inline box, against the block container's, which it passes through.
-    // `box-sizing` decides which box an explicit width sizes. An inline-block
-    // or a flex item gets its width from layout, which re-resolves its
-    // children's percentages against it (`resolvePercentages`).
+    // Children resolve against this content box (an inline box passes its container's through).
     const childCb = style.display === 'inline' || style.display === 'contents'
       ? cbWidth
       : style.width > 0
@@ -2004,7 +1730,6 @@ export function resolveStylesFromCSS(
           style.borderLeftWidth + style.paddingLeft + style.paddingRight + style.borderRightWidth)
         : Math.max(0, cbWidth - style.marginLeft - style.marginRight -
           style.borderLeftWidth - style.borderRightWidth - style.paddingLeft - style.paddingRight);
-    // text-indent and gap percentages: of this box's own content width.
     resolvePercentages(style, childCb, true);
     const children: StyledNode[] = [];
     for (const child of el.childNodes) {
@@ -2045,9 +1770,7 @@ export function resolveStylesFromCSS(
       const ws = parentStyle.whiteSpace;
       const pre = ws === 'pre' || ws === 'pre-wrap' || ws === 'pre-line';
       if (!pre && text.trim() === '' && !text.includes('\u00A0')) {
-        // Whitespace between two blocks vanishes; so does a newline-bearing
-        // gap that touches a block or the container edge. Between two INLINE
-        // siblings Chrome keeps one space that takes line width.
+        // Dropped between blocks, or with a newline unless between two inline siblings (Chrome).
         const prev = node.previousSibling;
         const next = node.nextSibling;
         const prevInline = isInlineSibling(prev);
@@ -2056,10 +1779,7 @@ export function resolveStylesFromCSS(
             (text.includes('\n') && !(prevInline && nextInline))) return null;
       }
 
-      // CSS Text 3 §4.1.1: in `normal` and `nowrap`, a source newline is
-      // collapsed to a single space (no forced break). Only `pre`,
-      // `pre-wrap`, `pre-line`, and `break-spaces` preserve newlines.
-      // (<br> text nodes are made below and keep forcing breaks.)
+      // CSS Text 3 §4.1.1: outside pre/pre-wrap/pre-line/break-spaces a newline is a space.
       return textNode(pre || ws === 'break-spaces' ? text : text.replace(/[\n\r]/g, ' '), parentStyle);
     }
 
@@ -2069,13 +1789,11 @@ export function resolveStylesFromCSS(
     const tag = el.tagName.toLowerCase();
     if (tag === 'style' || tag === 'script') return null;
 
-    // <br> → text node with newline
     if (tag === 'br') return textNode('\n', parentStyle);
-    // <wbr> is a line break opportunity: HTML renders it as a zero-width space.
+    // <wbr> renders as a zero-width space.
     if (tag === 'wbr') return textNode('\u200B', parentStyle);
 
     const resolved = resolveElement(el, parentStyle, parentCtx, cbWidth);
-    // display:none generates no box: no text, no margins, no line box.
     return resolved.style.display === 'none' ? null : resolved;
   }
 

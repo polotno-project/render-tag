@@ -8,19 +8,11 @@ const STYLE_END = /<\/style(?=[\t\n\f\r />])/gi;
 const STYLE_END_TAIL = /^[\t\n\f\r /]*>/;
 
 /**
- * Split the `<style>` blocks that LEAD the html (only whitespace before and
- * between them) off as text, so DOMParser never tokenizes them: a 321 KB
- * @font-face sheet costs DOMParser ~1.7 ms in Chromium, this split ~20 µs.
- *
- * At the start of `<body>` a `<style>` is a RAWTEXT element, so its text runs
- * verbatim to the first `</style` followed by whitespace, `/` or `>` — no
- * entities, no markup. The parser's input preprocessing still applies: CR and
- * CRLF become LF, and a NUL becomes U+FFFD. Anything less plain — a quoted
- * attribute, an end tag carrying attributes, no end tag — stops the split
- * there and leaves the rest to DOMParser, which extracts it as before. The
- * whitespace stays in the html, where it parses to the same text node the DOM
- * path leaves behind once its <style> is removed and the body normalized.
- * `tests/parse-style-extraction.test.ts` holds this to the engine's parser.
+ * Split the `<style>` blocks that lead the html (only whitespace around them)
+ * off as text, so DOMParser never tokenizes them. A leading `<style>` is RAWTEXT:
+ * verbatim up to `</style` + whitespace/`/`/`>`, with CR/CRLF -> LF and NUL ->
+ * U+FFFD. Anything less plain stops the split and is left to DOMParser.
+ * Held to the engine's parser by `tests/parse-style-extraction.test.ts`.
  */
 export function splitLeadingStyles(html: string): { css: string; rest: string } {
   let css = '';
@@ -44,21 +36,16 @@ export function splitLeadingStyles(html: string): { css: string; rest: string } 
   return css ? { css, rest: whitespace + rest } : { css, rest: html };
 }
 
-/**
- * Parse HTML string and extract inline <style> blocks.
- * Returns the content element and combined CSS text.
- */
+/** Parse an HTML string into a fragment plus the combined CSS of its `<style>` blocks. */
 export function parseHTML(html: string): { fragment: DocumentFragment; css: string } {
   const parser = resolveDOMParser();
   const leading = splitLeadingStyles(html);
-  // Wrap in a full document: browsers do this implicitly for fragments, but
-  // non-browser parsers (linkedom) need the body to exist explicitly.
+  // linkedom needs the body to exist explicitly.
   const doc = parser.parseFromString(
     `<!DOCTYPE html><html><head></head><body>${leading.rest}</body></html>`,
     'text/html'
   ) as Document;
 
-  // Extract the remaining <style> tag contents
   const styleTags = doc.querySelectorAll('style');
   let css = leading.css;
   for (const tag of styleTags) {
@@ -66,15 +53,10 @@ export function parseHTML(html: string): { fragment: DocumentFragment; css: stri
     tag.remove();
   }
 
-  // Merge adjacent text nodes. Browsers already parse `big&nbsp;text` into a
-  // single text node, but linkedom emits a node per entity boundary — which
-  // would let the tokenizer break lines at entity seams. Normalizing in both
-  // environments keeps parsing parity by construction. Scoped to body (all
-  // content lives there); parseHTML can run in per-pixel fit loops.
+  // linkedom splits text nodes at entities, which would allow breaks at those seams.
   doc.body.normalize();
 
-  // Move body children into a fragment owned by the same document — no
-  // adoption needed (and non-browser DOMs may not implement adoptNode).
+  // Same-document fragment: non-browser DOMs may not implement adoptNode.
   const fragment = doc.createDocumentFragment();
   while (doc.body.firstChild) {
     fragment.appendChild(doc.body.firstChild);
@@ -84,12 +66,8 @@ export function parseHTML(html: string): { fragment: DocumentFragment; css: stri
 }
 
 /**
- * Does a `<style>` element's sheet apply to a screen render? HTML: not when
- * its `type` is set to anything but `text/css`, nor when its `media` list
- * does not match. Media FEATURES (`(min-width: …)`) are not evaluated — a
- * query using one does not match, as an `@media` block is skipped — so only
- * the media types decide: `all` and `screen` apply, `print` and `speech` do
- * not, and `not print` does.
+ * Does a `<style>` sheet apply to a screen render? Only `type` text/css (or
+ * none) and media types `all`/`screen`/`not <other>`; a media feature never matches.
  */
 function styleApplies(attribute: (name: string) => string | null): boolean {
   const type = attribute('type');
@@ -104,11 +82,7 @@ function styleApplies(attribute: (name: string) => string | null): boolean {
   });
 }
 
-/**
- * The attributes of a start tag that `LEADING_STYLE_OPEN` accepted (no quoted
- * values): names lower-cased, the first of a repeated name wins, as in the
- * HTML tokenizer.
- */
+/** Unquoted start-tag attributes: names lower-cased, first repeat wins (HTML tokenizer). */
 function unquotedAttributes(tag: string): (name: string) => string | null {
   const attrs = new Map<string, string>();
   const re = /[\t\n\f\r /]+([^\t\n\f\r />=][^\t\n\f\r />=]*)(?:[\t\n\f\r ]*=[\t\n\f\r ]*([^\t\n\f\r >]*))?/g;

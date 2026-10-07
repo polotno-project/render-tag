@@ -1,20 +1,8 @@
-/**
- * DOM parser resolution — the only place render-tag looks for a DOM.
- *
- * Resolution order:
- *   1. A parser injected via setDOMParser() (explicit always wins).
- *   2. The ambient global DOMParser (browsers, jsdom/happy-dom environments).
- *   3. Throw with guidance — render-tag has zero dependencies, so in Node the
- *      consumer must inject a parser (e.g. linkedom's or jsdom's DOMParser).
- */
+// The only place render-tag looks for a DOM: an injected parser wins, then the
+// ambient DOMParser; otherwise throw (Node consumers must inject one).
 
 export interface DOMParserLike {
-  /**
-   * Must behave like the standard DOMParser for 'text/html' input. The return
-   * type is intentionally loose so non-browser DOM libraries (linkedom,
-   * jsdom) type-check without casts — their Document types are structurally
-   * different from the TS lib's.
-   */
+  /** Behaves like DOMParser for 'text/html'; `unknown` so linkedom/jsdom type-check without casts. */
   parseFromString(markup: string, type: string): unknown;
 }
 
@@ -30,16 +18,13 @@ let ambientParser: DOMParserLike | null = null;
  */
 export function setDOMParser(parser: DOMParserLike | null): void {
   explicitParser = parser;
-  // Reset the ambient cache too, so tests/harnesses that tear down a DOM
-  // polyfill (jsdom etc.) don't keep measuring against a stale realm.
+  // Also drop the ambient cache so a torn-down DOM polyfill is not reused.
   if (parser === null) ambientParser = null;
 }
 
 /**
- * Create a measurement 2D context from whatever canvas source the environment
- * offers. `preferDocument` preserves each entry point's historical source
- * (block layout: document canvas; path: OffscreenCanvas) so existing pixel
- * baselines don't move.
+ * A measurement 2D context from whatever canvas the environment offers. Block layout
+ * prefers the document canvas and path OffscreenCanvas; switching either moves pixel baselines.
  */
 export function createFallbackMeasureCtx(preferDocument: boolean): CanvasRenderingContext2D {
   const hasDocument = typeof document !== 'undefined';
@@ -60,7 +45,6 @@ export function createFallbackMeasureCtx(preferDocument: boolean): CanvasRenderi
 export function resolveDOMParser(): DOMParserLike {
   if (explicitParser) return explicitParser;
   if (typeof DOMParser !== 'undefined') {
-    // DOMParser instances are stateless — cache one.
     if (!ambientParser) ambientParser = new DOMParser();
     return ambientParser;
   }

@@ -1,15 +1,6 @@
-/**
- * CSS value parsers for the resolver: lengths in every absolute, font-relative
- * and viewport unit, `calc()`/`min()`/`max()`/`clamp()`, font-size keywords
- * and font weights. Each returns NaN for a value it cannot parse, and the
- * resolver then IGNORES the declaration — as a browser does — instead of
- * writing 0 over the cascaded value.
- *
- * Not supported (the declaration is ignored): `var()`, `attr()`, `env()`, the
- * math functions beyond the four above (`round()`, `mod()`, trig, ...),
- * container units (`cqw`, ...), `lh`/`rlh`, `ic`, `cap`, and the root-font
- * variants of ch/ex (`rch`, `rex`, ...).
- */
+// CSS value parsers: lengths (absolute, font-relative, viewport units), calc/min/max/clamp,
+// font-size keywords and weights. NaN means unparseable and the declaration is ignored.
+// Unsupported: var/attr/env, other math functions, container units, lh/rlh/ic/cap, rch/rex.
 import type { ResolvedStyle } from './types.js';
 
 /** The layout viewport, for vw/vh/vmin/vmax. */
@@ -26,22 +17,12 @@ export interface FontUnits {
 
 /** What one declaration's relative lengths resolve against. */
 export interface LengthBasis {
-  /** px of 1em. */
   em: number;
-  /** px of 1rem: the root element's font-size. */
-  rem: number;
-  /** px of 100%; NaN where a percentage is not allowed. */
-  percent: number;
-  /** null: no viewport (text on a path); viewport units are then invalid. */
-  viewport: Viewport | null;
-  /** The style whose font `em`, `ch` and `ex` refer to. */
-  fontStyle: ResolvedStyle | null;
-  /**
-   * Measures ch/ex of `fontStyle`, on first use of either unit; undefined
-   * when no measurer is available, and ch/ex then fall back to 0.5em — the
-   * value CSS Values 4 prescribes when a font's metrics are unknown.
-   */
-  measure: ((style: ResolvedStyle) => FontUnits) | undefined;
+  rem: number; // root element's font-size
+  percent: number; // px of 100%; NaN where a percentage is not allowed
+  viewport: Viewport | null; // null (text on a path): viewport units are invalid
+  fontStyle: ResolvedStyle | null; // the font `em`, `ch` and `ex` refer to
+  measure: ((style: ResolvedStyle) => FontUnits) | undefined; // undefined: ch/ex = 0.5em (CSS Values 4)
 }
 
 /** A typed numeric value: a length (in px, percentages already resolved) or a plain number. */

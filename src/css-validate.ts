@@ -1,19 +1,7 @@
-/**
- * Syntax checks for the values the resolver stores as strings: colors,
- * images, shadows, font families and keyword properties. A browser drops a
- * declaration whose value does not parse, so the cascaded value below it
- * survives; render-tag must too — otherwise `style="color: foo"` overrides a
- * valid sheet color with a string canvas ignores (it then paints with
- * whatever fillStyle was left over), and `display: blok` falls through every
- * `===` test in layout.
- *
- * These are GRAMMAR checks, not evaluators: a value that passes is stored as
- * written (keywords lower-cased) and resolved where it is used. They follow
- * CSS Color 4, CSS Images 4, CSS Text Decoration and CSS Fonts 4, as Blink
- * and WebKit parse them. Unsupported value syntax — `var()`, `attr()`,
- * `env()` — fails the check, so such a declaration is ignored like any other
- * invalid one.
- */
+// Grammar checks (not evaluators) for values the resolver stores as strings:
+// colors, images, shadows, font families, keywords — per CSS Color 4, Images 4,
+// Text Decoration, Fonts 4 as Blink/WebKit parse them. An invalid value (incl.
+// `var()`/`attr()`/`env()`) drops the declaration, so the cascaded value survives.
 import { resolveLength, type LengthBasis } from './css-values.js';
 
 // ─── Splitting ──────────────────────────────────────────────────────

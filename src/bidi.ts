@@ -1,30 +1,9 @@
 /**
- * The Unicode Bidirectional Algorithm (UAX #9) — the part a line layout needs:
- * paragraph embedding levels (X1–X10, W1–W7, N0–N2, I1–I2), the line-level
- * whitespace reset (L1) and the visual reordering of a line (L2).
- *
- * Why render-tag cannot leave this to `fillText`: Canvas reorders only INSIDE
- * one call. A line that holds several runs — two styles, a box, a shifted
- * span — is several calls, and their ORDER is the layout's job. Placing the
- * runs in logical order put `<b>العربية الغامقة</b>` in an English line as
- * "العربية | الغامقة" left to right, where every engine paints it right to
- * left. So layout resolves levels for the whole paragraph, cuts each line into
- * level-uniform pieces, orders the pieces by L2, and paints each piece with the
- * direction of its level — inside a level-uniform piece, Canvas's own bidi
- * pass then agrees with this one (mirroring and shaping stay Canvas's).
- *
- * CSS reaches the algorithm the way CSS Writing Modes 3 §2.4.2 says: an inline
- * element with `unicode-bidi: isolate` / `embed` / `*-override` wraps its
- * content in the matching control characters (`BidiTextBuilder`), and a
- * forced line break is a paragraph separator (Blink feeds `<br>` to ICU as
- * U+000A).
- *
- * Bidi_Class is derived from General_Category and Script with explicit tables
- * for the weak and neutral classes (JS regex has no `\p{Bidi_Class}`). It is
- * exact for the scripts render-tag targets — Latin, Greek, Cyrillic, CJK,
- * Indic, Hebrew, Arabic (incl. Arabic-Indic digits, AN, and the Extended
- * Arabic-Indic EN digits), the ASCII/Latin-1 weak types and currency — and
- * approximates rare symbols as ON.
+ * UAX #9 for line layout: paragraph levels (X1–X10, W1–W7, N0–N2, I1–I2), L1 and L2.
+ * Canvas reorders only inside one fillText call, so a line of several runs is cut
+ * into level-uniform pieces ordered here. Forced breaks are paragraph separators.
+ * Bidi_Class is approximated from General_Category + Script with explicit weak/
+ * neutral tables (JS has no `\p{Bidi_Class}`); rare symbols approximate as ON.
  */
 
 type BidiClass =
@@ -183,10 +162,7 @@ interface BidiParagraph {
   classes: BidiClass[];
 }
 
-/**
- * Resolve embedding levels for `text` (one or more paragraphs, split at B)
- * with a fixed paragraph level (CSS `direction` of the block, not P2/P3).
- */
+/** Embedding levels for `text` (paragraphs split at B) at a fixed paragraph level (CSS `direction`, not P2/P3). */
 export function resolveBidi(text: string, paragraphLevel: 0 | 1): BidiParagraph {
   const units = text.length;
   const classes: BidiClass[] = new Array(units);
@@ -390,8 +366,7 @@ function resolveSequence(
   for (let i = seq[0] - 1; i >= 0; i--) {
     if (!isRemovedByX9(orig[i])) { prevLevel = lv[i]; break; }
   }
-  // A sequence that ends on an isolate initiator ends at an unmatched one
-  // (a matched one chains on): eos then compares with the paragraph level.
+  // Ending on an (unmatched) isolate initiator: eos compares with the paragraph level.
   let nextLevel = paragraphLevel;
   if (!isIsolateInit(orig[lastChar])) {
     for (let i = lastChar + 1; i < len; i++) {
@@ -532,10 +507,8 @@ function resolveSequence(
 }
 
 /**
- * L1 for one line: `[start, end)` of a resolved paragraph. Segment and
- * paragraph separators, and the whitespace (with isolate controls and X9-
- * removed chars) before them or at the end of the line, return to the
- * paragraph level. Returns the line's levels; the paragraph is not changed.
+ * L1 for line `[start, end)`: separators, and whitespace before them or at line end,
+ * return to the paragraph level. Returns the line's levels; the paragraph is unchanged.
  */
 export function lineLevels(par: BidiParagraph, start: number, end: number): Uint8Array {
   const out = par.levels.slice(start, end);
@@ -557,11 +530,7 @@ export function lineLevels(par: BidiParagraph, start: number, end: number): Uint
   return out;
 }
 
-/**
- * L2: the visual order of items with the given levels — indices, left to right.
- * From the highest level down to the lowest odd one, every maximal run at that
- * level or higher is reversed.
- */
+/** L2: visual order (indices, left to right) of items with the given levels. */
 export function visualOrder(levels: ArrayLike<number>): number[] {
   const order = Array.from({ length: levels.length }, (_, i) => i);
   let highest = 0;
@@ -577,7 +546,6 @@ export function visualOrder(levels: ArrayLike<number>): number[] {
       if (levels[order[i]] < level) continue;
       let j = i;
       while (j < order.length && levels[order[j]] >= level) j++;
-      // reverse order[i, j)
       for (let a = i, b = j - 1; a < b; a++, b--) {
         const tmp = order[a]; order[a] = order[b]; order[b] = tmp;
       }
@@ -593,10 +561,7 @@ export function mayNeedBidi(text: string): boolean {
   return RTL_TRIGGER.test(text);
 }
 
-/**
- * An inline element's bidi effect (CSS `unicode-bidi`), chained to its
- * nearest ancestor's. `null` is the paragraph itself.
- */
+/** An inline element's `unicode-bidi` effect, chained to its ancestor's; `null` is the paragraph. */
 export interface BidiContext {
   parent: BidiContext | null;
   /** The control that opens it: LRI/RLI/FSI, LRE/RLE, LRO/RLO — or two, for isolate-override. */
@@ -605,10 +570,7 @@ export interface BidiContext {
   close: string;
 }
 
-/**
- * The context an element opens, or `parent` when its `unicode-bidi` does not
- * create one (`normal`). `plaintext` is approximated as an FSI isolate.
- */
+/** The context an element opens, or `parent` for `normal`. `plaintext` approximates as FSI. */
 export function bidiContextFor(
   unicodeBidi: string, direction: string, parent: BidiContext | null,
 ): BidiContext | null {
@@ -629,11 +591,7 @@ export function bidiContextFor(
   }
 }
 
-/**
- * Builds a paragraph's text with the control characters its inline contexts
- * stand for (CSS Writing Modes 3 §2.4.2), and remembers where each pushed
- * piece landed.
- */
+/** Builds a paragraph's text wrapped in its contexts' control characters (CSS Writing Modes 3 §2.4.2). */
 export class BidiTextBuilder {
   text = '';
   private open: BidiContext[] = [];

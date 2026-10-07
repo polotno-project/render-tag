@@ -1,35 +1,8 @@
 /**
- * Selectors: parsing, specificity and matching, on an ALLOWLIST. A selector
- * that uses anything not listed here is unsupported and never matches — it is
- * not stripped down to the parts that are understood (that made `:root {}`
- * hit every element and `p:first-of-type` every `<p>`).
- *
- * Supported:
- * - type (case-insensitive), `*`, `#id`, `.class`;
- * - attributes `[a]`, `[a=v]`, `[a~=v]`, `[a|=v]`, `[a^=v]`, `[a$=v]`, `[a*=v]`,
- *   with the `i`/`s` flags and HTML's case-insensitive attribute values;
- * - combinators: descendant, `>`, `+`, `~`;
- * - `:root`, `:empty`, `:first-child`, `:last-child`, `:only-child`,
- *   `:nth-child(An+B)`, `:nth-last-child(An+B)`, `:first-of-type`,
- *   `:last-of-type`, `:only-of-type`, `:nth-of-type(An+B)`,
- *   `:nth-last-of-type(An+B)`, `:link`/`:any-link` (`a`/`area` with `href`);
- * - `:not()`, `:is()`, `:where()` over complex selectors; `:is()`/`:where()`
- *   take a forgiving list (an invalid or unsupported argument drops alone);
- * - `::marker` at the end (its declarations style the list marker);
- * - dynamic states (`:hover`, `:focus`, `:visited`, ...) are never active in a
- *   static render: `a:hover` never matches, `p:not(:hover)` always does.
- *
- * Valid but unsupported, so the selector never matches: `:has()`,
- * `:nth-child(An+B of S)`, `:lang()`, `:dir()`, form states, other
- * pseudo-elements, namespaces.
- *
- * INVALID and UNSUPPORTED are kept apart (Selectors 4 §3.1): an invalid
- * selector (`p:foo`, `::bogus`, `]`) makes its whole selector list invalid, so
- * the rule is dropped; an unsupported one drops only itself from the list.
- *
- * The root context stands for BOTH `html` and `body` (render-tag's synthetic
- * container), so `html`, `body` and `:root` match it, and a chain may climb
- * one step above it to a virtual `html` (`html > body > p`).
+ * Selectors on an allowlist: anything not supported never matches (it is not
+ * stripped to the understood parts). An INVALID selector drops its whole list, an
+ * unsupported one only itself (Selectors 4 §3.1). Dynamic states are never active.
+ * The root container stands for both `html` and `body` (`html > body > p` works).
  */
 
 export interface ElementContext {
@@ -528,12 +501,8 @@ interface Position {
 const ONLY: Position = { index: 1, count: 1, typeIndex: 1, typeCount: 1 };
 
 /**
- * Selector matching for ONE resolve call. Caches each parent's child
- * positions and the general-sibling (`~`) answer per element: "does some
- * earlier sibling match the rest of the chain?" is the previous sibling's
- * answer plus one test, so a `~` rule over a long list stays linear (it was
- * quadratic: 610 ms for one rule on 4,000 items). The answer is keyed by the
- * ELEMENT: a sibling's context is rebuilt when asked for, not kept.
+ * Selector matching for ONE resolve call. Caches child positions per parent and
+ * the `~` answer per element, so a `~` rule over a long list stays linear.
  */
 export class SelectorMatcher {
   private readonly positions = new Map<Element, Map<Element, Position>>();
