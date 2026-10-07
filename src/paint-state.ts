@@ -1,5 +1,8 @@
 import type { ResolvedStyle } from './types.js';
-import { buildCanvasFont, canvasKerning, formatLetterSpacing } from './layout.js';
+import {
+  buildCanvasFont, canvasKerning, claimCtx, formatLetterSpacing, getFontMetrics, nextCtxWriterId,
+  type FontMetricsTable,
+} from './layout.js';
 import { parseLinearGradient } from './gradient.js';
 
 // ─── Paint state ──────────────────────────────────────────────────────
@@ -15,7 +18,9 @@ import { parseLinearGradient } from './gradient.js';
 // one, holds whatever it holds), so its first write of each property always
 // happens. Anything else that writes a tracked property on the same ctx
 // during a draw must either go through the tracker or put the value back,
-// as `getFontMetrics` does.
+// as `getFontMetrics` does — or claim the ctx (`claimCtx`), as a `Measurer`
+// does: a nested `layout()` run from inside the caller's `measureText` moves
+// the measuring state under the tracker, which then writes it again.
 //
 // `save()`/`restore()` are for a transform or clip scope that genuinely needs
 // them. A value written inside the scope is forgotten when it closes: the ctx
@@ -45,6 +50,8 @@ export class PaintState {
   private readonly scopes: Key[][] = [];
   private readonly fonts = new Map<ResolvedStyle, string>();
   private readonly gradients = new Map<string, CanvasGradient | null>();
+  /** This tracker's `claimCtx` id. */
+  private readonly writerId = nextCtxWriterId();
 
   /**
    * @param deviceScale — device pixels per CSS pixel on this ctx, as the
@@ -61,7 +68,19 @@ export class PaintState {
      * not color, and the paint sites fill a transparent glyph here too.
      */
     readonly coverage = false,
+    /**
+     * The font metrics the painted result was laid out with
+     * (`layoutFontMetrics`); a font missing from it is measured on this ctx.
+     */
+    private readonly fontMetrics?: FontMetricsTable,
   ) {}
+
+  /** A style's font ascent and descent, as layout measured them (`fontMetrics`). */
+  fontBox(style: ResolvedStyle): { ascent: number; descent: number } {
+    let font = this.fonts.get(style);
+    if (font === undefined) this.fonts.set(style, font = buildCanvasFont(style));
+    return this.fontMetrics?.get(font) ?? getFontMetrics(this.ctx, style);
+  }
 
   private set(key: Key, value: unknown): void {
     if (this.known[key] === value) return;
@@ -76,6 +95,12 @@ export class PaintState {
    * measurement that placed the text.
    */
   font(style: ResolvedStyle): void {
+    // Another writer (a measurer) wrote the ctx since: forget the state it
+    // writes — font, kerning, letter- and word-spacing.
+    if (claimCtx(this.writerId)) {
+      const known = this.known;
+      known.font = known.fontKerning = known.letterSpacing = known.wordSpacing = undefined;
+    }
     let font = this.fonts.get(style);
     if (font === undefined) this.fonts.set(style, font = buildCanvasFont(style));
     this.set('font', font);

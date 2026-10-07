@@ -24,9 +24,9 @@
     "Non-Latin text alignment w=269-271",
     "RTL with inline code knife=2",
     "Rainbow colored text knife=1",
-    "Rich blog post knife=4",
+    "Rich blog post knife=1",
     "Subscript and superscript knife=3",
-    "Text decorations & shadows knife=4"
+    "Text decorations & shadows knife=1"
   ],
   "firefox": [
     "Bidi override with bdo knife=2",
@@ -236,8 +236,8 @@
     "Non-Latin text alignment w=269-271",
     "Non-Latin text alignment w=364-382",
     "RTL with inline code knife=6",
-    "Rich blog post knife=4",
+    "Rich blog post knife=1",
     "Subscript and superscript knife=4",
-    "Text decorations & shadows knife=4"
+    "Text decorations & shadows knife=1"
   ]
 }

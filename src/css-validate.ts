@@ -431,6 +431,7 @@ export const KEYWORDS: Record<string, Set<string>> = {
   'unicode-bidi': set('normal embed isolate bidi-override isolate-override plaintext -webkit-isolate -webkit-isolate-override -webkit-plaintext'),
   'stroke-linejoin': set('miter round bevel miter-clip arcs'),
   'flex-direction': set('row row-reverse column column-reverse'),
+  'box-sizing': set('content-box border-box'),
   'overflow-x': set('visible hidden clip scroll auto overlay'),
   'overflow-y': set('visible hidden clip scroll auto overlay'),
   'border-top-style': set('none hidden dotted dashed solid double groove ridge inset outset'),

@@ -1,8 +1,8 @@
 import type { ShadowOptions, LayoutNode, LayoutBox, LayoutText, ResolvedStyle } from './types.js';
 import {
   BLINK_TEXT_RUN_SHAPING,
-  getFontMetrics,
   hasTextClip,
+  layoutFontMetrics,
   isShiftedVAlign,
   paintLineSnap,
   startsMeasuredRun,
@@ -255,7 +255,7 @@ function fragmentBands(
     const underlineBaseline =
       lineBaseline !== undefined && !isShiftedVAlign(deco.declarer.verticalAlign) ? lineBaseline : baseline;
     // The overline and the line-through hang off the crossed run's ascent.
-    if (deco.line !== 'underline') ascent ??= getFontMetrics(ps.ctx, style).ascent;
+    if (deco.line !== 'underline') ascent ??= ps.fontBox(style).ascent;
     const band = decorationBand(deco, {
       baseline, underlineBaseline, fontSize: style.fontSize, ascent: ascent ?? 0, snap,
     }, left, right - left, ps.deviceScale);
@@ -592,7 +592,7 @@ function shadowPieces(ps: PaintState, group: ShadowGroup): (ShadowFragment & Sha
 
 export function getNodePaintBounds(
   ctx: CanvasRenderingContext2D, node: LayoutNode, passes = collectShadowPasses(node),
-  ps = new PaintState(ctx),
+  ps = new PaintState(ctx, 1, false, layoutFontMetrics.get(node)),
 ): PaintBounds {
   let bounds = foregroundBounds(ps, node);
   for (const groups of passes.values()) for (const group of groups.values()) {
@@ -612,12 +612,13 @@ export function renderNode(
   options: ShadowOptions & { pixelRatio?: number } = {},
 ): void {
   const scale = options.pixelRatio ?? 1;
+  const fontMetrics = layoutFontMetrics.get(node);
   // Paint and bounds measurement share one tracker per ctx: with no caller
   // shadow they run on the same ctx, interleaved.
   const states = new Map<CanvasRenderingContext2D, PaintState>();
   const stateOf = (target: CanvasRenderingContext2D) => {
     let ps = states.get(target);
-    if (!ps) states.set(target, ps = new PaintState(target, scale));
+    if (!ps) states.set(target, ps = new PaintState(target, scale, false, fontMetrics));
     return ps;
   };
   // Shadow scratch canvases of this draw; none without shadows.
@@ -643,7 +644,7 @@ export function renderNode(
         stateOf(destination).finish();
         for (const group of groups.values()) {
           paintTextShadows(destination, shadowPieces(measure, group), group.shadows, (mask, pieces) => {
-            const ps = new PaintState(mask, scale, true);
+            const ps = new PaintState(mask, scale, true, fontMetrics);
             for (const piece of pieces) paintShadowFragment(ps, piece);
           }, scratch);
         }

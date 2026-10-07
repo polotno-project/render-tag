@@ -18,6 +18,7 @@ export function styleFixture(overrides: Partial<ResolvedStyle> = {}): ResolvedSt
     textDecorationLine: 'none',
     textDecorationStyle: 'solid',
     textDecorationColor: 'black',
+    textDecorations: [],
     textShadow: 'none',
     webkitTextStrokeWidth: 0,
     webkitTextStrokeColor: '',

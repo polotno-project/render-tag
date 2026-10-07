@@ -215,7 +215,7 @@ describe('block strut baseline', () => {
   // font-size — the mock ctx returns a fixed ascent/descent), so it runs the
   // full layout() with a system font, here rather than with the mocked
   // strut cases in tests/node/layout-logic.test.ts. Guards the
-  // maxAscent/maxDescent strut seed; without it the small glyph rides ~12px
+  // strut seed in `lineBoxExtent` (`leadedBox(blockStyle)`); without it the small glyph rides ~12px
   // too high.
   it('aligns smaller-only inline text to the block-font baseline (real fonts)', () => {
     const baselineOf = (html: string): number => {

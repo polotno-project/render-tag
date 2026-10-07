@@ -256,7 +256,8 @@ export interface ResolvedStyle {
 
   // Box
   display: string;
-  width: number; // 0 = auto
+  /** px, sizing the box `box-sizing` names (content box by default); 0 = auto. */
+  width: number;
   /** null = auto (the flex automatic min-content floor); number = explicit CSS min-width. */
   minWidth: number | null;
   minHeight: number; // 0 = none
@@ -299,7 +300,7 @@ export interface ResolvedStyle {
   gap: number;
   flexGrow: number;
   flexShrink: number;
-  /** `flex-basis` as a border-box length, or `null` for `auto`. */
+  /** `flex-basis` in px — the box `box-sizing` names, like `width` — or `null` for `auto`. */
   flexBasis: number | null;
 
   // List

@@ -11,7 +11,7 @@
  */
 
 import type { ResolvedStyle, StyledNode } from '../types.js';
-import { Measurer, type MeasureState, hasTextClip, transformTextRuns } from '../layout.js';
+import { Measurer, type FontMetricsTable, type MeasureState, hasTextClip, transformTextRuns } from '../layout.js';
 import { stringToArray } from './grapheme.js';
 import {
   BidiTextBuilder, bidiClass, bidiContextFor, lineLevels, resolveBidi, visualOrder,
@@ -95,6 +95,8 @@ export interface LayoutInput {
   ctx: CanvasRenderingContext2D;
   align: AlignMode;
   textBaseline: TextBaseline;
+  /** Where the call's font metrics are recorded, for paint (`layoutFontMetrics`). */
+  fontMetrics?: FontMetricsTable;
 }
 
 export interface LayoutOutput {
@@ -364,7 +366,7 @@ export function layoutGlyphsOnPath(input: LayoutInput): LayoutOutput {
   // a non-zero wordSpacing reset to 0px).
   // The outer drawTextOnPath/drawTextOnPathLayout calls ctx.save before this
   // and ctx.restore after, so the leak doesn't reach the caller.
-  const m = new Measurer(ctx);
+  const m = new Measurer(ctx, input.fontMetrics ?? new Map());
   // Bidi levels over the whole text: the path is one line of one paragraph.
   const builder = new BidiTextBuilder();
   const starts = segments.map((seg) => builder.push(seg.text, seg.bidi ?? null));
@@ -379,6 +381,9 @@ export function layoutGlyphsOnPath(input: LayoutInput): LayoutOutput {
     const lh = seg.style.lineHeight > 0 ? seg.style.lineHeight : seg.style.fontSize;
     if (lh > maxLineHeight) maxLineHeight = lh;
     const state = m.stateOf(seg.style);
+    // A decoration hangs off its DECLARER's metrics: record them with the
+    // layout, so paint reads what this call measured (`layoutFontMetrics`).
+    for (const deco of seg.style.textDecorations) m.metrics(deco.declarer);
     const segGlyphs = preGlyphsForSegment(
       m, state, seg, levels.subarray(starts[i], starts[i] + seg.text.length));
     if (segGlyphs.length === 0) return;

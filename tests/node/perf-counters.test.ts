@@ -5,6 +5,9 @@
  * `recording-ctx.ts`, each fixture costs an exact number of measureText calls,
  * measured characters, font, kerning and letter-spacing assignments,
  * fillText/save/restore calls, LayoutText runs, styled-tree style objects,
+ * the passes that segment and measure an inline formatting context's text
+ * (`layout.tokenizePasses`), the segments they produce and the per-word
+ * objects layout allocates (`layout.wordObjects`),
  * selector sibling steps, and the scratch canvases a text-shadow draw creates
  * through `createCanvas` (with the most pixels they held at once, counting a
  * canvas from creation until it is released at 0×0), identical on every
@@ -29,6 +32,7 @@ import { DOMParser as LinkedomDOMParser } from 'linkedom';
 import { layout, drawLayout, setDOMParser } from '../../src/index.node.ts';
 import { parseHTML } from '../../src/parse.ts';
 import { resolveStylesFromCSS } from '../../src/css-resolver.ts';
+import { buildLayoutTree, type LayoutStats } from '../../src/layout.ts';
 import type { StyledNode } from '../../src/types.ts';
 import { recordingCtx } from '../helpers/recording-ctx.ts';
 import { collectTexts } from '../helpers/layout-tree.ts';
@@ -75,6 +79,17 @@ const FIXTURES: Record<string, Fixture> = {
       Array.from({ length: 50 }, (_, i) => `<p>${i}: ${WORDS.slice(0, 30).join(' ')}</p>`).join('') + '</div>',
     width: 600,
     pixelRatio: 2,
+  },
+  // Flex leaves are sized twice (min- and max-content) before they are laid
+  // out, and a nested row asks again for its whole subtree: every one of
+  // those passes must read ONE segmentation of each leaf's text.
+  'flex with nested leaves': {
+    html: `<div style="display:flex;gap:8px;font-size:14px">${[0, 1].map((i) =>
+      `<div style="display:flex;flex-grow:1;gap:4px">${[0, 1].map((j) =>
+        `<div style="display:flex;flex-grow:1">` +
+        `<div style="flex-grow:1">alpha beta gamma ${i}${j} <b>bold</b> <i>words</i> and some more</div>` +
+        `<div style="flex-grow:1">delta epsilon ${j} <b>bold</b> <i>words</i></div></div>`).join('')}</div>`).join('')}</div>`,
+    width: 800,
   },
   'ordered list (4000 items)': {
     html: `<ol style="font-size:14px;margin:0">${Array.from({ length: 4000 }, (_, i) => `<li>Item ${i} with a few words</li>`).join('')}</ol>`,
@@ -136,6 +151,22 @@ function countSiblingSteps<T>(sample: Element, fn: () => T): [T, number] {
   }
 }
 
+/**
+ * Layout's own work, which no ctx call shows: `buildLayoutTree` takes a
+ * `stats` sink (internal; `layout()` never passes one). Styles are resolved
+ * as `layout()` resolves them for these fixtures (none uses ch/ex).
+ */
+function layoutStats(fixture: Fixture): LayoutStats {
+  const rec = recordingCtx(fixture.width, 100000);
+  const { fragment, css } = parseHTML(fixture.html);
+  const tree = resolveStylesFromCSS(fragment, css, fixture.width, {
+    viewport: { width: fixture.width, height: fixture.width },
+  });
+  const stats: LayoutStats = { tokenizePasses: 0, segments: 0, wordObjects: 0 };
+  buildLayoutTree(rec.ctx, tree, fixture.width, false, undefined, stats);
+  return stats;
+}
+
 function count(fixture: Fixture): Counters {
   const rec = recordingCtx(fixture.width, 100000);
   const result = layout({ html: fixture.html, width: fixture.width, ctx: rec.ctx });
@@ -146,6 +177,7 @@ function count(fixture: Fixture): Counters {
   const calls = rec.counts.calls;
   const drawn = (name: string) => (calls[name] ?? 0) - (afterLayout.calls[name] ?? 0);
   const tree = styledTreeCounts(fixture);
+  const work = layoutStats(fixture);
   return {
     sourceChars: sourceChars(fixture.html),
     'resolve.styledNodes': tree.nodes,
@@ -157,6 +189,9 @@ function count(fixture: Fixture): Counters {
     'layout.fontSets': afterLayout.calls['set:font'] ?? 0,
     'layout.kerningSets': afterLayout.calls['set:fontKerning'] ?? 0,
     'layout.letterSpacingSets': afterLayout.calls['set:letterSpacing'] ?? 0,
+    'layout.tokenizePasses': work.tokenizePasses,
+    'layout.segments': work.segments,
+    'layout.wordObjects': work.wordObjects,
     'draw.measureText': drawn('measureText'),
     'draw.fontSets': drawn('set:font'),
     'draw.fillText': drawn('fillText'),

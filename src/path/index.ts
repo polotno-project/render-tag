@@ -2,7 +2,7 @@
  * render-tag/path — draw rich text along an SVG path on a 2D canvas.
  *
  * Reuses render-tag's HTML+CSS pipeline (parseHTML, resolveStylesFromCSS) and
- * font primitives (applyFont) so styled spans, fonts, and colors come straight
+ * font primitives (the `Measurer`) so styled spans, fonts, and colors come straight
  * from the input HTML — no separate option surface.
  *
  *   import { drawTextOnPath } from 'render-tag/path';
@@ -33,7 +33,7 @@
 import type { ShadowOptions, ResolvedStyle, DecorationEntry } from '../types.js';
 import { parseHTML } from '../parse.js';
 import { resolveStylesFromCSS, paintOrderHasStrokeFirst, isTransparent } from '../css-resolver.js';
-import { hasTextClip, getFontMetrics, sameDecorationBand, Measurer } from '../layout.js';
+import { hasTextClip, sameDecorationBand, Measurer, layoutFontMetrics, type FontMetricsTable } from '../layout.js';
 import {
   parseTextShadows,
   parseLinearGradient,
@@ -132,22 +132,27 @@ export function layoutTextOnPath(config: LayoutTextOnPathConfig): TextOnPathLayo
   try {
     // No viewport here: a vw/vh declaration is ignored. ch/ex measure with
     // the ctx, inside the save/restore.
+    const fontMetrics: FontMetricsTable = new Map();
     let unitMeasurer: Measurer | undefined;
     const tree = resolveStylesFromCSS(fragment, css, Number.MAX_SAFE_INTEGER, {
-      fontUnits: (style) => (unitMeasurer ??= new Measurer(measureCtx)).fontUnits(style),
+      fontUnits: (style) => (unitMeasurer ??= new Measurer(measureCtx, fontMetrics)).fontUnits(style),
     });
     const segments = flattenSegments(tree);
     const result = layoutGlyphsOnPath({
-      segments, path, ctx: measureCtx, align, textBaseline,
+      segments, path, ctx: measureCtx, align, textBaseline, fontMetrics,
       direction: tree.style.direction === 'rtl' ? 'rtl' : 'ltr',
     });
     let paintBounds: PaintBounds | undefined;
-    return {
+    const layout: TextOnPathLayout = {
       ...result,
       get paintBounds() {
-        return paintBounds ??= measurePaintBounds(measureCtx, () => pathPaintBounds(new PaintState(measureCtx), result));
+        return paintBounds ??= measurePaintBounds(measureCtx,
+          () => pathPaintBounds(new PaintState(measureCtx, 1, false, fontMetrics), result));
       },
     };
+    // Paint reads the metrics this call measured (`layoutFontMetrics`).
+    layoutFontMetrics.set(layout, fontMetrics);
+    return layout;
   } finally {
     if (!ownsCtx) measureCtx.restore();
   }
@@ -223,12 +228,13 @@ export function drawTextOnPathLayout(config: DrawTextOnPathLayoutConfig): void {
   const { layout, ctx } = config;
   if (layout.glyphs.length === 0) return;
   const tb = layout.textBaseline;
+  const fontMetrics = layoutFontMetrics.get(layout);
 
   // One tracker per ctx: with no caller shadow, bounds and paint share ctx.
   const states = new Map<CanvasRenderingContext2D, PaintState>();
   const stateOf = (target: CanvasRenderingContext2D) => {
     let ps = states.get(target);
-    if (!ps) states.set(target, ps = new PaintState(target));
+    if (!ps) states.set(target, ps = new PaintState(target, 1, false, fontMetrics));
     return ps;
   };
   // Shadow scratch canvases of this draw; none without shadows.
@@ -258,7 +264,7 @@ export function drawTextOnPathLayout(config: DrawTextOnPathLayoutConfig): void {
       for (const group of groups.values()) {
         // One piece: each tile the group spans repaints all its glyphs.
         paintTextShadows(target, [{ bounds: groupInk(measure, group, tb) }], group.shadows, mask => {
-          const maskState = new PaintState(mask, 1, true);
+          const maskState = new PaintState(mask, 1, true, fontMetrics);
           group.glyphs.forEach(glyphs => foreground(maskState, glyphs));
         }, scratch);
       }
@@ -672,7 +678,7 @@ function drawClipPaintDecoration(
   const lineWidth = bandWidthFor(deco);
   if (lineWidth <= 0) return;
   const { ctx } = ps;
-  const declarerDescent = getFontMetrics(ctx, deco.declarer).descent;
+  const declarerDescent = ps.fontBox(deco.declarer).descent;
   for (const g of group) {
     // State written inside the transform scope is forgotten when it closes.
     ps.save();
@@ -700,7 +706,7 @@ function strokeDecorationAlongGlyphs(
   const lineWidth = bandWidthFor(deco);
   if (lineWidth <= 0) return;
   const { ctx } = ps;
-  const declarerDescent = getFontMetrics(ctx, deco.declarer).descent;
+  const declarerDescent = ps.fontBox(deco.declarer).descent;
 
   // Per-glyph local y for this decoration kind. The decoration position is
   // baseline-relative, so we shift by the baseline's local-y under the

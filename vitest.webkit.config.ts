@@ -11,6 +11,7 @@ export default browserConfig('webkit', 60_000, [
   'tests/line-box-parity.test.ts',
   'tests/line-baseline-parity.test.ts',
   'tests/margin-collapse-parity.test.ts',
+  'tests/box-model-parity.test.ts',
   'tests/bidi-order-parity.test.ts',
   'tests/line-metadata.test.ts',
   'tests/cross-browser.compare.test.ts',

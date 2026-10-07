@@ -114,3 +114,38 @@ lane('a decoration restarts at each text fragment, like the engine', () => {
     });
   }
 });
+
+lane('an ancestor decoration skips an atomic inline, like the engine', () => {
+  // CSS Text Decoration 3 §2.1: a decoration does not reach the content of an
+  // inline-block, and the declarer's band leaves a gap where the box sits —
+  // in both engines. Before, the inline-block's text carried the ancestor's
+  // entry and painted the band straight through.
+  /** Per device column: does any band pixel sit in it? */
+  const columns = (m: Float32Array, width: number, height: number) =>
+    Array.from({ length: width }, (_, x) => {
+      for (let y = 0; y < height; y++) if (m[y * width + x] > 0.5) return true;
+      return false;
+    });
+  for (const display of ['inline-block', 'inline-flex', 'inline-table']) {
+    it(display, async () => {
+      const html =
+        `<div style="font-family:'Open Sans';font-size:32px;line-height:64px;color:transparent;padding:10px 0 0 10px">` +
+        `<span style="text-decoration:underline solid red;text-decoration-skip-ink:none">MMMM ` +
+        `<span style="display:${display}">MMMM</span> MMMM</span></div>`;
+      const css = await loadMultiFontCss();
+      const width = 480, height = 100;
+      const r = await compareNativeRenders(html, css, width, height, 0.1, 1);
+      const lib = columns(mask(r.libCanvas), width, height);
+      const dom = columns(mask(r.domCanvas), width, height);
+      const gap = (cols: boolean[]) => {
+        const first = cols.indexOf(true);
+        const last = cols.lastIndexOf(true);
+        return cols.slice(first, last + 1).filter((c) => !c).length;
+      };
+      // The engine leaves a gap of the box's width, and so must the library.
+      expect(gap(dom), 'native gap').toBeGreaterThan(60);
+      const mismatched = lib.filter((c, x) => c !== dom[x]).length;
+      expect(mismatched, 'band columns').toBeLessThanOrEqual(4);
+    });
+  }
+});

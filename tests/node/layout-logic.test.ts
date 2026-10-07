@@ -1058,6 +1058,20 @@ describe('Layout logic (mocked measureText)', () => {
       expect(minContentWidth('AAAAA BBBBB', { whiteSpace: 'nowrap' })).toBe(110);
     });
 
+    // Max-content, min-content and the layout read ONE prepared copy of the
+    // item's text, in that order. A tab's width is where a flow put it, so
+    // no flow may leave it behind: had max-content (tab after "ab" at 20 →
+    // advance 60) kept its width, min-content would take 60 as the interval
+    // and hang the tab 40 wide instead of reaching the stop at 80.
+    it('a tab is placed afresh by every sizing pass', () => {
+      // Bases 100 and 300 over 200: item 0 would shrink to 50, so it freezes
+      // at its min-content, "ab" + the tab hanging to the stop at 80.
+      expect(flexRow([
+        block('div', [textNode('ab\tcd', { whiteSpace: 'break-spaces' })], { whiteSpace: 'break-spaces' }),
+        block('div', [textNode('B')], { flexBasis: 300 }),
+      ])).toEqual([80, 120]);
+    });
+
     it('gap comes off the space the items share', () => {
       expect(flexRow([
         block('div', [textNode('A')], { flexGrow: 1, flexBasis: 0 }),
@@ -1683,7 +1697,7 @@ describe('Layout logic (mocked measureText)', () => {
       // "ABCDEFGH" with char=10 + letter-spacing=5 → 15px effective per char.
       // Container 60px: cumulative "ABCD"=60 fits, "ABCDE"=75 wraps → 4 chars/line.
       // A trailing run with letter-spacing:0 is tokenized last, so ctx.letterSpacing
-      // is left at 0px — exposing whether breakWordIfNeeded re-sets it per word.
+      // is left at 0px — exposing whether splitSegment re-sets it per word.
       // If it ignored letter-spacing it would fit 6 chars (60px) → "ABCDEF".
       const tree = block('div', [
         block('p', [
@@ -2043,6 +2057,13 @@ describe('Layout logic (mocked measureText)', () => {
   // ─── CJK breaking ─────────────────────────────────────────────────
 
   describe('CJK character breaking', () => {
+    it('breaks CJK at character boundaries in preserved white space too', () => {
+      const tree = block('div', [
+        block('p', [textNode('\u4e00\u4e8c\u4e09\u56db', { whiteSpace: 'pre-wrap' })], { whiteSpace: 'pre-wrap' }),
+      ]);
+      expect(getLines(doLayout(tree, 25))).toEqual(['\u4e00\u4e8c', '\u4e09\u56db']);
+    });
+
     it('breaks CJK at character boundaries', () => {
       // Each CJK char is 10px, container is 25px → 2 chars per line
       const tree = block('div', [
@@ -2599,5 +2620,244 @@ describe('<wbr> across text runs', () => {
   it('a trailing zero-width space in a run breaks before the next run', () => {
     const tree = block('div', [block('p', [inline('b', [textNode('hello​')]), textNode('world')])]);
     expect(getLines(doLayout(tree, 80))).toEqual(['hello', 'world']);
+  });
+});
+
+describe('Box model: box-sizing, shrink-to-fit, percentages', () => {
+  const ROOT = 'line-height:20px';
+  /** Boxes marked `background: rgb(N, 0, 1)`, by N. */
+  function marked(html: string, width = 400): Map<number, LayoutBox> {
+    const { layoutRoot } = layout({ html: `<div style="${ROOT}">${html}</div>`, width, ctx: mockCtx() });
+    const out = new Map<number, LayoutBox>();
+    const walk = (node: LayoutBox | LayoutText) => {
+      if (node.type !== 'box') return;
+      const m = /^rgb\((\d+), ?0, ?1\)$/.exec(node.style.backgroundColor);
+      if (m) {
+        // One box per marked element: a second one is a box painted twice.
+        if (out.has(Number(m[1]))) throw new Error(`marker ${m[1]} on more than one box`);
+        out.set(Number(m[1]), node);
+      }
+      for (const child of node.children) walk(child as LayoutBox | LayoutText);
+    };
+    walk(layoutRoot);
+    return out;
+  }
+  const bg = (n: number) => `background:rgb(${n},0,1);`;
+  const geometry = (box: LayoutBox | undefined) => box && { x: box.x, y: box.y, width: box.width, height: box.height };
+
+  describe('box-sizing', () => {
+    it('content-box (the default) adds padding and border to an explicit width', () => {
+      const boxes = marked(`<div style="${bg(1)}width:200px;padding:10px;border:2px solid">x</div>`);
+      expect(boxes.get(1)!.width).toBe(224);
+    });
+
+    it('border-box keeps the width as the border box', () => {
+      const boxes = marked(`<div style="${bg(1)}width:200px;padding:10px;border:2px solid;box-sizing:border-box">x</div>`);
+      expect(boxes.get(1)!.width).toBe(200);
+    });
+
+    it('a border-box width under the padding and border is floored at them', () => {
+      const boxes = marked(`<div style="${bg(1)}width:10px;padding:10px;border:2px solid;box-sizing:border-box">x</div>`);
+      expect(boxes.get(1)!.width).toBe(24);
+    });
+
+    it('min-height follows box-sizing too', () => {
+      const frame = 'padding:10px;border:2px solid';
+      expect(marked(`<div style="${bg(1)}min-height:50px;${frame}">x</div>`).get(1)!.height).toBe(74);
+      expect(marked(`<div style="${bg(1)}min-height:50px;${frame};box-sizing:border-box">x</div>`).get(1)!.height).toBe(50);
+    });
+
+    it('a child percentage resolves against a content-box parent\'s width', () => {
+      const boxes = marked(`<div style="${bg(1)}width:200px;padding:20px"><div style="${bg(2)}width:50%">x</div></div>`);
+      expect(geometry(boxes.get(1))).toMatchObject({ width: 240 });
+      expect(geometry(boxes.get(2))).toMatchObject({ x: 20, width: 100 });
+    });
+
+    it('an inline-block width follows box-sizing', () => {
+      const frame = 'display:inline-block;width:100px;padding:10px;border:2px solid';
+      expect(marked(`<span style="${bg(1)}${frame}">x</span>`).get(1)!.width).toBe(124);
+      expect(marked(`<span style="${bg(1)}${frame};box-sizing:border-box">x</span>`).get(1)!.width).toBe(100);
+    });
+
+    it('flex-basis is a content-box size too: the frame comes on top', () => {
+      const boxes = marked(
+        `<div style="display:flex;width:300px">` +
+        `<div style="${bg(1)}flex:0 0 100px;padding:10px;border:2px solid">x</div>` +
+        `<div style="${bg(2)}flex:1">y</div></div>`);
+      expect(geometry(boxes.get(1))).toMatchObject({ x: 0, width: 124 });
+      expect(geometry(boxes.get(2))).toMatchObject({ x: 124, width: 176 });
+    });
+  });
+
+  describe('inline-block shrink-to-fit', () => {
+    it('measures its content in the content\'s own styles', () => {
+      // "Big bold" carries letter-spacing (the mock's only per-style width):
+      // 8 x (10 + 5) + " small" 6 x 10 = 180 on ONE line.
+      const boxes = marked(`<span style="${bg(1)}display:inline-block"><b style="letter-spacing:5px">Big bold</b> small</span>`);
+      expect(geometry(boxes.get(1))).toMatchObject({ width: 180, height: 20 });
+    });
+
+    it('takes the widest line between forced breaks, not the whole text', () => {
+      const boxes = marked(`<span style="${bg(1)}display:inline-block">first line<br>second</span>`);
+      expect(geometry(boxes.get(1))).toMatchObject({ width: 100, height: 40 });
+    });
+
+    it('includes its own text-indent in its preferred width', () => {
+      const boxes = marked(`<span style="${bg(1)}display:inline-block;text-indent:20px">alpha beta</span>`);
+      expect(geometry(boxes.get(1))).toMatchObject({ width: 120, height: 20 });
+    });
+
+    it('sizes a nested inline-block from its own content', () => {
+      const boxes = marked(
+        `<span style="${bg(1)}display:inline-block">a <span style="${bg(2)}display:inline-block;letter-spacing:5px">inner</span> b</span>`);
+      // inner: 5 x 15 = 75; outer: "a " 20 + 75 + " b" 20.
+      expect(boxes.get(2)!.width).toBe(75);
+      expect(geometry(boxes.get(1))).toMatchObject({ width: 115, height: 20 });
+    });
+
+    it('stays one atomic box however narrow the line, CJK content included', () => {
+      // Shrink-to-fit takes the containing block's width (30), not what is
+      // left of the line: the box moves to a line of its own, whole.
+      const boxes = marked(`<div style="width:30px">a <span style="${bg(1)}display:inline-block">中文字</span> b</div>`);
+      expect(geometry(boxes.get(1))).toMatchObject({ x: 0, y: 20, width: 30, height: 20 });
+      // Narrower than its content, its own content wraps inside it.
+      const narrow = marked(`<div style="width:20px"><span style="${bg(1)}display:inline-block">中文字</span></div>`);
+      expect(geometry(narrow.get(1))).toMatchObject({ width: 20, height: 40 });
+    });
+  });
+
+  describe('percentages against the used containing block', () => {
+    it('inside a flex item, against the item\'s used width', () => {
+      const boxes = marked(
+        `<div style="display:flex;width:300px"><div style="${bg(1)}flex:1">` +
+        `<div style="${bg(2)}width:50%">x</div><div style="${bg(3)}margin-left:10%">y</div></div>` +
+        `<div style="flex:2">z</div></div>`);
+      expect(boxes.get(1)!.width).toBe(100);
+      expect(geometry(boxes.get(2))).toMatchObject({ x: 0, width: 50 });
+      expect(geometry(boxes.get(3))).toMatchObject({ x: 10, width: 90 });
+    });
+
+    it('a percentage width inside a content-sized item counts as auto for its size', () => {
+      const boxes = marked(
+        `<div style="display:flex;width:390px"><div style="${bg(1)}flex:none">` +
+        `<div style="${bg(2)}width:50%">alpha beta</div></div></div>`);
+      expect(boxes.get(1)!.width).toBe(100);
+      expect(boxes.get(2)!.width).toBe(50);
+    });
+
+    it('percentage padding inside an inline-block adds nothing to its size, then resolves against it', () => {
+      const boxes = marked(
+        `<span style="${bg(1)}display:inline-block">ab <span style="background:red;padding-left:20%">cd</span> ef</span>`);
+      // Max-content "ab cd ef" = 80 with the padding at 0; the 16px padding
+      // it then resolves to pushes "ef" onto a second line, as in the DOM.
+      expect(geometry(boxes.get(1))).toMatchObject({ width: 80, height: 40 });
+    });
+
+    it('an inline-block percentage width inside a flex item', () => {
+      const boxes = marked(
+        `<div style="display:flex;width:300px"><div style="flex:1">` +
+        `<span style="${bg(1)}display:inline-block;width:50%">x</span></div><div style="flex:2">y</div></div>`);
+      expect(boxes.get(1)!.width).toBe(50);
+    });
+  });
+
+  describe('percentages of the box\'s own width (text-indent, gap)', () => {
+    const textX = (html: string, text: string, width = 400) => {
+      const { layoutRoot } = layout({ html: `<div style="${ROOT}">${html}</div>`, width, ctx: mockCtx() });
+      return collectTexts(layoutRoot).find((t) => t.text === text)!.x;
+    };
+
+    it('a text-indent percentage resolves against the block\'s own content width', () => {
+      // 10% of 300, not of the 400px containing block.
+      expect(textX(`<div style="width:300px;text-indent:10%">ab</div>`, 'ab')).toBe(30);
+    });
+
+    it('an inherited text-indent percentage resolves against the inheriting block', () => {
+      expect(textX(`<div style="width:300px;text-indent:10%"><div style="width:100px">ab</div></div>`, 'ab')).toBe(10);
+    });
+
+    it('an inline-block inheriting a text-indent percentage sizes without it, then indents by it', () => {
+      // Max-content "bb cc" = 50 with the indent cyclic (0); laid out at 50,
+      // the 5px indent (10% of 50) pushes "cc" onto a second line — the DOM
+      // gives 39.06x40 for the same shape in Open Sans (box-model-parity).
+      const boxes = marked(`<div style="width:300px;text-indent:10%">a <span style="${bg(1)}display:inline-block">bb cc</span></div>`);
+      expect(geometry(boxes.get(1))).toMatchObject({ width: 50, height: 40 });
+    });
+
+    it('a flex gap percentage resolves against the container\'s own content width', () => {
+      const boxes = marked(
+        `<div style="display:flex;width:300px;gap:10%">` +
+        `<div style="${bg(1)}flex:none">a</div><div style="${bg(2)}flex:none">b</div></div>`);
+      expect(geometry(boxes.get(2))).toMatchObject({ x: 40 });
+    });
+  });
+
+  describe('atomic inlines in the line text', () => {
+    it('lines never carry U+FFFC: an inline-block whose content collapses adds no text', () => {
+      for (const html of [
+        '<p>a <span style="display:inline-block"> </span> b</p>',
+        '<p>a <span style="display:inline-block">\t</span> b</p>',
+        '<p>a <span style="display:inline-block">bb</span> c</p>',
+      ]) {
+        const { lines } = layout({ html, width: 300, ctx: mockCtx() });
+        expect(lines.map((l) => l.text).join('\n'), html).not.toContain('\uFFFC');
+      }
+      const { lines } = layout({ html: '<p>a <span style="display:inline-block"> </span> b</p>', width: 300, ctx: mockCtx() });
+      expect(lines.map((l) => l.text)).toEqual(['a  b']);
+    });
+
+    it('debug line entries show an inline-block\'s content, not U+FFFC', () => {
+      const entries: { type: string; data: Record<string, unknown> }[] = [];
+      layout({
+        html: '<p>go <span style="display:inline-block">Active</span> now</p>',
+        width: 300, ctx: mockCtx(), debug: (e) => entries.push(e),
+      });
+      const texts = entries
+        .filter((e) => e.type === 'line-commit' || e.type === 'line-wrap')
+        .map((e) => String(e.data.text ?? '') + String(e.data.lineText ?? ''));
+      expect(texts.length).toBeGreaterThan(0);
+      for (const text of texts) expect(text).not.toContain('\uFFFC');
+      expect(texts).toContain('go Active now');
+    });
+  });
+
+  it('an anonymous flex item does not copy the container\'s box', () => {
+    const { layoutRoot } = layout({
+      html: `<div style="${ROOT}"><div style="display:flex;padding:10px;border:2px solid red">text<section style="flex:1">s</section></div></div>`,
+      width: 300, ctx: mockCtx(),
+    });
+    const bordered: LayoutBox[] = [];
+    const walk = (node: LayoutBox | LayoutText) => {
+      if (node.type !== 'box') return;
+      if (node.style.borderTopWidth > 0) bordered.push(node);
+      for (const child of node.children) walk(child as LayoutBox | LayoutText);
+    };
+    walk(layoutRoot);
+    expect(bordered).toHaveLength(1);
+    // The anonymous item sits at the container's content edge, 40px wide.
+    const text = collectTexts(layoutRoot).find((t) => t.text === 'text')!;
+    expect(text.x).toBe(12);
+  });
+
+  it('text decorations do not propagate into an inline-block', () => {
+    const { layoutRoot } = layout({
+      html: `<p style="text-decoration:underline">aa <span style="display:inline-block">bb</span> cc</p>`,
+      width: 300, ctx: mockCtx(),
+    });
+    const texts = collectTexts(layoutRoot);
+    const byText = (t: string) => texts.find((n) => n.text === t)!.style.textDecorations.map((d) => d.line);
+    expect(byText('aa')).toEqual(['underline']);
+    expect(byText('bb')).toEqual([]);
+    expect(byText('cc')).toEqual(['underline']);
+  });
+
+  it('an inline-block\'s own decoration still applies to its content', () => {
+    const { layoutRoot } = layout({
+      html: `<p style="text-decoration:underline">aa <span style="display:inline-block;text-decoration:line-through">bb</span></p>`,
+      width: 300, ctx: mockCtx(),
+    });
+    const bb = collectTexts(layoutRoot).find((n) => n.text === 'bb')!;
+    expect(bb.style.textDecorations.map((d) => d.line)).toEqual(['line-through']);
+    expect(bb.style.textDecorationLine).toBe('line-through');
   });
 });

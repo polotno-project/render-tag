@@ -77,13 +77,73 @@ export const UNDERLINE_OFFSET_PCT: unique symbol = Symbol('underlineOffsetPct');
 /** `overflow-x`/`-y`, read only to find BFC roots (`establishesBfc`). */
 export const OVERFLOW_X: unique symbol = Symbol('overflowX');
 export const OVERFLOW_Y: unique symbol = Symbol('overflowY');
+/** `box-sizing`: 'border-box', or undefined for the initial `content-box` (`borderBoxSize`). */
+const BOX_SIZING: unique symbol = Symbol('boxSizing');
+/** The containing-block percentages behind this style's lengths (`resolvePercentages`). */
+const PERCENT_LENGTHS: unique symbol = Symbol('percentLengths');
 
 interface PrivateStyleFields {
   [LINE_HEIGHT_MULTIPLIER]: number | undefined;
   [UNDERLINE_OFFSET_PCT]: number | undefined;
   [OVERFLOW_X]: string | undefined;
   [OVERFLOW_Y]: string | undefined;
+  [BOX_SIZING]: string | undefined;
+  [PERCENT_LENGTHS]: PercentLengths | undefined;
 }
+
+/**
+ * The ResolvedStyle fields a percentage of a WIDTH can set: the containing
+ * block's width, except for the `OWN_PERCENT_FIELDS`.
+ */
+type PercentField =
+  | 'marginTop' | 'marginRight' | 'marginBottom' | 'marginLeft'
+  | 'paddingTop' | 'paddingRight' | 'paddingBottom' | 'paddingLeft'
+  | 'width' | 'minWidth' | 'flexBasis' | 'gap' | 'textIndent';
+const PERCENT_FIELDS: ReadonlySet<string> = new Set<PercentField>([
+  'marginTop', 'marginRight', 'marginBottom', 'marginLeft',
+  'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
+  'width', 'minWidth', 'flexBasis', 'gap', 'textIndent',
+]);
+/**
+ * Percentages of the box's OWN content width, not its containing block's:
+ * `text-indent` (CSS Text 3 §8.1: the block container's own inner inline
+ * size) and a flex container's `gap` (CSS Box Alignment 3 §8.3: its content
+ * box). Measured in Chromium and WebKit: `width:300px; text-indent:10%`
+ * indents 30px inside a 400px parent, and `gap:10%` there is 30px. An
+ * inherited `text-indent` inherits the PERCENTAGE (its computed value), so
+ * it resolves against the inheriting block (`inheritPercentages`).
+ * `resolveOwnPercentages` resolves them once the box's width is known.
+ */
+const OWN_PERCENT_FIELDS: ReadonlySet<PercentField> = new Set<PercentField>(['textIndent', 'gap']);
+
+/**
+ * The side table behind a style's percentage lengths. The resolver threads a
+ * containing-block width down the tree (`cbWidth`), exact for block flow;
+ * where layout decides the width instead — a flex item, a table cell, a
+ * shrink-to-fit inline-block — it re-resolves the declarations kept here
+ * against the width it settled on (`resolvePercentages`), and intrinsic
+ * sizing reads them with the percentage at 0 (`intrinsicStyle`). Only a
+ * style that declared a percentage has one.
+ */
+interface PercentLengths {
+  /** What the declarations resolved against, the percentage aside: a snapshot of the element's basis. */
+  readonly basis: LengthBasis;
+  /**
+   * Field → the (physical) declaration that set it, value as written — and,
+   * for one inherited from an ancestor, the basis of the element that
+   * declared it (its `em` is that element's).
+   */
+  readonly entries: Map<PercentField, PercentEntry>;
+  /** The containing-block width the fields hold values for. */
+  cb: number;
+  /** The own content width the `OWN_PERCENT_FIELDS` hold values for. */
+  own?: number;
+  /** `intrinsicStyle`'s copy, and the style it was made for. */
+  intrinsic?: ResolvedStyle;
+  intrinsicFor?: ResolvedStyle;
+}
+
+type PercentEntry = readonly [property: string, value: string, basis?: LengthBasis];
 
 type InternalStyle = ResolvedStyle & PrivateStyleFields;
 
@@ -171,11 +231,13 @@ function defaultStyle(): ResolvedStyle {
   } as InternalStyle;
   // Assigned, not written as computed keys: a literal with computed keys
   // loses V8's fast literal path (defaultStyle went from 1% to 12% of resolve
-  // time). Always the same four, in the same order, so the shape is shared.
+  // time). Always the same six, in the same order, so the shape is shared.
   style[LINE_HEIGHT_MULTIPLIER] = undefined;
   style[UNDERLINE_OFFSET_PCT] = undefined;
   style[OVERFLOW_X] = undefined;
   style[OVERFLOW_Y] = undefined;
+  style[BOX_SIZING] = undefined;
+  style[PERCENT_LENGTHS] = undefined;
   return style;
 }
 
@@ -748,7 +810,7 @@ const PROPERTY_FIELDS: Record<string, readonly (keyof InternalStyle)[]> = {
   'border-top-left-radius': ['borderTopLeftRadius'], 'border-top-right-radius': ['borderTopRightRadius'],
   'border-bottom-right-radius': ['borderBottomRightRadius'], 'border-bottom-left-radius': ['borderBottomLeftRadius'],
   'flex-direction': ['flexDirection'], gap: ['gap'], 'flex-grow': ['flexGrow'], 'flex-shrink': ['flexShrink'],
-  'flex-basis': ['flexBasis'],
+  'flex-basis': ['flexBasis'], 'box-sizing': [BOX_SIZING],
 };
 
 /** The properties render-tag inherits (see `inheritFont` and `inheritFrom`). */
@@ -851,12 +913,181 @@ interface DeclarationEnv {
   containerWidth: number;
   /** The parent's direction: logical properties map through it. */
   direction: string;
+  /** Set when the declaration just applied read a percentage of `containerWidth` (`cbLengthOf`). */
+  percent: boolean;
 }
 
 /** A `<length-percentage>` with `percentBase` as 100%; NaN when invalid. */
 function lengthOf(value: string, env: DeclarationEnv, percentBase: number): number {
   env.b.percent = percentBase;
   return resolveLength(value, env.b);
+}
+
+/**
+ * A `<length-percentage>` of the containing block's width. A percentage is
+ * flagged (`env.percent`) so the declaration is kept for layout to resolve
+ * again once it knows the width it actually uses (`PercentLengths`).
+ */
+function cbLengthOf(value: string, env: DeclarationEnv): number {
+  if (value.includes('%')) env.percent = true;
+  return lengthOf(value, env, env.containerWidth);
+}
+
+/** Atomic inline-level boxes: their content is a formatting context of its own. */
+const ATOMIC_INLINE = new Set(['inline-block', 'inline-flex', 'inline-grid', 'inline-table', '-webkit-inline-box']);
+
+/**
+ * Record the cascade's latest word on a containing-block-relative field:
+ * `value` when the declaration that set it used a percentage, null when a
+ * later one (or a CSS-wide keyword) replaced it with a fixed length.
+ * `env.b` (the element's basis, re-aimed per element) is copied on first use.
+ */
+function trackPercent(
+  style: ResolvedStyle, property: string, value: string | null, env: DeclarationEnv, cbWidth: number,
+): void {
+  const direction = env.direction;
+  const logical = LOGICAL_PROPERTIES[property];
+  const physical = logical ? logical[direction === 'rtl' ? 1 : 0] : property;
+  const field = PROPERTY_FIELDS[physical]?.[0];
+  if (field === undefined || !PERCENT_FIELDS.has(field as string)) return;
+  const internal = style as InternalStyle;
+  let table = internal[PERCENT_LENGTHS];
+  if (value === null) {
+    table?.entries.delete(field as PercentField);
+    return;
+  }
+  if (!table) {
+    table = internal[PERCENT_LENGTHS] = { basis: { ...env.b }, entries: new Map(), cb: cbWidth };
+  }
+  table.entries.set(field as PercentField, [physical, value]);
+}
+
+/**
+ * Re-resolve `style`'s percentage lengths against `cbWidth`, the width layout
+ * gave its containing block, and write the used values into the style. A
+ * no-op for a style with no percentage, or already at that width (the
+ * resolver's own width included, so block flow never moves). True when a
+ * value changed.
+ */
+export function resolvePercentages(style: ResolvedStyle, cbWidth: number): boolean {
+  const table = (style as InternalStyle)[PERCENT_LENGTHS];
+  if (!table || table.cb === cbWidth || table.entries.size === 0) return false;
+  table.cb = cbWidth;
+  return applyPercentEntries(style, table, cbWidth, false);
+}
+
+/**
+ * Resolve `style`'s percentages of its OWN content width
+ * (`OWN_PERCENT_FIELDS`: text-indent, gap) against `contentWidth`, the width
+ * its content box settled on. A no-op without one, or at the same width.
+ */
+export function resolveOwnPercentages(style: ResolvedStyle, contentWidth: number): void {
+  const table = (style as InternalStyle)[PERCENT_LENGTHS];
+  if (!table || table.own === contentWidth || table.entries.size === 0) return;
+  table.own = contentWidth;
+  applyPercentEntries(style, table, contentWidth, true);
+}
+
+/** Re-apply the cb-relative (`own` false) or own-width entries at `width`; true when a value changed. */
+function applyPercentEntries(style: ResolvedStyle, table: PercentLengths, width: number, own: boolean): boolean {
+  let changed = false;
+  const env: DeclarationEnv = { b: { ...table.basis }, containerWidth: width, direction: 'ltr', percent: false };
+  for (const [field, [property, value, basis]] of table.entries) {
+    if (OWN_PERCENT_FIELDS.has(field) !== own) continue;
+    env.b = { ...(basis ?? table.basis) };
+    const before = style[field];
+    applyDeclaration(style, property, value, env);
+    if (style[field] !== before) changed = true;
+  }
+  return changed;
+}
+
+/**
+ * Carry the parent's percentage `text-indent` into `child`, which inherits
+ * it (`setProps` has no text-indent of its own): the computed value is the
+ * percentage, and it resolves against the CHILD's content width
+ * (`resolveOwnPercentages`), not as the parent's px.
+ */
+function inheritPercentages(child: ResolvedStyle, parent: ResolvedStyle, cbWidth: number): void {
+  const parentTable = (parent as InternalStyle)[PERCENT_LENGTHS];
+  const entry = parentTable?.entries.get('textIndent');
+  if (!entry) return;
+  const inherited: PercentEntry = [entry[0], entry[1], entry[2] ?? parentTable!.basis];
+  const internal = child as InternalStyle;
+  let table = internal[PERCENT_LENGTHS];
+  if (!table) table = internal[PERCENT_LENGTHS] = { basis: inherited[2]!, entries: new Map(), cb: cbWidth };
+  table.entries.set('textIndent', inherited);
+}
+
+/**
+ * `style` as intrinsic sizing reads it: a percentage of the containing block
+ * is CYCLIC there — that block's width is what is being computed — so it
+ * counts as 0, and a percentage width, min-width or flex-basis as `auto`
+ * (CSS Sizing 3 §5.2.1; Blink and WebKit measured: a 20% padding inside an
+ * inline-block adds nothing to its width, then resolves against it). The
+ * style itself when it has no percentage.
+ */
+export function intrinsicStyle(style: ResolvedStyle): ResolvedStyle {
+  const table = (style as InternalStyle)[PERCENT_LENGTHS];
+  if (!table || table.entries.size === 0) return style;
+  if (table.intrinsicFor === style) return table.intrinsic!;
+  const copy = { ...style } as InternalStyle;
+  const env: DeclarationEnv = { b: { ...table.basis }, containerWidth: 0, direction: 'ltr', percent: false };
+  for (const [field, [property, value, basis]] of table.entries) {
+    if (field === 'width') copy.width = 0;
+    else if (field === 'minWidth') copy.minWidth = null;
+    else if (field === 'flexBasis') copy.flexBasis = null;
+    else {
+      env.b = { ...(basis ?? table.basis) };
+      applyDeclaration(copy, property, value, env);
+    }
+  }
+  table.intrinsicFor = style;
+  table.intrinsic = copy;
+  return copy;
+}
+
+/**
+ * The border-box size a `width`, `min-width`, `min-height` or `flex-basis`
+ * of `size` px gives under `box-sizing` (CSS Box Sizing 3): `content-box`
+ * adds `frame` (padding + border on that axis); `border-box` includes it, and
+ * never shrinks the box below it.
+ */
+export function borderBoxSize(style: ResolvedStyle, size: number, frame: number): number {
+  return isBorderBox(style) ? Math.max(size, frame) : size + frame;
+}
+
+/** The content-box size the same declaration gives: `borderBoxSize` without the frame. */
+export function contentBoxSize(style: ResolvedStyle, size: number, frame: number): number {
+  return isBorderBox(style) ? Math.max(0, size - frame) : size;
+}
+
+/**
+ * The style of an anonymous block box inside an element styled `style`
+ * (CSS 2.1 §9.2.1.1): what it inherits, and every other property at its
+ * initial value — no margins, padding, border, background or sizes of its
+ * own, and no percentages to re-resolve.
+ */
+export function anonymousBlockStyle(style: ResolvedStyle): ResolvedStyle {
+  const anonymous = { ...style } as InternalStyle;
+  for (const [property, fields] of Object.entries(PROPERTY_FIELDS)) {
+    // Decorations propagate into the anonymous box's text: keep them whole
+    // (`textDecorations` and its `textDecorationLine` union go together).
+    if (INHERITED_PROPERTIES.has(property) || property.startsWith('text-decoration')) continue;
+    for (const field of fields) (anonymous as any)[field] = INITIAL[field];
+  }
+  // Initial currentcolor, resolved as the resolver resolves every style's.
+  for (const [field] of CURRENTCOLOR_PROPERTIES) (anonymous as any)[field] = anonymous.color;
+  anonymous.display = 'block';
+  anonymous[PERCENT_LENGTHS] = undefined;
+  // It inherits text-indent, a percentage included, of its own width.
+  inheritPercentages(anonymous, style, NaN);
+  return anonymous;
+}
+
+/** `box-sizing: border-box`. */
+export function isBorderBox(style: ResolvedStyle): boolean {
+  return (style as InternalStyle)[BOX_SIZING] === 'border-box';
 }
 
 /** A non-negative border/stroke width (keywords allowed, no percentages). */
@@ -869,12 +1100,12 @@ function widthOf(value: string, env: DeclarationEnv): number {
 
 /** `margin`: a length-percentage of the containing block's width; `auto` is 0 here (no auto margins). */
 function marginOf(value: string, env: DeclarationEnv): number {
-  return value.trim().toLowerCase() === 'auto' ? 0 : lengthOf(value, env, env.containerWidth);
+  return value.trim().toLowerCase() === 'auto' ? 0 : cbLengthOf(value, env);
 }
 
 /** `padding`: a non-negative length-percentage of the containing block's width. */
 function paddingOf(value: string, env: DeclarationEnv): number {
-  const px = lengthOf(value, env, env.containerWidth);
+  const px = cbLengthOf(value, env);
   return px >= 0 ? px : NaN;
 }
 
@@ -899,7 +1130,6 @@ function borderRadiusValue(value: string, env: DeclarationEnv): BorderRadius | n
  */
 function applyDeclaration(style: ResolvedStyle, property: string, value: string, env: DeclarationEnv): boolean {
   const fontSize = style.fontSize;
-  const containerWidth = env.containerWidth;
   /** Assign a numeric result unless it is invalid. */
   const set = <K extends keyof ResolvedStyle>(key: K, px: number): boolean => {
     if (Number.isNaN(px)) return false;
@@ -924,7 +1154,7 @@ function applyDeclaration(style: ResolvedStyle, property: string, value: string,
     case 'color': return str('color', color());
     case 'text-align': return str('textAlign', keyword());
     case 'text-align-last': return str('textAlignLast', keyword());
-    case 'text-indent': return set('textIndent', lengthOf(value, env, containerWidth));
+    case 'text-indent': return set('textIndent', cbLengthOf(value, env));
     case 'text-transform': return str('textTransform', textTransform(value));
     case 'text-decoration-line': return str('textDecorationLine', textDecorationLine(value));
     case 'text-decoration-style': return str('textDecorationStyle', keyword());
@@ -1044,16 +1274,22 @@ function applyDeclaration(style: ResolvedStyle, property: string, value: string,
 
     // Box model
     case 'display': return str('display', display(value));
+    case 'box-sizing': {
+      const v = keyword();
+      if (v === null) return false;
+      (style as InternalStyle)[BOX_SIZING] = v === 'border-box' ? v : undefined;
+      return true;
+    }
     case 'width': {
       const v = value.trim();
       if (v.toLowerCase() === 'auto') { style.width = 0; return true; }
-      const px = lengthOf(v, env, containerWidth);
+      const px = cbLengthOf(v, env);
       return px >= 0 ? set('width', px) : false;
     }
     case 'min-width': {
       const v = value.trim();
       if (v.toLowerCase() === 'auto') { style.minWidth = null; return true; }
-      const px = lengthOf(v, env, containerWidth);
+      const px = cbLengthOf(v, env);
       if (!(px >= 0)) return false;
       style.minWidth = px;
       return true;
@@ -1134,7 +1370,7 @@ function applyDeclaration(style: ResolvedStyle, property: string, value: string,
       const v = value.trim();
       // `gap: <row> <column>`: the row gap is first; flex rows use one gap.
       const first = MATH_FUNCTION.test(v) ? v : v.split(/\s+/)[0];
-      return set('gap', first.toLowerCase() === 'normal' ? 0 : lengthOf(first, env, containerWidth));
+      return set('gap', first.toLowerCase() === 'normal' ? 0 : cbLengthOf(first, env));
     }
     // A non-negative <number>; anything else is invalid.
     case 'flex-grow':
@@ -1146,7 +1382,7 @@ function applyDeclaration(style: ResolvedStyle, property: string, value: string,
       const v = value.trim();
       const lower = v.toLowerCase();
       if (lower === 'auto' || lower === 'content') { style.flexBasis = null; return true; }
-      const px = lengthOf(v, env, containerWidth);
+      const px = cbLengthOf(v, env);
       if (!(px >= 0)) return false;
       style.flexBasis = px;
       return true;
@@ -1639,7 +1875,7 @@ export function resolveStylesFromCSS(
     basis.fontStyle = style;
     return basis;
   }
-  const env: DeclarationEnv = { b: basis, containerWidth, direction: 'ltr' };
+  const env: DeclarationEnv = { b: basis, containerWidth, direction: 'ltr', percent: false };
   /** Scratch for `cascadeOrder`, reused by every element. */
   const order: Declaration[] = [];
   const orderInline: boolean[] = [];
@@ -1768,15 +2004,21 @@ export function resolveStylesFromCSS(
       const keyword = cssWideKeyword(d.property, d.value);
       if (keyword) {
         applyKeyword(style, parentStyle, d.property, keyword, setProps, env.direction, concreteColors);
+        trackPercent(style, d.property, null, env, cbWidth);
       } else {
+        env.percent = false;
         if (!applyDeclaration(style, d.property, d.value, env)) continue;
         setProps.add(PROP_ALIASES[d.property] || d.property);
+        trackPercent(style, d.property, env.percent ? d.value : null, env, cbWidth);
       }
       if (d.property === 'width') widthFromSheet = !orderInline[i];
     }
 
     // Only keep explicit width from inline styles (match DOM resolver behavior)
-    if (widthFromSheet) style.width = 0;
+    if (widthFromSheet) {
+      style.width = 0;
+      (style as InternalStyle)[PERCENT_LENGTHS]?.entries.delete('width');
+    }
 
     // Handle `dir` attribute
     const dirAttr = el.getAttribute('dir')?.trim().toLowerCase();
@@ -1795,6 +2037,7 @@ export function resolveStylesFromCSS(
 
     // Inherit from parent for properties not explicitly set
     inheritFrom(style, parentStyle, setProps);
+    if (!setProps.has('text-indent')) inheritPercentages(style, parentStyle, cbWidth);
 
     // A border whose style is none or hidden computes to width 0 (CSS
     // Backgrounds 3): `border-top: 3px none red` takes no space and does not
@@ -1850,11 +2093,16 @@ export function resolveStylesFromCSS(
         }
       }
     }
-    style.textDecorations = parentStyle.textDecorations.length
+    // An atomic inline (inline-block, inline-flex, ...) is a box of its own:
+    // no ancestor's decoration reaches its content (CSS Text Decoration 3
+    // §2.1), and the ancestor's band leaves a gap where it sits — both
+    // engines, measured (tests/decoration-shape-parity.test.ts).
+    const atomic = ATOMIC_INLINE.has(style.display);
+    style.textDecorations = parentStyle.textDecorations.length && !atomic
       ? [...parentStyle.textDecorations, ...ownEntries]
       : ownEntries;
     const decoSet = new Set(style.textDecorationLine.split(/\s+/).filter(d => d && d !== 'none'));
-    if (parentStyle.textDecorationLine && parentStyle.textDecorationLine !== 'none') {
+    if (!atomic && parentStyle.textDecorationLine && parentStyle.textDecorationLine !== 'none') {
       for (const d of parentStyle.textDecorationLine.split(/\s+/)) {
         if (d && d !== 'none') decoSet.add(d);
       }
@@ -1924,10 +2172,18 @@ export function resolveStylesFromCSS(
 
     // Walk children, against this element's content box — or, for an
     // inline box, against the block container's, which it passes through.
+    // `box-sizing` decides which box an explicit width sizes. An inline-block
+    // or a flex item gets its width from layout, which re-resolves its
+    // children's percentages against it (`resolvePercentages`).
     const childCb = style.display === 'inline' || style.display === 'contents'
       ? cbWidth
-      : Math.max(0, (style.width > 0 ? style.width : cbWidth - style.marginLeft - style.marginRight) -
-        style.borderLeftWidth - style.borderRightWidth - style.paddingLeft - style.paddingRight);
+      : style.width > 0
+        ? contentBoxSize(style, style.width,
+          style.borderLeftWidth + style.paddingLeft + style.paddingRight + style.borderRightWidth)
+        : Math.max(0, cbWidth - style.marginLeft - style.marginRight -
+          style.borderLeftWidth - style.borderRightWidth - style.paddingLeft - style.paddingRight);
+    // text-indent and gap percentages: of this box's own content width.
+    resolveOwnPercentages(style, childCb);
     const children: StyledNode[] = [];
     for (const child of el.childNodes) {
       const childNode = walkNode(child, style, ctx, childCb);

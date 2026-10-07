@@ -1955,6 +1955,40 @@ export async function loadFlexCases(): Promise<BenchmarkCase[]> {
       html: `<div class="row">Latency numbers<section>alpha beta gamma</section></div>`,
     },
     {
+      // `flex-basis` sizes the box `box-sizing` names, like a width: the
+      // frame comes on top of a content-box basis and inside a border-box one.
+      name: 'Flex basis content-box',
+      css: `${row} section { padding: 8px 12px; border: 2px solid #94a3b8; } .a { flex: 0 0 140px; } .b { flex: 1; }`,
+      html: `<div class="row"><section class="a">Latency numbers every programmer should know</section>` +
+        `<section class="b">alpha beta gamma delta epsilon</section></div>`,
+    },
+    {
+      name: 'Flex basis border-box',
+      css: `${row} section { padding: 8px 12px; border: 2px solid #94a3b8; box-sizing: border-box; }` +
+        ` .a { flex: 0 0 140px; } .b { flex: 1; }`,
+      html: `<div class="row"><section class="a">Latency numbers every programmer should know</section>` +
+        `<section class="b">alpha beta gamma delta epsilon</section></div>`,
+    },
+    {
+      // A min-width floors the content box (content-box) or the border box.
+      name: 'Flex min-width box-sizing',
+      css: `${row} section { flex: 1; padding: 0 10px; border: 1px solid #94a3b8; }` +
+        ` .a { min-width: 150px; } .b { min-width: 150px; box-sizing: border-box; }`,
+      html: `<div class="row"><section class="a">Latency numbers</section>` +
+        `<section class="b">alpha beta gamma delta epsilon</section><section>zeta</section></div>`,
+    },
+    {
+      // Percentages inside a flex item resolve against the item's used
+      // width; inside a content-sized one they are cyclic — 0, or auto for a
+      // width — while the item is sized, then resolve against it.
+      // (The width is inline: render-tag drops a stylesheet `width`.)
+      name: 'Flex percentages inside items',
+      css: `${row} .a { flex: 1; } .b { flex: none; } .c { flex: 2; } .pad { padding-left: 20%; }`,
+      html: `<div class="row"><section class="a"><div style="width:50%">Latency numbers</div><div class="pad">every programmer</div></section>` +
+        `<section class="b"><div style="width:50%">alpha beta</div><div class="pad">gamma delta</div></section>` +
+        `<section class="c">epsilon</section></div>`,
+    },
+    {
       name: 'Flex column direction',
       css: `.row { display: flex; flex-direction: column; gap: 8px; } section { flex: 1; }`,
       html: `<div class="row">${columns}</div>`,
@@ -1967,6 +2001,139 @@ export async function loadFlexCases(): Promise<BenchmarkCase[]> {
     height: 320,
     css: withOpenSans(`body { ${font} }\n${testCase.css}`),
     html: testCase.html,
+  }));
+}
+
+/**
+ * Box-model fixtures for `tests/box-model-parity.test.ts`: box-sizing,
+ * inline-block shrink-to-fit and percentages against the used containing
+ * block. Every box under test carries a `background: rgb(N, 0, 1)` marker,
+ * which both sides read back to pair the boxes; `noHeight` marks the ones
+ * whose height is another suite's question (flex items: no stretch yet).
+ */
+export interface BoxModelCase extends BenchmarkCase {
+  noHeight?: number[];
+}
+
+export async function loadBoxModelCases(): Promise<BoxModelCase[]> {
+  await getOpenSansCss();
+  await getFallbackCss();
+  const font = `font-family: 'Open Sans', ${TEST_FALLBACK_STACK}, sans-serif; font-size: 16px; line-height: 20px;`;
+  const m = (n: number) => `background:rgb(${n},0,1);`;
+  const ib = 'display:inline-block;';
+  const frame = 'padding:10px;border:2px solid #94a3b8;';
+  const cases: Array<{ name: string; html: string; width?: number; noHeight?: number[] }> = [
+    { name: 'width content-box', html: `<div style="${m(1)}width:200px;${frame}">x</div>` },
+    { name: 'width border-box', html: `<div style="${m(1)}width:200px;${frame}box-sizing:border-box">x</div>` },
+    { name: 'border-box under its frame', html: `<div style="${m(1)}width:10px;${frame}box-sizing:border-box">x</div>` },
+    { name: 'min-height content-box', html: `<div style="${m(1)}min-height:50px;${frame}">x</div>` },
+    { name: 'min-height border-box', html: `<div style="${m(1)}min-height:50px;${frame}box-sizing:border-box">x</div>` },
+    {
+      name: 'percent child of a content-box parent',
+      html: `<div style="${m(1)}width:200px;padding:20px"><div style="${m(2)}width:50%">x</div></div>`,
+    },
+    {
+      name: 'percent child of a border-box parent',
+      html: `<div style="${m(1)}width:200px;padding:20px;box-sizing:border-box"><div style="${m(2)}width:50%">x</div></div>`,
+    },
+    {
+      name: 'inline-block with nested styles',
+      html: `<span style="${m(1)}${ib}"><b style="font-size:30px">Big bold</b> small</span>`,
+    },
+    { name: 'inline-block with a forced break', html: `<span style="${m(1)}${ib}">first line<br>second</span>` },
+    {
+      name: 'inline-block longer than the line',
+      html: `<span style="${m(1)}${ib}">alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron</span>`,
+    },
+    { name: 'inline-block width content-box', html: `<span style="${m(1)}${ib}width:100px;${frame}">x</span>` },
+    { name: 'inline-block width border-box', html: `<span style="${m(1)}${ib}width:100px;${frame}box-sizing:border-box">x</span>` },
+    { name: 'inline-block min-width content-box', html: `<span style="${m(1)}${ib}min-width:100px;${frame}">x</span>` },
+    {
+      name: 'inline-block percent width',
+      html: `<div style="width:200px"><span style="${m(1)}${ib}width:50%;padding:5px">x</span></div>`,
+    },
+    { name: 'inline-block text-indent', html: `<span style="${m(1)}${ib}text-indent:20px">alpha beta</span>` },
+    {
+      name: 'inline-block inside an inline-block',
+      html: `<span style="${m(1)}${ib}">a <span style="${m(2)}${ib}font-size:24px">inner box</span> b</span>`,
+    },
+    {
+      name: 'inline-block wrapping beside text',
+      width: 140,
+      html: `<div>aa <span style="${m(1)}${ib}padding:0 4px">alpha beta gamma delta</span> bb</div>`,
+    },
+    {
+      // The padding counts 0 while the inline-block is sized, then resolves
+      // against its width and pushes "ef" to a second line.
+      name: 'inline-block with percent padding inside',
+      html: `<span style="${m(1)}${ib}">ab <span style="background:#fde68a;padding-left:20%">cd</span> ef</span>`,
+    },
+    {
+      name: 'percent width inside a flex item',
+      html: `<div style="display:flex;width:300px"><div style="${m(1)}flex:1"><div style="${m(2)}width:50%">x</div>` +
+        `<div style="${m(3)}margin-left:10%">y</div></div><div style="${m(4)}flex:2">z</div></div>`,
+      noHeight: [1, 4],
+    },
+    {
+      name: 'percent width inside a content-sized flex item',
+      html: `<div style="display:flex;width:390px"><div style="${m(1)}flex:none">` +
+        `<div style="${m(2)}width:50%">alpha beta gamma</div></div></div>`,
+    },
+    {
+      name: 'percent padding inside a content-sized flex item',
+      html: `<div style="display:flex;width:390px"><div style="${m(1)}flex:none">` +
+        `<div style="${m(2)}padding-left:20%">alpha beta gamma</div></div></div>`,
+    },
+    {
+      // Text-indent belongs to the first line in every intrinsic size: the
+      // items overflow at their min-content widths, indent included.
+      name: 'text-indent in a flex item min-content',
+      html: `<div style="display:flex;width:60px"><div style="${m(1)}text-indent:30px">alpha beta</div>` +
+        `<div style="${m(2)}text-indent:10px">gamma</div></div>`,
+      noHeight: [1, 2],
+    },
+    {
+      // An inherited text-indent percentage resolves against the inline-block
+      // itself: 0 while it is sized, then 10% of its width, which pushes "cc"
+      // onto a second line.
+      name: 'inline-block inheriting a percent text-indent',
+      html: `<div style="width:300px;text-indent:10%">a <span style="${m(1)}${ib}">bb cc</span></div>`,
+    },
+    {
+      name: 'inline-block inheriting a percent text-indent, auto-width parent',
+      width: 200,
+      html: `<div style="text-indent:10%">a <span style="${m(1)}${ib}">alpha beta</span></div>`,
+    },
+    {
+      // Text-indent and gap percentages are of the box's OWN content width.
+      name: 'percent text-indent of the block itself',
+      html: `<div style="width:300px;text-indent:10%"><span style="${m(1)}">ab</span></div>`,
+      noHeight: [1],
+    },
+    {
+      name: 'inherited percent text-indent in a narrower block',
+      html: `<div style="width:300px;text-indent:10%"><div style="width:100px"><span style="${m(1)}">ab</span></div></div>`,
+      noHeight: [1],
+    },
+    {
+      name: 'percent gap of a flex container',
+      html: `<div style="display:flex;width:300px;gap:10%"><div style="${m(1)}flex:none">a</div>` +
+        `<div style="${m(2)}flex:none">b</div></div>`,
+    },
+    {
+      name: 'inline-block percent width inside a flex item',
+      html: `<div style="display:flex;width:300px"><div style="${m(1)}flex:1">` +
+        `<span style="${m(2)}${ib}width:50%">x</span></div><div style="${m(3)}flex:2">y</div></div>`,
+      noHeight: [1, 3],
+    },
+  ];
+  return cases.map((testCase) => ({
+    name: testCase.name,
+    width: testCase.width ?? 400,
+    height: 300,
+    css: withOpenSans(`body { ${font} }`),
+    html: testCase.html,
+    noHeight: testCase.noHeight,
   }));
 }
 

@@ -11,6 +11,72 @@ HTML string + CSS → parseHTML (DOMParser) → resolveStylesFromCSS (pure CSS p
 → buildLayoutTree (canvas measureText) → renderNode (canvas fillText/fillRect)
 ```
 
+- **Layout is reentrant: one `LayoutSession` per `buildLayoutTree` call**
+  (layout.ts), threaded down every layout function as `session`. It owns the
+  call's `Measurer` (font state, widths, DOM-probed line heights), the debug
+  callback, the collected lines, the flex min/max-content caches, the
+  anonymous flex items and the prepared inline content. layout.ts keeps no per-call module state, so a
+  `layout()` made from a `debug` callback or from inside the caller's
+  `measureText` cannot touch the outer call (`tests/node/reentrancy.test.ts`,
+  every hook point). Do not add a module-level `let` or cache to layout: put
+  it on the session. The module state that remains is deliberate:
+  `layoutFontMetrics` (a WeakMap from a result to the font metrics its call
+  measured, which paint reads; see Text measurement), the `claimCtx` writer
+  token (a NUMBER naming which `Measurer` or `PaintState` last wrote a ctx,
+  so a writer re-writes its state after a nested call; it holds no answer and
+  no reference, so the last call's measurer is not kept alive), the
+  `runLineTops` WeakMap (paint bookkeeping keyed by result nodes), the DOM
+  probe elements, and the stateless `Intl.Segmenter`s. Reentrancy covers the
+  measurements after the call too: `paintBounds` and `drawLayout` (block and
+  text-on-path), and a result paints the same after a later `layout()` on a
+  ctx with other font metrics.
+- **Inline content: prepare once per call, flow per pass, then emit.**
+  `preparedInline` segments and measures an inline formatting context's text
+  ONCE per call into a `PreparedInline` (layout.ts): columns of segment
+  text, width and flags (space, tab, soft
+  hyphen, no-break-before, run seam, forced break, CJK/emoji, kinsoku
+  punctuation), plus one `SegmentRefs` per run (style and declarers) that the
+  segments index. Intrinsic sizing keeps it on the session by node identity;
+  the layout, its last reader, takes it off (`takePreparedInline`), so a
+  long document does not hold every paragraph until the call ends.
+  `flowLines` is the one line breaker over it: min-content
+  runs it at 0, max-content at Infinity, the layout at the used width. A
+  flow never writes to the prepared content — what a pass cuts (CJK/emoji
+  and break-word pieces, glued-chain fragments, a soft hyphen's `-`, a tab at
+  the stop it reached) is a piece in that pass's own `FlowItems`, so a pass
+  cannot leak into the next (`a tab is placed afresh by every sizing pass`,
+  layout-logic). Only the final flow's lines become `Word` objects, for the
+  emit pass. Segment text stays the exact measured string (not a range into
+  a paragraph string); the columns are plain arrays because typed arrays
+  measured slower. `measure-word` debug entries are recorded while preparing
+  and replayed by each pass, so the debug stream is what it was when every
+  pass tokenized. Every flow emits its `line-wrap`/`line-commit` entries,
+  sizing flows included (an inline-block's min/max-content flows at 0 and
+  Infinity among them); an atomic inline-block's segment is U+FFFC for line
+  breaking and bidi only — debug entries and `LayoutLine.text` show its
+  content (`FlowItems.debugText`; an inline-block whose content laid out no
+  line adds no text). `perf-counters` counts the passes (`layout.tokenizePasses`:
+  one per inline formatting context) and segments. Prepared widths are the
+  INTRINSIC ones: the segments whose width depends on the containing
+  block's used width — each atomic inline-block (`inlineBlocks`) and each
+  inline box edge with a percentage padding (`percentEdges`, prepared at 0)
+  — are re-sized for the final flow only (`usedSegmentWidths`).
+- **The line breaker is split into phases, and each DOM-measured rule has one
+  home.** "May a line start here?" is ONE function, `breakBefore`
+  (`'space' | 'continues' | 'glued' | 'allowed'`). The glued tail
+  (`gluedRunWidth`), the glued chain (`gluedChainEnd`), the fit test
+  (`placePiece`) and the kinsoku of split pieces (`trailingGlueWidth`) all
+  ask it. `abutsWithoutBreak` is where its run-boundary glue
+  (`SEG_NO_BREAK_BEFORE`) is decided, at prepare time. "May a line END here?"
+  (openers, an inline box's opening edge) is `headGlueWidth`. The rest of the
+  phases are: words split across runs (`breakGluedChain`), the knife-edge
+  re-measure (`knifeEdgeOverflows`), and line commit with its whitespace trimming,
+  visible soft hyphen and tab stops (`LineFlow`). `layoutInlineContent` runs
+  `flowInlineLines` → `clampLines`, then `emitLine` per line:
+  `alignedLineStart`, `lineBoxExtent` (the line-box union), bidi
+  reordering, `emitInlineBackgrounds`, `emitLineText`. A new break or glue
+  rule goes INTO these functions; never re-derive it at a call site.
+
 ### CSS resolver (`css-syntax.ts`, `css-selectors.ts`, `css-values.ts`, `css-validate.ts`, `css-resolver.ts`, `parse.ts`)
 
 - **One tokenizer** (`css-syntax.ts`) for `<style>` sheets AND `style=""`. It
@@ -75,9 +141,32 @@ HTML string + CSS → parseHTML (DOMParser) → resolveStylesFromCSS (pure CSS p
   whole on a token nothing accepts, and reset what they do not name.
 - **Percentages resolve against the containing block**, threaded down the
   recursion (`cbWidth`): a block's content box, passed through inline boxes.
-  Exact for block flow and for flex items (the container's content box);
-  descendants of a shrink-to-fit or flex-sized box use that box as if it
-  filled its own containing block (known approximation).
+  That is exact for block flow and for flex items (the container's content
+  box). Where LAYOUT decides the width instead — a flex item's used width, a
+  table cell, a shrink-to-fit inline-block — the resolver keeps each
+  percentage declaration in a private side table (`PERCENT_LENGTHS`), and
+  layout re-resolves it against the width it settled on
+  (`resolvePercentages`, called by `resolveChildPercentages` before anything
+  reads the children) and writes the used px into the style. While that
+  width is still being COMPUTED the percentage is cyclic: intrinsic sizing
+  reads `intrinsicStyle`, where it is 0 (a width, min-width or flex-basis:
+  auto), CSS Sizing 3 §5.2.1, measured in Blink and WebKit
+  (`tests/box-model-parity.test.ts`). Two fields are percentages of the
+  box's OWN content width, not the containing block's (`OWN_PERCENT_FIELDS`):
+  `text-indent` and a flex container's `gap`. The resolver resolves them
+  against the width it gives the children, and layout again at the box's
+  settled content width (`resolveOwnPercentages`, in `layoutBlock` and for an
+  inline-block). An inherited `text-indent` inherits the PERCENTAGE (its
+  computed value; `inheritPercentages`, the anonymous flex item too), so an
+  inline-block inheriting `10%` sizes with it at 0 and then indents by 10% of
+  its own width — as Blink and WebKit do. Intrinsic sizing reads both at 0.
+- **`box-sizing`** (private `BOX_SIZING`; `content-box` is the initial
+  value) decides which box `width`, `min-width`, `min-height` and
+  `flex-basis` size: `borderBoxSize` / `contentBoxSize` in the resolver are
+  the one conversion layout (`layoutBlock`, flex, inline-blocks) and the
+  resolver's `childCb` use. A border-box
+  size never shrinks the box below its padding + border. `height` is not
+  supported at all.
 - **Units** (`css-values.ts`): px, em, rem (the root's `html`/`:root`
   font-size — NOT `body`'s, though the root container stands for both), %,
   pt, pc, in, cm, mm, Q, vw/vh/vmin/vmax (+ s/l/d variants, vi/vb), ch, ex,
@@ -194,6 +283,11 @@ When touching this area, run all of them plus `decoration-propagation`,
   `sameTextFragment` (same style object, no `startsMeasuredRun` seam, same
   baseline, touching edges) and `paintFragment` paints underline/overline,
   then the glyphs, then line-through — the engine's order.
+- **No decoration crosses into an atomic inline** (inline-block,
+  inline-flex, inline-table, ...): the resolver gives such an element only
+  its OWN entries (`ATOMIC_INLINE`, CSS Text Decoration 3 §2.1), so the
+  ancestor's band leaves a gap where the box sits — both engines,
+  `decoration-shape-parity` ("skips an atomic inline").
 - **Whose painter** is `DECORATION_PAINTER` (src/engine.ts). Every Blink and
   WebKit rule is measured off the DOM raster, and the Blink ones match its
   source (decoration_line_painter.cc, styled_stroke_data.cc,
@@ -452,14 +546,16 @@ full strictness.
   sharing, `paintBounds`) and the paint stream must be identical; text-on-path
   likewise. Any cache that outlives a call must keep this green — add it
   before the cache, not after.
-- **`perf-counters.test.ts`** — exact work counts on four fixtures (2000-word
-  paragraph, 2000-char CJK paragraph, the `perf.test` document, a 4000-item
-  `<ol>`): measureText calls and characters, `ctx.font` sets, fillText/save/
-  restore per draw, LayoutText count. `tests/perf-counters-baseline.json`
-  holds them as a ratchet: UP fails as a regression, DOWN fails until
-  promoted with `npm run test:update-perf-counters`. The recorded
-  `measuredChars` are quadratic today (~2000× the source on the long
-  paragraph); the measurement-core work is what should lower them.
+- **`perf-counters.test.ts`** — exact work counts on its fixtures (2000-word
+  paragraph, 2000-char CJK paragraph, the `perf.test` document, sibling
+  selectors over 4000 items, 50 shadowed paragraphs, nested flex leaves, a
+  4000-item `<ol>`): measureText calls and characters, `ctx.font` sets,
+  fillText/save/restore per draw, LayoutText count, styled-tree size, and
+  layout's own work that no ctx call shows — inline preparation passes,
+  segments and per-item `Word` objects, read through `buildLayoutTree`'s
+  internal `stats` sink. `tests/perf-counters-baseline.json` holds them as a
+  ratchet: UP fails as a regression, DOWN fails until promoted with
+  `npm run test:update-perf-counters`.
 
 ### Full-corpus 1px width sweep (`tests/wrap-sweep.test.ts`) — rare milestone gate
 
@@ -680,18 +776,39 @@ those bases, not on the container width:
 | `flex: 1` (= `1 1 0%`) | 0 | splits by grow factor alone; content width drops out |
 | `flex-grow: 1` | max-content | each item keeps its content width, leftover shared |
 | nothing | max-content | items sit at max-content, shrinking only if they overflow |
-| `flex: 0 0 140px` | 140 | fixed |
+| `flex: 0 0 140px` | 140 + padding + border | fixed (`flex-basis` sizes the `box-sizing` box) |
 
 Both intrinsic sizes are the SAME line flow at a different width, not their own
-break rules: `minimumInlineContentWidth` is `flowWordsIntoLines(..., 0, ...)`
+break rules: `minimumInlineContentWidth` is `flowLines(..., 0, ...)`
 (every soft-wrap opportunity taken, so each line is one unbreakable unit) and
 `maximumInlineContentWidth` is the same call at `Infinity` (only forced breaks).
 Both take the widest resulting line. They each used to re-derive "can a line
-break here?" privately, and drifted from `flowWordsIntoLines` and from each
+break here?" privately, and drifted from the wrapper and from each
 other — the number that freezes a flex item is computed by the very rules the
-wrapper uses. Keep it that way. The one deliberate difference is that
-min-content neutralizes `overflow-wrap: break-word` per word, because CSS
-ignores that last resort when sizing.
+wrapper uses. Keep it that way. They also read the SAME `PreparedInline` the
+layout then flows (one segmentation per item per call, not three). The one
+deliberate difference is that min-content neutralizes `overflow-wrap:
+break-word` per run (a copy of its `SegmentRefs` with a copied style),
+because CSS ignores that last resort when sizing. The first line carries
+the block's `text-indent` in both, as it does in the final flow (a
+percentage `text-indent` at 0 there: it is of the width being computed).
+
+The memo (`session.minContent`/`maxContent`, `contentMinimum`/
+`contentMaximum`) holds CONTENT-box widths; a node's own margins, frame and
+width are added per question (`minimumContribution`/`maximumContribution`),
+because they are read two ways: a flex item's own box resolves against the
+container (`node.style`), every descendant inside a size being computed
+through `intrinsicStyle` (cyclic percentages at 0).
+
+**Inline-blocks** are sized by the same flows: an atomic segment is prepared
+at its max-content contribution, min-content passes it at its min-content
+one, and the final flow at shrink-to-fit, min(max(min-content, available),
+max-content) of its OWN content in its own styles
+(`inlineBlockContentWidth` at 0, Infinity and the used width). Its segment
+text is U+FFFC, never its content's text: CJK content made the atomic box
+splittable and a trailing period glued it. Block children inside an
+inline-block are still flattened into its one inline flow, and sized by
+that flow (known gap: Stage 5).
 
 Shrinking is weighted by `flex-shrink x base`, growing by `flex-grow` alone.
 Both run through `resolveFlexibleLengths` (CSS Flexbox §9.7) over OUTER
@@ -720,7 +837,7 @@ Flex fixtures address items by class. Structural pseudo-classes
 (`:first-child`, `:nth-child()`, ...) are supported now (see the CSS resolver
 section), but the recorded fixtures predate them.
 
-### Line boxes and the baseline (`lineBaselineOffset`, `layoutInlineContent`)
+### Line boxes and the baseline (`lineBaselineOffset`, `lineBoxExtent`)
 A line box is the union of EVERY box on the line — the block strut, each run,
 each `vertical-align`-shifted run, each inline-block. Each box brings its own
 line-height and its own half-leading; the line takes `max(ascent - shift)` and
@@ -952,9 +1069,16 @@ visual-order count (0 in both lanes).
   those on the ctx by hand in layout code: a site that set only the font
   measured under the previous run's letter-spacing or kerning and kept
   overflowing lines (`Measuring state` in `tests/node/layout-logic.test.ts`).
-  Layout functions reach the call's measurer through `measurerFor(ctx)`, which
-  throws outside a `buildLayoutTree` call; leaf helpers take it as `m`.
-- **Paint writes its whole text state too.** `applyTextState` (render.ts)
+  Layout functions reach the call's measurer as `session.measurer`; leaf
+  helpers take it as `m`. A measurer re-writes all of its state when another
+  writer wrote a ctx since its last measurement (`claimCtx`, a numeric
+  token shared with `PaintState`): a nested `layout()` or `tabStopMetrics`
+  may have moved the font under it. `PaintState` forgets its font, kerning
+  and spacing the same way, so `paintBounds` and paint measure right when
+  the caller's `measureText` runs a nested `layout()`. One token for every
+  ctx costs a redundant re-write when two contexts interleave (a shadow
+  mask beside the destination), never a wrong width.
+- **Paint writes its whole text state too.** `PaintState` (paint-state.ts)
   assigns `letterSpacing` and `wordSpacing` even at 0: `render({ ctx })`
   paints on the ctx layout just measured with, and a 0px run used to take the
   last-measured run's spacing. Gated in `tests/node/determinism.test.ts`.
@@ -963,17 +1087,24 @@ visual-order count (0 in both lanes).
   (`m.metrics` / `m.lineHeight` / `m.leadedBox` / `m.tabStops`), held in the
   measurer, never on the style. Widths are cached per interned
   (font, kerning, letter-spacing) state. Widths and font state do not survive
-  the call — the caller's ctx is the oracle and fonts load between calls. The
-  module caches of font strings, font metrics (paint reads them after layout)
-  and DOM-probed line heights live until the next `buildLayoutTree` clears
-  them. Code that derives styles (min-content's `overflow-wrap` neutralizing)
+  the call — the caller's ctx is the oracle and fonts load between calls, and
+  that includes DOM-probed line heights. Font metrics (font string →
+  ascent/descent) go into a table each call creates and hands its measurer
+  as a constructor argument; it outlives the call only on its RESULT
+  (`layoutFontMetrics`, keyed by `layoutRoot` or the text-on-path result),
+  where paint reads decoration ascents and descents (`PaintState.fontBox`;
+  text-on-path records each decoration declarer's metrics while laying
+  out). So a result's decorations sit on the metrics it was laid out with,
+  whatever a later call measured. The public `getFontMetrics` measures on
+  the ctx it is given, every call. `buildCanvasFont` is not memoized: callers keep the
+  string per style. Code that derives styles (min-content's `overflow-wrap` neutralizing)
   makes one copy per source style, not per word, or every copy rebuilds its
   font state.
 - **Bounded cumulative context.** A word's width is `w(context + word) -
   w(context)`, never the word alone: a plain per-word sum loses the kerning
   across the space (Chromium: 3.5px over a 2,286px Arial run). The context is
   the run so far, but restarts at the last word once it passes
-  `MEASURE_CONTEXT` (32) UTF-16 units; `breakWordIfNeeded`'s CJK/break-word
+  `MEASURE_CONTEXT` (32) UTF-16 units; `splitSegment`'s CJK/break-word
   split restarts at the last character the same way. The whole-run prefix it
   replaces was quadratic (2000 words → 25.7M measured characters). 32 is the
   smallest window that moved no width of the all-font 1px wrap sweep against
@@ -989,7 +1120,7 @@ visual-order count (0 in both lanes).
   still moves by float noise (up to ~5e-3px on the pinned fonts).
 - **Knife-edge re-measure, over the edge only.** When a candidate line
   overflows by under 1px and its glyphs share one measuring state,
-  `flowWordsIntoLines` re-measures it as one string and that decides (0.02px
+  `knifeEdgeOverflows` re-measures it as one string and that decides (0.02px
   overflow tolerance). A space in another state keeps its own width
   (`<b style="font-size:.7em"> </b>` measured at the line's size reads
   wider). Mixed-state and tab lines trust the sum. A sum UNDER the edge is
@@ -1006,9 +1137,9 @@ visual-order count (0 in both lanes).
   closer/stop (`。、，！？：；・）` + closing curly quote `”`, plus the Myanmar
   `၊-၏` and Khmer `។-៖ ៘-៚` section signs) and never ENDS with an opener
   (`「（` etc.) — all measured against Chrome DOM with `水×5 <char> 水×7`
-  probes. Both live in `TRAILING_PUNCT`/`OPENING_PUNCT` (layout.ts), which
-  feed the piece-level glue in `flowWordsIntoLines`. Small kana and `ー` are
-  deliberately NOT glued: Chrome's default `line-break: auto` breaks before
+  probes. Both live in `TRAILING_PUNCT`/`OPENING_PUNCT` (layout.ts);
+  preparing turns them into segment flags. `breakBefore` applies the closers
+  and `headGlueWidth` the openers, per piece. Small kana and `ー` are deliberately NOT glued: Chrome's default `line-break: auto` breaks before
   them freely (measured; adding them would CREATE divergence).
 - Blink paints a plain Latin/Cyrillic/Greek source run with one `fillText` call,
   preserving shaping across spaces. Layout remains word-based and public. The
@@ -1016,8 +1147,8 @@ visual-order count (0 in both lanes).
   nested boxes, Gecko, and WebKit.
 - **Block strut**: every line box has a minimum height AND a baseline from the
   block's OWN font (its font-size × line-height), even when all inline content
-  on the line is smaller. `layoutInlineContent` seeds both `flowWordsIntoLines`
-  (line height) and the per-line `maxAscent`/`maxDescent` (baseline) from
+  on the line is smaller. `flowInlineLines` seeds `flowLines` (line height)
+  and `lineBoxExtent` seeds the per-line ascent/descent (baseline) from
   `node.style` — so `<li style="font-size:76px"><span style="font-size:42px">…`
   stands 76px tall with the small text on the 76px baseline, matching the DOM.
   Don't reset those seeds to 0 in a refactor.

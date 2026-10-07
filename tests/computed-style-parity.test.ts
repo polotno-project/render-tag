@@ -518,7 +518,7 @@ function compareCase(tc: CssFeatureCase, counter: { compared: number }): Diverge
   const rtEls = [...fragment.querySelectorAll('*')];
   // As layout() calls it: the iframe is the viewport, and ch/ex are
   // measured from the real font.
-  const measurer = new Measurer(document.createElement('canvas').getContext('2d')!);
+  const measurer = new Measurer(document.createElement('canvas').getContext('2d')!, new Map());
   const tree = resolveStylesFromCSS(fragment, css, width, {
     viewport: { width, height: FRAME_HEIGHT },
     fontUnits: (style) => measurer.fontUnits(style),

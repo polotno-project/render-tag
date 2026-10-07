@@ -65,7 +65,7 @@ export function layout(config: LayoutConfig): LayoutResult {
   const tree = resolveStylesFromCSS(fragment, css, width, {
     viewport: { width, height: height || width },
     // ch/ex: measured only when a declaration uses them.
-    fontUnits: (style) => (unitMeasurer ??= new Measurer(measureCtx)).fontUnits(style),
+    fontUnits: (style) => (unitMeasurer ??= new Measurer(measureCtx, new Map())).fontUnits(style),
   });
 
   const { root, height: contentHeight, lines } = buildLayoutTree(measureCtx, tree, width, useDomMeasurements, debug);

@@ -7,8 +7,8 @@
  * second A exactly what a fresh process gives the first one.
  *
  * This is the gate that must exist BEFORE any cache outlives a call. The
- * library already keeps module-level state between calls (`_fontStringCache`,
- * `_fontMetricsCache`, the default measure ctx, path colour canonicals), and
+ * library already keeps module-level state between calls (the default measure
+ * ctx, path colour canonicals), and
  * a measure that ran under a stale `letterSpacing` is exactly this bug class.
  *
  * - "fresh" = a newly imported module graph (`vi.resetModules`) and a new ctx.
@@ -30,6 +30,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { DOMParser as LinkedomDOMParser } from 'linkedom';
 import { loadNodeCorpus, caseHtml } from '../helpers/node-corpus.ts';
 import { recordingCtx, type RecordingCtx } from '../helpers/recording-ctx.ts';
+import { serializeResult as serialize } from '../helpers/serialize-result.ts';
 
 type Api = typeof import('../../src/index.node.ts');
 type PathApi = typeof import('../../src/path/index.node.ts');
@@ -41,31 +42,6 @@ async function freshApis(): Promise<{ api: Api; path: PathApi }> {
   // One dom module behind both entries, so one injection serves both.
   api.setDOMParser(new LinkedomDOMParser());
   return { api, path };
-}
-
-/**
- * Canonical JSON of an object graph. Keys are sorted; a repeated object
- * becomes `{"$ref":n}` (n = its first-visit index), which both breaks the
- * decoration-declarer cycles and pins WHICH nodes share a style or entry —
- * identity that `sameDecorationBand` and declarer stamping depend on.
- * Getters (`paintBounds`) are read like any property.
- */
-function serialize(root: unknown): string {
-  const seen = new Map<object, number>();
-  const walk = (value: unknown): unknown => {
-    if (typeof value === 'number') return Number.isFinite(value) ? (Object.is(value, -0) ? 0 : value) : String(value);
-    if (typeof value === 'function') return '[function]';
-    if (value === null || typeof value !== 'object') return value;
-    const ref = seen.get(value);
-    if (ref !== undefined) return { $ref: ref };
-    seen.set(value, seen.size);
-    if (Array.isArray(value)) return value.map(walk);
-    if (value instanceof Map || value instanceof Set) return { [value.constructor.name]: [...value].map(walk) };
-    const out: Record<string, unknown> = {};
-    for (const key of Object.keys(value).sort()) out[key] = walk((value as Record<string, unknown>)[key]);
-    return out;
-  };
-  return JSON.stringify(walk(root));
 }
 
 interface Outcome { layout: string; paint: string[] }
