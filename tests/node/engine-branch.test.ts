@@ -123,7 +123,7 @@ describe('engine branch', () => {
   });
 
   // A separate question from the snap: where Blink hangs the auto underline
-  // below it. WebKit's gap is font-dependent and measured not to match.
+  // below it. WebKit hangs it off its own thickness instead (src/decoration.ts).
   it.each([
     ['Chrome', CHROME, true],
     ['Node', NODE, true],
@@ -131,6 +131,21 @@ describe('engine branch', () => {
     ['Safari', SAFARI, false],
   ] as const)('%s uses Blink\'s underline gap: %s -> %s', async (_name, ua, expected) => {
     expect((await layoutUnder(ua)).BLINK_UNDERLINE_GAP).toBe(expected);
+  });
+
+  // Whose decoration painter (thickness, positions, double/dotted/dashed/wavy
+  // shapes) to imitate. Gecko is unmeasured and keeps the older shapes.
+  it.each([
+    ['Chrome', CHROME, 'blink'],
+    ['headless Chrome', HEADLESS, 'blink'],
+    ['jsdom', JSDOM, 'blink'],
+    ['Node', NODE, 'blink'],
+    ['no navigator', null, 'blink'],
+    ['Firefox', FIREFOX, 'gecko'],
+    ['Safari', SAFARI, 'webkit'],
+  ] as const)('%s paints decorations like: %s -> %s', async (_name, ua, expected) => {
+    await layoutUnder(ua);
+    expect((await import('../../src/engine.ts')).DECORATION_PAINTER).toBe(expected);
   });
 
   // The public helper other renderers call must follow the same rule: in

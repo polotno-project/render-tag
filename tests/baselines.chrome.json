@@ -28,11 +28,11 @@
     "wrap": true
   },
   "Text decorations & shadows": {
-    "score": 2.6,
+    "score": 0.02,
     "wrap": true
   },
   "Stroked transparent text with shadow": {
-    "score": 15.63,
+    "score": 0.01,
     "wrap": true
   },
   "Code blocks & quotes": {
@@ -64,7 +64,7 @@
     "wrap": true
   },
   "Deeply nested inline styles": {
-    "score": 2.25,
+    "score": 0.14,
     "wrap": true
   },
   "Adjacent styled spans no space": {
@@ -168,7 +168,7 @@
     "wrap": true
   },
   "List items with rich formatting": {
-    "score": 2.81,
+    "score": 0.88,
     "wrap": true
   },
   "Empty list items mixed with content": {
@@ -396,11 +396,11 @@
     "wrap": true
   },
   "Text decorations & shadows@Open Sans": {
-    "score": 2.6,
+    "score": 0.02,
     "wrap": true
   },
   "Stroked transparent text with shadow@Open Sans": {
-    "score": 15.63,
+    "score": 0.01,
     "wrap": true
   },
   "Code blocks & quotes@Open Sans": {
@@ -432,7 +432,7 @@
     "wrap": true
   },
   "Deeply nested inline styles@Open Sans": {
-    "score": 2.25,
+    "score": 0.14,
     "wrap": true
   },
   "Adjacent styled spans no space@Open Sans": {
@@ -536,7 +536,7 @@
     "wrap": true
   },
   "List items with rich formatting@Open Sans": {
-    "score": 2.81,
+    "score": 0.88,
     "wrap": true
   },
   "Empty list items mixed with content@Open Sans": {
@@ -596,7 +596,7 @@
     "wrap": true
   },
   "Dense mixed inline styles@Open Sans": {
-    "score": 1.1,
+    "score": 0.28,
     "wrap": true
   },
   "Hindi Devanagari text@Open Sans": {
@@ -752,11 +752,11 @@
     "wrap": true
   },
   "Text decorations & shadows@Roboto": {
-    "score": 2.35,
+    "score": 0.01,
     "wrap": true
   },
   "Stroked transparent text with shadow@Roboto": {
-    "score": 11.95,
+    "score": 0.03,
     "wrap": true
   },
   "Code blocks & quotes@Roboto": {
@@ -788,7 +788,7 @@
     "wrap": true
   },
   "Deeply nested inline styles@Roboto": {
-    "score": 2.11,
+    "score": 0.11,
     "wrap": true
   },
   "Adjacent styled spans no space@Roboto": {
@@ -1108,11 +1108,11 @@
     "wrap": true
   },
   "Text decorations & shadows@Playfair Display": {
-    "score": 5.52,
+    "score": 3.13,
     "wrap": true
   },
   "Stroked transparent text with shadow@Playfair Display": {
-    "score": 12.49,
+    "score": 0.06,
     "wrap": true
   },
   "Code blocks & quotes@Playfair Display": {
@@ -1144,7 +1144,7 @@
     "wrap": true
   },
   "Deeply nested inline styles@Playfair Display": {
-    "score": 2.46,
+    "score": 0.56,
     "wrap": true
   },
   "Adjacent styled spans no space@Playfair Display": {
@@ -1248,7 +1248,7 @@
     "wrap": true
   },
   "List items with rich formatting@Playfair Display": {
-    "score": 3.45,
+    "score": 1.68,
     "wrap": true
   },
   "Empty list items mixed with content@Playfair Display": {
@@ -1308,7 +1308,7 @@
     "wrap": true
   },
   "Dense mixed inline styles@Playfair Display": {
-    "score": 1.49,
+    "score": 0.69,
     "wrap": true
   },
   "Hindi Devanagari text@Playfair Display": {
@@ -1464,11 +1464,11 @@
     "wrap": true
   },
   "Text decorations & shadows@Merriweather": {
-    "score": 6.65,
+    "score": 4.42,
     "wrap": true
   },
   "Stroked transparent text with shadow@Merriweather": {
-    "score": 11.49,
+    "score": 0.04,
     "wrap": true
   },
   "Code blocks & quotes@Merriweather": {
@@ -1500,7 +1500,7 @@
     "wrap": true
   },
   "Deeply nested inline styles@Merriweather": {
-    "score": 2.21,
+    "score": 0.1,
     "wrap": true
   },
   "Adjacent styled spans no space@Merriweather": {
@@ -1604,7 +1604,7 @@
     "wrap": true
   },
   "List items with rich formatting@Merriweather": {
-    "score": 2.35,
+    "score": 0.79,
     "wrap": true
   },
   "Empty list items mixed with content@Merriweather": {
@@ -1820,11 +1820,11 @@
     "wrap": true
   },
   "Text decorations & shadows@Lobster": {
-    "score": 2.02,
+    "score": 0.12,
     "wrap": true
   },
   "Stroked transparent text with shadow@Lobster": {
-    "score": 9.91,
+    "score": 0.73,
     "wrap": true
   },
   "Code blocks & quotes@Lobster": {
@@ -1856,11 +1856,11 @@
     "wrap": true
   },
   "Deeply nested inline styles@Lobster": {
-    "score": 1.22,
+    "score": 0.16,
     "wrap": true
   },
   "Adjacent styled spans no space@Lobster": {
-    "score": 1.11,
+    "score": 1.1,
     "wrap": true
   },
   "Subscript and superscript@Lobster": {
@@ -1960,7 +1960,7 @@
     "wrap": true
   },
   "List items with rich formatting@Lobster": {
-    "score": 1.45,
+    "score": 0.71,
     "wrap": true
   },
   "Empty list items mixed with content@Lobster": {

@@ -4,7 +4,7 @@
     "wrap": true
   },
   "Formatted text (bold, italic, colors)": {
-    "score": 0.62,
+    "score": 0.13,
     "wrap": true
   },
   "Multi-heading article": {
@@ -28,11 +28,11 @@
     "wrap": true
   },
   "Text decorations & shadows": {
-    "score": 3.71,
+    "score": 0.03,
     "wrap": true
   },
   "Stroked transparent text with shadow": {
-    "score": 20.08,
+    "score": 0.72,
     "wrap": true
   },
   "Code blocks & quotes": {
@@ -64,11 +64,11 @@
     "wrap": true
   },
   "Deeply nested inline styles": {
-    "score": 1.88,
+    "score": 0.06,
     "wrap": true
   },
   "Adjacent styled spans no space": {
-    "score": 0.39,
+    "score": 0,
     "wrap": true
   },
   "Subscript and superscript": {
@@ -84,7 +84,7 @@
     "wrap": true
   },
   "All text decorations combined": {
-    "score": 23.88,
+    "score": 0.12,
     "wrap": true
   },
   "Rainbow colored text": {
@@ -92,7 +92,7 @@
     "wrap": true
   },
   "Pure RTL Arabic text": {
-    "score": 0.56,
+    "score": 0.14,
     "wrap": true
   },
   "Mixed LTR and RTL (English + Arabic)": {
@@ -228,7 +228,7 @@
     "wrap": true
   },
   "Dense mixed inline styles": {
-    "score": 0.73,
+    "score": 0,
     "wrap": true
   },
   "Hindi Devanagari text": {
@@ -312,11 +312,11 @@
     "wrap": true
   },
   "Arabic RTL formatting": {
-    "score": 1.14,
+    "score": 0.08,
     "wrap": true
   },
   "CJK text with formatting": {
-    "score": 0.62,
+    "score": 0.63,
     "wrap": true
   },
   "Hindi lists and formatting": {
@@ -356,11 +356,11 @@
     "wrap": true
   },
   "Polotno HTML": {
-    "score": 3.04,
+    "score": 1.88,
     "wrap": true
   },
   "Polotno Lists": {
-    "score": 2.99,
+    "score": 2.67,
     "wrap": true
   },
   "Negative list margins with preserved whitespace": {
@@ -372,7 +372,7 @@
     "wrap": true
   },
   "Formatted text (bold, italic, colors)@Open Sans": {
-    "score": 0.62,
+    "score": 0.13,
     "wrap": true
   },
   "Multi-heading article@Open Sans": {
@@ -396,11 +396,11 @@
     "wrap": true
   },
   "Text decorations & shadows@Open Sans": {
-    "score": 3.71,
+    "score": 0.03,
     "wrap": true
   },
   "Stroked transparent text with shadow@Open Sans": {
-    "score": 20.08,
+    "score": 0.72,
     "wrap": true
   },
   "Code blocks & quotes@Open Sans": {
@@ -432,11 +432,11 @@
     "wrap": true
   },
   "Deeply nested inline styles@Open Sans": {
-    "score": 1.88,
+    "score": 0.06,
     "wrap": true
   },
   "Adjacent styled spans no space@Open Sans": {
-    "score": 0.39,
+    "score": 0,
     "wrap": true
   },
   "Subscript and superscript@Open Sans": {
@@ -452,7 +452,7 @@
     "wrap": true
   },
   "All text decorations combined@Open Sans": {
-    "score": 23.88,
+    "score": 0.12,
     "wrap": true
   },
   "Rainbow colored text@Open Sans": {
@@ -460,7 +460,7 @@
     "wrap": true
   },
   "Pure RTL Arabic text@Open Sans": {
-    "score": 0.56,
+    "score": 0.14,
     "wrap": true
   },
   "Mixed LTR and RTL (English + Arabic)@Open Sans": {
@@ -596,7 +596,7 @@
     "wrap": true
   },
   "Dense mixed inline styles@Open Sans": {
-    "score": 0,
+    "score": 0.4,
     "wrap": true
   },
   "Hindi Devanagari text@Open Sans": {
@@ -680,11 +680,11 @@
     "wrap": true
   },
   "Arabic RTL formatting@Open Sans": {
-    "score": 1.14,
+    "score": 0.08,
     "wrap": true
   },
   "CJK text with formatting@Open Sans": {
-    "score": 0.62,
+    "score": 0.63,
     "wrap": true
   },
   "Hindi lists and formatting@Open Sans": {
@@ -728,7 +728,7 @@
     "wrap": true
   },
   "Formatted text (bold, italic, colors)@Roboto": {
-    "score": 0.95,
+    "score": 0.11,
     "wrap": true
   },
   "Multi-heading article@Roboto": {
@@ -752,11 +752,11 @@
     "wrap": true
   },
   "Text decorations & shadows@Roboto": {
-    "score": 3.15,
+    "score": 0.09,
     "wrap": true
   },
   "Stroked transparent text with shadow@Roboto": {
-    "score": 15.75,
+    "score": 1.91,
     "wrap": true
   },
   "Code blocks & quotes@Roboto": {
@@ -788,11 +788,11 @@
     "wrap": true
   },
   "Deeply nested inline styles@Roboto": {
-    "score": 2.66,
+    "score": 0.04,
     "wrap": true
   },
   "Adjacent styled spans no space@Roboto": {
-    "score": 0.61,
+    "score": 0,
     "wrap": true
   },
   "Subscript and superscript@Roboto": {
@@ -808,7 +808,7 @@
     "wrap": true
   },
   "All text decorations combined@Roboto": {
-    "score": 24.74,
+    "score": 0.06,
     "wrap": true
   },
   "Rainbow colored text@Roboto": {
@@ -816,7 +816,7 @@
     "wrap": true
   },
   "Pure RTL Arabic text@Roboto": {
-    "score": 0.57,
+    "score": 0.17,
     "wrap": true
   },
   "Mixed LTR and RTL (English + Arabic)@Roboto": {
@@ -892,7 +892,7 @@
     "wrap": true
   },
   "List items with rich formatting@Roboto": {
-    "score": 0.78,
+    "score": 0,
     "wrap": true
   },
   "Empty list items mixed with content@Roboto": {
@@ -952,7 +952,7 @@
     "wrap": true
   },
   "Dense mixed inline styles@Roboto": {
-    "score": 0.73,
+    "score": 0,
     "wrap": true
   },
   "Hindi Devanagari text@Roboto": {
@@ -1036,11 +1036,11 @@
     "wrap": true
   },
   "Arabic RTL formatting@Roboto": {
-    "score": 2.19,
+    "score": 0.09,
     "wrap": true
   },
   "CJK text with formatting@Roboto": {
-    "score": 0.62,
+    "score": 0.63,
     "wrap": true
   },
   "Hindi lists and formatting@Roboto": {
@@ -1084,7 +1084,7 @@
     "wrap": true
   },
   "Formatted text (bold, italic, colors)@Playfair Display": {
-    "score": 1.06,
+    "score": 0.59,
     "wrap": true
   },
   "Multi-heading article@Playfair Display": {
@@ -1108,11 +1108,11 @@
     "wrap": true
   },
   "Text decorations & shadows@Playfair Display": {
-    "score": 3.29,
+    "score": 1.3,
     "wrap": true
   },
   "Stroked transparent text with shadow@Playfair Display": {
-    "score": 16.06,
+    "score": 2.79,
     "wrap": true
   },
   "Code blocks & quotes@Playfair Display": {
@@ -1144,11 +1144,11 @@
     "wrap": true
   },
   "Deeply nested inline styles@Playfair Display": {
-    "score": 1.88,
+    "score": 0.11,
     "wrap": true
   },
   "Adjacent styled spans no space@Playfair Display": {
-    "score": 0.79,
+    "score": 0.39,
     "wrap": true
   },
   "Subscript and superscript@Playfair Display": {
@@ -1164,7 +1164,7 @@
     "wrap": true
   },
   "All text decorations combined@Playfair Display": {
-    "score": 27.14,
+    "score": 5.09,
     "wrap": true
   },
   "Rainbow colored text@Playfair Display": {
@@ -1172,7 +1172,7 @@
     "wrap": true
   },
   "Pure RTL Arabic text@Playfair Display": {
-    "score": 0.57,
+    "score": 0.17,
     "wrap": true
   },
   "Mixed LTR and RTL (English + Arabic)@Playfair Display": {
@@ -1308,7 +1308,7 @@
     "wrap": true
   },
   "Dense mixed inline styles@Playfair Display": {
-    "score": 0.41,
+    "score": 0,
     "wrap": true
   },
   "Hindi Devanagari text@Playfair Display": {
@@ -1392,11 +1392,11 @@
     "wrap": true
   },
   "Arabic RTL formatting@Playfair Display": {
-    "score": 2.15,
+    "score": 1.08,
     "wrap": true
   },
   "CJK text with formatting@Playfair Display": {
-    "score": 0.62,
+    "score": 0.63,
     "wrap": true
   },
   "Hindi lists and formatting@Playfair Display": {
@@ -1440,7 +1440,7 @@
     "wrap": true
   },
   "Formatted text (bold, italic, colors)@Merriweather": {
-    "score": 0.47,
+    "score": 0.45,
     "wrap": true
   },
   "Multi-heading article@Merriweather": {
@@ -1464,11 +1464,11 @@
     "wrap": true
   },
   "Text decorations & shadows@Merriweather": {
-    "score": 12.69,
+    "score": 10.67,
     "wrap": true
   },
   "Stroked transparent text with shadow@Merriweather": {
-    "score": 15.96,
+    "score": 2.03,
     "wrap": true
   },
   "Code blocks & quotes@Merriweather": {
@@ -1500,11 +1500,11 @@
     "wrap": true
   },
   "Deeply nested inline styles@Merriweather": {
-    "score": 1.75,
+    "score": 0.04,
     "wrap": true
   },
   "Adjacent styled spans no space@Merriweather": {
-    "score": 0.35,
+    "score": 0.3,
     "wrap": true
   },
   "Subscript and superscript@Merriweather": {
@@ -1520,7 +1520,7 @@
     "wrap": true
   },
   "All text decorations combined@Merriweather": {
-    "score": 22.91,
+    "score": 6.76,
     "wrap": true
   },
   "Rainbow colored text@Merriweather": {
@@ -1528,7 +1528,7 @@
     "wrap": true
   },
   "Pure RTL Arabic text@Merriweather": {
-    "score": 0.56,
+    "score": 0.16,
     "wrap": true
   },
   "Mixed LTR and RTL (English + Arabic)@Merriweather": {
@@ -1664,7 +1664,7 @@
     "wrap": true
   },
   "Dense mixed inline styles@Merriweather": {
-    "score": 0.35,
+    "score": 0,
     "wrap": true
   },
   "Hindi Devanagari text@Merriweather": {
@@ -1748,11 +1748,11 @@
     "wrap": true
   },
   "Arabic RTL formatting@Merriweather": {
-    "score": 1.15,
+    "score": 1.07,
     "wrap": true
   },
   "CJK text with formatting@Merriweather": {
-    "score": 0.62,
+    "score": 0.63,
     "wrap": true
   },
   "Hindi lists and formatting@Merriweather": {
@@ -1796,7 +1796,7 @@
     "wrap": true
   },
   "Formatted text (bold, italic, colors)@Lobster": {
-    "score": 0.45,
+    "score": 0.08,
     "wrap": true
   },
   "Multi-heading article@Lobster": {
@@ -1820,11 +1820,11 @@
     "wrap": true
   },
   "Text decorations & shadows@Lobster": {
-    "score": 2.56,
+    "score": 0.02,
     "wrap": true
   },
   "Stroked transparent text with shadow@Lobster": {
-    "score": 30.49,
+    "score": 29.42,
     "wrap": true
   },
   "Code blocks & quotes@Lobster": {
@@ -1856,11 +1856,11 @@
     "wrap": true
   },
   "Deeply nested inline styles@Lobster": {
-    "score": 1.44,
+    "score": 0.09,
     "wrap": true
   },
   "Adjacent styled spans no space@Lobster": {
-    "score": 0.33,
+    "score": 0.03,
     "wrap": true
   },
   "Subscript and superscript@Lobster": {
@@ -1876,7 +1876,7 @@
     "wrap": true
   },
   "All text decorations combined@Lobster": {
-    "score": 18.49,
+    "score": 0.08,
     "wrap": true
   },
   "Rainbow colored text@Lobster": {
@@ -1884,7 +1884,7 @@
     "wrap": true
   },
   "Pure RTL Arabic text@Lobster": {
-    "score": 0.56,
+    "score": 0.16,
     "wrap": true
   },
   "Mixed LTR and RTL (English + Arabic)@Lobster": {
@@ -2020,7 +2020,7 @@
     "wrap": true
   },
   "Dense mixed inline styles@Lobster": {
-    "score": 0.15,
+    "score": 0,
     "wrap": true
   },
   "Hindi Devanagari text@Lobster": {
@@ -2104,11 +2104,11 @@
     "wrap": true
   },
   "Arabic RTL formatting@Lobster": {
-    "score": 2.15,
+    "score": 0.09,
     "wrap": true
   },
   "CJK text with formatting@Lobster": {
-    "score": 0.62,
+    "score": 0.63,
     "wrap": true
   },
   "Hindi lists and formatting@Lobster": {

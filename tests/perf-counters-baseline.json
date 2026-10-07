@@ -11,10 +11,12 @@
     "layout.kerningSets": 1,
     "layout.letterSpacingSets": 1,
     "draw.measureText": 0,
-    "draw.fontSets": 209,
+    "draw.fontSets": 1,
     "draw.fillText": 209,
-    "draw.save": 209,
-    "draw.restore": 209
+    "draw.save": 1,
+    "draw.restore": 1,
+    "draw.scratchCanvases": 0,
+    "draw.scratchPeakPixels": 0
   },
   "CJK paragraph (2000 chars)": {
     "sourceChars": 2000,
@@ -28,10 +30,12 @@
     "layout.kerningSets": 1,
     "layout.letterSpacingSets": 1,
     "draw.measureText": 0,
-    "draw.fontSets": 2000,
+    "draw.fontSets": 1,
     "draw.fillText": 2000,
-    "draw.save": 2000,
-    "draw.restore": 2000
+    "draw.save": 1,
+    "draw.restore": 1,
+    "draw.scratchCanvases": 0,
+    "draw.scratchPeakPixels": 0
   },
   "large rich document (perf.test)": {
     "sourceChars": 17245,
@@ -45,10 +49,12 @@
     "layout.kerningSets": 1,
     "layout.letterSpacingSets": 1,
     "draw.measureText": 0,
-    "draw.fontSets": 3625,
+    "draw.fontSets": 401,
     "draw.fillText": 3625,
-    "draw.save": 3675,
-    "draw.restore": 3675
+    "draw.save": 1,
+    "draw.restore": 1,
+    "draw.scratchCanvases": 0,
+    "draw.scratchPeakPixels": 0
   },
   "sibling selectors (4000 items)": {
     "sourceChars": 34890,
@@ -64,8 +70,29 @@
     "draw.measureText": 0,
     "draw.fontSets": 8000,
     "draw.fillText": 8000,
-    "draw.save": 8000,
-    "draw.restore": 8000
+    "draw.save": 1,
+    "draw.restore": 1,
+    "draw.scratchCanvases": 0,
+    "draw.scratchPeakPixels": 0
+  },
+  "text-shadow (50 paragraphs, 2 shadows)": {
+    "sourceChars": 9940,
+    "resolve.styledNodes": 102,
+    "resolve.styleObjects": 52,
+    "resolve.siblingSteps": 0,
+    "layoutTexts": 2900,
+    "layout.measureText": 757,
+    "layout.measuredChars": 16218,
+    "layout.fontSets": 1,
+    "layout.kerningSets": 1,
+    "layout.letterSpacingSets": 1,
+    "draw.measureText": 2900,
+    "draw.fontSets": 27,
+    "draw.fillText": 6186,
+    "draw.save": 2,
+    "draw.restore": 2,
+    "draw.scratchCanvases": 14,
+    "draw.scratchPeakPixels": 14403870
   },
   "ordered list (4000 items)": {
     "sourceChars": 102890,
@@ -79,9 +106,11 @@
     "layout.kerningSets": 1,
     "layout.letterSpacingSets": 1,
     "draw.measureText": 0,
-    "draw.fontSets": 8000,
+    "draw.fontSets": 1,
     "draw.fillText": 8000,
-    "draw.save": 8000,
-    "draw.restore": 8000
+    "draw.save": 1,
+    "draw.restore": 1,
+    "draw.scratchCanvases": 0,
+    "draw.scratchPeakPixels": 0
   }
 }

@@ -27,8 +27,26 @@ export interface CtxCounts {
   measuredChars: number;
 }
 
+/**
+ * Scratch-canvas accounting through the `createCanvas` hook. A canvas's
+ * pixels count as live from creation until it is resized to 0×0.
+ */
+export interface ScratchCounts {
+  /** Canvases `createCanvas` made. */
+  created: number;
+  /** width × height summed over live canvases, now and at its highest. */
+  livePixels: number;
+  peakPixels: number;
+  /** Canvases drawn onto the destination ctx (handed to the caller). */
+  handed: Set<object>;
+  /** Times a handed canvas was resized afterwards — a vector adapter may
+   * embed it asynchronously, so this must stay 0. */
+  handedThenResized: number;
+}
+
 export interface RecordingCtx {
   ctx: CanvasRenderingContext2D;
+  scratch: ScratchCounts;
   /** Effective paint operations, in order. Scratch canvases record into their own. */
   paints: string[];
   counts: CtxCounts;
@@ -125,7 +143,9 @@ export function recordingCtx(width = 800, height = 800): RecordingCtx {
   const counts: CtxCounts = { calls: {}, measuredChars: 0 };
   const count = (name: string) => { counts.calls[name] = (counts.calls[name] ?? 0) + 1; };
 
-  function makeContext(canvas: { width: number; height: number }, paints: string[]): CanvasRenderingContext2D {
+  const scratch: ScratchCounts = { created: 0, livePixels: 0, peakPixels: 0, handed: new Set(), handedThenResized: 0 };
+
+  function makeContext(canvas: { width: number; height: number }, paints: string[], destination = false): CanvasRenderingContext2D {
     let state = defaultState();
     let matrix: Matrix = [1, 0, 0, 1, 0, 0];
     let dash: number[] = [];
@@ -194,6 +214,7 @@ export function recordingCtx(width = 800, height = 800): RecordingCtx {
               return undefined;
             }
             if (PAINT_OPS.has(key)) {
+              if (destination && key === 'drawImage') scratch.handed.add(args[0] as object);
               const shape = key === 'fill' || key === 'stroke' ? ` path=${path.join(' ')}` : '';
               paints.push(`${key}(${args.map((a) => describe(a)).join(',')})${shape} | ${snapshot(key)}`);
               return undefined;
@@ -217,19 +238,34 @@ export function recordingCtx(width = 800, height = 800): RecordingCtx {
   }
 
   const paints: string[] = [];
-  const ctx = makeContext({ width, height }, paints);
+  const ctx = makeContext({ width, height }, paints, true);
 
   const createCanvas = (w: number, h: number) => {
     const scratchPaints: string[] = [];
-    const scratch = { width: w, height: h, getContext: () => scratchContext };
+    let size = { width: 0, height: 0 };
+    const resize = (next: { width: number; height: number }) => {
+      if (scratch.handed.has(canvas)) scratch.handedThenResized++;
+      scratch.livePixels += next.width * next.height - size.width * size.height;
+      scratch.peakPixels = Math.max(scratch.peakPixels, scratch.livePixels);
+      size = next;
+    };
+    const canvas = {
+      get width() { return size.width; },
+      set width(value: number) { resize({ ...size, width: value }); },
+      get height() { return size.height; },
+      set height(value: number) { resize({ ...size, height: value }); },
+      getContext: () => scratchContext,
+    };
+    scratch.created++;
+    resize({ width: w, height: h });
     // Described when drawn, by its size and content: a scratch canvas is
     // painted after it is created.
-    Object.defineProperty(scratch, '__describe', {
-      value: () => `canvas(${scratch.width}x${scratch.height}){${scratchPaints.join(' / ')}}`,
+    Object.defineProperty(canvas, '__describe', {
+      value: () => `canvas(${canvas.width}x${canvas.height}){${scratchPaints.join(' / ')}}`,
     });
-    const scratchContext = makeContext(scratch, scratchPaints);
-    return scratch as unknown as OffscreenCanvas;
+    const scratchContext = makeContext(canvas, scratchPaints);
+    return canvas as unknown as OffscreenCanvas;
   };
 
-  return { ctx, paints, counts, createCanvas };
+  return { ctx, scratch, paints, counts, createCanvas };
 }

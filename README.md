@@ -208,7 +208,11 @@ Shadow composition uses temporary canvases sized for the painted content,
 including overhanging glyphs and decorations. Node consumers must pass
 `createCanvas` to `render`, `drawLayout`, `drawTextOnPath`, or
 `drawTextOnPathLayout` when using shadows. It must return a fresh canvas
-compatible with the destination context. Drawing without shadows needs no
+compatible with the destination context. A canvas render-tag passes to the
+destination's `drawImage` is never changed afterwards. Masks it only draws into
+other scratch canvases are reused within one draw and resized to 0×0 when the
+draw ends. A tall shadowed block is composed in horizontal tiles, so one draw
+may pass several shadow images. Drawing without shadows needs no
 scratch canvas. Fonts and blur rasterization can still differ slightly between
 browser engines; these APIs do not promise byte-identical pixels across engines.
 
@@ -227,7 +231,9 @@ drawLayout({ layout: result, width: 400, ctx: pdfContext, createCanvas });
 With shadows enabled, the proxy must support Canvas 2D image and transform
 operations, including `drawImage`, `getTransform` and `setTransform`. The adapter
 owns PDF image embedding and must preserve drawing order if embedding is
-asynchronous; render-tag's drawing APIs remain synchronous. The factory supplies
+asynchronous; render-tag's drawing APIs remain synchronous. One text-shadow
+group can arrive as several abutting horizontal image tiles, drawn unscaled on
+whole device pixels, not as one image. The factory supplies
 real raster canvases for shadow composition. The foreground remains drawing
 commands on the destination proxy.
 
@@ -257,6 +263,16 @@ automatic decoration color without widening the band. An explicit decoration
 color other than `currentColor` overrides it. `paint-order` controls glyph
 fill/stroke order; it does not add a filled outline to the decoration as native
 SVG text can.
+
+Each decoration is one band per text fragment (one text node's words on one
+line), with the browser's own shapes for `double`, `dotted`, `dashed` and
+`wavy`: Chrome's or Safari's, picked by user agent (Firefox keeps an older
+approximation). Bands are plain strokes: `setLineDash` for dashes and dots
+(Chrome's round dots are zero-length dashes with round caps) and
+`bezierCurveTo` for waves, so vector adapters need those. A
+`linear-gradient` takes angles in `deg`/`rad`/`grad`/`turn`, `to` sides and
+corners, `%` and `px` stop positions (including two-position stops and stops
+outside 0–100%); a color hint is treated as a plain midpoint.
 
 ## render-tag-specific inputs
 

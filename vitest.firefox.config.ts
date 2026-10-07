@@ -19,4 +19,7 @@ export default browserConfig('firefox', 60_000, [
   'tests/stress.test.ts',
   'tests/text-shadow-paint.test.ts',
   'tests/paint-bounds.test.ts',
+  // Stage 3: the gradient parser is engine-independent CSS; never run in
+  // Firefox yet (UNVERIFIED there until it passes).
+  'tests/gradient-parity.test.ts',
 ]);

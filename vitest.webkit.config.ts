@@ -17,4 +17,8 @@ export default browserConfig('webkit', 60_000, [
   'tests/stress.test.ts',
   'tests/text-shadow-paint.test.ts',
   'tests/paint-bounds.test.ts',
+  'tests/decoration-shape-parity.test.ts',
+  'tests/decoration-position-parity.test.ts',
+  'tests/gradient-parity.test.ts',
+  'tests/text-shadow-coverage.test.ts',
 ]);

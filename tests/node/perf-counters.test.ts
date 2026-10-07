@@ -4,8 +4,11 @@
  * Timings are noisy; the WORK behind them is not. With the deterministic
  * `recording-ctx.ts`, each fixture costs an exact number of measureText calls,
  * measured characters, font, kerning and letter-spacing assignments,
- * fillText/save/restore calls, LayoutText runs, styled-tree style objects and
- * selector sibling steps, identical on every machine. Those numbers are recorded in
+ * fillText/save/restore calls, LayoutText runs, styled-tree style objects,
+ * selector sibling steps, and the scratch canvases a text-shadow draw creates
+ * through `createCanvas` (with the most pixels they held at once, counting a
+ * canvas from creation until it is released at 0×0), identical on every
+ * machine. Those numbers are recorded in
  * `tests/perf-counters-baseline.json` as upper bounds, and like every other
  * recorded contract here, ANY change fails:
  *
@@ -41,7 +44,7 @@ const WORDS = ('Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do 
   'nisi ut aliquip ex ea commodo consequat.').split(' ');
 const CJK = '日本語のテキストを、ブラウザと同じ規則で折り返す。「括弧」と（丸括弧）も禁則処理の対象です！';
 
-interface Fixture { html: string; width: number }
+interface Fixture { html: string; width: number; pixelRatio?: number }
 
 const FIXTURES: Record<string, Fixture> = {
   'long paragraph (2000 words)': {
@@ -63,6 +66,15 @@ const FIXTURES: Record<string, Fixture> = {
     html: `<style>.x ~ li, .y ~ li { color: red } li + li { padding-left: 1px }</style>` +
       `<ul style="font-size:14px;margin:0">${Array.from({ length: 4000 }, (_, i) => `<li${i === 3990 ? ' class="y"' : ''}>Item ${i}</li>`).join('')}</ul>`,
     width: 400,
+  },
+  // 50 paragraphs, two shadow values, at pixelRatio 2. Before scratch reuse
+  // this cast each value into its own document-sized image off a
+  // document-sized mask: 3 canvases, 102 MB of RGBA in Chromium.
+  'text-shadow (50 paragraphs, 2 shadows)': {
+    html: `<div style="font:16px sans-serif;line-height:1.4;text-shadow:2px 2px 4px rgba(0,0,0,.5), 0 0 8px red">` +
+      Array.from({ length: 50 }, (_, i) => `<p>${i}: ${WORDS.slice(0, 30).join(' ')}</p>`).join('') + '</div>',
+    width: 600,
+    pixelRatio: 2,
   },
   'ordered list (4000 items)': {
     html: `<ol style="font-size:14px;margin:0">${Array.from({ length: 4000 }, (_, i) => `<li>Item ${i} with a few words</li>`).join('')}</ol>`,
@@ -128,7 +140,9 @@ function count(fixture: Fixture): Counters {
   const rec = recordingCtx(fixture.width, 100000);
   const result = layout({ html: fixture.html, width: fixture.width, ctx: rec.ctx });
   const afterLayout = { calls: { ...rec.counts.calls }, measuredChars: rec.counts.measuredChars };
-  drawLayout({ layout: result, width: fixture.width, ctx: rec.ctx, createCanvas: rec.createCanvas });
+  const pixelRatio = fixture.pixelRatio ?? 1;
+  rec.ctx.scale(pixelRatio, pixelRatio);
+  drawLayout({ layout: result, width: fixture.width, ctx: rec.ctx, createCanvas: rec.createCanvas, pixelRatio });
   const calls = rec.counts.calls;
   const drawn = (name: string) => (calls[name] ?? 0) - (afterLayout.calls[name] ?? 0);
   const tree = styledTreeCounts(fixture);
@@ -148,6 +162,8 @@ function count(fixture: Fixture): Counters {
     'draw.fillText': drawn('fillText'),
     'draw.save': drawn('save'),
     'draw.restore': drawn('restore'),
+    'draw.scratchCanvases': rec.scratch.created,
+    'draw.scratchPeakPixels': rec.scratch.peakPixels,
   };
 }
 

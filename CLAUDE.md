@@ -122,6 +122,33 @@ HTML string + CSS → parseHTML (DOMParser) → resolveStylesFromCSS (pure CSS p
   real scratch canvases. A caller's canvas shadow uses the completed rendering
   as its caster. See README's PDF adapter contract and
   `tests/node/vector-shadows.test.ts` before changing this boundary.
+- **Shadow scratch (`ScratchPool`, shadow.ts).** A canvas handed to the
+  caller's `drawImage` is fresh and never reused or resized (an adapter may
+  embed it later). Masks, and shadow images cast onto a pooled canvas (the
+  caller-shadow source layer), are pooled per draw and released at its end. Text
+  shadows are cast in horizontal tiles from one mask per tile, every value
+  into one image. Chromium output is pixel-identical to one whole-group mask.
+  WebKit's blur moves by a few levels with the image extent and the shadow
+  offset, so keep the off-surface displacement minimal. WebKit also drops the
+  shadow of a source-rect `drawImage` drawn off-surface, so always draw a
+  pooled canvas whole. Gated by `tests/node/shadow-scratch.test.ts` and the
+  scratch counters in `tests/node/perf-counters.test.ts`.
+- **A text-shadow mask records COVERAGE, not color** (`PaintState`
+  `coverage`): the engines cast the shadow from the glyph shape in the
+  shadow's color, so `color: transparent` and 40%-alpha text cast full
+  shadows. Blink casts from the FILL only — the text stroke casts nothing —
+  while WebKit's mask includes the stroke (`STROKE_CASTS_TEXT_SHADOW`).
+  Before casting, the destination's tracker is `finish()`ed: the mask copies
+  its dash/cap but its own tracker assumes solid/butt. Gated by
+  `text-shadow-coverage` and the paint-state node test.
+- **Paint state goes through `PaintState`** (`src/paint-state.ts`). It writes a
+  property only when the value changes. It never relies on `restore` to put a
+  value back, because some proxies do not snapshot state. A draw has one
+  `save`/`restore` pair around it, so the caller gets its ctx state back. Do not
+  add a per-run pair. Use `ps.save()`/`ps.restore()` only for a transform or a
+  clip; a value written inside that scope is forgotten when it closes. Font,
+  kerning and letter-spacing come from the helpers `Measurer` uses, so paint
+  cannot drift from measurement. Gated by `tests/node/paint-state.test.ts`.
 
 ### Text paint propagation (the recurring gradient/stroke/decoration bug class)
 
@@ -155,6 +182,56 @@ Parity tests: `gradient-clip-inline-nested`, `gradient-clip-descendants`,
 `gradient-stroke{,-inline}`, `solid-clip-text`, `path/gradient-clip-parity`.
 When touching this area, run all of them plus `decoration-propagation`,
 `decoration-offset-thickness` and `webkit-text-stroke`.
+
+### Text decorations (`src/decoration.ts`)
+
+- **One band per text fragment.** The engine paints a decoration once per
+  text fragment — one text node's pieces, contiguous on one line — not per
+  word and not per declarer: a dash pattern fits and a wave keeps its phase
+  across the spaces of a fragment, and both restart at the next text node,
+  even under the same declarer (`<u>aa <b>bb</b> cc</u>` is three bands;
+  measured in Chromium and WebKit). `renderBox` groups runs with
+  `sameTextFragment` (same style object, no `startsMeasuredRun` seam, same
+  baseline, touching edges) and `paintFragment` paints underline/overline,
+  then the glyphs, then line-through — the engine's order.
+- **Whose painter** is `DECORATION_PAINTER` (src/engine.ts). Every Blink and
+  WebKit rule is measured off the DOM raster, and the Blink ones match its
+  source (decoration_line_painter.cc, styled_stroke_data.cc,
+  text_decoration_info.cc). Gecko is unmeasured and keeps the old shapes.
+- **Blink**: thickness t = fontSize / 10 (painted floor(t) rows); dashes
+  3t/2t (2t/t from 3px) with the gap stretched to end on a whole dash;
+  dotted ≤ 3px square and NOT fitted, > 3px round dots, fitted; double = a
+  second full band t + 1 away, snapped on its own; wavy = cubic per
+  `1 + 2·round(2t + 0.5)`, control points `0.5 + round(3t + 0.5)` off axis,
+  painted from a device-pixel-aligned tile; line-through top =
+  `baseline - ascent / 3 - t / 2` (190 of 190 bands).
+- **WebKit**: t = fontSize / 16 painted ceil(t) DEVICE pixels — it needs the
+  device scale, which paint takes from `pixelRatio` (`PaintState.deviceScale`);
+  the baseline snaps to a device pixel; underline `max(1, ceil(t/2))` below
+  it; overline's top on the ascent row; double one band apart, downward;
+  an explicit thickness T is also rounded UP on the device grid, and keeps
+  the AUTO underline position and the auto overline's bottom edge (Blink
+  instead resolves T to round(T) and moves the underline by ceil(T/2));
+  dots/dashes `rows`/`2·rows`, unfitted. The line-through comes from a font
+  table canvas cannot read: its formula is a FIT, one device pixel off on
+  ~1 in 5 bands.
+- Gates: `decoration-shape-parity`, `decoration-position-parity` (DPR 1 and
+  2, Chromium + WebKit lanes), `tests/node/decoration-fragments.test.ts`.
+  The text-on-path renderer still draws the old shapes per glyph (D3).
+
+### Gradients (`src/gradient.ts`)
+
+`parseLinearGradient` follows CSS Images 3: corner keywords depend on the box
+aspect ratio, unpositioned stops sit between positioned neighbours, positions
+clamp to be monotonic, two-position stops, px stops, and stops outside 0-100%
+stretch the canvas gradient line instead of being dropped.
+`repeating-linear-gradient` is unrolled into plain stops over the line (kept
+monotonic, or a float-rounded seam inverts). A color hint is IGNORED — the
+transition stays linear with its midpoint halfway (mixing would need a color
+parser). `PaintState.linearGradient`
+caches one gradient object per image + box per ctx, so all runs of a
+fragment share it. Gates: `tests/node/linear-gradient.test.ts`,
+`gradient-parity` (all lanes).
 
 ## Testing workflow
 
@@ -720,12 +797,10 @@ identity); a hand-built or cloned node falls back to its line baseline.
 - WebKit snaps its text baseline to a DEVICE pixel instead (192 of 192 at
   DPR 1 and 2, 176 of 192 at DPR 3). That needs the device scale at paint
   time; not modelled. Gecko: unmeasured, keeps the unsnapped paint.
-- Known residual exposed by the snap: `double` and `wavy` decoration shapes
-  are not Blink's (Blink's double is two FULL-thickness bands, the second
-  `round(fontSize/10) + 1` px below — above for an overline — and `floor(...)
-  + 1` for a line-through). The unsnapped paint hid part of that error on
-  `Text decorations & shadows`, which reads 0.1-0.5% worse in five fonts.
-  The DOM band itself follows the snap (measured).
+- Decoration shapes and positions are in "Text decorations" below. Blink
+  computes an underline's rect BEFORE the line snap (it moves with the
+  decorating box), so the snap's half pixel decides a double's gap and a
+  dash's row; the band still lands on the snapped row.
 - Under `line-height: normal`, a font with a line gap (Arial) puts Chromium's
   baseline below render-tag's — 2px at 160px. Canvas metrics cannot see the
   gap. Pre-existing; not this rule.

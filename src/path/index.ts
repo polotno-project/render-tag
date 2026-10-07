@@ -33,7 +33,7 @@
 import type { ShadowOptions, ResolvedStyle, DecorationEntry } from '../types.js';
 import { parseHTML } from '../parse.js';
 import { resolveStylesFromCSS, paintOrderHasStrokeFirst, isTransparent } from '../css-resolver.js';
-import { applyFont, hasTextClip, getFontMetrics, sameDecorationBand, Measurer } from '../layout.js';
+import { hasTextClip, getFontMetrics, sameDecorationBand, Measurer } from '../layout.js';
 import {
   parseTextShadows,
   parseLinearGradient,
@@ -41,9 +41,10 @@ import {
   bandWidthFor,
   explicitUnderlineDelta,
   textFillColor,
-  applyTextStroke,
 } from '../render.js';
-import { paintTextShadows, shadowBounds, textPaintBounds, transformBounds, unionBounds, withCanvasShadow, withoutCanvasShadow, measurePaintBounds, type PaintBounds } from '../shadow.js';
+import { PaintState } from '../paint-state.js';
+import { STROKE_CASTS_TEXT_SHADOW } from '../engine.js';
+import { paintTextShadows, ScratchPool, shadowBounds, textPaintBounds, transformBounds, unionBounds, withCanvasShadow, withoutCanvasShadow, measurePaintBounds, type PaintBounds } from '../shadow.js';
 import { pathFromString, type PathLike } from './svg-path.js';
 import {
   flattenSegments,
@@ -144,7 +145,7 @@ export function layoutTextOnPath(config: LayoutTextOnPathConfig): TextOnPathLayo
     return {
       ...result,
       get paintBounds() {
-        return paintBounds ??= measurePaintBounds(measureCtx, () => pathPaintBounds(measureCtx, result));
+        return paintBounds ??= measurePaintBounds(measureCtx, () => pathPaintBounds(new PaintState(measureCtx), result));
       },
     };
   } finally {
@@ -153,7 +154,11 @@ export function layoutTextOnPath(config: LayoutTextOnPathConfig): TextOnPathLayo
 }
 
 function collectPathShadowGroups(glyphs: GlyphPlacement[]) {
-  const groups = new Map<string, { glyphs: GlyphPlacement[][]; shadows: ReturnType<typeof parseTextShadows> }>();
+  const groups = new Map<string, {
+    glyphs: GlyphPlacement[][];
+    shadows: ReturnType<typeof parseTextShadows>;
+    bounds?: PaintBounds;
+  }>();
   let previousKey = '';
   for (const glyph of glyphs) {
     const shadows = parseTextShadows(glyph.style.textShadow, glyph.style.color);
@@ -171,17 +176,13 @@ function collectPathShadowGroups(glyphs: GlyphPlacement[]) {
 }
 
 function pathForegroundBounds(
-  ctx: CanvasRenderingContext2D, glyphs: GlyphPlacement[], tb: TextBaseline,
+  ps: PaintState, glyphs: GlyphPlacement[], tb: TextBaseline,
 ): PaintBounds {
   if (!glyphs.length) return { x: 0, y: 0, width: 0, height: 0 };
   return glyphs.map(g => {
     const baseY = baselineLocalY(tb, g.ascent, g.descent);
-    ctx.save();
-    applyFont(ctx, g.style);
-    ctx.textBaseline = 'alphabetic';
-    ctx.letterSpacing = `${g.style.letterSpacing || 0}px`;
-    const ink = textPaintBounds(ctx, g.char, g.style, 0, baseY, g.width);
-    ctx.restore();
+    ps.glyph(g.style);
+    const ink = textPaintBounds(ps.ctx, g.char, g.style, 0, baseY, g.width);
     const box = unionBounds(ink, { x: 0, y: baseY - g.ascent, width: g.width, height: g.ascent + g.descent });
     const c = Math.cos(g.rotation), s = Math.sin(g.rotation);
     return transformBounds(box, { a: c, b: s, c: -s, d: c, e: g.x, f: g.y });
@@ -189,15 +190,22 @@ function pathForegroundBounds(
 }
 
 function pathPaintBounds(
-  ctx: CanvasRenderingContext2D, layout: LayoutOutput,
+  ps: PaintState, layout: LayoutOutput,
   groups = collectPathShadowGroups(layout.glyphs),
 ): PaintBounds {
-  let bounds = pathForegroundBounds(ctx, layout.glyphs, layout.textBaseline);
+  let bounds = pathForegroundBounds(ps, layout.glyphs, layout.textBaseline);
   for (const group of groups.values()) {
-    bounds = unionBounds(bounds, shadowBounds(
-      pathForegroundBounds(ctx, group.glyphs.flat(), layout.textBaseline), group.shadows));
+    bounds = unionBounds(bounds, shadowBounds(groupInk(ps, group, layout.textBaseline), group.shadows));
   }
   return bounds;
+}
+
+type PathShadowGroup = ReturnType<typeof collectPathShadowGroups> extends Map<string, infer G> ? G : never;
+
+/** A shadow group's foreground ink, measured once per draw: the caller-shadow
+ * bounds and the group's own shadow layer both need it. */
+function groupInk(ps: PaintState, group: PathShadowGroup, tb: TextBaseline): PaintBounds {
+  return group.bounds ??= pathForegroundBounds(ps, group.glyphs.flat(), tb);
 }
 
 /**
@@ -216,30 +224,49 @@ export function drawTextOnPathLayout(config: DrawTextOnPathLayoutConfig): void {
   if (layout.glyphs.length === 0) return;
   const tb = layout.textBaseline;
 
+  // One tracker per ctx: with no caller shadow, bounds and paint share ctx.
+  const states = new Map<CanvasRenderingContext2D, PaintState>();
+  const stateOf = (target: CanvasRenderingContext2D) => {
+    let ps = states.get(target);
+    if (!ps) states.set(target, ps = new PaintState(target));
+    return ps;
+  };
+  // Shadow scratch canvases of this draw; none without shadows.
+  let pool: ScratchPool | undefined;
   ctx.save();
   try {
     if (config.renderShadows === false) {
       withoutCanvasShadow(ctx, target => {
-        drawBackgrounds(target, layout.glyphs, tb);
-        drawGlyphs(target, layout.glyphs, layout.textWidth, tb);
-        drawDecorations(target, layout.glyphs, layout.textWidth, tb);
+        const ps = stateOf(target);
+        drawBackgrounds(ps, layout.glyphs, tb);
+        drawGlyphs(ps, layout.glyphs, layout.textWidth, tb);
+        drawDecorations(ps, layout.glyphs, layout.textWidth, tb);
       });
       return;
     }
+    pool = new ScratchPool(ctx, config.createCanvas);
+    const scratch = pool;
     const groups = collectPathShadowGroups(layout.glyphs);
-    const foreground = (target: CanvasRenderingContext2D, glyphs: GlyphPlacement[]) => {
-      drawGlyphs(target, glyphs, layout.textWidth, tb);
-      drawDecorations(target, glyphs, layout.textWidth, tb);
+    const foreground = (ps: PaintState, glyphs: GlyphPlacement[]) => {
+      drawGlyphs(ps, glyphs, layout.textWidth, tb);
+      drawDecorations(ps, glyphs, layout.textWidth, tb);
     };
-    withCanvasShadow(ctx, () => pathPaintBounds(ctx, layout, groups), target => {
-      drawBackgrounds(target, layout.glyphs, tb);
+    const measure = stateOf(ctx);
+    withCanvasShadow(ctx, () => pathPaintBounds(measure, layout, groups), target => {
+      const ps = stateOf(target);
+      drawBackgrounds(ps, layout.glyphs, tb);
       for (const group of groups.values()) {
-        paintTextShadows(target, pathForegroundBounds(ctx, group.glyphs.flat(), tb), group.shadows,
-          mask => group.glyphs.forEach(glyphs => foreground(mask, glyphs)), config.createCanvas);
+        // One piece: each tile the group spans repaints all its glyphs.
+        paintTextShadows(target, [{ bounds: groupInk(measure, group, tb) }], group.shadows, mask => {
+          const maskState = new PaintState(mask, 1, true);
+          group.glyphs.forEach(glyphs => foreground(maskState, glyphs));
+        }, scratch);
       }
-      foreground(target, layout.glyphs);
-    }, config.createCanvas);
+      foreground(ps, layout.glyphs);
+    }, scratch);
   } finally {
+    pool?.dispose();
+    for (const ps of states.values()) ps.finish();
     ctx.restore();
   }
 }
@@ -304,10 +331,11 @@ function canonicalColor(ctx: CanvasRenderingContext2D, color: string): string {
  * group as a curve-following polygon (top edge + bottom edge).
  */
 function drawBackgrounds(
-  ctx: CanvasRenderingContext2D,
+  ps: PaintState,
   glyphs: GlyphPlacement[],
   tb: TextBaseline,
 ): void {
+  const { ctx } = ps;
   // With background-clip:text the background is NOT painted as a polygon —
   // it's clipped to the glyphs (painted as the glyph fill), same as renderBox.
   const paintsBox = (g: GlyphPlacement) =>
@@ -323,7 +351,7 @@ function drawBackgrounds(
       paintsBox(glyphs[j]) &&
       canonicalColor(ctx, glyphs[j].style.backgroundColor) === canon
     ) j++;
-    fillGlyphPolygon(ctx, glyphs.slice(i, j), bg, tb);
+    fillGlyphPolygon(ps, glyphs.slice(i, j), bg, tb);
     i = j;
   }
 }
@@ -351,14 +379,14 @@ function glyphCorners(g: GlyphPlacement, tb: TextBaseline) {
 
 /** Fill a polygon hugging the path through a sequence of consecutive glyphs. */
 function fillGlyphPolygon(
-  ctx: CanvasRenderingContext2D,
+  ps: PaintState,
   group: GlyphPlacement[],
   fill: string,
   tb: TextBaseline,
 ): void {
   if (group.length === 0) return;
-  ctx.save();
-  ctx.fillStyle = fill;
+  const { ctx } = ps;
+  ps.fill(fill);
   ctx.beginPath();
   const first = glyphCorners(group[0], tb);
   ctx.moveTo(first.tl.x, first.tl.y);
@@ -374,7 +402,6 @@ function fillGlyphPolygon(
   }
   ctx.closePath();
   ctx.fill();
-  ctx.restore();
 }
 
 // ─── Glyph fill/stroke ─────────────────────────────
@@ -456,63 +483,42 @@ function effectiveFillPaint(
 
 /** Paint glyph fill and stroke without shadows. */
 function drawGlyphs(
-  ctx: CanvasRenderingContext2D,
+  ps: PaintState,
   glyphs: GlyphPlacement[],
   textWidth: number,
   tb: TextBaseline,
 ): void {
+  const { ctx } = ps;
   for (const g of glyphs) {
+    // All paint state is set BEFORE the glyph's transform scope, so it
+    // survives the restore and the next glyph in the same style writes
+    // nothing. ctx.textBaseline stays 'alphabetic' and fillText's y is
+    // offset instead, which keeps our bounds / decoration / background math
+    // in agreement with what fillText actually paints, whatever textBaseline
+    // the caller picked. The letter-spacing is the one measured with:
+    // shaped runs (Arabic / Indic / Thai) whose `g.width` was measured WITH
+    // it would otherwise render visibly tighter than the reserved width.
+    // Gradients live in user space at paint time, so a local-frame gradient
+    // may be set before the transform.
+    ps.glyph(g.style);
+    const baseY = baselineLocalY(tb, g.ascent, g.descent);
+    // A shadow mask fills every glyph: its shadow is the glyph's shape.
+    const fill = effectiveFillPaint(ctx, g, textWidth, baseY) ?? (ps.coverage ? 'black' : null);
+    const isStroked = g.style.webkitTextStrokeWidth > 0 && (!ps.coverage || STROKE_CASTS_TEXT_SHADOW);
+    if (fill) ps.fill(fill);
+    if (isStroked) ps.textStroke(g.style, strokePaintFor(ctx, g, textWidth, baseY));
+
     ctx.save();
     ctx.translate(g.x, g.y);
     ctx.rotate(g.rotation);
-    applyFont(ctx, g.style);
-    // Keep ctx.textBaseline at 'alphabetic' and offset fillText's y instead.
-    // This keeps our bounds / decoration / background math in agreement with
-    // what fillText actually paints, regardless of which textBaseline the
-    // caller picked.
-    ctx.textBaseline = 'alphabetic';
-    // Mirror the letter-spacing used at measurement time. Without this,
-    // shaped runs (Arabic / Indic / Thai) whose `g.width` was measured WITH
-    // letter-spacing render visibly tighter than the reserved width.
-    // Always assign so a stale value from earlier glyphs doesn't leak.
-    ctx.letterSpacing = `${g.style.letterSpacing || 0}px` as any;
-    const baseY = baselineLocalY(tb, g.ascent, g.descent);
-
-    const fill = effectiveFillPaint(ctx, g, textWidth, baseY);
-    const strokeGradient = strokePaintFor(ctx, g, textWidth, baseY);
-    drawGlyphFillAndStroke(ctx, g, baseY, fill, strokeGradient);
+    const drawFill = () => { if (fill) ctx.fillText(g.char, 0, baseY); };
+    const drawStroke = () => { if (isStroked) ctx.strokeText(g.char, 0, baseY); };
+    // Use the canonical helper instead of an ad-hoc regex — paint-order
+    // tokens are positional ("fill stroke" = fill first), not a flag bag.
+    if (paintOrderHasStrokeFirst(g.style.paintOrder || '')) { drawStroke(); drawFill(); }
+    else { drawFill(); drawStroke(); }
     ctx.restore();
   }
-}
-
-function drawGlyphFillAndStroke(
-  ctx: CanvasRenderingContext2D,
-  g: GlyphPlacement,
-  baseY: number,
-  fill: string | CanvasGradient | null,
-  strokeGradient: CanvasGradient | null,
-): void {
-  const { style } = g;
-  const isStroked = style.webkitTextStrokeWidth > 0;
-  // Use the canonical helper instead of an ad-hoc regex — paint-order tokens
-  // are positional ("fill stroke" = fill first), not a flag bag.
-  const paintStrokeFirst = paintOrderHasStrokeFirst(style.paintOrder || '');
-
-  const drawFill = () => {
-    if (!fill) return;
-    ctx.fillStyle = fill;
-    ctx.fillText(g.char, 0, baseY);
-  };
-  const drawStroke = () => {
-    if (!isStroked) return;
-    ctx.save();
-    applyTextStroke(ctx, style, strokeGradient);
-    ctx.strokeText(g.char, 0, baseY);
-    ctx.restore();
-  };
-
-  if (paintStrokeFirst) { drawStroke(); drawFill(); }
-  else { drawFill(); drawStroke(); }
 }
 
 // ─── Pass 3: Decorations ─────────────────────────────────────────────
@@ -561,11 +567,12 @@ function clipSourceOf(g: GlyphPlacement): ResolvedStyle | undefined {
  * paints nothing.
  */
 function drawDecorations(
-  ctx: CanvasRenderingContext2D,
+  ps: PaintState,
   glyphs: GlyphPlacement[],
   textWidth: number,
   tb: TextBaseline,
 ): void {
+  const { ctx } = ps;
   const lines = ['underline', 'line-through', 'overline'] as const;
   for (const lineKind of lines) {
     let i = 0;
@@ -597,7 +604,7 @@ function drawDecorations(
           }
           j++;
         }
-        drawClipPaintDecoration(ctx, glyphs.slice(i, j), lineKind, deco, textWidth, tb);
+        drawClipPaintDecoration(ps, glyphs.slice(i, j), lineKind, deco, textWidth, tb);
         i = j;
         continue;
       }
@@ -616,7 +623,7 @@ function drawDecorations(
         }
         j++;
       }
-      strokeDecorationAlongGlyphs(ctx, glyphs.slice(i, j), lineKind, deco, color, tb);
+      strokeDecorationAlongGlyphs(ps, glyphs.slice(i, j), lineKind, deco, color, tb);
       i = j;
     }
   }
@@ -653,7 +660,7 @@ function decorationLocalY(
  * bands stitch into one continuous color curve along the path.
  */
 function drawClipPaintDecoration(
-  ctx: CanvasRenderingContext2D,
+  ps: PaintState,
   group: GlyphPlacement[],
   lineKind: 'underline' | 'line-through' | 'overline',
   deco: DecorationEntry,
@@ -664,22 +671,24 @@ function drawClipPaintDecoration(
   const decoStyle = deco.style || 'solid';
   const lineWidth = bandWidthFor(deco);
   if (lineWidth <= 0) return;
+  const { ctx } = ps;
   const declarerDescent = getFontMetrics(ctx, deco.declarer).descent;
   for (const g of group) {
-    ctx.save();
+    // State written inside the transform scope is forgotten when it closes.
+    ps.save();
     ctx.translate(g.x, g.y);
     ctx.rotate(g.rotation);
     const baseY = baselineLocalY(tb, g.ascent, g.descent);
     const paint = clipPaintFor(ctx, g, textWidth, baseY);
     if (paint) {
-      drawDecorationLine(ctx, 0, decorationLocalY(g, deco, declarerDescent, lineWidth, lineKind, tb), g.width, lineWidth, decoStyle, paint);
+      drawDecorationLine(ps, 0, decorationLocalY(g, deco, declarerDescent, lineWidth, lineKind, tb), g.width, lineWidth, decoStyle, paint);
     }
-    ctx.restore();
+    ps.restore();
   }
 }
 
 function strokeDecorationAlongGlyphs(
-  ctx: CanvasRenderingContext2D,
+  ps: PaintState,
   group: GlyphPlacement[],
   lineKind: 'underline' | 'line-through' | 'overline',
   deco: DecorationEntry,
@@ -690,6 +699,7 @@ function strokeDecorationAlongGlyphs(
   const decoStyle = deco.style || 'solid';
   const lineWidth = bandWidthFor(deco);
   if (lineWidth <= 0) return;
+  const { ctx } = ps;
   const declarerDescent = getFontMetrics(ctx, deco.declarer).descent;
 
   // Per-glyph local y for this decoration kind. The decoration position is
@@ -701,11 +711,11 @@ function strokeDecorationAlongGlyphs(
     // For double/wavy we draw each glyph segment independently using the
     // shared helper so the visual matches the main renderer.
     for (const g of group) {
-      ctx.save();
+      ps.save();
       ctx.translate(g.x, g.y);
       ctx.rotate(g.rotation);
-      drawDecorationLine(ctx, 0, localY(g), g.width, lineWidth, decoStyle, color);
-      ctx.restore();
+      drawDecorationLine(ps, 0, localY(g), g.width, lineWidth, decoStyle, color);
+      ps.restore();
     }
     return;
   }
@@ -713,11 +723,10 @@ function strokeDecorationAlongGlyphs(
   // Solid / dotted / dashed: a single continuous polyline through (left,
   // right) endpoints of each glyph projected into world space. Stroking
   // once keeps the dash phase continuous across the whole decoration run.
-  ctx.save();
-  ctx.strokeStyle = color;
-  ctx.lineWidth = lineWidth;
-  if (decoStyle === 'dotted') ctx.setLineDash([lineWidth, lineWidth * 2]);
-  else if (decoStyle === 'dashed') ctx.setLineDash([lineWidth * 3, lineWidth * 2]);
+  ps.stroke(color, lineWidth,
+    decoStyle === 'dotted' ? [lineWidth, lineWidth * 2]
+      : decoStyle === 'dashed' ? [lineWidth * 3, lineWidth * 2]
+        : undefined);
   ctx.beginPath();
   for (let i = 0; i < group.length; i++) {
     const g = group[i];
@@ -734,8 +743,6 @@ function strokeDecorationAlongGlyphs(
     ctx.lineTo(right.x, right.y);
   }
   ctx.stroke();
-  ctx.setLineDash([]);
-  ctx.restore();
 }
 
 // ─── Style helpers ───────────────────────────────────────────────────

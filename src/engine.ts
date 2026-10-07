@@ -27,3 +27,23 @@ export const IS_SAFARI =
  * Gecko keeps the exact percentage (not measured here; UNVERIFIED).
  */
 export const INTEGER_PERCENT_LINE_HEIGHT = !IS_GECKO;
+
+/**
+ * Whose text-decoration painter to imitate: the band thickness, where each
+ * line sits, and the shapes of `double`, `dotted`, `dashed` and `wavy`
+ * (src/decoration.ts). Each rule there was measured off that engine's DOM.
+ * Gecko is not measured here (Firefox cannot launch in this environment), so
+ * it keeps render-tag's older shapes and positions.
+ */
+export const DECORATION_PAINTER: 'blink' | 'webkit' | 'gecko' =
+  IS_GECKO ? 'gecko' : IS_SAFARI ? 'webkit' : 'blink';
+
+/**
+ * Does a text's -webkit-text-stroke cast its text-shadow? WebKit's does: the
+ * shadow is the filled AND stroked glyph. Blink casts the shadow from the
+ * FILL only — a 6px-stroked glyph's shadow is the bare glyph, mostly hidden
+ * under the stroke, even when the fill is transparent (measured,
+ * tests/text-shadow-coverage.test.ts). Gecko keeps render-tag's older
+ * fill-and-stroke mask (UNVERIFIED).
+ */
+export const STROKE_CASTS_TEXT_SHADOW = DECORATION_PAINTER !== 'blink';

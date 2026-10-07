@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { render, layout, drawLayout } from '../src/index.ts';
 import { drawTextOnPath } from '../src/path/index.ts';
 import fontUrl from '@fontsource-variable/arimo/files/arimo-latin-wght-normal.woff2?url';
+import { isWebKit } from './helpers/browser-name.ts';
 
 beforeAll(async () => {
   const font = new FontFace('ShadowFixture', `url(${fontUrl})`, { weight: '100 900' });
@@ -386,4 +387,40 @@ it('uses a supplied scratch-canvas factory only when shadows need it', () => {
   ctx.shadowColor = 'transparent';
   drawTextOnPath({ctx, path: 'M0,100 L500,100', html: cssText('color:blue;text-shadow:0 10px 4px red'), createCanvas});
   expect(calls).toBeGreaterThan(0);
+});
+
+it('casts a tall CSS shadow in tiles with the pixels of one native shadow', () => {
+  // ~4000 device rows: the shadow image is cut into several horizontal tiles
+  // (shadow.ts TILE_PIXELS), each rasterizing only the mask rows its blur
+  // reaches. Seams or a short margin would show against one native shadow
+  // cast from the whole text.
+  const width = 700, height = 4000;
+  const html = `<div style="font-size:28px;font-family:ShadowFixture;line-height:1.3;color:blue">` +
+    `${'Header text with a shadow. '.repeat(150)}</div>`;
+  const make = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = width; canvas.height = height;
+    const ctx = canvas.getContext('2d')!;
+    ctx.translate(20, 20);
+    return ctx;
+  };
+  const source = make();
+  render({ ctx: source, html, width: 640 });
+  const expected = make();
+  expected.setTransform(1, 0, 0, 1, 0, 0);
+  // Last value first, so the first is on top.
+  for (const [x, y, blur, color] of [[0, 0, 16, 'red'], [3, 4, 6, 'rgba(0,0,0,.6)']] as const) {
+    expected.shadowColor = color; expected.shadowBlur = blur;
+    expected.shadowOffsetX = 2000 + x; expected.shadowOffsetY = y;
+    expected.drawImage(source.canvas, -2000, 0);
+  }
+  expected.shadowColor = 'transparent';
+  expected.translate(20, 20);
+  render({ ctx: expected, html, width: 640 });
+  const actual = make();
+  render({ ctx: actual, html: html.replace('color:blue', 'color:blue;text-shadow:3px 4px 6px rgba(0,0,0,.6), 0 0 16px red'), width: 640 });
+  // Chromium matches the native shadow exactly. WebKit's blur moves by a few
+  // levels with the extent of the image it blurs (measured: 4/255 when the
+  // whole text is one image, 5/255 cut into tiles); Firefox is unverified.
+  expectSameImage(pixels(actual), pixels(expected), isWebKit ? 5 : 3);
 });

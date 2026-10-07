@@ -121,7 +121,9 @@ export function drawLayout(config: DrawConfig): { canvas: AnyCanvas } {
     renderCtx.scale(pixelRatio, pixelRatio);
   }
 
-  renderNode(renderCtx as CanvasRenderingContext2D, layoutResult.layoutRoot, config);
+  // `pixelRatio` doubles as the device scale paint assumes for a caller's
+  // ctx too (WebKit decorations round on the device grid).
+  renderNode(renderCtx as CanvasRenderingContext2D, layoutResult.layoutRoot, { ...config, pixelRatio });
 
   return { canvas };
 }
