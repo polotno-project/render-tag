@@ -9,7 +9,7 @@
 import type { ShadowOptions, ResolvedStyle, DecorationEntry } from '../types.js';
 import { paintOrderHasStrokeFirst, isTransparent } from '../css-resolver.js';
 import { hasTextClip, paintsBoxBackground, sameDecorationBand, styleTree, layoutFontMetrics, type FontMetricsTable } from '../layout.js';
-import { textFillColor } from '../render.js';
+import { fillIsTransparent, textFillColor } from '../render.js';
 import { bandWidthFor, drawDecorationLine, explicitUnderlineDelta, legacyDash } from '../decoration.js';
 import { parseLinearGradient } from '../gradient.js';
 import { PaintState, withDraw } from '../paint-state.js';
@@ -270,13 +270,6 @@ function fillGlyphPolygon(
   ctx.fill();
 }
 
-/** The glyph's own fill paints nothing. */
-function isFillTransparent(style: ResolvedStyle): boolean {
-  return style.webkitTextFillColor === 'transparent' ||
-    style.color === 'transparent' ||
-    isTransparent(textFillColor(style));
-}
-
 /** The clip-paint declarer of a glyph, if any. */
 function clipSourceOf(g: GlyphPlacement): ResolvedStyle | undefined {
   return g.clipStyle ?? (hasTextClip(g.style) ? g.style : undefined);
@@ -331,11 +324,11 @@ function effectiveFillPaint(
   baseY: number,
 ): string | CanvasGradient | null {
   const usesClipPaint = hasTextClip(g.style) ||
-    (g.clipStyle != null && isFillTransparent(g.style));
+    (g.clipStyle != null && fillIsTransparent(g.style));
   if (usesClipPaint) {
     return clipPaintFor(ctx, g, textWidth, baseY);
   }
-  return isFillTransparent(g.style) ? null : textFillColor(g.style);
+  return fillIsTransparent(g.style) ? null : textFillColor(g.style);
 }
 
 function drawGlyphs(

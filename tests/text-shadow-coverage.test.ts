@@ -32,6 +32,8 @@ const CASES: [name: string, style: string, shadow: [number, number, number]][] =
   ['6px stroke, transparent fill', 'color:transparent;-webkit-text-stroke:6px blue;text-shadow:4px 4px 0 red', [255, 0, 0]],
   ['6px stroke, opaque fill', 'color:yellow;-webkit-text-stroke:6px blue;text-shadow:4px 4px 0 red', [255, 0, 0]],
   ['6px stroke, 50% fill', 'color:rgba(0,255,0,.5);-webkit-text-stroke:6px blue;text-shadow:4px 4px 0 red', [255, 0, 0]],
+  // The fill hides the shadow except where the 0.1em = 4px offset shows it.
+  ['em offsets, opaque fill', 'color:black;text-shadow:0.1em 0.1em 0 red', [255, 0, 0]],
   ['6px stroke, transparent -webkit-text-fill-color', 'color:green;-webkit-text-fill-color:transparent;-webkit-text-stroke:6px blue;text-shadow:4px 4px 0 red', [255, 0, 0]],
 ];
 

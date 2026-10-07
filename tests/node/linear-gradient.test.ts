@@ -133,3 +133,11 @@ describe('repeating-linear-gradient', () => {
     expect(parse('repeating-linear-gradient(to right, red 30%, blue 30%)')!.stops).toEqual([[0, 'blue'], [1, 'blue']]);
   });
 });
+
+describe('function name case', () => {
+  it('matches the function name case-insensitively, repeating- prefix included', () => {
+    expect(parse('LINEAR-GRADIENT(90deg, red, blue)')).toEqual(parse('linear-gradient(90deg, red, blue)'));
+    const lower = parse('repeating-linear-gradient(to right, red 0 20px, blue 20px 40px)');
+    expect(parse('Repeating-Linear-Gradient(to right, red 0 20px, blue 20px 40px)')).toEqual(lower);
+  });
+});

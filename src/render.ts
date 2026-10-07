@@ -57,8 +57,9 @@ export function textFillColor(style: ResolvedStyle): string {
     ? style.webkitTextFillColor : style.color;
 }
 
-function fillIsTransparent(style: ResolvedStyle): boolean {
-  return style.webkitTextFillColor === 'transparent' || style.color === 'transparent';
+/** The glyph's own fill paints nothing: both renderers decide clip-paint precedence by it. */
+export function fillIsTransparent(style: ResolvedStyle): boolean {
+  return isTransparent(style.webkitTextFillColor || style.color);
 }
 
 /** What fills and strokes a fragment's glyphs and clip-painted bands. */

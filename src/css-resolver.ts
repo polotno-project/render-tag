@@ -942,6 +942,15 @@ const lineClamp: Parser = value => {
   const n = v === 'none' || v === 'auto' ? 0 : parseInt(v, 10);
   return Number.isFinite(n) && n > 0 ? n : 0;
 };
+/** `text-shadow` with its lengths in px: em/rem resolve on the declaring element and inherit as px. */
+const textShadow: Parser = (value, env) => {
+  if (!isTextShadow(value)) return null;
+  if (value.trim().toLowerCase() === 'none') return 'none';
+  return splitTopLevel(value, ',').map((shadow) => splitTopLevelWhitespace(shadow.trim()).map((token) => {
+    const px = lengthOf(token, env, NaN);
+    return Number.isNaN(px) ? token : `${px}px`;
+  }).join(' ')).join(', ');
+};
 /** A non-negative <number>. */
 const flexFactor: Parser = value =>
   /^[+]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(value.trim()) ? parseFloat(value) : NaN;
@@ -953,7 +962,7 @@ const PARSERS: Record<string, Parser> = {
   'text-indent': (value, env) => cbLengthOf(value, env),
   'text-transform': textTransform,
   'text-decoration-line': textDecorationLine,
-  'text-shadow': noneOr(isTextShadow),
+  'text-shadow': textShadow,
   'background-image': noneOr(isImageList),
   '-webkit-text-stroke-width': lineWidth,
   // A custom property: a browser drops an unknown real property whenever it

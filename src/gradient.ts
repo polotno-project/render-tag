@@ -39,11 +39,12 @@ export function parseLinearGradient(
   y: number,
   height: number,
 ): CanvasGradient | null {
-  const startIdx = bgImage.indexOf('linear-gradient(');
-  if (startIdx === -1) return null;
+  const fn = /(repeating-)?linear-gradient\(/i.exec(bgImage);
+  if (!fn) return null;
+  const startIdx = fn.index + fn[0].length;
   let depth = 0;
   let endIdx = -1;
-  for (let i = startIdx + 16; i < bgImage.length; i++) {
+  for (let i = startIdx; i < bgImage.length; i++) {
     if (bgImage[i] === '(') depth++;
     else if (bgImage[i] === ')') {
       if (depth === 0) { endIdx = i; break; }
@@ -51,8 +52,8 @@ export function parseLinearGradient(
     }
   }
   if (endIdx === -1) return null;
-  const repeating = bgImage.slice(Math.max(0, startIdx - 10), startIdx) === 'repeating-';
-  const parts = splitTopLevel(bgImage.slice(startIdx + 16, endIdx), ',').map((p) => p.trim()).filter(Boolean);
+  const repeating = fn[1] !== undefined;
+  const parts = splitTopLevel(bgImage.slice(startIdx, endIdx), ',').map((p) => p.trim()).filter(Boolean);
   if (parts.length === 0) return null;
 
   const direction = gradientAngle(parts[0], width, height);

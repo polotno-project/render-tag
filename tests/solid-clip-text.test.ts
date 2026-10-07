@@ -7,6 +7,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { render } from '../src/index.ts';
+import { compareNativeRenders } from './helpers/native-compare.ts';
 
 function countPixels(
   canvas: HTMLCanvasElement,
@@ -44,5 +45,12 @@ describe('background-clip: text with solid background-color', () => {
       pixelRatio: 1,
     });
     expect(countPixels(canvas, isRed)).toBeGreaterThan(200);
+  });
+
+  it.each(['rgba(0,0,0,0)', 'TRANSPARENT'])('a nested block with color:%s shows the clip color, as natively', async (color) => {
+    const html = `<div style="font-size: 40px; background-color: red; -webkit-background-clip: text; color: transparent;"><p style="color: ${color};">Solid</p></div>`;
+    const { libCanvas, domCanvas } = await compareNativeRenders(html, '', 300, 120);
+    expect(countPixels(domCanvas, isRed), 'native').toBeGreaterThan(200);
+    expect(countPixels(libCanvas, isRed)).toBeGreaterThan(200);
   });
 });

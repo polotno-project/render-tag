@@ -12,6 +12,7 @@ import { DOMParser as LinkedomDOMParser } from 'linkedom';
 import { parseHTML } from '../../src/parse.ts';
 import { resolveStylesFromCSS, type ResolveOptions } from '../../src/css-resolver.ts';
 import { setDOMParser } from '../../src/dom.ts';
+import { shadowsOf } from '../../src/shadow.ts';
 import type { StyledNode } from '../../src/types.ts';
 
 afterAll(() => setDOMParser(null));
@@ -605,7 +606,7 @@ describe('invalid and uppercase values (a browser drops / lower-cases them)', ()
       'oklch(70% 0.1 200)', 'hwb(10 20% 30%)', 'color(display-p3 1 0 0)', 'rgb(calc(10 + 5) 0 0)', 'rgb(from red r g b)']) {
       expect(v(`color: ${c}`).color, c).toBe(c);
     }
-    expect(v('text-shadow: 1px 1px 2px red, 0 0 1em rgb(0 0 255)').textShadow).toBe('1px 1px 2px red, 0 0 1em rgb(0 0 255)');
+    expect(v('text-shadow: 1px 1px 2px red, 0 0 1em rgb(0 0 255)').textShadow).toBe('1px 1px 2px red, 0px 0px 16px rgb(0 0 255)');
     expect(v('text-shadow: red 1px 1px').textShadow).toBe('red 1px 1px');
     for (const img of ['linear-gradient(to right, red 0%, blue 100%)', 'linear-gradient(45deg, red, 30%, blue)',
       'linear-gradient(red 10% 20%, blue)', 'linear-gradient(in oklch, red, blue)',
@@ -725,5 +726,20 @@ describe('an invalid shorthand drops whole', () => {
   it('a valid shorthand still applies', () => {
     expect(el('<p style="margin: 1px 2px; font: italic 500 20px/1.5 serif; flex: 1; border: 2px dashed">x</p>', 'p').style)
       .toMatchObject({ marginTop: 1, marginRight: 2, fontSize: 20, fontStyle: 'italic', lineHeight: 30, flexGrow: 1, borderTopWidth: 2 });
+  });
+});
+
+describe('text-shadow lengths', () => {
+  const offsets = (html: string, tag: string) =>
+    shadowsOf(new Map(), el(html, tag).style).shadows.map((s) => [s.offsetX, s.offsetY, s.blur]);
+
+  it('reads units in any case', () => {
+    expect(offsets('<p style="font-size: 20px; text-shadow: 2PX 2PX red">x</p>', 'p')).toEqual([[2, 2, 0]]);
+  });
+
+  it('resolves em and rem against the declaring element; descendants inherit px', () => {
+    const html = '<div style="font-size: 20px; text-shadow: 0.1em 0.1em 0.5rem red">x<span style="font-size: 40px">y</span></div>';
+    expect(offsets(html, 'div')).toEqual([[2, 2, 8]]);
+    expect(offsets(html, 'span')).toEqual([[2, 2, 8]]);
   });
 });

@@ -16,7 +16,7 @@ function parseTextShadows(shadow: string, currentColor: string): TextShadow[] {
     const lengths: number[] = [];
     let color = currentColor;
     for (const token of tokens) {
-      if (/^[+-]?(?:\d*\.)?\d+(?:px)?$/.test(token)) lengths.push(parseFloat(token));
+      if (/^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?(?:px)?$/i.test(token)) lengths.push(parseFloat(token));
       else color = token.toLowerCase() === 'currentcolor' ? currentColor : token;
     }
     if (lengths.length < 2 || lengths.length > 3 || (lengths[2] ?? 0) < 0) continue;

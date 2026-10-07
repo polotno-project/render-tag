@@ -10,6 +10,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { render } from '../src/index.ts';
+import { compareNativeRenders } from './helpers/native-compare.ts';
 
 interface Rect {
   x: number;
@@ -101,5 +102,12 @@ describe('background-clip: text gradient through block descendants', () => {
     const { canvas } = render({ html, width: 300, pixelRatio: 1 });
     expect(countPixels(canvas, isRed)).toBeGreaterThan(20);
     expect(countPixels(canvas, isBlue)).toBe(0);
+  });
+
+  it.each(['rgba(0,0,0,0)', 'TRANSPARENT'])('a nested block with color:%s shows the gradient, as natively', async (color) => {
+    const html = `<div style="font-size: 24px; background-image: linear-gradient(90deg, red, red); ${CLIP}"><p style="color: ${color};">Gradient text</p></div>`;
+    const { libCanvas, domCanvas } = await compareNativeRenders(html, '', 300, 80);
+    expect(countPixels(domCanvas, isRed), 'native').toBeGreaterThan(50);
+    expect(countPixels(libCanvas, isRed)).toBeGreaterThan(50);
   });
 });
