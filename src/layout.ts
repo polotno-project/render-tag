@@ -891,24 +891,11 @@ interface InlineBlockLayout {
 interface Word {
   text: string;
   width: number;
-  style: ResolvedStyle;
-  /** See `TextRun.parentStyle`. */
-  parentStyle?: ResolvedStyle;
+  refs: SegmentRefs;
   isSpace: boolean;
   /** Tab character — its width is the advance to the tab stop it reached */
   isTab?: boolean;
-  boxStyle?: ResolvedStyle;
-  /** Marks the start of an inline box (adds left padding/border) */
-  boxOpen?: ResolvedStyle;
-  /** Marks the end of an inline box (adds right padding/border) */
-  boxClose?: ResolvedStyle;
-  /** Nearest inline ancestor-or-self declaring background-clip:text + background */
-  clipStyle?: ResolvedStyle;
-  /** Nearest inline ancestor-or-self declaring --rt-text-stroke-image */
-  strokeImageStyle?: ResolvedStyle;
   inlineBlockLayout?: InlineBlockLayout;
-  /** See `TextRun.bidi`. */
-  bidi?: BidiContext | null;
   /** See `SEG_RUN_SEAM`. */
   runSeam?: true;
 }
@@ -924,7 +911,7 @@ interface PositionedLine {
 
 /** True for atomic inline-block words (boxOpen && boxClose && text together). */
 function isAtomicInlineBlock(w: Word): boolean {
-  return !!(w.boxOpen && w.boxClose && w.text);
+  return !!(w.refs.boxOpen && w.refs.boxClose && w.text);
 }
 
 /**
@@ -960,11 +947,11 @@ function applyEllipsisToLine(
     (line.words[styleIdx].text === '' || isAtomicInlineBlock(line.words[styleIdx]))
   ) styleIdx--;
   if (styleIdx < 0) return;
-  const lastStyle = line.words[styleIdx].style;
-  const boxStyle = line.words[styleIdx].boxStyle;
+  const lastStyle = line.words[styleIdx].refs.style;
+  const boxStyle = line.words[styleIdx].refs.boxStyle;
   // The ellipsis takes the trimmed run's style, so it has to take the parent
   // that style's vertical-align measures against too.
-  const parentStyle = line.words[styleIdx].parentStyle;
+  const parentStyle = line.words[styleIdx].refs.parentStyle;
   const m = session.measurer;
   const ellipsisWidth = m.width(m.stateOf(lastStyle), '…');
 
@@ -987,7 +974,7 @@ function applyEllipsisToLine(
   // 3. Back-trim non-space text words until the ellipsis fits.
   //    Atomic inline-blocks are non-space too; they pop along with words.
   const isTrimmableText = (w: Word) =>
-    !w.isSpace && w.text !== '' && !w.boxOpen && !w.boxClose;
+    !w.isSpace && w.text !== '' && !w.refs.boxOpen && !w.refs.boxClose;
   while (
     line.totalWidth + ellipsisWidth > maxWidth &&
     line.words.length > 0
@@ -1004,10 +991,8 @@ function applyEllipsisToLine(
   const ellipsisWord: Word = {
     text: '…',
     width: ellipsisWidth,
-    style: lastStyle,
-    parentStyle,
+    refs: { style: lastStyle, parentStyle, boxStyle },
     isSpace: false,
-    boxStyle,
   };
   line.words.push(ellipsisWord);
   if (session.stats) session.stats.wordObjects++;
@@ -1818,22 +1803,14 @@ class FlowItems {
 
   /** Item `i` as the emit pass reads it. */
   word(i: number): Word {
-    const refs = this.refs(i);
     const flags = this.flags(i);
     return {
       text: this.text(i),
       width: this.width(i),
-      style: refs.style,
-      parentStyle: refs.parentStyle,
+      refs: this.refs(i),
       isSpace: (flags & SEG_SPACE) !== 0,
       isTab: (flags & SEG_TAB) !== 0,
-      boxStyle: refs.boxStyle,
-      boxOpen: refs.boxOpen,
-      boxClose: refs.boxClose,
-      clipStyle: refs.clipStyle,
-      strokeImageStyle: refs.strokeImageStyle,
       inlineBlockLayout: this.inlineBlockLayout(i),
-      bidi: refs.bidi,
       runSeam: (flags & SEG_RUN_SEAM) !== 0 ? true : undefined,
     };
   }
@@ -2834,7 +2811,7 @@ function resolveLineBidi(
   for (let i = 0; !needed && i < lines.length; i++) {
     for (const w of lines[i].words) {
       let rtlContext = false;
-      for (let c = w.bidi; c && !rtlContext; c = c.parent) rtlContext = mayNeedBidi(c.open);
+      for (let c = w.refs.bidi; c && !rtlContext; c = c.parent) rtlContext = mayNeedBidi(c.open);
       if (rtlContext || mayNeedBidi(w.text)) { needed = true; break; }
     }
   }
@@ -2844,7 +2821,7 @@ function resolveLineBidi(
   const starts = lines.map((line) => {
     const at = line.words.map((w) => w.text === ''
       ? -1
-      : builder.push(isAtomicInlineBlock(w) ? '\uFFFC' : w.text, w.bidi ?? null));
+      : builder.push(isAtomicInlineBlock(w) ? '\uFFFC' : w.text, w.refs.bidi ?? null));
     if (line.endedByHardBreak) builder.paragraphBreak();
     return at;
   });
@@ -2887,10 +2864,10 @@ function withDirection(style: ResolvedStyle, direction: 'ltr' | 'rtl'): Resolved
 
 /** Can two visually adjacent pieces of one level paint as ONE fillText? */
 function sameBidiRun(a: Word, b: Word): boolean {
-  if (a.boxStyle !== b.boxStyle || a.clipStyle !== b.clipStyle ||
-    a.strokeImageStyle !== b.strokeImageStyle || a.parentStyle !== b.parentStyle) return false;
-  const p = a.style;
-  const q = b.style;
+  if (a.refs.boxStyle !== b.refs.boxStyle || a.refs.clipStyle !== b.refs.clipStyle ||
+    a.refs.strokeImageStyle !== b.refs.strokeImageStyle || a.refs.parentStyle !== b.refs.parentStyle) return false;
+  const p = a.refs.style;
+  const q = b.refs.style;
   return p === q || (sameTextStyle(p, q) &&
     p.letterSpacing === q.letterSpacing && p.wordSpacing === q.wordSpacing &&
     p.verticalAlign === q.verticalAlign && p.textShadow === q.textShadow &&
@@ -2917,7 +2894,7 @@ function singlePaintLine(
   const first = words[0];
   for (const w of words) {
     if (w.text === '' || w.isTab || isAtomicInlineBlock(w) || w.inlineBlockLayout ||
-      w.bidi !== first.bidi || !sameBidiRun(first, w)) return null;
+      w.refs.bidi !== first.refs.bidi || !sameBidiRun(first, w)) return null;
   }
   const text = words.map((w) => w.text).join('');
   const own = resolveBidi(text, paragraphLevel);
@@ -2986,7 +2963,7 @@ function bidiLineItems(
       levels.push(lv[0]);
       return;
     }
-    const state = m.stateOf(word.style);
+    const state = m.stateOf(word.refs.style);
     const measured = cuts.map(([a, b]) => m.width(state, word.text.slice(a, b)));
     const sum = measured.reduce((x, y) => x + y, 0);
     cuts.forEach(([a, b], i) => {
@@ -3015,7 +2992,7 @@ function bidiLineItems(
   for (let i = 0; i < items.length; i++) {
     if (levels[i] >= 0) continue;
     const marker = items[i];
-    const closing = !!marker.boxClose && !marker.boxOpen;
+    const closing = !!marker.refs.boxClose && !marker.refs.boxOpen;
     // The box's content on this line: between the marker and its partner
     // (or the line edge when the partner is on another line).
     let from = i + 1;
@@ -3024,11 +3001,11 @@ function bidiLineItems(
       from = 0;
       to = i;
       for (let j = i - 1; j >= 0; j--) {
-        if (levels[j] < 0 && items[j].boxOpen === marker.boxClose && !items[j].boxClose) { from = j + 1; break; }
+        if (levels[j] < 0 && items[j].refs.boxOpen === marker.refs.boxClose && !items[j].refs.boxClose) { from = j + 1; break; }
       }
-    } else if (marker.boxOpen) {
+    } else if (marker.refs.boxOpen) {
       for (let j = i + 1; j < items.length; j++) {
-        if (levels[j] < 0 && items[j].boxClose === marker.boxOpen && !items[j].boxOpen) { to = j; break; }
+        if (levels[j] < 0 && items[j].refs.boxClose === marker.refs.boxOpen && !items[j].refs.boxOpen) { to = j; break; }
       }
     } else {
       to = from + 1; // an inline-block's margin: it belongs to the next item
@@ -3461,14 +3438,14 @@ function lineBoxExtent(out: InlineEmit, words: readonly Word[]): { ascent: numbe
     // A shift moves the box, not the line's baseline: positive is downward,
     // so it lifts the box's demand on the ascent side and adds to the
     // descent one.
-    if (word.parentStyle) {
-      const parentBox = m.leadedBox(word.parentStyle, useBulletProbe);
+    if (word.refs.parentStyle) {
+      const parentBox = m.leadedBox(word.refs.parentStyle, useBulletProbe);
       const shift = verticalAlignShift(
-        word.parentStyle.verticalAlign, session, word.parentStyle, blockStyle, useBulletProbe);
+        word.refs.parentStyle.verticalAlign, session, word.refs.parentStyle, blockStyle, useBulletProbe);
       if (parentBox.ascent - shift > lineAscent) lineAscent = parentBox.ascent - shift;
       if (parentBox.descent + shift > lineDescent) lineDescent = parentBox.descent + shift;
     }
-    const own = m.leadedBox(word.style, useBulletProbe);
+    const own = m.leadedBox(word.refs.style, useBulletProbe);
     let ascent = own.ascent;
     let descent = own.descent;
     // An inline-block joins the line as an ATOMIC box: its own content
@@ -3476,7 +3453,7 @@ function lineBoxExtent(out: InlineEmit, words: readonly Word[]): { ascent: numbe
     // space, but no shift — the emit pass puts its content on the line
     // baseline and does not honour vertical-align on it, so shifting the box
     // here would grow the line one way while the paint went the other.
-    const atomic = word.boxStyle?.display === 'inline-block' ? word.boxStyle : null;
+    const atomic = word.refs.boxStyle?.display === 'inline-block' ? word.refs.boxStyle : null;
     if (word.inlineBlockLayout) {
       const ib = word.inlineBlockLayout;
       ascent = ib.baselineOffset;
@@ -3495,9 +3472,9 @@ function lineBoxExtent(out: InlineEmit, words: readonly Word[]): { ascent: numbe
 
 /** `word`'s vertical-align shift off the line's baseline (0 unless it shifts). */
 function wordBaselineShift(out: InlineEmit, word: Word): number {
-  const va = word.style.verticalAlign;
+  const va = word.refs.style.verticalAlign;
   return isShiftedVAlign(va)
-    ? verticalAlignShift(va, out.session, word.style, word.parentStyle ?? out.blockStyle, out.useBulletProbe)
+    ? verticalAlignShift(va, out.session, word.refs.style, word.refs.parentStyle ?? out.blockStyle, out.useBulletProbe)
     : 0;
 }
 
@@ -3532,7 +3509,7 @@ function emitInlineBox(
   // under super/sub'd text. Inline-block stays put: the emit pass does not
   // honour vertical-align on it (see `lineBoxExtent`).
   if (textWord && style.display !== 'inline-block') {
-    if (isShiftedVAlign(textWord.style.verticalAlign)) {
+    if (isShiftedVAlign(textWord.refs.style.verticalAlign)) {
       baselineY += wordBaselineShift(out, textWord);
     }
   }
@@ -3560,13 +3537,13 @@ function emitInlineBackgrounds(
   let boxTextWord: Word | undefined;
 
   for (const word of words) {
-    if (word.boxOpen && word.boxClose && word.text) {
+    if (word.refs.boxOpen && word.refs.boxClose && word.text) {
       if (currentBoxStyle) {
         if (boxTextWord) emitInlineBox(out, currentBoxStyle, boxStartX, scanX - boxStartX, lineBaselineY, boxTextWord);
         currentBoxStyle = undefined;
         boxTextWord = undefined;
       }
-      const s = word.style;
+      const s = word.refs.style;
       const boxX = scanX + s.marginLeft;
       if (word.inlineBlockLayout) {
         const ib = word.inlineBlockLayout;
@@ -3596,11 +3573,11 @@ function emitInlineBackgrounds(
       continue;
     }
 
-    if (word.boxStyle !== currentBoxStyle) {
+    if (word.refs.boxStyle !== currentBoxStyle) {
       if (currentBoxStyle && boxTextWord) {
         emitInlineBox(out, currentBoxStyle, boxStartX, scanX - boxStartX, lineBaselineY, boxTextWord);
       }
-      currentBoxStyle = word.boxStyle;
+      currentBoxStyle = word.refs.boxStyle;
       boxStartX = scanX;
       boxTextWord = undefined;
     }
@@ -3617,8 +3594,8 @@ function registerTextNode(out: InlineEmit, node: LayoutText, word: Word, lineTop
   out.nodes.push(node);
   runLineTops.set(node, lineTop);
   if (word.runSeam) (node as SeamFlagged)[RUN_SEAM] = true;
-  if (word.clipStyle) out.clipRuns.set(node, word.clipStyle);
-  if (word.strokeImageStyle) out.strokeImageRuns.set(node, word.strokeImageStyle);
+  if (word.refs.clipStyle) out.clipRuns.set(node, word.refs.clipStyle);
+  if (word.refs.strokeImageStyle) out.strokeImageRuns.set(node, word.refs.strokeImageStyle);
 }
 
 /**
@@ -3653,8 +3630,8 @@ function emitLineText(
     }
 
     // Atomic inline-block: position text inside the box (after margin + padding)
-    if (word.boxOpen && word.boxClose) {
-      const s = word.style;
+    if (word.refs.boxOpen && word.refs.boxClose) {
+      const s = word.refs.style;
       const textX = curX + s.marginLeft + s.borderLeftWidth + s.paddingLeft;
       if (word.inlineBlockLayout) {
         const ib = word.inlineBlockLayout;
@@ -3664,15 +3641,15 @@ function emitLineText(
         curX += word.width;
         continue;
       }
-      const textWidth = out.m.width(out.m.stateOf(word.style), word.text);
+      const textWidth = out.m.width(out.m.stateOf(word.refs.style), word.text);
       registerTextNode(out, {
         type: 'text',
         text: word.text,
         // An RTL run is anchored at its right edge (renderText's textAlign).
-        x: word.style.direction === 'rtl' ? textX + textWidth : textX,
+        x: word.refs.style.direction === 'rtl' ? textX + textWidth : textX,
         y: lineBaselineY,
         width: textWidth,
-        style: word.style,
+        style: word.refs.style,
       }, word, lineTop);
       curX += word.width;
       continue;
@@ -3680,7 +3657,7 @@ function emitLineText(
 
     // Adjust baseline for vertical-align
     let baselineY = lineBaselineY;
-    if (isShiftedVAlign(word.style.verticalAlign)) baselineY += wordBaselineShift(out, word);
+    if (isShiftedVAlign(word.refs.style.verticalAlign)) baselineY += wordBaselineShift(out, word);
     const effectiveWidth = word.width + (word.isSpace ? justifyExtraPerSpace : 0);
     // A bidi piece paints in its level's direction; an RTL one is anchored
     // at its right edge (renderText's textAlign).
@@ -3696,7 +3673,7 @@ function emitLineText(
       // `direction`: `<span style="direction:rtl">` (unicode-bidi: normal)
       // over LTR words reorders nothing, and painting them right-anchored
       // at their left edge drew them a run-width too far left.
-      style: withDirection(word.style, rtlPiece ? 'rtl' : 'ltr'),
+      style: withDirection(word.refs.style, rtlPiece ? 'rtl' : 'ltr'),
       // Only when vertical-align moved this run off the line — an
       // underline from an unshifted declarer still hangs off the line.
       ...(baselineY !== lineBaselineY ? { lineBaselineY } : {}),
