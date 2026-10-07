@@ -1,9 +1,10 @@
-import type { ResolvedStyle } from './types.js';
+import type { ResolvedStyle, ShadowOptions } from './types.js';
 import {
   buildCanvasFont, canvasKerning, claimCtx, formatLetterSpacing, getFontMetrics, nextCtxWriterId,
   type FontMetricsTable,
 } from './layout.js';
 import { parseLinearGradient } from './gradient.js';
+import { ScratchPool, withoutCanvasShadow } from './shadow.js';
 
 // ─── Paint state ──────────────────────────────────────────────────────
 //
@@ -196,5 +197,34 @@ export class PaintState {
   finish(): void {
     if (this.known.lineDash !== '') this.dash(NO_DASH);
     if (this.known.lineCap !== 'butt') this.set('lineCap', 'butt');
+  }
+}
+
+/**
+ * One draw: a tracker per target ctx (paint and bounds measurement on one
+ * ctx share it), and one save/restore that hands the caller its ctx back. With `renderShadows: false` the caller's canvas
+ * shadow is cleared and `pool` is null; otherwise `pool` holds the draw's
+ * shadow scratch canvases.
+ */
+export function withDraw(
+  ctx: CanvasRenderingContext2D, options: ShadowOptions, scale: number,
+  fontMetrics: FontMetricsTable | undefined,
+  draw: (stateOf: (target: CanvasRenderingContext2D) => PaintState, pool: ScratchPool | null) => void,
+): void {
+  const states = new Map<CanvasRenderingContext2D, PaintState>();
+  const stateOf = (target: CanvasRenderingContext2D) => {
+    let ps = states.get(target);
+    if (!ps) states.set(target, ps = new PaintState(target, scale, false, fontMetrics));
+    return ps;
+  };
+  const pool = options.renderShadows === false ? null : new ScratchPool(ctx, options.createCanvas);
+  ctx.save();
+  try {
+    if (pool) draw(stateOf, pool);
+    else withoutCanvasShadow(ctx, () => draw(stateOf, null));
+  } finally {
+    pool?.dispose();
+    for (const ps of states.values()) ps.finish();
+    ctx.restore();
   }
 }

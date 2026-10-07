@@ -1,14 +1,17 @@
 import type { ShadowOptions, LayoutNode, LayoutBox, LayoutText, ResolvedStyle } from './types.js';
 import {
+  hasStrokeImage,
   hasTextClip,
   layoutFontMetrics,
   isShiftedVAlign,
   paintLineSnap,
+  paintsBoxBackground,
   startsMeasuredRun,
+  textEdges,
 } from './layout.js';
 import { isTransparent, paintOrderHasStrokeFirst } from './css-resolver.js';
-import { paintTextShadows, ScratchPool, shadowBounds, shadowsOf, textPaintBounds, unionBounds, withCanvasShadow, withoutCanvasShadow, type PaintBounds, type ShadowPiece, type TextShadow } from './shadow.js';
-import { PaintState } from './paint-state.js';
+import { paintTextShadows, shadowBounds, shadowsOf, textPaintBounds, unionBounds, withCanvasShadow, type PaintBounds, type ShadowPiece, type TextShadow } from './shadow.js';
+import { PaintState, withDraw } from './paint-state.js';
 import { decorationBand, paintBand, type Band } from './decoration.js';
 import { BLINK_TEXT_RUN_SHAPING, STROKE_CASTS_TEXT_SHADOW } from './engine.js';
 
@@ -62,6 +65,10 @@ export function textFillColor(style: ResolvedStyle): string {
     ? style.webkitTextFillColor : style.color;
 }
 
+function fillIsTransparent(style: ResolvedStyle): boolean {
+  return style.webkitTextFillColor === 'transparent' || style.color === 'transparent';
+}
+
 /** What fills and strokes a fragment's glyphs and clip-painted bands. */
 interface TextPaints {
   /** Fill with the clip paint (a gradient or the declarer's color). */
@@ -85,8 +92,6 @@ function textPaints(
   strokeGradient: CanvasGradient | null | undefined,
 ): TextPaints {
   const { style } = node;
-  const isFillTransparent = style.webkitTextFillColor === 'transparent' ||
-    style.color === 'transparent';
 
   // The background-clip:text paint from a declaring INLINE ancestor (e.g.
   // <span>/<s>) whose non-inheriting background this run's own style doesn't
@@ -109,7 +114,7 @@ function textPaints(
   // transparent — an opaque own color paints over the clipped background and
   // wins.
   const clipped = hasTextClip(style) ||
-    ((gradientFill != null || inlineClipPaint != null) && isFillTransparent);
+    ((gradientFill != null || inlineClipPaint != null) && fillIsTransparent(style));
 
   // Same for the stroke gradient: an inline --rt-text-stroke-image declarer's
   // fragment gradient wins over an ancestor block's threaded one.
@@ -124,8 +129,7 @@ function drawGlyphs(ps: PaintState, node: LayoutText, y: number, paints: TextPai
   const { style } = node;
   const { ctx } = ps;
   ps.text(style);
-  const isFillTransparent = style.webkitTextFillColor === 'transparent' ||
-    style.color === 'transparent';
+  const isFillTransparent = fillIsTransparent(style);
 
   const drawFill = () => {
     if (paints.clipped) {
@@ -155,11 +159,6 @@ function drawGlyphs(ps: PaintState, node: LayoutText, y: number, paints: TextPai
   }
 }
 
-/** A run's left and right edges (an RTL run's x is its right edge). */
-function edges(node: LayoutText): [left: number, right: number] {
-  return node.style.direction === 'rtl' ? [node.x - node.width, node.x] : [node.x, node.x + node.width];
-}
-
 /**
  * Do `a` and `b` belong to one text fragment — the unit the engine paints a
  * decoration across? One text node's pieces on one line: the same style
@@ -168,7 +167,7 @@ function edges(node: LayoutText): [left: number, right: number] {
  */
 function sameTextFragment(a: LayoutText, b: LayoutText): boolean {
   if (b.style !== a.style || startsMeasuredRun(b) || b.y !== a.y || b.lineBaselineY !== a.lineBaselineY) return false;
-  const [al, ar] = edges(a), [bl, br] = edges(b);
+  const [al, ar] = textEdges(a), [bl, br] = textEdges(b);
   return Math.abs(bl - ar) <= 0.5 || Math.abs(al - br) <= 0.5;
 }
 
@@ -201,7 +200,7 @@ function fragmentBands(
   const { style } = head;
   let left = Infinity, right = -Infinity;
   for (const run of runs) {
-    const [l, r] = edges(run);
+    const [l, r] = textEdges(run);
     if (l < left) left = l;
     if (r > right) right = r;
   }
@@ -247,9 +246,9 @@ function paintFragment(
   originals: LayoutText[],
   gradientFill: CanvasGradient | string | null | undefined,
   strokeGradient: CanvasGradient | null | undefined,
-  pass: PaintPass | undefined,
+  beforeText: BeforeText | undefined,
 ): void {
-  if (pass) for (const original of originals) pass.beforeText(ps.ctx, original);
+  if (beforeText) for (const original of originals) beforeText(ps.ctx, original);
   const paints = textPaints(ps, runs[0], gradientFill, strokeGradient);
   const bands = runs[0].style.textDecorations.length
     ? fragmentBands(ps, runs, paintLineSnap(originals[0]), paints)
@@ -273,10 +272,8 @@ function canShapeAsRun(node: LayoutText): boolean {
     ORDINARY_SHAPING_TEXT.test(node.text);
 }
 
-interface PaintPass {
-  /** Called before each text fragment's paint, with each of its runs. */
-  beforeText: (ctx: CanvasRenderingContext2D, node: LayoutText) => void;
-}
+/** Called before each text fragment's paint, with each of its runs. */
+type BeforeText = (ctx: CanvasRenderingContext2D, node: LayoutText) => void;
 
 /** The children of `box` when Blink would paint them as shaped runs:
  * every child plain, LTR, undecorated text (`canShapeAsRun`). */
@@ -286,15 +283,8 @@ function batchedRuns(box: LayoutBox): LayoutText[] | null {
     ? box.children as LayoutText[] : null;
 }
 
-/** Visit the actual foreground runs, retaining their original node for hooks. */
-function forEachPaintedChild(
-  box: LayoutBox, paint: (node: LayoutNode, original: LayoutNode) => void,
-): void {
-  const runs = batchedRuns(box);
-  if (!runs) {
-    box.children.forEach(child => paint(child, child));
-    return;
-  }
+/** Visit the runs one fillText paints, each merged run with its first original. */
+function forEachBatch(runs: LayoutText[], visit: (run: LayoutText, head: LayoutText) => void): void {
   for (let i = 0; i < runs.length; i++) {
     const head = runs[i];
     let text = head.text, width = head.width;
@@ -304,7 +294,7 @@ function forEachPaintedChild(
       text += runs[i + 1].text;
       width += runs[++i].width;
     }
-    paint({ ...head, text, width }, head);
+    visit({ ...head, text, width }, head);
   }
 }
 
@@ -315,10 +305,6 @@ function blockClipPaint(ps: PaintState, box: LayoutBox): CanvasGradient | string
     ? ps.linearGradient(style.backgroundImage, box.x, box.width, box.y, box.height)
     : null;
   return grad ?? (!isTransparent(style.backgroundColor) ? style.backgroundColor : null);
-}
-
-function hasStrokeImage(style: ResolvedStyle): boolean {
-  return !!style.webkitTextStrokeImage && style.webkitTextStrokeImage !== 'none';
 }
 
 /** A block's --rt-text-stroke-image gradient over its box. */
@@ -352,7 +338,7 @@ function renderBox(
   box: LayoutBox,
   gradientFill: CanvasGradient | string | null = null,
   strokeGradient: CanvasGradient | null = null,
-  pass?: PaintPass,
+  beforeText?: BeforeText,
 ): void {
   const { style } = box;
   const { ctx } = ps;
@@ -361,7 +347,7 @@ function renderBox(
 
   // Background. With background-clip:text the background is NOT painted as a
   // box — it's clipped to descendant glyphs (threaded below as the text fill).
-  if (!isTransparent(style.backgroundColor) && style.webkitBackgroundClip !== 'text') {
+  if (paintsBoxBackground(style)) {
     ps.fill(style.backgroundColor);
     if (radii) {
       ctx.beginPath();
@@ -433,24 +419,23 @@ function renderBox(
   // word-based (and remains public); only fillText gets the browser's full
   // shaping context across spaces. A box is eligible only when every child is
   // plain text, so a complex fragment cannot change neighboring paint.
-  if (batchedRuns(box)) {
-    forEachPaintedChild(box, (child, original) => {
-      paintFragment(ps, [child as LayoutText], [original as LayoutText], gradientFill, strokeGradient, pass);
-    });
+  const runs = batchedRuns(box);
+  if (runs) {
+    forEachBatch(runs, (run, head) => paintFragment(ps, [run], [head], gradientFill, strokeGradient, beforeText));
     return;
   }
   forEachFragment(box.children, (child) => {
-    if (Array.isArray(child)) paintFragment(ps, child, child, gradientFill, strokeGradient, pass);
-    else renderBox(ps, child, gradientFill, strokeGradient, pass);
+    if (Array.isArray(child)) paintFragment(ps, child, child, gradientFill, strokeGradient, beforeText);
+    else renderBox(ps, child, gradientFill, strokeGradient, beforeText);
   });
 }
 
 /**
  * Render any layout node.
  */
-function paintNode(ps: PaintState, node: LayoutNode, pass?: PaintPass): void {
-  if (node.type === 'text') paintFragment(ps, [node], [node], null, null, pass);
-  else renderBox(ps, node, null, null, pass);
+function paintNode(ps: PaintState, node: LayoutNode, beforeText?: BeforeText): void {
+  if (node.type === 'text') paintFragment(ps, [node], [node], null, null, beforeText);
+  else renderBox(ps, node, null, null, beforeText);
 }
 
 /**
@@ -500,7 +485,7 @@ function collectShadowPasses(root: LayoutNode): ShadowPasses {
     const { style } = node;
     // A later box paint may cover earlier overflowing text. Keep that order;
     // runs without an intervening background/border share a shadow pass.
-    if ((!isTransparent(style.backgroundColor) && style.webkitBackgroundClip !== 'text') ||
+    if (paintsBoxBackground(style) ||
       (['Top', 'Right', 'Bottom', 'Left'] as const).some(side => hasBorder(style, side))) first = undefined;
     if (hasTextClip(style)) clips = [...clips, node];
     if (hasStrokeImage(style)) stroke = node;
@@ -535,9 +520,9 @@ function foregroundBounds(
 ): PaintBounds {
   if (node.type === 'box') {
     let bounds = { x: node.x, y: node.y, width: node.width, height: node.height };
-    forEachPaintedChild(node, (child, childOriginal) => {
-      bounds = unionBounds(bounds, foregroundBounds(ps, child, childOriginal));
-    });
+    const runs = batchedRuns(node);
+    if (runs) forEachBatch(runs, (run, head) => { bounds = unionBounds(bounds, foregroundBounds(ps, run, head)); });
+    else for (const child of node.children) bounds = unionBounds(bounds, foregroundBounds(ps, child));
     return bounds;
   }
   const y = node.y + paintLineSnap(original as LayoutText);
@@ -571,38 +556,19 @@ export function getNodePaintBounds(
 }
 
 /** Insert CSS shadows before their text without reordering background paints.
- * The caller's canvas shadow belongs to the completed result.
- *
- * One save/restore around the whole draw hands the caller its ctx state back;
- * inside it, `PaintState` writes what each paint reads, with no per-run pair. */
+ * The caller's canvas shadow belongs to the completed result. */
 export function renderNode(
   ctx: CanvasRenderingContext2D, node: LayoutNode,
   options: ShadowOptions & { pixelRatio?: number } = {},
 ): void {
   const scale = options.pixelRatio ?? 1;
   const fontMetrics = layoutFontMetrics.get(node);
-  // Paint and bounds measurement share one tracker per ctx: with no caller
-  // shadow they run on the same ctx, interleaved.
-  const states = new Map<CanvasRenderingContext2D, PaintState>();
-  const stateOf = (target: CanvasRenderingContext2D) => {
-    let ps = states.get(target);
-    if (!ps) states.set(target, ps = new PaintState(target, scale, false, fontMetrics));
-    return ps;
-  };
-  // Shadow scratch canvases of this draw; none without shadows.
-  let pool: ScratchPool | undefined;
-  ctx.save();
-  try {
-    if (options.renderShadows === false) {
-      withoutCanvasShadow(ctx, target => paintNode(stateOf(target), node));
-      return;
-    }
-    pool = new ScratchPool(ctx, options.createCanvas);
-    const scratch = pool;
+  withDraw(ctx, options, scale, fontMetrics, (stateOf, pool) => {
+    if (!pool) return paintNode(stateOf(ctx), node);
     const passes = collectShadowPasses(node);
     const measure = stateOf(ctx);
     withCanvasShadow(ctx, () => getNodePaintBounds(ctx, node, passes, measure), target => {
-      paintNode(stateOf(target), node, { beforeText: (destination, run) => {
+      paintNode(stateOf(target), node, (destination, run) => {
         const groups = passes.get(run);
         if (!groups) return;
         // A mask copies the destination's dash and cap (`prepareLayer`) but
@@ -614,13 +580,9 @@ export function renderNode(
           paintTextShadows(destination, shadowPieces(measure, group), group.shadows, (mask, pieces) => {
             const ps = new PaintState(mask, scale, true, fontMetrics);
             for (const piece of pieces) paintShadowFragment(ps, piece);
-          }, scratch);
+          }, pool);
         }
-      } });
-    }, scratch);
-  } finally {
-    pool?.dispose();
-    for (const ps of states.values()) ps.finish();
-    ctx.restore();
-  }
+      });
+    }, pool);
+  });
 }

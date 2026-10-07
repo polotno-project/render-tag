@@ -33,13 +33,13 @@
 import type { ShadowOptions, ResolvedStyle, DecorationEntry } from '../types.js';
 import { parseHTML } from '../parse.js';
 import { resolveStylesFromCSS, paintOrderHasStrokeFirst, isTransparent } from '../css-resolver.js';
-import { hasTextClip, sameDecorationBand, Measurer, layoutFontMetrics, type FontMetricsTable } from '../layout.js';
+import { hasTextClip, paintsBoxBackground, sameDecorationBand, Measurer, layoutFontMetrics, type FontMetricsTable } from '../layout.js';
 import { textFillColor } from '../render.js';
 import { bandWidthFor, drawDecorationLine, explicitUnderlineDelta } from '../decoration.js';
 import { parseLinearGradient } from '../gradient.js';
-import { PaintState } from '../paint-state.js';
+import { PaintState, withDraw } from '../paint-state.js';
 import { STROKE_CASTS_TEXT_SHADOW } from '../engine.js';
-import { paintTextShadows, ScratchPool, shadowBounds, shadowsOf, textPaintBounds, transformBounds, unionBounds, withCanvasShadow, withoutCanvasShadow, measurePaintBounds, type PaintBounds, type TextShadow } from '../shadow.js';
+import { paintTextShadows, shadowBounds, shadowsOf, textPaintBounds, transformBounds, unionBounds, withCanvasShadow, measurePaintBounds, type PaintBounds, type TextShadow } from '../shadow.js';
 import { pathFromString, type PathLike } from './svg-path.js';
 import {
   flattenSegments,
@@ -226,33 +226,18 @@ export function drawTextOnPathLayout(config: DrawTextOnPathLayoutConfig): void {
   const tb = layout.textBaseline;
   const fontMetrics = layoutFontMetrics.get(layout);
 
-  // One tracker per ctx: with no caller shadow, bounds and paint share ctx.
-  const states = new Map<CanvasRenderingContext2D, PaintState>();
-  const stateOf = (target: CanvasRenderingContext2D) => {
-    let ps = states.get(target);
-    if (!ps) states.set(target, ps = new PaintState(target, 1, false, fontMetrics));
-    return ps;
+  const foreground = (ps: PaintState, glyphs: GlyphPlacement[]) => {
+    drawGlyphs(ps, glyphs, layout.textWidth, tb);
+    drawDecorations(ps, glyphs, layout.textWidth, tb);
   };
-  // Shadow scratch canvases of this draw; none without shadows.
-  let pool: ScratchPool | undefined;
-  ctx.save();
-  try {
-    if (config.renderShadows === false) {
-      withoutCanvasShadow(ctx, target => {
-        const ps = stateOf(target);
-        drawBackgrounds(ps, layout.glyphs, tb);
-        drawGlyphs(ps, layout.glyphs, layout.textWidth, tb);
-        drawDecorations(ps, layout.glyphs, layout.textWidth, tb);
-      });
+  withDraw(ctx, config, 1, fontMetrics, (stateOf, pool) => {
+    if (!pool) {
+      const ps = stateOf(ctx);
+      drawBackgrounds(ps, layout.glyphs, tb);
+      foreground(ps, layout.glyphs);
       return;
     }
-    pool = new ScratchPool(ctx, config.createCanvas);
-    const scratch = pool;
     const groups = collectPathShadowGroups(layout.glyphs);
-    const foreground = (ps: PaintState, glyphs: GlyphPlacement[]) => {
-      drawGlyphs(ps, glyphs, layout.textWidth, tb);
-      drawDecorations(ps, glyphs, layout.textWidth, tb);
-    };
     const measure = stateOf(ctx);
     withCanvasShadow(ctx, () => pathPaintBounds(measure, layout, groups), target => {
       const ps = stateOf(target);
@@ -262,15 +247,11 @@ export function drawTextOnPathLayout(config: DrawTextOnPathLayoutConfig): void {
         paintTextShadows(target, [{ bounds: groupInk(measure, group, tb) }], group.shadows, mask => {
           const maskState = new PaintState(mask, 1, true, fontMetrics);
           group.glyphs.forEach(glyphs => foreground(maskState, glyphs));
-        }, scratch);
+        }, pool);
       }
       foreground(ps, layout.glyphs);
-    }, scratch);
-  } finally {
-    pool?.dispose();
-    for (const ps of states.values()) ps.finish();
-    ctx.restore();
-  }
+    }, pool);
+  });
 }
 
 /**
@@ -338,19 +319,15 @@ function drawBackgrounds(
   tb: TextBaseline,
 ): void {
   const { ctx } = ps;
-  // With background-clip:text the background is NOT painted as a polygon —
-  // it's clipped to the glyphs (painted as the glyph fill), same as renderBox.
-  const paintsBox = (g: GlyphPlacement) =>
-    !isTransparent(g.style.backgroundColor) && g.style.webkitBackgroundClip !== 'text';
   let i = 0;
   while (i < glyphs.length) {
-    if (!paintsBox(glyphs[i])) { i++; continue; }
+    if (!paintsBoxBackground(glyphs[i].style)) { i++; continue; }
     const bg = glyphs[i].style.backgroundColor;
     const canon = canonicalColor(ctx, bg);
     let j = i + 1;
     while (
       j < glyphs.length &&
-      paintsBox(glyphs[j]) &&
+      paintsBoxBackground(glyphs[j].style) &&
       canonicalColor(ctx, glyphs[j].style.backgroundColor) === canon
     ) j++;
     fillGlyphPolygon(ps, glyphs.slice(i, j), bg, tb);

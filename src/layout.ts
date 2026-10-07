@@ -826,6 +826,20 @@ export function hasTextClip(style: ResolvedStyle): boolean {
       !isTransparent(style.backgroundColor));
 }
 
+export function hasStrokeImage(style: ResolvedStyle): boolean {
+  return !!style.webkitTextStrokeImage && style.webkitTextStrokeImage !== 'none';
+}
+
+/** A box background painted as a box: background-clip:text clips it to glyphs instead. */
+export function paintsBoxBackground(style: ResolvedStyle): boolean {
+  return !isTransparent(style.backgroundColor) && style.webkitBackgroundClip !== 'text';
+}
+
+/** A run's left and right edges (an RTL run's x is its right edge). */
+export function textEdges(node: LayoutText): [left: number, right: number] {
+  return node.style.direction === 'rtl' ? [node.x - node.width, node.x] : [node.x, node.x + node.width];
+}
+
 // ─── Inline text run types ─────────────────────────────────────────────
 
 interface TextRun {
@@ -1036,9 +1050,7 @@ function collectTextRuns(node: StyledNode): TextRun[] {
     // background or a --rt-text-stroke-image, so those paints reach descendant
     // runs that don't carry the (non-inheriting) properties themselves.
     const newClipStyle = inline && hasTextClip(n.style) ? n.style : clipStyle;
-    const newStrokeImageStyle =
-      inline && n.style.webkitTextStrokeImage && n.style.webkitTextStrokeImage !== 'none'
-        ? n.style : strokeImageStyle;
+    const newStrokeImageStyle = inline && hasStrokeImage(n.style) ? n.style : strokeImageStyle;
     const hasHorizSpacing = isBox && (n.style.paddingLeft > 0 || n.style.paddingRight > 0 ||
       n.style.borderLeftWidth > 0 || n.style.borderRightWidth > 0);
 
@@ -3844,10 +3856,6 @@ function assignInlineFragmentBoxes(
   ) => void,
 ): void {
   if (runs.size === 0) return;
-  const edges = (n: LayoutText) =>
-    n.style.direction === 'rtl'
-      ? { left: n.x - n.width, right: n.x }  // RTL x is the right edge
-      : { left: n.x, right: n.x + n.width };
   for (let i = 0; i < results.length;) {
     const first = results[i];
     const declarer = first.type === 'text' ? runs.get(first) : undefined;
@@ -3857,9 +3865,9 @@ function assignInlineFragmentBoxes(
     while (j < results.length) {
       const n = results[j];
       if (n.type !== 'text' || runs.get(n) !== declarer || n.y !== first.y) break;
-      const e = edges(n);
-      if (e.left < left) left = e.left;
-      if (e.right > right) right = e.right;
+      const [l, r] = textEdges(n);
+      if (l < left) left = l;
+      if (r > right) right = r;
       j++;
     }
     const { ascent, descent } = session.measurer.metrics(declarer);

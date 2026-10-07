@@ -11,7 +11,7 @@
  */
 
 import type { ResolvedStyle, StyledNode } from '../types.js';
-import { Measurer, type FontMetricsTable, type MeasureState, graphemes as splitGraphemes, hasTextClip, transformTextRuns } from '../layout.js';
+import { Measurer, type FontMetricsTable, type MeasureState, graphemes as splitGraphemes, hasStrokeImage, hasTextClip, transformTextRuns } from '../layout.js';
 import {
   BidiTextBuilder, bidiClass, bidiContextFor, lineLevels, resolveBidi, visualOrder,
   type BidiContext,
@@ -188,9 +188,7 @@ export function flattenSegments(root: StyledNode): Segment[] {
     // a --rt-text-stroke-image — those paints propagate to descendant glyphs
     // even though the properties don't inherit.
     const newClip = hasTextClip(node.style) ? node.style : clipStyle;
-    const newStroke =
-      node.style.webkitTextStrokeImage && node.style.webkitTextStrokeImage !== 'none'
-        ? node.style : strokeImageStyle;
+    const newStroke = hasStrokeImage(node.style) ? node.style : strokeImageStyle;
     for (const child of node.children) walk(child, ownBidi, newClip, newStroke);
   }
   walk(root, null);
