@@ -1232,8 +1232,10 @@ function byCascadeOrder(a: ProcessedRule, b: ProcessedRule): number {
 
 /**
  * Rule indexes of recent stylesheets, by exact text: the index is a pure function
- * of the css text. A sheet is admitted on its second sighting, and the cache is
- * bounded by sheets, key chars and index cost. Gated by tests/node/determinism.test.ts.
+ * of the css text. A sheet is admitted on its second sighting (one-off indexes
+ * became old-generation garbage, +70 µs per call). Bounded by sheets, key chars and
+ * index cost; cost is the memory bound (an index retains ~85x its text).
+ * Gated by tests/node/determinism.test.ts.
  */
 const RULE_CACHE_ENTRIES = 16;
 const RULE_CACHE_CHARS = 1 << 20;

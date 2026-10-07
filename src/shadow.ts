@@ -256,8 +256,11 @@ function blurPad(blur: number): number {
 
 /**
  * Cast `source`'s shadow at (x, y) without the source, drawn unscaled and
- * entirely off-surface (keeps shadow under translucent foreground). The
- * displacement is minimal: WebKit's blur shifts with the offset's magnitude.
+ * entirely off-surface (keeps shadow under translucent foreground). Unscaled
+ * because WebKit corrupts gradient shadows and some Node canvas backends drop
+ * shadows of scaled off-surface images. The displacement is minimal: WebKit's
+ * blur shifts with the offset's magnitude (blur pad in the offset moved a 16px
+ * blur by up to 7/255).
  */
 function castShadow(
   target: CanvasRenderingContext2D, source: AnyCanvas, x: number, y: number, blur: number, color: string,

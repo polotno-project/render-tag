@@ -873,8 +873,11 @@ function segmenter(granularity: 'word' | 'grapheme'): Intl.Segmenter | undefined
 
 /**
  * A piece is measured as `w(context + piece) - w(context)`, so kerning across its edges
- * survives. 32 UTF-16 units: no wrap moved against whole-run context in the 1px sweeps.
- * Past it the context restarts at the last word, never at a space.
+ * survives. Whole-run context was quadratic (2000 words sent 25.7M chars to measureText);
+ * 32 UTF-16 units moved no wrap in the 1px sweeps, shorter moved RTL and fallback-font
+ * lines. Past it the context restarts at the last word, never at a space: a bare ' '
+ * measures in the primary font, but between fallback-font words the engine uses the
+ * fallback, so a cut there mis-measured every RTL word after it.
  */
 const MEASURE_CONTEXT = 32;
 
@@ -891,6 +894,8 @@ const MEASURE_BRACKET = 256;
  * Where a context restart may cut `text`: at `word`, or earlier at a still-open bracket
  * and the word with the nearest letter before it: a pair takes its direction from the
  * type before the opener (UBA N0), and a number takes its type from a letter (W7).
+ * Without it, `)` in `<Arabic>: $42.99 (<Arabic> … ₪158.50)` measured 0.38px narrow
+ * in Lobster and moved a wrap.
  */
 function contextStart(text: string, word: number): number {
   const open: number[] = [];
