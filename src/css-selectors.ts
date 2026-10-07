@@ -157,14 +157,8 @@ class SelectorParser {
       const c = s[this.i];
       if (c === undefined) break;
       if (c === '\\') {
-        const hex = /^[0-9a-f]{1,6}\s?/i.exec(s.slice(this.i + 1));
-        if (hex) {
-          out += String.fromCodePoint(parseInt(hex[0], 16) || 0xfffd);
-          this.i += 1 + hex[0].length;
-        } else if (this.i + 1 < s.length) {
-          out += s[this.i + 1];
-          this.i += 2;
-        } else return null;
+        if (this.i + 1 >= s.length) return null;
+        out += this.escape();
       } else if (/[\w\u0080-￿-]/.test(c)) {
         out += c;
         this.i++;
@@ -183,15 +177,24 @@ class SelectorParser {
     let out = '';
     this.i++;
     while (this.i < this.s.length) {
-      const c = this.s[this.i++];
-      if (c === quote) return out;
-      if (c === '\\') {
-        const hex = /^[0-9a-f]{1,6}\s?/i.exec(this.s.slice(this.i));
-        if (hex) { out += String.fromCodePoint(parseInt(hex[0], 16) || 0xfffd); this.i += hex[0].length; }
-        else out += this.s[this.i++] ?? '';
-      } else out += c;
+      const c = this.s[this.i];
+      if (c === quote) { this.i++; return out; }
+      if (c === '\\') out += this.escape();
+      else { out += c; this.i++; }
     }
     return null;
+  }
+
+  /** The escape at `\` (hex or one literal character), decoded and consumed. */
+  private escape(): string {
+    const hex = /^[0-9a-f]{1,6}\s?/i.exec(this.s.slice(this.i + 1));
+    if (hex) {
+      const ch = String.fromCodePoint(parseInt(hex[0], 16) || 0xfffd);
+      this.i += 1 + hex[0].length;
+      return ch;
+    }
+    this.i += 2;
+    return this.s[this.i - 1] ?? '';
   }
 
   /** The text of a `( ... )` argument, the `(` already consumed; balanced, string-aware. */

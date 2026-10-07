@@ -424,7 +424,6 @@ export const KEYWORDS: Record<string, Set<string>> = {
   'white-space': set('normal pre nowrap pre-wrap pre-line break-spaces'),
   'word-break': set('normal break-all keep-all break-word auto-phrase'),
   'overflow-wrap': set('normal break-word anywhere'),
-  'word-wrap': set('normal break-word anywhere'),
   direction: set('ltr rtl'),
   'unicode-bidi': set('normal embed isolate bidi-override isolate-override plaintext -webkit-isolate -webkit-isolate-override -webkit-plaintext'),
   'stroke-linejoin': set('miter round bevel miter-clip arcs'),

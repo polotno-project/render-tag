@@ -1,7 +1,7 @@
 import type { StyledNode, LayoutNode, LayoutBox, LayoutText, ResolvedStyle, LayoutLine, LayoutLineBox, DecorationEntry } from './types.js';
 import {
   anonymousBlockStyle, borderBoxSize, contentBoxSize, intrinsicStyle, isTransparent, LINE_HEIGHT_MULTIPLIER,
-  OVERFLOW_X, OVERFLOW_Y, resolveOwnPercentages, resolvePercentages, resolveStylesFromCSS,
+  OVERFLOW_X, OVERFLOW_Y, resolvePercentages, resolveStylesFromCSS,
 } from './css-resolver.js';
 import { parseHTML } from './parse.js';
 import {
@@ -2845,7 +2845,7 @@ function usedSegmentWidths(
     // only font, whiteSpace, direction, text-align/indent and line-clamp off
     // it. Its box properties are applied here, by the caller, so there is
     // nothing to zero out first.
-    resolveOwnPercentages(s, contentWidth);
+    resolvePercentages(s, contentWidth, true);
     resolveChildPercentages(source, contentWidth);
     const inner = layoutInlineContent(session, source, 0, 0, contentWidth, useBulletProbe);
     const contentHeight = inner.height || session.measurer.lineHeight(s, useBulletProbe);
@@ -4074,7 +4074,7 @@ function layoutBlock(
   const contentX = boxX + borderLeft + padLeft;
   // Its own text-indent/gap and its children's percentages, against the
   // width just settled.
-  resolveOwnPercentages(style, contentWidth);
+  resolvePercentages(style, contentWidth, true);
   resolveChildPercentages(node, contentWidth);
   const minHeight = style.minHeight > 0
     ? borderBoxSize(style, style.minHeight, borderTop + padTop + padBottom + borderBottom)
@@ -4692,9 +4692,7 @@ function addListMarker(
   if (node.markerHidden) return;
 
   const style = node.style;
-  // Marker style = li style with explicit `::marker` overrides applied on top.
-  // `markerStyle` holds only keys explicitly set by `::marker` rules, so a
-  // missing key falls back to the li style. A present key (incl. 0) wins.
+  // `markerStyle` holds only the fields `::marker` rules changed.
   const ms = node.markerStyle;
   const markerStyleObj: ResolvedStyle = ms ? { ...style, ...ms } : style;
 

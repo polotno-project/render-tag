@@ -112,7 +112,7 @@ const PERCENT_FIELDS: ReadonlySet<string> = new Set<PercentField>([
  * indents 30px inside a 400px parent, and `gap:10%` there is 30px. An
  * inherited `text-indent` inherits the PERCENTAGE (its computed value), so
  * it resolves against the inheriting block (`inheritPercentages`).
- * `resolveOwnPercentages` resolves them once the box's width is known.
+ * `resolvePercentages(style, width, true)` resolves them once the box's width is known.
  */
 const OWN_PERCENT_FIELDS: ReadonlySet<PercentField> = new Set<PercentField>(['textIndent', 'gap']);
 
@@ -340,6 +340,13 @@ function uaDisplay(tag: string): string {
   return TAG_DEFAULTS[tag]?.display ?? 'inline';
 }
 
+/** Does a whitespace-only text node beside `n` sit in an inline flow (`walkNode`)? */
+function isInlineSibling(n: Node | null): boolean {
+  if (!n || n.nodeType !== ELEMENT_NODE) return n?.nodeType === TEXT_NODE;
+  const d = uaDisplay((n as Element).tagName.toLowerCase());
+  return d === 'inline' || d === 'inline-block';
+}
+
 /**
  * TAG_DEFAULTS minus fontSize (resolved first, separately), as
  * [field, css property, value] — the kebab-case name precomputed once.
@@ -401,25 +408,15 @@ function flexLonghands(grow: string, shrink: string, basis: string): Longhand[] 
  * E.g., margin: 10px 20px → marginTop/Right/Bottom/Left
  */
 export function expandShorthand(property: string, value: string): Longhand[] {
+  if (property === 'word-wrap') return [{ property: 'overflow-wrap', value }];
+  if (property === '-webkit-background-clip') return [{ property: 'background-clip', value }];
+  // Canvas only renders `small-caps`.
+  if (property === 'font-variant') {
+    const caps = cssWideKeyword(property, value) ? value : /\bsmall-caps\b/i.test(value) ? 'small-caps' : 'normal';
+    return [{ property: 'font-variant-caps', value: caps }];
+  }
   if (property === 'margin' || property === 'padding') {
-    const parts = value.trim().split(/\s+/);
-    let top: string, right: string, bottom: string, left: string;
-    if (parts.length === 1) {
-      top = right = bottom = left = parts[0];
-    } else if (parts.length === 2) {
-      top = bottom = parts[0];
-      right = left = parts[1];
-    } else if (parts.length === 3) {
-      top = parts[0]; right = left = parts[1]; bottom = parts[2];
-    } else {
-      top = parts[0]; right = parts[1]; bottom = parts[2]; left = parts[3];
-    }
-    return [
-      { property: `${property}-top`, value: top },
-      { property: `${property}-right`, value: right },
-      { property: `${property}-bottom`, value: bottom },
-      { property: `${property}-left`, value: left },
-    ];
+    return fourSides(value.trim().split(/\s+/)).map((v, i) => ({ property: `${property}-${SIDES[i]}`, value: v }));
   }
 
   if (property === 'border' || property === 'border-top' || property === 'border-right' ||
@@ -434,7 +431,7 @@ export function expandShorthand(property: string, value: string): Longhand[] {
     let width = '', style = '', color = '';
     for (const p of splitTopLevelWhitespace(value.trim())) {
       const lower = p.toLowerCase();
-      if (!width && (/^[+-]?(?:\d|\.\d)/.test(p) || MATH.test(p) || lower in BORDER_WIDTH_KEYWORDS)) width = p;
+      if (!width && isWidthToken(p)) width = p;
       else if (!style && BORDER_STYLES.has(lower)) style = lower;
       else if (!color && isColor(p)) color = p;
       else return [];
@@ -444,9 +441,7 @@ export function expandShorthand(property: string, value: string): Longhand[] {
     style ||= 'none';
     color ||= 'currentcolor';
     const result: Longhand[] = [];
-    const sides = property === 'border'
-      ? ['top', 'right', 'bottom', 'left']
-      : [property.replace('border-', '')];
+    const sides = property === 'border' ? SIDES : [property.replace('border-', '')];
     for (const side of sides) {
       result.push({ property: `border-${side}-width`, value: width });
       result.push({ property: `border-${side}-style`, value: style });
@@ -456,15 +451,10 @@ export function expandShorthand(property: string, value: string): Longhand[] {
   }
 
   if (property === 'border-width' || property === 'border-style' || property === 'border-color') {
-    // 1-4 values, top/right/bottom/left like margin; colors keep their spaces.
-    const [top, right = top, bottom = top, left = right] = splitTopLevelWhitespace(value.trim());
+    // Colors keep their spaces.
     const kind = property.slice('border-'.length);
-    return [
-      { property: `border-top-${kind}`, value: top },
-      { property: `border-right-${kind}`, value: right },
-      { property: `border-bottom-${kind}`, value: bottom },
-      { property: `border-left-${kind}`, value: left },
-    ];
+    return fourSides(splitTopLevelWhitespace(value.trim()))
+      .map((v, i) => ({ property: `border-${SIDES[i]}-${kind}`, value: v }));
   }
 
   if (property === 'font') return expandFont(value);
@@ -476,14 +466,8 @@ export function expandShorthand(property: string, value: string): Longhand[] {
     // stores ONE component per corner, so an independent vertical set has
     // nowhere to live. (A bare percentage still paints elliptically — the
     // renderer resolves it against each axis.)
-    const parts = value.split('/')[0].trim().split(/\s+/);
-    const [tl, tr = tl, br = tl, bl = tr] = parts;
-    return [
-      { property: 'border-top-left-radius', value: tl },
-      { property: 'border-top-right-radius', value: tr },
-      { property: 'border-bottom-right-radius', value: br },
-      { property: 'border-bottom-left-radius', value: bl },
-    ];
+    return fourSides(value.split('/')[0].trim().split(/\s+/))
+      .map((v, i) => ({ property: `border-${CORNERS[i]}-radius`, value: v }));
   }
 
   if (property === 'list-style') {
@@ -547,7 +531,7 @@ export function expandShorthand(property: string, value: string): Longhand[] {
     // (rgb(255, 255, 255), color(srgb 1 0 0), …) survive intact.
     let width = '', color = '';
     for (const p of splitTopLevelWhitespace(value.trim())) {
-      if (!width && (/^[+-]?(?:\d|\.\d)/.test(p) || MATH.test(p) || p.toLowerCase() in BORDER_WIDTH_KEYWORDS)) width = p;
+      if (!width && isWidthToken(p)) width = p;
       else if (!color && isColor(p)) color = p;
       else return [];
     }
@@ -592,6 +576,16 @@ export function expandShorthand(property: string, value: string): Longhand[] {
 
 /** `thin`/`medium`/`thick` border widths, as Blink, WebKit and Gecko size them. */
 const BORDER_WIDTH_KEYWORDS: Record<string, number> = { thin: 1, medium: 3, thick: 5 };
+const isWidthToken = (p: string) =>
+  /^[+-]?(?:\d|\.\d)/.test(p) || MATH.test(p) || p.toLowerCase() in BORDER_WIDTH_KEYWORDS;
+
+const SIDES = ['top', 'right', 'bottom', 'left'];
+const CORNERS = ['top-left', 'top-right', 'bottom-right', 'bottom-left'];
+/** 1-4 box values as top/right/bottom/left (or TL/TR/BR/BL). */
+function fourSides(parts: string[]): string[] {
+  const [a, b = a, c = a, d = b] = parts;
+  return [a, b, c, d];
+}
 
 const FONT_STYLES = new Set(['normal', 'italic', 'oblique']);
 const FONT_WEIGHTS = new Set(['bold', 'bolder', 'lighter']);
@@ -718,7 +712,7 @@ const FONT_VARIANT_CAPS = new Set([
 ]);
 
 /** Properties the cascade resolves FIRST: everything else may measure the font (em, ch, ex). */
-const FONT_PROPERTIES = new Set(['font-size', 'font-family', 'font-weight', 'font-style', 'font-variant', 'font-variant-caps']);
+const FONT_PROPERTIES = new Set(['font-size', 'font-family', 'font-weight', 'font-style', 'font-variant-caps']);
 
 /**
  * Apply a font declaration. Relative sizes and weights resolve against the
@@ -755,30 +749,16 @@ function applyFontDeclaration(
       style.fontStyle = v;
       return true;
     }
-    // Canvas only renders the `small-caps` variant; map anything containing it
-    // (incl. the font-variant shorthand) to small-caps, else normal.
+    // Canvas only renders `small-caps`.
     case 'font-variant-caps':
       if (!FONT_VARIANT_CAPS.has(value.trim().toLowerCase())) return false;
       style.fontVariantCaps = value.trim().toLowerCase() === 'small-caps' ? 'small-caps' : 'normal';
-      return true;
-    case 'font-variant':
-      style.fontVariantCaps = /\bsmall-caps\b/i.test(value) ? 'small-caps' : 'normal';
       return true;
   }
   return false;
 }
 
-/** Property aliases: CSS name → canonical name, for setProps and `PROPERTY_FIELDS`. */
-const PROP_ALIASES: Record<string, string> = {
-  'word-wrap': 'overflow-wrap',
-  'font-variant': 'font-variant-caps',
-  '-webkit-background-clip': 'background-clip',
-};
-
-/**
- * The ResolvedStyle fields each property writes, for the CSS-wide keywords.
- * A logical property maps through the direction (`physical`).
- */
+/** The ResolvedStyle fields each (physical) property writes. */
 const PROPERTY_FIELDS: Record<string, readonly (keyof InternalStyle)[]> = {
   'font-family': ['fontFamily'], 'font-size': ['fontSize'], 'font-weight': ['fontWeight'],
   'font-style': ['fontStyle'], 'font-variant-caps': ['fontVariantCaps'], color: ['color'],
@@ -837,6 +817,12 @@ const LOGICAL_PROPERTIES: Record<string, [ltr: string, rtl: string]> = {
   'margin-inline-end': ['margin-right', 'margin-left'],
 };
 
+/** `property`, a logical one mapped through the parent's `direction`. */
+function physical(property: string, direction: string): string {
+  const logical = LOGICAL_PROPERTIES[property];
+  return logical ? logical[direction === 'rtl' ? 1 : 0] : property;
+}
+
 /**
  * The CSS-wide keyword a declaration's value is, or null. `revert` and
  * `revert-layer` act as `unset` (render-tag does not keep the UA's value
@@ -863,14 +849,11 @@ function cssWideKeyword(property: string, value: string): string | null {
 function applyKeyword(
   style: ResolvedStyle,
   parent: ResolvedStyle,
-  property: string,
+  prop: string,
   keyword: string,
   setProps: Set<string>,
-  direction: string,
   concrete: CurrentColorTable,
 ): string | null {
-  const logical = LOGICAL_PROPERTIES[property];
-  const prop = logical ? logical[direction === 'rtl' ? 1 : 0] : (PROP_ALIASES[property] || property);
   const fields = PROPERTY_FIELDS[prop];
   if (!fields) return null;
   const inherited = INHERITED_PROPERTIES.has(prop);
@@ -909,8 +892,6 @@ interface DeclarationEnv {
   /** em = the element's own font-size; `percent` is set per property. */
   b: LengthBasis;
   containerWidth: number;
-  /** The parent's direction: logical properties map through it. */
-  direction: string;
   /** Set when the declaration just applied read a percentage of `containerWidth` (`cbLengthOf`). */
   percent: boolean;
 }
@@ -946,9 +927,7 @@ function trackPercent(
   const internal = style as InternalStyle;
   let table = internal[PERCENT_LENGTHS];
   if (value === null && !table) return;
-  const logical = LOGICAL_PROPERTIES[property];
-  const physical = logical ? logical[env.direction === 'rtl' ? 1 : 0] : property;
-  const field = PROPERTY_FIELDS[physical]?.[0];
+  const field = PROPERTY_FIELDS[property]?.[0];
   if (field === undefined || !PERCENT_FIELDS.has(field as string)) return;
   if (value === null) {
     table!.entries.delete(field as PercentField);
@@ -957,54 +936,34 @@ function trackPercent(
   if (!table) {
     table = internal[PERCENT_LENGTHS] = { basis: { ...env.b }, entries: new Map(), cb: cbWidth };
   }
-  table.entries.set(field as PercentField, [physical, value]);
+  table.entries.set(field as PercentField, [property, value]);
 }
 
 /**
- * Re-resolve `style`'s percentage lengths against `cbWidth`, the width layout
- * gave its containing block, and write the used values into the style. A
- * no-op for a style with no percentage, or already at that width (the
- * resolver's own width included, so block flow never moves). True when a
- * value changed.
+ * Re-resolve `style`'s percentage lengths against `width` and write the used
+ * values into the style: the containing block's width as layout gave it, or
+ * (`own`) the box's own content width for `OWN_PERCENT_FIELDS`. A no-op
+ * without a percentage, or already at that width (the resolver's own width
+ * included, so block flow never moves).
  */
-export function resolvePercentages(style: ResolvedStyle, cbWidth: number): boolean {
+export function resolvePercentages(style: ResolvedStyle, width: number, own = false): void {
   const table = (style as InternalStyle)[PERCENT_LENGTHS];
-  if (!table || table.cb === cbWidth || table.entries.size === 0) return false;
-  table.cb = cbWidth;
-  return applyPercentEntries(style, table, cbWidth, false);
-}
-
-/**
- * Resolve `style`'s percentages of its OWN content width
- * (`OWN_PERCENT_FIELDS`: text-indent, gap) against `contentWidth`, the width
- * its content box settled on. A no-op without one, or at the same width.
- */
-export function resolveOwnPercentages(style: ResolvedStyle, contentWidth: number): void {
-  const table = (style as InternalStyle)[PERCENT_LENGTHS];
-  if (!table || table.own === contentWidth || table.entries.size === 0) return;
-  table.own = contentWidth;
-  applyPercentEntries(style, table, contentWidth, true);
-}
-
-/** Re-apply the cb-relative (`own` false) or own-width entries at `width`; true when a value changed. */
-function applyPercentEntries(style: ResolvedStyle, table: PercentLengths, width: number, own: boolean): boolean {
-  let changed = false;
-  const env: DeclarationEnv = { b: { ...table.basis }, containerWidth: width, direction: 'ltr', percent: false };
+  if (!table || (own ? table.own : table.cb) === width || table.entries.size === 0) return;
+  if (own) table.own = width;
+  else table.cb = width;
+  const env: DeclarationEnv = { b: table.basis, containerWidth: width, percent: false };
   for (const [field, [property, value, basis]] of table.entries) {
     if (OWN_PERCENT_FIELDS.has(field) !== own) continue;
     env.b = { ...(basis ?? table.basis) };
-    const before = style[field];
     applyDeclaration(style, property, value, env);
-    if (style[field] !== before) changed = true;
   }
-  return changed;
 }
 
 /**
  * Carry the parent's percentage `text-indent` into `child`, which inherits
  * it (`setProps` has no text-indent of its own): the computed value is the
  * percentage, and it resolves against the CHILD's content width
- * (`resolveOwnPercentages`), not as the parent's px.
+ * (`resolvePercentages` with `own`), not as the parent's px.
  */
 function inheritPercentages(child: ResolvedStyle, parent: ResolvedStyle, cbWidth: number): void {
   const parentTable = (parent as InternalStyle)[PERCENT_LENGTHS];
@@ -1030,7 +989,7 @@ export function intrinsicStyle(style: ResolvedStyle): ResolvedStyle {
   if (!table || table.entries.size === 0) return style;
   if (table.intrinsicFor === style) return table.intrinsic!;
   const copy = { ...style } as InternalStyle;
-  const env: DeclarationEnv = { b: { ...table.basis }, containerWidth: 0, direction: 'ltr', percent: false };
+  const env: DeclarationEnv = { b: { ...table.basis }, containerWidth: 0, percent: false };
   for (const [field, [property, value, basis]] of table.entries) {
     if (field === 'width') copy.width = 0;
     else if (field === 'minWidth') copy.minWidth = null;
@@ -1145,7 +1104,7 @@ const PARSERS: Record<string, Parser> = {
   // re-serializes a style (contenteditable, el.style writes).
   '--rt-text-stroke-image': value => value.trim(),
   'paint-order': paintOrder,
-  'background-clip': backgroundClip, '-webkit-background-clip': backgroundClip,
+  'background-clip': backgroundClip,
   'letter-spacing': spacing, 'word-spacing': spacing,
   'line-clamp': lineClamp, '-webkit-line-clamp': lineClamp,
   'vertical-align': verticalAlign,
@@ -1178,7 +1137,7 @@ PARSERS['box-sizing'] = value => {
   const v = value.trim().toLowerCase();
   return v === 'border-box' ? v : v === 'content-box' ? undefined : null;
 };
-for (const side of ['top', 'right', 'bottom', 'left']) {
+for (const side of SIDES) {
   PARSERS[`padding-${side}`] = (value, env) => {
     const px = cbLengthOf(value, env);
     return px >= 0 ? px : NaN;
@@ -1191,7 +1150,7 @@ for (const side of ['top', 'right', 'bottom', 'left']) {
 // Percentages are of the border box, unknown until paint: they stay
 // symbolic (`BorderRadius`). Negatives are 0; a second (elliptical)
 // component on a longhand is ignored.
-for (const corner of ['top-left', 'top-right', 'bottom-right', 'bottom-left']) {
+for (const corner of CORNERS) {
   PARSERS[`border-${corner}-radius`] = (value, env) => {
     const v = MATH.test(value.trim()) ? value.trim() : value.trim().split(/\s+/)[0];
     if (/^[+-]?(?:\d+\.?\d*|\.\d+)%$/.test(v)) {
@@ -1213,7 +1172,7 @@ function applyDeclaration(style: ResolvedStyle, property: string, value: string,
   if (parse) {
     const v = parse(value, env, style);
     if (v === null || Number.isNaN(v)) return false;
-    (style as any)[PROPERTY_FIELDS[PROP_ALIASES[property] || property][0]] = v;
+    (style as any)[PROPERTY_FIELDS[property][0]] = v;
     return true;
   }
   const internal = style as InternalStyle;
@@ -1300,8 +1259,7 @@ function applyDeclaration(style: ResolvedStyle, property: string, value: string,
       return true;
     }
   }
-  const logical = LOGICAL_PROPERTIES[property];
-  return logical ? applyDeclaration(style, logical[env.direction === 'rtl' ? 1 : 0], value, env) : false;
+  return false;
 }
 
 /**
@@ -1524,13 +1482,11 @@ function evictRuleCache(): void {
   }
 }
 
-/** Format an integer using a CSS list-style-type. */
+const BULLETS: Record<string, string> = { __proto__: null, disc: '•', circle: '○', square: '■' } as Record<string, string>;
+
+/** Format an integer using a numbered CSS list-style-type. */
 function formatListMarker(n: number, type: string): string {
   switch (type) {
-    case 'disc': return '•';
-    case 'circle': return '○';
-    case 'square': return '■';
-    case 'none': return '';
     case 'decimal-leading-zero':
       return `${n < 10 && n >= 0 ? '0' + n : n}.`;
     case 'lower-roman': return `${toRoman(n).toLowerCase()}.`;
@@ -1539,9 +1495,7 @@ function formatListMarker(n: number, type: string): string {
     case 'lower-latin': return `${toAlpha(n).toLowerCase()}.`;
     case 'upper-alpha':
     case 'upper-latin': return `${toAlpha(n)}.`;
-    case 'decimal':
-    default:
-      return `${n}.`;
+    default: return `${n}.`;
   }
 }
 
@@ -1569,6 +1523,11 @@ function toAlpha(n: number): string {
   }
   return out;
 }
+
+/** The `::marker` fields layout reads (`addListMarker`), in shorthand expansion order. */
+const MARKER_FIELDS: readonly (keyof ResolvedStyle)[] = [
+  'paddingRight', 'paddingLeft', 'fontStyle', 'fontWeight', 'fontSize', 'fontFamily', 'color', 'letterSpacing',
+];
 
 /** Each `<li>`'s ordinal in its list, by list element; built once per list per call. */
 type ListOrdinals = Map<Element, Map<Element, number>>;
@@ -1602,37 +1561,20 @@ function listOrdinals(list: Element, cache: ListOrdinals): Map<Element, number> 
   return ordinals;
 }
 
-/**
- * Detect list marker text for a <li> element based on tree position,
- * honoring list-style-type, <ol start>, <ol reversed>, and <li value>.
- */
+/** A <li>'s marker text, honoring list-style-type, <ol start>, <ol reversed> and <li value>. */
 function getListMarker(el: Element, listStyleType: string, ordinals: ListOrdinals): string | undefined {
-  const tag = el.tagName.toLowerCase();
-  if (tag !== 'li') return undefined;
+  if (el.tagName.toLowerCase() !== 'li') return undefined;
   if (listStyleType === 'none') return '';
-
+  const bullet = BULLETS[listStyleType];
+  if (bullet !== undefined) return bullet;
   const parent = el.parentElement;
-  const parentTag = parent?.tagName.toLowerCase();
-
-  // Bullet markers: independent of position.
-  if (listStyleType === 'disc' || listStyleType === 'circle' || listStyleType === 'square') {
-    return formatListMarker(0, listStyleType);
+  if (!parent) {
+    const v = parseInt(el.getAttribute('value') ?? '', 10);
+    return formatListMarker(Number.isNaN(v) ? 1 : v, listStyleType);
   }
-
-  // Numbered markers: compute index from siblings + ol attributes + li value.
-  if (parentTag === 'ol' || parentTag === 'ul' || !parent) {
-    let n: number;
-    if (parent) {
-      // `el` is an <li> child of `parent`, so the pass over it numbered `el`.
-      n = listOrdinals(parent, ordinals).get(el)!;
-    } else {
-      const v = parseInt(el.getAttribute('value') ?? '', 10);
-      n = Number.isNaN(v) ? 1 : v;
-    }
-    return formatListMarker(n, listStyleType || 'decimal');
-  }
-
-  return undefined;
+  const parentTag = parent.tagName.toLowerCase();
+  if (parentTag !== 'ol' && parentTag !== 'ul') return undefined;
+  return formatListMarker(listOrdinals(parent, ordinals).get(el)!, listStyleType);
 }
 
 const NO_DECLARATIONS: readonly Declaration[] = Object.freeze([]);
@@ -1777,7 +1719,7 @@ export function resolveStylesFromCSS(
     basis.fontStyle = style;
     return basis;
   }
-  const env: DeclarationEnv = { b: basis, containerWidth, direction: 'ltr', percent: false };
+  const env: DeclarationEnv = { b: basis, containerWidth, percent: false };
   /** Scratch for `cascadeOrder`, reused by every element. */
   const order: Declaration[] = [];
   const orderInline: boolean[] = [];
@@ -1868,9 +1810,9 @@ export function resolveStylesFromCSS(
       const d = order[i];
       if (!FONT_PROPERTIES.has(d.property)) continue;
       const keyword = cssWideKeyword(d.property, d.value);
-      if (keyword) applyKeyword(style, parentStyle, d.property, keyword, setProps, parentStyle.direction, concreteColors);
+      if (keyword) applyKeyword(style, parentStyle, d.property, keyword, setProps, concreteColors);
       else if (applyFontDeclaration(style, d.property, d.value, parentStyle, basisFor(parentStyle, parentStyle.fontSize))) {
-        setProps.add(PROP_ALIASES[d.property] || d.property);
+        setProps.add(d.property);
       }
     }
     inheritFont(style, parentStyle, setProps);
@@ -1889,7 +1831,6 @@ export function resolveStylesFromCSS(
       const rtl = parentStyle.direction === 'rtl';
       if (tag === 'ul' || tag === 'ol' || tag === 'menu' || tag === 'dir') {
         style[rtl ? 'paddingRight' : 'paddingLeft'] = 40;
-        setProps.add(rtl ? 'padding-right' : 'padding-left');
       } else if (tag === 'dd') {
         style[rtl ? 'marginRight' : 'marginLeft'] = 40;
       }
@@ -1898,20 +1839,20 @@ export function resolveStylesFromCSS(
     // Logical properties resolve through the parent's direction.
     basisFor(style, cbWidth);
     env.containerWidth = cbWidth;
-    env.direction = parentStyle.direction;
     let widthFromSheet = false;
     for (let i = 0; i < count; i++) {
       const d = order[i];
       if (FONT_PROPERTIES.has(d.property)) continue;
-      const keyword = cssWideKeyword(d.property, d.value);
+      const property = physical(d.property, parentStyle.direction);
+      const keyword = cssWideKeyword(property, d.value);
       if (keyword) {
-        applyKeyword(style, parentStyle, d.property, keyword, setProps, env.direction, concreteColors);
-        trackPercent(style, d.property, null, env, cbWidth);
+        applyKeyword(style, parentStyle, property, keyword, setProps, concreteColors);
+        trackPercent(style, property, null, env, cbWidth);
       } else {
         env.percent = false;
-        if (!applyDeclaration(style, d.property, d.value, env)) continue;
-        setProps.add(PROP_ALIASES[d.property] || d.property);
-        trackPercent(style, d.property, env.percent ? d.value : null, env, cbWidth);
+        if (!applyDeclaration(style, property, d.value, env)) continue;
+        setProps.add(property);
+        trackPercent(style, property, env.percent ? d.value : null, env, cbWidth);
       }
       if (d.property === 'width') widthFromSheet = !orderInline[i];
     }
@@ -2016,28 +1957,14 @@ export function resolveStylesFromCSS(
     // List marker
     const marker = getListMarker(el, style.listStyleType, ordinals);
 
-    // Resolve `::marker` rules into a Partial<ResolvedStyle> override and a
-    // hidden flag. We only do this for `<li>` because `::marker` only applies
-    // to elements with `display: list-item` (in our model, just `<li>`).
-    // The override records ONLY the keys actually written by marker
-    // declarations, so the layout consumer can distinguish "user set padding
-    // to 0" from "no rule".
+    // `::marker` (only `<li>` is a list-item here): the MARKER_FIELDS its
+    // rules change from the <li> style, and a hidden flag.
     let markerStyle: Partial<ResolvedStyle> | undefined;
     let markerHidden = false;
     if (tag === 'li' && matchedMarker.length > 0) {
       if (matchedMarker.length > 1) matchedMarker.sort(byCascadeOrder);
 
-      // Apply to a scratch style cloned from the resolved <li> style, then
-      // copy out the keys that changed. Whitelist the physical fields we
-      // actually consume in addListMarker — adding more later is a one-line
-      // change once the layout side reads them.
-      const TRACKED: (keyof ResolvedStyle)[] = [
-        'paddingLeft', 'paddingRight',
-        'fontSize', 'fontFamily', 'fontWeight', 'fontStyle',
-        'color', 'letterSpacing',
-      ];
       const scratch = { ...style } as ResolvedStyle;
-      const touched = new Set<keyof ResolvedStyle>();
       const markerCount = cascadeOrder(NO_DECLARATIONS, matchedMarker, NO_DECLARATIONS, order, orderInline);
       for (let i = 0; i < markerCount; i++) {
         const m = order[i];
@@ -2054,22 +1981,15 @@ export function resolveStylesFromCSS(
         }
         // The marker starts as a copy of the <li>: inherit/unset change nothing.
         if (cssWideKeyword(m.property, m.value)) continue;
-        const before = TRACKED.map(k => scratch[k]);
         if (FONT_PROPERTIES.has(m.property)) {
           applyFontDeclaration(scratch, m.property, m.value, style, basisFor(style, style.fontSize));
         } else {
           basisFor(style, cbWidth);
           env.containerWidth = cbWidth;
-          applyDeclaration(scratch, m.property, m.value, env);
+          applyDeclaration(scratch, physical(m.property, parentStyle.direction), m.value, env);
         }
-        TRACKED.forEach((k, j) => {
-          if (scratch[k] !== before[j]) touched.add(k);
-        });
       }
-      if (touched.size > 0) {
-        markerStyle = {};
-        for (const k of touched) (markerStyle as any)[k] = scratch[k];
-      }
+      for (const k of MARKER_FIELDS) if (scratch[k] !== style[k]) (markerStyle ??= {} as any)[k] = scratch[k];
     }
 
     // Walk children, against this element's content box — or, for an
@@ -2085,7 +2005,7 @@ export function resolveStylesFromCSS(
         : Math.max(0, cbWidth - style.marginLeft - style.marginRight -
           style.borderLeftWidth - style.borderRightWidth - style.paddingLeft - style.paddingRight);
     // text-indent and gap percentages: of this box's own content width.
-    resolveOwnPercentages(style, childCb);
+    resolvePercentages(style, childCb, true);
     const children: StyledNode[] = [];
     for (const child of el.childNodes) {
       const childNode = walkNode(child, style, ctx, childCb);
@@ -2122,46 +2042,25 @@ export function resolveStylesFromCSS(
       const text = node.textContent;
       if (!text) return null;
 
-      if (text.trim() === '' && !text.includes('\u00A0')) {
-        const ws = parentStyle.whiteSpace;
+      const ws = parentStyle.whiteSpace;
+      const pre = ws === 'pre' || ws === 'pre-wrap' || ws === 'pre-line';
+      if (!pre && text.trim() === '' && !text.includes('\u00A0')) {
+        // Whitespace between two blocks vanishes; so does a newline-bearing
+        // gap that touches a block or the container edge. Between two INLINE
+        // siblings Chrome keeps one space that takes line width.
         const prev = node.previousSibling;
         const next = node.nextSibling;
-        const isInlineSibling = (n: Node | null) => {
-          if (!n || n.nodeType !== ELEMENT_NODE) return n?.nodeType === TEXT_NODE;
-          const d = uaDisplay((n as Element).tagName.toLowerCase());
-          return d === 'inline' || d === 'inline-block';
-        };
-
         const prevInline = isInlineSibling(prev);
         const nextInline = isInlineSibling(next);
-        if (prev && next && !prevInline && !nextInline) {
-          if (ws === 'pre' || ws === 'pre-wrap' || ws === 'pre-line') {
-            // Keep
-          } else {
-            return null;
-          }
-        }
-
-        if (ws !== 'pre' && ws !== 'pre-wrap' && ws !== 'pre-line') {
-          // Between two INLINE siblings Chrome collapses '</span>\n  <span>'
-          // to a single space that consumes line width; dropping the node
-          // painted the spans flush and packed lines the DOM wraps. Only a
-          // gap touching a block boundary (or the container edge) vanishes.
-          if (text.includes('\n') && !(prevInline && nextInline)) return null;
-        }
+        if ((prev && next && !prevInline && !nextInline) ||
+            (text.includes('\n') && !(prevInline && nextInline))) return null;
       }
 
       // CSS Text 3 §4.1.1: in `normal` and `nowrap`, a source newline is
       // collapsed to a single space (no forced break). Only `pre`,
       // `pre-wrap`, `pre-line`, and `break-spaces` preserve newlines.
-      // <br>-derived text nodes are created separately below with `\n`
-      // and are not touched here, so they keep forcing breaks.
-      const ws = parentStyle.whiteSpace;
-      let normalizedText = text;
-      if (ws !== 'pre' && ws !== 'pre-wrap' && ws !== 'pre-line' && ws !== 'break-spaces') {
-        normalizedText = text.replace(/[\n\r]/g, ' ');
-      }
-      return textNode(normalizedText, parentStyle);
+      // (<br> text nodes are made below and keep forcing breaks.)
+      return textNode(pre || ws === 'break-spaces' ? text : text.replace(/[\n\r]/g, ' '), parentStyle);
     }
 
     if (node.nodeType !== ELEMENT_NODE) return null;
