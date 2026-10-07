@@ -15,7 +15,8 @@
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { DOMParser as LinkedomDOMParser } from 'linkedom';
-import { buildLayoutTree, buildCanvasFont, sameDecorationBand, BLINK_SUPER_SUB } from '../../src/layout.ts';
+import { buildLayoutTree, buildCanvasFont, sameDecorationBand } from '../../src/layout.ts';
+import { BLINK_SUPER_SUB } from '../../src/engine.ts';
 import { layout, drawLayout, setDOMParser } from '../../src/index.node.ts';
 import { mockCtx, CHAR_WIDTH } from '../helpers/mock-ctx.ts';
 import { recordingCtx } from '../helpers/recording-ctx.ts';

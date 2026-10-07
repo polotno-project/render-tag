@@ -288,7 +288,7 @@ When touching this area, run all of them plus `decoration-propagation`,
   its OWN entries (`ATOMIC_INLINE`, CSS Text Decoration 3 §2.1), so the
   ancestor's band leaves a gap where the box sits — both engines,
   `decoration-shape-parity` ("skips an atomic inline").
-- **Whose painter** is `DECORATION_PAINTER` (src/engine.ts). Every Blink and
+- **Whose painter** is `ENGINE` (src/engine.ts). Every Blink and
   WebKit rule is measured off the DOM raster, and the Blink ones match its
   source (decoration_line_painter.cc, styled_stroke_data.cc,
   text_decoration_info.cc). Gecko is unmeasured and keeps the old shapes.
@@ -861,9 +861,9 @@ off the DOM rather than guessed (the branch is picked by user agent):
 Each question is separate, and each has its own flag: `TRUNCATES_LINE_HEIGHT`
 (WebKit), `LAYOUT_UNIT_LINE_HEIGHT` (Blink: the line-height grid AND the
 LayoutUnit half-leading — one mechanism, Blink's 1/64px arithmetic),
-`INTEGER_PERCENT_LINE_HEIGHT` (Blink and WebKit; in `src/engine.ts` because
-the resolver applies it), `FLOORS_LINE_BASELINE` (Blink and WebKit),
-`BLINK_SUPER_SUB` (Blink and WebKit). UA detection lives in `src/engine.ts`. Never gate one on another. A
+`INTEGER_PERCENT_LINE_HEIGHT` (Blink and WebKit), `FLOORS_LINE_BASELINE` (Blink and WebKit),
+`BLINK_SUPER_SUB` (Blink and WebKit). UA detection (`ENGINE`) and every engine flag live in
+`src/engine.ts`. Never gate one on another. A
 test that did that asserted Gecko's shift against Blink's in every engine
 except Chrome.
 
@@ -1040,7 +1040,7 @@ English line left to right; every engine paints it right to left.
   the padding inside `<code>render()</code>` in Arabic.
 - Nodes are placed left to right, then EMITTED in logical order (`emitKeys`).
   `layoutRoot` keeps document order, and the geometry oracle depends on it.
-- `CANVAS_BIDI_LINE` (engine flag, `!IS_SAFARI`): a line in ONE paint, whose
+- `CANVAS_BIDI_LINE` (engine flag, not WebKit): a line in ONE paint, whose
   levels Canvas would resolve the same from the line text alone, stays ONE
   run in the paragraph direction. Canvas then shapes the whole line as the
   layout does. In Blink that is exact: every token is at dx 0 against the DOM.

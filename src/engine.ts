@@ -1,49 +1,69 @@
 /**
- * Which engine's line rules to follow. Only the UA string can say, because
- * `accuracy: 'performance'` promises not to touch the DOM.
- *
- * Blink is the DEFAULT, and the other two are what we detect: a server-side
- * render (no navigator, or jsdom) targets headless Chrome, so anything we
- * cannot positively identify has to round the way Chrome does.
- *
- * - Gecko is the one engine that still sends a real `Gecko/<date>` product
- *   token; Blink and WebKit carry only the "like Gecko" comment, no slash.
- * - Safari is WebKit that says neither `Chrome/` nor `jsdom/`. jsdom borrows
- *   WebKit's UA and would otherwise be mistaken for it.
- * - `Chrome/` is matched with NO word boundary, because headless Chrome sends
- *   `HeadlessChrome/`.
+ * The engine whose rules to follow, from the UA alone (`accuracy: 'performance'`
+ * never touches the DOM). Blink is the default, so a server-side render matches
+ * headless Chrome. Gecko is the only engine with a real `Gecko/<date>` token.
+ * Safari is AppleWebKit without `Chrome/` and without `jsdom/` (jsdom borrows
+ * WebKit's UA); `Chrome/` has no word boundary because of `HeadlessChrome/`.
  */
 const UA = typeof navigator === 'undefined' ? '' : navigator.userAgent;
-export const IS_GECKO = /\bGecko\/\d/.test(UA);
-export const IS_SAFARI =
-  /AppleWebKit/.test(UA) && !/Chrome\/\d/.test(UA) && !/\bjsdom\//.test(UA);
+export const ENGINE: 'blink' | 'webkit' | 'gecko' = /\bGecko\/\d/.test(UA) ? 'gecko'
+  : /AppleWebKit/.test(UA) && !/Chrome\/\d/.test(UA) && !/\bjsdom\//.test(UA) ? 'webkit' : 'blink';
+
+// One flag per engine question, even where two select the same engines today:
+// never gate one rule on another's flag.
+
+/** A percentage line-height is truncated to an integer percentage before it
+ * multiplies (162.9% acts as 162%). Blink and WebKit; line-baseline-parity. */
+export const INTEGER_PERCENT_LINE_HEIGHT = ENGINE !== 'gecko';
+
+/** The text-shadow of a -webkit-text-stroke'd glyph includes the stroke
+ * (WebKit); Blink casts it from the fill only. text-shadow-coverage. */
+export const STROKE_CASTS_TEXT_SHADOW = ENGINE !== 'blink';
+
+/** Blink paints a plain LTR source run with one shaped fillText without moving
+ * its DOM raster. paint-runs. */
+export const BLINK_TEXT_RUN_SHAPING = ENGINE === 'blink';
+
+/** One fillText of a whole bidi line matches the engine's own layout. Not in
+ * WebKit, whose Canvas orders it differently. bidi-order-parity. */
+export const CANVAS_BIDI_LINE = ENGINE !== 'webkit';
+
+/** The line baseline is floored to a whole CSS pixel (Blink; WebKit over its
+ * truncated line-height). Gecko keeps it exact. line-baseline-parity. */
+export const FLOORS_LINE_BASELINE = ENGINE !== 'gecko';
+
+/** `super` = fontSize/3 + 1, `sub` = fontSize/5 + 1 (Blink and WebKit); Gecko
+ * shifts 0.34em / 0.2em. line-baseline-parity. */
+export const BLINK_SUPER_SUB = ENGINE !== 'gecko';
+
+/** WebKit floors the float32 line-height to whole pixels (16px x 1.6 = 25px).
+ * line-baseline-parity, line-box-parity. */
+export const TRUNCATES_LINE_HEIGHT = ENGINE === 'webkit';
+
+/** Blink paints each line box at a whole CSS pixel (round half up of its top)
+ * while layout stays fractional. WebKit snaps to device pixels (not modelled).
+ * line-paint-snap-parity. */
+export const SNAPS_LINE_PAINT = ENGINE === 'blink';
+
+/** Blink's auto underline top sits `ceil(fontSize / 20)` below the snapped
+ * baseline, font-independent. decoration-geometry, line-paint-snap-parity. */
+export const BLINK_UNDERLINE_GAP = ENGINE === 'blink';
+
+/** A list item whose children all collapse through still gets its marker's
+ * line box in Blink; WebKit gives it no height. margin-collapse-parity. */
+export const MARKER_LINE_WITHOUT_CONTENT = ENGINE === 'blink';
 
 /**
- * True where a PERCENTAGE line-height is an integer percentage: Blink and
- * WebKit truncate it before they multiply (162.9% of 100px computes to
- * 162px, 133.3% acts as 133%; it is the percentage that is truncated, not
- * the product — 162.5% of 8px is a 12.953125px Blink line, 8 x 1.62 on its
- * grid). Measured in Chromium and Playwright WebKit (line-baseline-parity).
- * Gecko keeps the exact percentage (not measured here; UNVERIFIED).
+ * Margins leaving a block's bottom from its last child, under a min-height
+ * (margin-collapse-parity):
+ * - `'drop'` (Blink): a min-height that raises the box loses those margins.
+ * - `'collapse'` (WebKit): CSS 2.1 §8.3.1 — they always pass out.
+ * - `'contain'` (Gecko, unmeasured): any nonzero min-height keeps them inside.
  */
-export const INTEGER_PERCENT_LINE_HEIGHT = !IS_GECKO;
+export const MIN_HEIGHT_END_MARGINS: 'drop' | 'collapse' | 'contain' =
+  ENGINE === 'gecko' ? 'contain' : ENGINE === 'webkit' ? 'collapse' : 'drop';
 
-/**
- * Whose text-decoration painter to imitate: the band thickness, where each
- * line sits, and the shapes of `double`, `dotted`, `dashed` and `wavy`
- * (src/decoration.ts). Each rule there was measured off that engine's DOM.
- * Gecko is not measured here (Firefox cannot launch in this environment), so
- * it keeps render-tag's older shapes and positions.
- */
-export const DECORATION_PAINTER: 'blink' | 'webkit' | 'gecko' =
-  IS_GECKO ? 'gecko' : IS_SAFARI ? 'webkit' : 'blink';
-
-/**
- * Does a text's -webkit-text-stroke cast its text-shadow? WebKit's does: the
- * shadow is the filled AND stroked glyph. Blink casts the shadow from the
- * FILL only — a 6px-stroked glyph's shadow is the bare glyph, mostly hidden
- * under the stroke, even when the fill is transparent (measured,
- * tests/text-shadow-coverage.test.ts). Gecko keeps render-tag's older
- * fill-and-stroke mask (UNVERIFIED).
- */
-export const STROKE_CASTS_TEXT_SHADOW = DECORATION_PAINTER !== 'blink';
+/** Blink lays line-heights on its 1/64px LayoutUnit grid: a number floors the
+ * product, a length rounds to nearest, the half-leading truncates. Gecko's
+ * 1/60px grid is not modelled. line-baseline-parity. */
+export const LAYOUT_UNIT_LINE_HEIGHT = ENGINE === 'blink';

@@ -3,8 +3,10 @@ import {
   anonymousBlockStyle, borderBoxSize, contentBoxSize, intrinsicStyle, isTransparent, LINE_HEIGHT_MULTIPLIER,
   OVERFLOW_X, OVERFLOW_Y, resolveOwnPercentages, resolvePercentages,
 } from './css-resolver.js';
-import { IS_GECKO, IS_SAFARI } from './engine.js';
-export { INTEGER_PERCENT_LINE_HEIGHT } from './engine.js';
+import {
+  BLINK_SUPER_SUB, CANVAS_BIDI_LINE, FLOORS_LINE_BASELINE, LAYOUT_UNIT_LINE_HEIGHT, MARKER_LINE_WITHOUT_CONTENT,
+  MIN_HEIGHT_END_MARGINS, SNAPS_LINE_PAINT, TRUNCATES_LINE_HEIGHT,
+} from './engine.js';
 import {
   bidiContextFor, BidiTextBuilder, lineLevels, mayNeedBidi, resolveBidi, visualOrder,
   type BidiContext,
@@ -447,97 +449,6 @@ function fontBox(m: TextMetrics): FontBox {
   };
 }
 
-/** Blink (and server-side rendering, whose documented target is Blink) can
- * paint ordinary LTR words as one shaped source run without moving its DOM
- * raster. Gecko and WebKit keep the established word paint path. */
-export const BLINK_TEXT_RUN_SHAPING = !IS_GECKO && !IS_SAFARI;
-
-/**
- * True where one `fillText` of a whole bidi line paints it in the order and at
- * the advances the engine's own layout gives it, so a line in ONE paint can
- * stay one run (`bidiLineItems`). Blink: measured exact (Mixed LTR and RTL,
- * Multi-script single paragraph — every token at dx 0 against the DOM).
- * WebKit: not — the same single-run lines scored 6-16% against WebKit's DOM
- * and 0.00 once split into ordered level runs. Gecko keeps the single run it
- * always had; its Canvas runs the full UBA too, but that is not measured here.
- */
-export const CANVAS_BIDI_LINE = !IS_SAFARI;
-
-/**
- * True where the engine floors a line's baseline onto a whole CSS pixel.
- *
- * Blink does (`FontHeight::AddLeading`), and so does WebKit — over the
- * line-height it has already truncated (`TRUNCATES_LINE_HEIGHT`). Gecko lays
- * the exact half-leading out. An older corpus run gave Safari the exact value
- * because the floor ALONE lost there (214 wins against 223 losses): it was
- * tried over the untruncated line-height. Floor and truncation together match
- * WebKit's DOM (measured in Playwright WebKit, 1,768 of
- * 1,768 configurations: eight families, 8-56px, seventeen line-heights; the
- * system monospace is off by its own canvas metrics — see CLAUDE.md).
- */
-export const FLOORS_LINE_BASELINE = !IS_GECKO;
-
-/**
- * `super` and `sub` are engine constants, not CSS. Blink and WebKit share
- * theirs (`fontSize/3 + 1`, `fontSize/5 + 1`); Gecko raises by 0.34em and
- * lowers by 0.20em. A SEPARATE question from the rounding above — the two
- * flags happen to select the same engines today, which is no reason to read
- * one for the other.
- */
-export const BLINK_SUPER_SUB = !IS_GECKO;
-
-/**
- * True where the engine lays a line box out at a WHOLE-pixel line-height.
- *
- * WebKit alone does: it floors the computed line-height, a float32 product —
- * 16px x 1.6 is a 25px line, 20px x 1.15 is 23 (the double product is a hair
- * under), 23.99999px is 23. Blink keeps the fraction (on its 1/64px grid) and
- * so does Gecko. A unitless number floors the font-size to 1/64px before it
- * multiplies (`multipliedLineHeight`): 13.6px x 1.25 is 16, not 17.
- * Exact, render-tag drifted 0.4-0.8px further down per line in
- * WebKit — about 83% of that lane's pixel residual. A separate question from
- * the floor above — Blink floors the baseline and keeps the line-height — so
- * never gate one on the other. A percentage `vertical-align` still resolves
- * against the exact value (measured: 50% of 25.6px moves 12.796875).
- */
-export const TRUNCATES_LINE_HEIGHT = IS_SAFARI;
-
-/**
- * True where the engine PAINTS each line box at a whole CSS pixel while its
- * layout stays fractional. Blink does: it rounds the line box's top
- * (`Math.round`, half up) and keeps every offset inside the line — the
- * baseline, a `vertical-align` shift — as laid out. Layout numbers are not
- * moved (the DOM's own layout baseline stays fractional; render-tag matches it
- * to ~0.01px), so this is a PAINT rule: see `paintLineSnap`.
- *
- * Measured against Chromium's DOM raster over fractional line tops (k/16 px),
- * six fonts, DPR 1, 2 and 3: a plain line matches pixel for pixel in 576 of
- * 576 configurations, at every DPR — so it is a CSS-pixel rule, not a device
- * pixel one (a canvas already lands `fillText` on a device pixel, which is why
- * DPR 1 looked right before). `super`/`sub`/length shifts follow the LINE's
- * snap, not their own: rounding each run's baseline instead puts `sub` and a
- * -2.7px shift a pixel off, and was worse than no snap at all for `super` at
- * DPR 2-3. Text in an inline-block snaps by its own inner line box.
- *
- * WebKit does NOT do this: it rounds the baseline to a DEVICE pixel (192 of
- * 192 at DPR 1 and 2, 176 of 192 at DPR 3), which needs the device scale at
- * paint time and is not modelled. Gecko keeps the unsnapped paint; UNVERIFIED
- * (Firefox cannot be measured here).
- */
-export const SNAPS_LINE_PAINT = !IS_GECKO && !IS_SAFARI;
-
-/**
- * Blink's auto underline position, measured from the SNAPPED baseline above:
- * the band's top edge sits `ceil(fontSize / 20)` px below it — half the auto
- * thickness (`fontSize / 10`) rounded up, the same rule an explicit
- * `text-decoration-thickness: T` follows (`ceil(T / 2)`). Font-independent:
- * 672 of 672 bands (six pinned fonts, 8-72px, DPR 1 and 2, fractional line
- * tops) and 198 of 198 across eleven system families up to 160px. WebKit's
- * gap is not this (1-3px, font-dependent); WebKit and Gecko keep the 0.105em
- * approximation.
- */
-export const BLINK_UNDERLINE_GAP = !IS_GECKO && !IS_SAFARI;
-
 /**
  * The top of the line box each run was laid out on, for `paintLineSnap`.
  * Kept off the public `LayoutText` shape: it is paint bookkeeping, keyed by the
@@ -576,59 +487,6 @@ export function paintLineSnap(node: LayoutText): number {
   const top = runLineTops.get(node) ?? node.lineBaselineY ?? node.y;
   return Math.round(top) - top;
 }
-
-/**
- * What a min-height does to the margins leaving a block through its bottom
- * edge from its last child (measured with `margin-collapse-parity`):
- *
- * - `'drop'` (Blink): a min-height at or below the content height changes
- *   nothing. One that RAISES the box ends the run, and those margins are
- *   lost — neither added inside the box nor passed out (`min-height:30px`
- *   over a 20px line with a 16px child margin: the box is 30px, and the next
- *   sibling sits only its own margin below).
- * - `'collapse'` (WebKit): CSS 2.1 §8.3.1 to the letter — the condition is an
- *   'auto' height, and min-height is not part of it; the margins always pass
- *   out (`min-height:80px`, 40px child margin: next sibling 40px below).
- * - `'contain'` (Gecko): any nonzero min-height keeps the margins inside the
- *   box. render-tag's rule before the general collapse landed — kept because
- *   Firefox cannot be measured here; UNVERIFIED.
- */
-/**
- * A list item whose children all collapse through (`<li><div style="margin:
- * 10px 0"></div></li>`) is not empty: its outside marker is content. Both
- * engines keep the children's margins adjoining the item's top AND bottom
- * (they do not join each other); Blink then gives the item the marker's line
- * box (20px at a 20px line-height), WebKit gives it no height. Measured in
- * Chromium and Playwright WebKit (margin-collapse-parity). Gecko gets
- * WebKit's answer, which is render-tag's rule from before the general
- * collapse; UNVERIFIED.
- */
-const MARKER_LINE_WITHOUT_CONTENT = !IS_GECKO && !IS_SAFARI;
-
-export const MIN_HEIGHT_END_MARGINS: 'drop' | 'collapse' | 'contain' =
-  IS_GECKO ? 'contain' : IS_SAFARI ? 'collapse' : 'drop';
-
-/**
- * True where the engine lays a line-height out on its 1/64px grid: Blink's
- * LayoutUnit. Measured over 60+ font-size x line-height pairs in Chromium's
- * DOM (line pitch over 64 lines):
- *
- * - a NUMBER rounds the font-size onto the grid, multiplies, and rounds the
- *   product DOWN: 14px x 1.6 is a 22.390625px line, not 22.4; 15.31px x 1.15
- *   is 17.609375;
- * - a LENGTH (px, em, %) rounds to the NEAREST grid line: 22.4px is 22.40625
- *   (a percentage is an integer percentage first: INTEGER_PERCENT_LINE_HEIGHT);
- * - the half-leading is halved in LayoutUnits, truncating toward zero, before
- *   the baseline floor (`lineBaselineOffset`): Verdana 13.6px x 1.25 has its
- *   baseline at 14, where flooring the exact half gives 13.
- *
- * Exact, render-tag drifted ~0.01px a line from the DOM — invisible until
- * `SNAPS_LINE_PAINT` rounds every line top, where 45 lines of it move a line
- * across the rounding point (Long document: 3.2% -> 0). WebKit's whole-pixel
- * truncation (`TRUNCATES_LINE_HEIGHT`) is a separate rule of a separate
- * engine. Gecko lays out on its own 1/60px grid, not modelled (UNVERIFIED).
- */
-export const LAYOUT_UNIT_LINE_HEIGHT = !IS_GECKO && !IS_SAFARI;
 
 /** Not `normal`: a length, or zero (carried as the multiplier 0; css-resolver). */
 function hasLineHeight(style: ResolvedStyle): boolean {
@@ -2447,7 +2305,6 @@ class LineFlow {
     return false;
   }
 
-  /** The current line's text, for the debug stream. */
   /** The current line's text, for debug entries (`FlowItems.debugText`). */
   text(): string {
     let text = '';

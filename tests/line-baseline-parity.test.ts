@@ -19,7 +19,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { layout } from '../src/index.ts';
-import { FLOORS_LINE_BASELINE, TRUNCATES_LINE_HEIGHT } from '../src/layout.ts';
+import { FLOORS_LINE_BASELINE, TRUNCATES_LINE_HEIGHT } from '../src/engine.ts';
 import { collectTexts } from './helpers/layout-tree.ts';
 
 const FONT = 'sans-serif';

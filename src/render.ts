@@ -1,6 +1,5 @@
 import type { ShadowOptions, LayoutNode, LayoutBox, LayoutText, ResolvedStyle } from './types.js';
 import {
-  BLINK_TEXT_RUN_SHAPING,
   hasTextClip,
   layoutFontMetrics,
   isShiftedVAlign,
@@ -11,7 +10,7 @@ import { isTransparent, paintOrderHasStrokeFirst } from './css-resolver.js';
 import { paintTextShadows, ScratchPool, shadowBounds, textPaintBounds, unionBounds, withCanvasShadow, withoutCanvasShadow, type PaintBounds, type ShadowPiece } from './shadow.js';
 import { PaintState } from './paint-state.js';
 import { decorationBand, paintBand, type Band } from './decoration.js';
-import { STROKE_CASTS_TEXT_SHADOW } from './engine.js';
+import { BLINK_TEXT_RUN_SHAPING, STROKE_CASTS_TEXT_SHADOW } from './engine.js';
 
 /**
  * Parse a CSS text-shadow string into individual shadow values.

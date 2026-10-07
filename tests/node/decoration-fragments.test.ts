@@ -8,7 +8,7 @@
  * (measured in Chromium and WebKit, tests/decoration-shape-parity.test.ts).
  * A clip gradient is likewise one gradient object per fragment.
  *
- * Node takes the Blink branch (src/engine.ts DECORATION_PAINTER).
+ * Node takes the Blink branch (src/engine.ts ENGINE).
  */
 import { afterAll, describe, expect, it } from 'vitest';
 import { DOMParser as LinkedomDOMParser } from 'linkedom';

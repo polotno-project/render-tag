@@ -1,6 +1,5 @@
 import type { DecorationEntry } from './types.js';
-import { DECORATION_PAINTER } from './engine.js';
-import { BLINK_UNDERLINE_GAP } from './layout.js';
+import { BLINK_UNDERLINE_GAP, ENGINE } from './engine.js';
 import type { PaintState } from './paint-state.js';
 
 // ─── Text decoration bands ─────────────────────────────────────────────
@@ -18,7 +17,7 @@ import type { PaintState } from './paint-state.js';
 // (Chromium and Playwright WebKit, five pinned fonts, 10-64px) and, for
 // Blink, matches its source (decoration_line_painter.cc,
 // text_decoration_info.cc, styled_stroke_data.cc). Gecko is unmeasured — it
-// keeps render-tag's older shapes and positions (`legacyBand`).
+// keeps render-tag's older shapes and positions (`drawDecorationLine`).
 
 type DecorationLine = 'underline' | 'overline' | 'line-through';
 
@@ -103,12 +102,12 @@ function thicknessOf(deco: DecorationEntry, deviceScale: number): [rows: number,
   const declared = deco.declarer.textDecorationThickness;
   const webkit = (t: number) => Math.max(1, Math.ceil(t * deviceScale)) / deviceScale;
   if (declared !== null) {
-    if (DECORATION_PAINTER === 'blink') return [rows, rows];
-    if (DECORATION_PAINTER === 'webkit') return [webkit(declared), declared];
+    if (ENGINE === 'blink') return [rows, rows];
+    if (ENGINE === 'webkit') return [webkit(declared), declared];
     return [rows, Math.max(1, declared)];
   }
   const size = deco.declarer.fontSize;
-  if (DECORATION_PAINTER === 'webkit') return [webkit(size / 16), size / 16];
+  if (ENGINE === 'webkit') return [webkit(size / 16), size / 16];
   return [rows, Math.max(1, size / 10)];
 }
 
@@ -168,7 +167,7 @@ export function decorationBand(
   const line = deco.line as DecorationLine;
   const style = deco.style || 'solid';
   const fontSize = deco.declarer.fontSize;
-  const engine = DECORATION_PAINTER;
+  const engine = ENGINE;
   let y: number;
   if (line === 'underline') {
     // WebKit keeps its auto position under an explicit THICKNESS (the band
@@ -206,11 +205,9 @@ export function decorationBand(
 }
 
 /** Paint one band. */
-export function paintBand(ps: PaintState, band: Band, color: string | CanvasGradient): void {
-  if (DECORATION_PAINTER === 'blink') blinkBand(ps, band, color);
-  else if (DECORATION_PAINTER === 'webkit') webkitBand(ps, band, color);
-  else legacyBand(ps, band, color);
-}
+export const paintBand: (ps: PaintState, band: Band, color: string | CanvasGradient) => void =
+  ENGINE === 'blink' ? blinkBand : ENGINE === 'webkit' ? webkitBand
+    : (ps, b, c) => drawDecorationLine(ps, b.x, b.y + b.rows / 2, b.width, b.rows, b.style, c);
 
 /** A horizontal stroke `rows` thick whose top edge is `top`. */
 function rule(ps: PaintState, x0: number, x1: number, top: number, rows: number, color: string | CanvasGradient) {
@@ -435,10 +432,6 @@ function webkitBand(ps: PaintState, band: Band, color: string | CanvasGradient) 
 }
 
 // ─── Gecko (unmeasured) ─────────────────────────────────────────────────
-
-function legacyBand(ps: PaintState, band: Band, color: string | CanvasGradient) {
-  drawDecorationLine(ps, band.x, band.y + band.rows / 2, band.width, band.rows, band.style, color);
-}
 
 /**
  * render-tag's original decoration shapes, centered on `y`: two half-width
