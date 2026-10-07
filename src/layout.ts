@@ -14,12 +14,8 @@ import {
 } from './bidi.js';
 
 /**
- * Everything one `buildLayoutTree` call owns, threaded down the layout
- * functions as `session`. Layout keeps NO module state of its own: a call
- * made from inside another (a `debug` callback, the caller's `measureText`)
- * gets a session of its own and cannot touch the outer one's lines, caches or
- * callback (`tests/node/reentrancy.test.ts`). Created per call and dropped
- * with it — nothing here reaches the next call.
+ * Everything one `buildLayoutTree` call owns, threaded down as `session`. Layout keeps no
+ * module state, so a nested call cannot touch the outer one (`tests/node/reentrancy.test.ts`).
  */
 interface LayoutSession {
   /** The call's one measuring primitive (and its per-call font state). */
@@ -32,10 +28,7 @@ interface LayoutSession {
   readonly maxContent: Map<StyledNode, number>;
   /** The block wrapper of each bare text node in a flex container (`anonymousFlexItem`). */
   readonly anonymousFlexItems: Map<StyledNode, StyledNode>;
-  /**
-   * Inline formatting contexts intrinsic sizing prepared, until the layout
-   * reads them (`preparedInline`, `takePreparedInline`).
-   */
+  /** Inline contexts intrinsic sizing prepared, until layout takes them (`takePreparedInline`). */
   readonly prepared: Map<StyledNode, PreparedInline>;
   /** The opposite-direction copy of a style a bidi piece paints with (`withDirection`). */
   readonly flippedDirection: Map<ResolvedStyle, ResolvedStyle>;
@@ -43,23 +36,17 @@ interface LayoutSession {
   readonly stats: LayoutStats | undefined;
 }
 
-/**
- * Work no ctx call shows, counted when a test passes `stats` to
- * `buildLayoutTree` (`tests/node/perf-counters.test.ts`). Internal.
- */
+/** Work counts no ctx call shows, for `tests/node/perf-counters.test.ts`. Internal. */
 export interface LayoutStats {
   /** Times an inline formatting context's text was segmented and measured. */
   tokenizePasses: number;
   /** Segments those passes produced. */
   segments: number;
-  /**
-   * Per-item objects the line flow hands the emit pass (`Word`), plus a
-   * clamp's ellipsis. Bidi cuts inside the emit pass are not counted.
-   */
+  /** `Word` objects the line flow hands the emit pass, plus a clamp's ellipsis. */
   wordObjects: number;
 }
 
-// ─── Canvas font helpers ───────────────────────────────────────────────
+// ── Canvas font helpers ──
 
 /** The `ctx.fontKerning` value a style resolves to. */
 export function canvasKerning(style: ResolvedStyle): CanvasFontKerning {
@@ -68,19 +55,12 @@ export function canvasKerning(style: ResolvedStyle): CanvasFontKerning {
 
 /** Format a letter-spacing value (px) as a canvas `ctx.letterSpacing` string. */
 export function formatLetterSpacing(value: number): string {
-  // Negative letter-spacing is valid and narrows text — Chrome applies it per
-  // character (trailing included). Clamping it to 0 measured text wider than
-  // the browser renders it, causing earlier/extra line wraps. Guard against
-  // non-finite values (undefined/NaN), which would produce an invalid
-  // "undefinedpx"/"NaNpx" string that canvas silently ignores.
+  // Negative letter-spacing is valid (Chrome applies it per character); a non-finite value
+  // would make a px string canvas silently ignores.
   return Number.isFinite(value) && value !== 0 ? `${value}px` : '0px';
 }
 
-/**
- * Build a canvas font string from resolved style. Not memoized: callers keep
- * the result per style object (the measurer's font state, paint's tracker),
- * and building it costs no more than the string key a memo would need.
- */
+/** Build a canvas font string. Not memoized: callers keep it per style object. */
 export function buildCanvasFont(style: ResolvedStyle): string {
   const parts: string[] = [];
   // CSS font shorthand order: style, variant, weight, size, family.
@@ -92,10 +72,8 @@ export function buildCanvasFont(style: ResolvedStyle): string {
   return parts.join(' ');
 }
 
-// Probe elements: a <div> for general use, and a <ul><li> for unordered list items.
-// Firefox renders <ul><li> with bullet markers (disc/circle/square) 1.5px taller
-// than other elements for the same line-height, due to the ::marker pseudo-element.
-// <ol><li> items do NOT have this extra height.
+// Probes: a <div>, and a <ul><li> for bullet items, which Firefox's ::marker makes 1.5px
+// taller (<ol> items are unaffected).
 let _blockProbe: HTMLDivElement | null = null;
 let _ulProbeContainer: HTMLUListElement | null = null;
 let _ulProbeLi: HTMLLIElement | null = null;
@@ -103,12 +81,8 @@ let _ulProbeLi: HTMLLIElement | null = null;
 const BULLET_MARKERS = new Set(['disc', 'circle', 'square']);
 
 /**
- * Measure the actual line height using a hidden DOM element.
- * Uses an actual <li> inside a <ul> when listStyleType is a bullet marker
- * (disc/circle/square) to capture Firefox's ::marker line box contribution.
- * Results are cached in `cache` (the call's measurer) per
- * font+lineHeight+probeType. The probe elements themselves are reused across
- * calls: they hold no answer, only a place to ask.
+ * DOM-probed line height (`accuracy: 'balanced'`), cached in `cache` per font, line-height
+ * and probe. The probe elements are reused across calls; they hold no answer.
  */
 function measureDomLineHeight(
   cache: Map<string, number>, font: string, lineHeight: string, useBulletProbe = false,
@@ -155,27 +129,11 @@ function measureDomLineHeight(
   return height;
 }
 
-// ─── Measurement ───────────────────────────────────────────────────────
-//
-// A measured width depends on more canvas state than the font: kerning and
-// letter-spacing move it too. That state used to be set by hand at each
-// measuring site, and several sites set only the font, so they measured under
-// whatever letter-spacing or kerning the previous run had left on the ctx — a
-// line re-measured that way kept an overflowing word. `Measurer` is now the
-// only layout code that writes measuring state: a measurement names the state
-// it wants, and the measurer writes all of it, skipping what the ctx already
-// holds.
-//
-// Everything here lives for ONE layout call. A caller's ctx is the measuring
-// oracle (a PDF proxy, node-canvas, a test mock), and fonts can load between
-// calls, so no width or metric is carried into the next call. What paint
-// needs from the call's measurements rides on the result
-// (`layoutFontMetrics`), never on module state another call could replace.
+// ── Measurement ──
+// `Measurer` is the only layout code that writes measuring state, and it writes all of it.
+// Nothing outlives one call: fonts load between calls and each ctx is its own oracle.
 
-/**
- * The canvas state a width depends on. Interned per call by value, so every
- * style that measures the same way shares one entry — and one width cache.
- */
+/** The canvas state a width depends on, interned per call by value (one width cache each). */
 export interface MeasureState {
   readonly font: string;
   readonly kerning: CanvasFontKerning;
@@ -187,29 +145,17 @@ export interface MeasureState {
 type FontBox = Readonly<{ ascent: number; descent: number }>;
 
 /**
- * The font metrics (canvas font string → ascent/descent) each result was laid
- * out with, keyed by the result: a block layout's `layoutRoot`, a
- * text-on-path layout's result object. Paint reads its decoration ascents and
- * descents from here (`PaintState.fontBox`), so a result paints on the
- * metrics its runs were placed with — whatever ctx a later `layout()`
- * measured on (a PDF proxy whose metrics differ from the screen canvas). A
- * table belongs to one call and dies with its result; it is never a cache
- * across calls. A miss (a tree the caller built) measures on the paint ctx.
+ * Font metrics each result was laid out with, keyed by the result (a `layoutRoot` or a path
+ * result). Paint reads them (`PaintState.fontBox`), so a result paints on its own metrics
+ * whatever ctx it is painted on; a miss measures on the paint ctx.
  */
 export const layoutFontMetrics = new WeakMap<object, FontMetricsTable>();
 export type FontMetricsTable = Map<string, FontBox>;
 
 /**
- * Which writer last wrote canvas state to A ctx (any ctx), as a number: a
- * `Measurer` or a `PaintState` takes an id from `nextCtxWriterId` and calls
- * `claimCtx` before it writes. A writer elides writes the ctx already holds —
- * but a nested layout call (a `debug` callback, the caller's own
- * `measureText`) or a public helper may write the same ctx between two of
- * its writes. Whenever another writer wrote since, the writer forgets what it
- * believed the ctx holds and writes it again. One token for all contexts: a
- * write to a different ctx only costs a redundant re-write, never a wrong
- * width. A number, not the writer itself, so the last call's measurer (its
- * width maps, its ctx) is not kept alive after the call.
+ * Id of the last writer (`Measurer`, `PaintState`) to write canvas state to any ctx; a
+ * writer that finds another wrote since forgets what it believed the ctx holds. A number,
+ * not the writer, so the measurer is not kept alive after the call.
  */
 let lastCtxWriter = 0;
 let ctxWriterIds = 0;
@@ -219,11 +165,7 @@ export function nextCtxWriterId(): number {
   return ++ctxWriterIds;
 }
 
-/**
- * Record writer `id` as the last to write ctx state. True when another
- * writer wrote since `id` last claimed: what `id` believes the ctx holds is
- * stale.
- */
+/** Claim the ctx for writer `id`: true when another writer wrote since (its belief is stale). */
 export function claimCtx(id: number): boolean {
   if (lastCtxWriter === id) return false;
   lastCtxWriter = id;
@@ -233,10 +175,8 @@ export function claimCtx(id: number): boolean {
 type TabStops = Readonly<{ interval: number; halfSpace: number }>;
 
 /**
- * What one style's text needs from the canvas, derived once per call instead
- * of once per word. Keyed by style identity; never stored on the style.
- * Line heights and leaded boxes are indexed by `useBulletProbe` (it only
- * changes them when the DOM probes run).
+ * What one style's text needs from the canvas, derived once per call and keyed by style
+ * identity. Line heights and leaded boxes are indexed by `useBulletProbe`.
  */
 interface FontState {
   readonly measure: MeasureState;
@@ -257,14 +197,9 @@ export class Measurer {
   private readonly writerId = nextCtxWriterId();
 
   /**
-   * Spaces carry `word-spacing` in their own measured width, so the canvas
-   * must not add any: a caller's ctx (or a paint left on a reused one) may
-   * hold some. Cleared here, so no entry point can measure without it.
-   *
-   * `fontMetrics` is where font metrics are recorded and looked up: the
-   * call's own table (`layoutFontMetrics` hands it to paint).
-   * `useDomMeasurements` makes line heights DOM probes (`accuracy:
-   * 'balanced'`); only block layout asks for line heights.
+   * Clears the ctx's word-spacing: spaces carry it in their own measured width.
+   * `fontMetrics` is the call's table (`layoutFontMetrics`); `useDomMeasurements` makes line
+   * heights DOM probes (`accuracy: 'balanced'`).
    */
   constructor(
     readonly ctx: CanvasRenderingContext2D,
@@ -300,7 +235,6 @@ export class Measurer {
   metrics(style: ResolvedStyle): FontBox {
     const fs = this.font(style);
     if (!fs.metrics) {
-      // Recorded in the call's table, which paint reads after layout.
       const font = fs.measure.font;
       let metrics = this.fontMetrics.get(font);
       if (!metrics) {
@@ -313,11 +247,8 @@ export class Measurer {
   }
 
   /**
-   * The height a line box built from this style takes: the computed value
-   * below, as the engine uses it (`multipliedLineHeight` for a number,
-   * `usedLineHeight` for a length — WebKit truncates it;
-   * Blink puts it on its LayoutUnit grid, `LAYOUT_UNIT_LINE_HEIGHT`). A DOM
-   * probe already answers with the engine's used value.
+   * The used height of a line box from this style: `multipliedLineHeight` for a number,
+   * `usedLineHeight` for a length. A DOM probe already answers with the used value.
    */
   lineHeight(style: ResolvedStyle, useBulletProbe = false): number {
     const computed = this.computedLineHeight(style, useBulletProbe);
@@ -329,10 +260,8 @@ export class Measurer {
   }
 
   /**
-   * The computed line height for a style. DOM-probed under `accuracy:
-   * 'balanced'` (Firefox and Chrome differ); otherwise the CSS value, or for
-   * `normal` the font bounding box, which already is the full line box. A
-   * percentage `vertical-align` resolves against this, not the used value.
+   * The computed line height: DOM-probed under `accuracy: 'balanced'`, else the CSS value, or
+   * for `normal` the font bounding box. A percentage `vertical-align` resolves against this.
    */
   computedLineHeight(style: ResolvedStyle, useBulletProbe = false): number {
     const fs = this.font(style);
@@ -354,12 +283,8 @@ export class Measurer {
   }
 
   /**
-   * One box's half of a line: how far it reaches above its own baseline and
-   * how far below, over its OWN line-height. This is the inline box CSS 2.1
-   * §10.8 talks about — the font's content area plus its half-leading — not
-   * the bare font metrics. `vertical-align: text-top` and `text-bottom` align
-   * THIS box's edges, and the line box is the union of these over everything
-   * on the line. Shared: callers must not mutate it.
+   * One box's half of a line over its OWN line-height: content area plus half-leading (CSS 2.1
+   * §10.8). `text-top`/`text-bottom` align these edges. Shared: do not mutate.
    */
   leadedBox(style: ResolvedStyle, useBulletProbe = false): FontBox {
     const fs = this.font(style);
@@ -375,11 +300,8 @@ export class Measurer {
   }
 
   /**
-   * The resolver's font-relative units for a style's font: `ch`, the advance
-   * of `0`, and `ex`, the x-height — read as the ink ascent of `x`, which
-   * includes the glyph's overshoot (an engine reads the font's OS/2 x-height;
-   * they differ by about 1-2%). A ctx that cannot answer gets 0.5em, the CSS
-   * Values 4 fallback.
+   * `ch` (advance of `0`) and `ex` (ink ascent of `x`, ~1-2% over the OS/2 x-height) for the
+   * resolver; 0.5em when the ctx cannot answer (CSS Values 4).
    */
   fontUnits(style: ResolvedStyle): { ch: number; ex: number } {
     const state = this.intern(buildCanvasFont(style), 'normal', '0px');
@@ -393,8 +315,7 @@ export class Measurer {
   tabStops(style: ResolvedStyle): TabStops {
     const fs = this.font(style);
     if (!fs.tabStops) {
-      // The space advance is measured with letter-spacing OFF; the block's
-      // spacing is added per stop instead.
+      // Measured with letter-spacing off; the block's spacing is added per stop.
       const spaceless = this.intern(fs.measure.font, fs.measure.kerning, '0px');
       const spaceWidth = this.width(spaceless, ' ');
       fs.tabStops = {
@@ -452,11 +373,7 @@ function fontBox(m: TextMetrics): FontBox {
   };
 }
 
-/**
- * The top of the line box each run was laid out on, for `paintLineSnap`.
- * Kept off the public `LayoutText` shape: it is paint bookkeeping, keyed by the
- * node's identity the way the rest of the tree is.
- */
+/** Each run's line-box top, for `paintLineSnap`; kept off the public `LayoutText` shape. */
 const runLineTops = new WeakMap<LayoutText, number>();
 
 /** Marks a LayoutText that starts a measuring run (`startsMeasuredRun`). A symbol: no public field. */
@@ -464,26 +381,17 @@ const RUN_SEAM: unique symbol = Symbol('runSeam');
 type SeamFlagged = LayoutText & { [RUN_SEAM]?: true };
 
 /**
- * Does `node` start a new measuring run although the piece before it has
- * the same style? Then paint must not batch the two into one fillText: they
- * were measured apart, and one shaped string drifts from their layout
- * positions by the kerning across the seam. Text nodes of one element share
- * its style object, so style identity alone does NOT mean "same run"
- * (`Hello<!---->World` is two). Flagged only on those rare pieces (a symbol
- * key, copied with the node), so the common path costs a missed property
- * read; a tree this layout did not produce batches by style, the old rule.
+ * True when `node` starts a new measuring run after a piece of the same style
+ * (`Hello<!---->World`): paint must not batch the two into one fillText. A tree this
+ * layout did not produce batches by style.
  */
 export function startsMeasuredRun(node: LayoutText): boolean {
   return (node as SeamFlagged)[RUN_SEAM] === true;
 }
 
 /**
- * How far the engine moves a run's paint off its layout position
- * (`SNAPS_LINE_PAINT`): `round(lineTop) - lineTop`, the same for every run on
- * the line. 0 where the engine does not snap. A node this layout did not
- * produce (a hand-built or cloned tree) falls back to its line baseline, which
- * sits a whole number of pixels below the line top unless something on the
- * line raised it.
+ * The engine's paint offset for a run's line (`SNAPS_LINE_PAINT`): `round(lineTop) - lineTop`,
+ * else 0. A node this layout did not produce uses its baseline as the line top.
  */
 export function paintLineSnap(node: LayoutText): number {
   if (!SNAPS_LINE_PAINT) return 0;
@@ -502,21 +410,14 @@ function lineHeightMultiplier(style: ResolvedStyle): number | undefined {
 }
 
 /**
- * The line box height of a UNITLESS line-height, the way the engine multiplies
- * it. Both Blink and WebKit put the font-size on the 1/64px grid first —
- * Blink rounds it, WebKit floors it — and then:
- *
- * - Blink floors the product onto the grid (14px x 1.6 is 22.390625);
- * - WebKit floors the float32 product to a whole pixel (13.6px x 1.25 is
- *   16, where floor(fround(13.6 x 1.25)) would give 17; 20 x 1.15 is 23).
- *
- * Gecko keeps the exact product. Measured in Chromium and Playwright WebKit
- * (line-baseline-parity; WebKit: 2898 of 2898 sizes x ratios x families).
+ * Line box height of a UNITLESS line-height. Both put the font-size on the 1/64px grid
+ * (Blink rounds, WebKit floors); Blink then floors the product onto the grid (14px x 1.6 =
+ * 22.390625), WebKit the float32 product to a whole px (13.6px x 1.25 = 16). Gecko keeps
+ * the exact product. line-baseline-parity.
  */
 function multipliedLineHeight(fontSize: number, multiplier: number): number {
   if (LAYOUT_UNIT_LINE_HEIGHT) {
-    // The epsilon keeps a double product one ulp under a grid line (20 x 1.15
-    // is 22.999999999999996) on it, as Blink's own arithmetic does.
+    // The epsilon keeps 20 x 1.15 (22.999999999999996) on its grid line, as Blink does.
     return Math.floor((Math.round(fontSize * 64) / 64) * multiplier * 64 + 1e-6) / 64;
   }
   if (TRUNCATES_LINE_HEIGHT) {
@@ -526,11 +427,8 @@ function multipliedLineHeight(fontSize: number, multiplier: number): number {
 }
 
 /**
- * The height a line box built from `lineHeight` (a computed CSS LENGTH, px)
- * actually takes in this engine: WebKit truncates it to a whole pixel
- * (`TRUNCATES_LINE_HEIGHT`), Blink rounds it onto its 1/64px grid
- * (`LAYOUT_UNIT_LINE_HEIGHT`), Gecko keeps it. Idempotent, so a value that
- * already is the engine's used value passes through unchanged.
+ * The used height of a computed line-height LENGTH: WebKit truncates it to whole px, Blink
+ * rounds it to 1/64px, Gecko keeps it. Idempotent.
  */
 function usedLineHeight(lineHeight: number): number {
   if (TRUNCATES_LINE_HEIGHT) return Math.floor(Math.fround(lineHeight));
@@ -539,41 +437,24 @@ function usedLineHeight(lineHeight: number): number {
 }
 
 /**
- * Baseline offset from the top of a line box, the way the engine places it:
- * the half-leading `(lineHeight - (ascent + descent)) / 2` below the line top,
- * plus the ascent — over the line-height the engine actually uses
- * (`TRUNCATES_LINE_HEIGHT`), rounded as `FLOORS_LINE_BASELINE` says. Pass the
- * computed CSS line-height; the box it heads is that engine's used
- * line-height tall (in WebKit, `Math.floor` of it).
- *
- * Public API, because this is the ONE rule every renderer that places a
- * baseline beside a render-tag canvas has to share (@polotno/svg-export, the
- * editor's list marker). Call it rather than restate it, or the two drift.
+ * Baseline offset from a line box's top: the half-leading over the engine's used
+ * line-height plus the ascent, rounded per engine. Pass the computed line-height. Public:
+ * renderers placing a baseline beside a render-tag canvas call it rather than restate it.
  */
 export function lineBaselineOffset(lineHeight: number, ascent: number, descent: number): number {
   let halfLeading = (usedLineHeight(lineHeight) - (ascent + descent)) / 2;
-  // Blink halves the leading in LayoutUnits, truncating toward zero: a
-  // negative leading an odd number of 64ths short floors one pixel LOWER than
-  // the exact half would (Verdana 13.6px x 1.25: 14, not 13).
+  // Blink halves the leading in LayoutUnits, truncating toward zero (Verdana 13.6px x 1.25:
+  // 14, not 13).
   if (LAYOUT_UNIT_LINE_HEIGHT) halfLeading = Math.trunc(halfLeading * 64) / 64;
   const exact = halfLeading + ascent;
   return FLOORS_LINE_BASELINE ? Math.floor(exact) : exact;
 }
 
 /**
- * Tab-stop metrics for a block, the way Chrome sizes them. Tab stops follow
- * the BLOCK's style, not the inline run the tab sits in: the interval is
- * tab-size(8) × the block font's space advance — measured with
- * letter-spacing off — plus the block's letter- and word-spacing per stop
- * (css-text-3 §tab-size), verified against the DOM (a tab inside a bold span
- * still uses the regular-weight space). `halfSpace` carries Blink's skip
- * rule: when the next stop is closer than half a space width, the tab
- * advances to the stop after it (Font::TabWidth).
- *
- * Public API for the same reason as `lineBaselineOffset`: a renderer that
- * re-flows text beside a render-tag canvas needs identical stops. Call it
- * rather than restate it, or the two drift. Mutates ctx font state (its
- * letter- and word-spacing are put back).
+ * Tab stops for a block, as Chrome sizes them: tab-size(8) x the BLOCK font's space
+ * advance (letter-spacing off) plus its letter- and word-spacing per stop. `halfSpace`: a
+ * stop closer than half a space is skipped (Blink Font::TabWidth). Public, like
+ * `lineBaselineOffset`: call it rather than restate it. Sets the ctx font; restores spacing.
  */
 export function tabStopMetrics(
   ctx: CanvasRenderingContext2D,
@@ -588,11 +469,7 @@ export function tabStopMetrics(
   return { ...stops };
 }
 
-/**
- * The vertical space an inline-block's margin box adds around its content, over
- * and above the font's own leading. Written once because the wrap pass grows
- * the line by the same six values.
- */
+/** The vertical space an inline-block's margin box adds around its content. */
 function inlineBlockExtra(bs: ResolvedStyle): { top: number; bottom: number } {
   return {
     top: bs.marginTop + bs.borderTopWidth + bs.paddingTop,
@@ -600,9 +477,9 @@ function inlineBlockExtra(bs: ResolvedStyle): { top: number; bottom: number } {
   };
 }
 
-/** Transform source text before measuring it, while keeping CSS word context
- * across inline style boundaries. Runs with no transform still participate in
- * word detection: a later capitalize run must not recase the middle of a word.
+/**
+ * Apply text-transform per run, keeping CSS word context across style boundaries: a later
+ * capitalize run must not recase the middle of a word.
  */
 export function transformTextRuns<T extends {
   text: string;
@@ -652,12 +529,7 @@ function hasOnlyInlineChildren(node: StyledNode): boolean {
   return node.children.length > 0 && node.children.every(isInline);
 }
 
-/**
- * Get font ascent and descent metrics, measured on `ctx` (nothing is cached
- * across calls: fonts load between them, and each ctx is its own oracle).
- * Layout code asks its own measurer (`session.measurer.metrics`) instead,
- * and paint the result's table (`layoutFontMetrics`).
- */
+/** Font ascent and descent measured on `ctx`; never cached, as fonts load between calls. */
 export function getFontMetrics(ctx: CanvasRenderingContext2D, style: ResolvedStyle): { ascent: number; descent: number } {
   // Outside layout (paint, path decorations, the public API) the caller owns
   // the ctx's font: a measurement must not move it.
@@ -669,22 +541,12 @@ export function getFontMetrics(ctx: CanvasRenderingContext2D, style: ResolvedSty
 }
 
 /**
- * Baseline shift (canvas pixels, positive = downward) for a vertical-align
- * value, applied on top of the line baseline. Returns 0 for 'baseline' and for
- * the line-box-relative keywords 'top'/'bottom' — those need a second layout
- * pass (the box position depends on the final line box it helps size), so they
- * fall back to baseline rather than being approximated wrongly.
- *
- *  - super/sub        the engine's own rule, measured off the DOM across
- *                     8-56px × sans-serif/serif/monospace and fitting every
- *                     point to within 0.06px (LayoutUnit's 1/64). Neither
- *                     engine reads the font's metrics — the family does not
- *                     move the number.
- *  - text-top/-bottom the box's LEADED edge against the parent's CONTENT-area
- *                     edge (bare ascent/descent, no leading). Taking the box's
- *                     bare metrics instead costs 25px on a line holding both.
- *  - middle           LEADED box midpoint at parent baseline + half the x-height
- *  - <length>/<%>     raise (positive value) by the length / % of line-height
+ * Baseline shift (positive = down) for a vertical-align value; 0 for baseline and for
+ * `top`/`bottom`, which would need a second pass.
+ * - super/sub: the engine's rule, fit to the DOM within 0.06px over 8-56px and three families.
+ * - text-top/-bottom: the box's LEADED edge against the parent's CONTENT-area edge (no
+ *   leading); the bare box metrics cost 25px on a line holding both.
+ * - middle: the leaded midpoint at parent baseline + half the x-height; length/% raises.
  */
 function verticalAlignShift(
   va: string,
@@ -692,24 +554,15 @@ function verticalAlignShift(
   useBulletProbe: boolean,
 ): number {
   switch (va) {
-    // Blink and WebKit share the fraction (Blink's inline_box_state.cc:
-    // fontSize/3 + 1 for super, /5 + 1 for sub, from the PARENT box's size,
-    // no font metric involved); Gecko raises by 0.34em and lowers by 0.2em.
-    // Deliberately NOT Blink's LayoutUnit arithmetic (snap the size to the
-    // 1/64px grid, truncate the division): that matches Chrome's DOM layout
-    // rects exactly (measured, 18/18 samples 10-100px vs float's <=0.0125px
-    // residual — and WebKit divides in plain float), but the shift also feeds
-    // the line-box union, and quantizing it REGRESSED the sub/sup pixel
-    // baselines 0.5-2% on every font variant. The screenshot is the oracle.
+    // Blink/WebKit: fontSize/3 + 1 (super), /5 + 1 (sub) of the PARENT size; Gecko 0.34em/0.2em.
+    // Plain float, not Blink's LayoutUnit math: quantizing regressed the sub/sup pixel baselines.
     case 'super':
       return BLINK_SUPER_SUB
         ? -(parentStyle.fontSize / 3 + 1) : -parentStyle.fontSize * 0.34;
     case 'sub':
       return BLINK_SUPER_SUB
         ? parentStyle.fontSize / 5 + 1 : parentStyle.fontSize * 0.2;
-    // Against the PARENT's content area (CSS 2.1 §10.8.1) — its bare
-    // ascent/descent, no leading. Measured against Chrome, taking the line's
-    // tallest box instead of the real parent put this 14px out.
+    // Against the PARENT's content area (CSS 2.1 §10.8.1), not the line's tallest box.
     case 'text-top': {
       const m = session.measurer;
       return m.leadedBox(style, useBulletProbe).ascent - m.metrics(parentStyle).ascent;
@@ -718,24 +571,17 @@ function verticalAlignShift(
       const m = session.measurer;
       return m.metrics(parentStyle).descent - m.leadedBox(style, useBulletProbe).descent;
     }
-    // The midpoint of the LEADED box (CSS 2.1 §10.8.1 aligns "the vertical
-    // midpoint of the box" — the box with its half-leading). Where the engine
-    // floors the half-leading that is up to 0.5px off the content area's
-    // midpoint — measured in Chrome and WebKit alike, a 30px/60px middle on an
-    // 18px/2 line: DOM 34.70, content-area
-    // midpoint 34.0, leaded 34.5. (The rest is x-height, approximated 0.5em.)
+    // The LEADED box's midpoint (CSS 2.1 §10.8.1); with a floored half-leading that is up to
+    // 0.5px off the content area's (measured in Chrome and WebKit). x-height ~ 0.5em.
     case 'middle': {
       const { ascent, descent } = session.measurer.leadedBox(style, useBulletProbe);
       return -(parentStyle.fontSize * 0.25) - (descent - ascent) / 2;
     }
     default: {
-      // baseline / top / bottom / '' all parseFloat to NaN → 0, which is what
-      // an unshifted run wants — the line-box pass calls this for every word.
+      // baseline / top / bottom / '' parse to NaN: no shift.
       const n = parseFloat(va);
       if (!Number.isFinite(n)) return 0;
-      // A percentage resolves against the ELEMENT's own line-height (CSS 2.1
-      // §10.8.1), not the line's. Measured against Chrome: the line's put the
-      // box 10px out on a line whose tallest run was not this one.
+      // A percentage resolves against the ELEMENT's own line-height (CSS 2.1 §10.8.1).
       return va.endsWith('%')
         ? -(n / 100) * session.measurer.computedLineHeight(style, useBulletProbe)
         : -n;
@@ -749,15 +595,9 @@ export function isShiftedVAlign(va: string): boolean {
 }
 
 /**
- * Two entries put the band in the same place, at the same thickness — the
- * geometry half only, so each caller keeps comparing color its own way (raw
- * here, canonicalized in the path renderer, where `red` and `#ff0000` must
- * still share one dash phase).
- *
- * Identity settles the normal case: entries ride down the tree by reference,
- * so every run under one declarer holds the same object. Two SEPARATE
- * declarers still count as equal when they would draw the same band, which
- * keeps a shaping group whole across siblings that declare the same thing.
+ * Two entries draw the same band (geometry only; callers compare color their own way).
+ * Identity settles the normal case; separate declarers of the same band still match, which
+ * keeps a shaping group whole across siblings.
  */
 export function sameDecorationBand(a: DecorationEntry, b: DecorationEntry): boolean {
   if (a === b) return true;
@@ -768,11 +608,9 @@ export function sameDecorationBand(a: DecorationEntry, b: DecorationEntry): bool
     da.fontWeight === db.fontWeight &&
     da.fontStyle === db.fontStyle &&
     da.fontVariantCaps === db.fontVariantCaps &&
-    // The declarer's own vertical-align decides which baseline an underline
-    // hangs off, so two declarers that differ there draw two bands.
+    // The declarer's vertical-align picks the baseline an underline hangs off.
     da.verticalAlign === db.verticalAlign &&
-    // Explicit offset/thickness are band geometry too — two declarers that
-    // differ there must not merge into one band.
+    // Explicit offset and thickness are band geometry too.
     da.textUnderlineOffset === db.textUnderlineOffset &&
     da.textDecorationThickness === db.textDecorationThickness
   );
@@ -787,9 +625,8 @@ function hasVisibleBoxStyles(style: ResolvedStyle): boolean {
   return false;
 }
 
-/** True for an element declaring `background-clip:text` with a visible
- * background (gradient image or solid color) — the fill/decorations of every
- * glyph it covers must sample that background instead of painting it as a box. */
+/** `background-clip:text` with a visible background (gradient or color): the glyphs it
+ * covers sample that background instead of painting it as a box. */
 export function hasTextClip(style: ResolvedStyle): boolean {
   return style.webkitBackgroundClip === 'text' &&
     ((!!style.backgroundImage && style.backgroundImage !== 'none') ||
@@ -810,7 +647,7 @@ export function textEdges(node: LayoutText): [left: number, right: number] {
   return node.style.direction === 'rtl' ? [node.x - node.width, node.x] : [node.x, node.x + node.width];
 }
 
-// ─── Inline text run types ─────────────────────────────────────────────
+// ── Inline text run types ──
 
 interface TextRun {
   text: string;
@@ -818,10 +655,8 @@ interface TextRun {
   /** Atomic inline-block content starts a new CSS word. */
   wordBoundaryBefore?: boolean;
   /**
-   * The style of the PARENT of the element this run's style came from — what
-   * `vertical-align` measures its shift against (CSS 2.1 §10.8.1). Not the
-   * tallest run on the line, which is what a line-level maximum would give:
-   * a 40px sibling put a sup 8px out of place.
+   * The style of the parent of this run's element: what `vertical-align` shifts against
+   * (CSS 2.1 §10.8.1), not the tallest run on the line.
    */
   parentStyle?: ResolvedStyle;
   /** If this run came from an inline element with visible box styles */
@@ -851,12 +686,7 @@ interface InlineBlockLayout {
   marginBoxHeight: number;
 }
 
-/**
- * One item of a committed line, as the emit pass reads it: a prepared
- * segment, or a piece the flow cut from one, materialized from the flow's
- * line table (`FlowItems.word`) once the final flow has placed it. Intrinsic
- * sizing never makes these.
- */
+/** One item of a committed line as the emit pass reads it (`FlowItems.word`). */
 interface Word {
   text: string;
   width: number;
@@ -884,9 +714,8 @@ function isAtomicInlineBlock(w: Word): boolean {
 }
 
 /**
- * `-webkit-line-clamp`'s cut-off: trim the line's trailing spaces and text
- * (atomic inline-blocks included; empty box-edge markers stay) until "…" fits,
- * then append it in the last text word's style and inline box.
+ * `-webkit-line-clamp` cut-off: trim trailing spaces and text (atomic inline-blocks
+ * included) until "…" fits, then append it in the last text word's style and box.
  */
 function applyEllipsisToLine(
   session: LayoutSession,
@@ -913,12 +742,11 @@ function applyEllipsisToLine(
   line.totalWidth += width;
 }
 
-// ─── Inline layout ─────────────────────────────────────────────────────
+// ── Inline layout ──
 
 /**
- * Collect text runs from inline children, preserving style and tracking
- * inline elements with visible backgrounds. Emits open/close markers
- * for inline boxes so padding/border can be applied.
+ * Collect text runs from inline children, with open/close markers for inline boxes and the
+ * nearest paint declarers (`clipStyle`, `strokeImageStyle`).
  */
 function collectTextRuns(node: StyledNode): TextRun[] {
   const runs: TextRun[] = [];
@@ -932,10 +760,8 @@ function collectTextRuns(node: StyledNode): TextRun[] {
     bidi: BidiContext | null = null,
   ) {
     if (n.tagName === '#text' && n.textContent) {
-      // A #text node carries its parent ELEMENT's style, so the element that
-      // owns any vertical-align here is that parent — and what the shift
-      // measures against is ITS parent, which is the `parentStyle` handed to
-      // this element's walk.
+      // A #text node carries its parent element's style, so its vertical-align shifts against
+      // that element's parent: `parentStyle`.
       runs.push({
         text: n.textContent, style: n.style, parentStyle, boxStyle, clipStyle, strokeImageStyle, bidi,
       });
@@ -946,22 +772,15 @@ function collectTextRuns(node: StyledNode): TextRun[] {
     // Inline-block always needs box treatment (padding/margin affect layout)
     const isBox = isInlineBlock || (inline && hasVisibleBoxStyles(n.style));
     const newBoxStyle = isBox ? n.style : boxStyle;
-    // Track the nearest inline element declaring a background-clip:text
-    // background or a --rt-text-stroke-image, so those paints reach descendant
-    // runs that don't carry the (non-inheriting) properties themselves.
+    // Nearest clip / stroke-image declarer: those properties do not inherit.
     const newClipStyle = inline && hasTextClip(n.style) ? n.style : clipStyle;
     const newStrokeImageStyle = inline && hasStrokeImage(n.style) ? n.style : strokeImageStyle;
     const hasHorizSpacing = isBox && (n.style.paddingLeft > 0 || n.style.paddingRight > 0 ||
       n.style.borderLeftWidth > 0 || n.style.borderRightWidth > 0);
 
     if (isInlineBlock) {
-      // Inline-block is fully atomic — the entire element (margins + padding +
-      // content) wraps as one unit: one run, one segment, sized and laid out
-      // from its own content (`inlineBlockContentWidth`). Its text is U+FFFC,
-      // what an atomic inline is to line breaking and bidi — never its
-      // content's text, whose characters would make it splittable (CJK) or
-      // glue it like punctuation. Content that is no text at all is only
-      // its opening edge (a line box of its own).
+      // An inline-block is one atomic run, sized from its own content. Its text is U+FFFC, what
+      // an atomic inline is to line breaking and bidi; empty content is only its opening edge.
       const hasText = !!n.element?.textContent;
       runs.push({
         text: hasText ? '\uFFFC' : '',
@@ -980,16 +799,13 @@ function collectTextRuns(node: StyledNode): TextRun[] {
       return;
     }
 
-    // unicode-bidi: bidi-override (e.g. <bdo dir="rtl">) forces visual order.
-    // For an RTL override, reverse both the characters of each descendant run
-    // and the order of the runs, so the subtree renders right-to-left.
+    // An RTL bidi-override reverses each descendant run's characters and the runs' order.
     const ub = n.style.unicodeBidi;
     const overrideRtl = (ub === 'bidi-override' || ub === 'isolate-override') &&
       n.style.direction === 'rtl';
     const overrideStart = runs.length;
-    // The element's own bidi context (CSS Writing Modes 3 §2.4.2). An RTL
-    // override's runs are reversed into visual order just below and painted
-    // left to right, so to the bidi algorithm they are an LTR override.
+    // The element's bidi context (CSS Writing Modes 3 §2.4.2); a reversed RTL override is an
+    // LTR override to the bidi algorithm.
     const childBidi = bidiContextFor(ub, overrideRtl ? 'ltr' : n.style.direction, bidi);
 
     if (hasHorizSpacing) {
@@ -999,9 +815,8 @@ function collectTextRuns(node: StyledNode): TextRun[] {
     for (const child of n.children) {
       walk(
         child, newBoxStyle, newClipStyle, newStrokeImageStyle,
-        // An element child measures against this element; a text child's
-        // vertical-align belongs to this element, so it measures against what
-        // this element measures against.
+        // A text child's vertical-align belongs to this element, so it shifts against this
+        // element's parent.
         child.tagName === '#text' ? parentStyle : n.style,
         childBidi,
       );
@@ -1016,9 +831,7 @@ function collectTextRuns(node: StyledNode): TextRun[] {
       for (const r of seg) {
         if (r.text) {
           r.text = [...r.text].reverse().join('');
-          // The glyphs are now in visual (reversed) order, so render them
-          // left-to-right; otherwise renderText would right-anchor x and the
-          // LTR emission (which set x as the left edge) would misposition them.
+          // Now in visual order: paint left to right.
           r.style = { ...r.style, direction: 'ltr' };
         }
       }
@@ -1034,10 +847,7 @@ function collectTextRuns(node: StyledNode): TextRun[] {
   return runs;
 }
 
-/**
- * Check if text needs Intl.Segmenter for word breaking (Thai, Khmer, Lao, Myanmar).
- * These scripts don't use spaces between words.
- */
+/** Text in a script without spaces between words (Thai, Khmer, Lao, Myanmar). */
 function needsSegmenter(text: string): boolean {
   for (let i = 0; i < text.length; i++) {
     const code = text.codePointAt(i)!;
@@ -1062,57 +872,25 @@ function segmenter(granularity: 'word' | 'grapheme'): Intl.Segmenter | undefined
 }
 
 /**
- * How much left context a cumulative measurement keeps, in UTF-16 units.
- *
- * A piece of a run is measured as the difference of two measurements taken
- * WITH the text before it — `w(context + piece) - w(context)` — because a sum
- * of pieces measured alone loses the kerning across their edges: in Chromium
- * 3.5px over a 2,286px Arial run, mostly against the space. Taking the whole
- * run so far as the context was quadratic (a 2000-word paragraph sent 25.7M
- * characters to measureText). Once the context passes this many units it
- * restarts at the last word (`Cumulative`), or for a character split
- * (`splitSegment`) at the last character.
- *
- * Chosen from the full-corpus 1px wrap sweep in all six fonts: at 32 not one
- * width moved against the whole-run context in Chromium or WebKit. Shorter
- * contexts did move, all on RTL and fallback-font lines (Arabic with digits
- * and Hebrew in Merriweather): the engine resolves a space's font and bidi
- * level from more than its neighbours, so pairs alone are not enough there.
+ * A piece is measured as `w(context + piece) - w(context)`, so kerning across its edges
+ * survives. 32 UTF-16 units: no wrap moved against whole-run context in the 1px sweeps.
+ * Past it the context restarts at the last word, never at a space.
  */
 const MEASURE_CONTEXT = 32;
 
-/**
- * Cumulative measuring over one run. `text` is the measured context and
- * `width` its width. `word` is where the last non-space piece starts in
- * `text`: the context restarts there (or at a bracket still open before it,
- * `contextStart`), so the space after a word is always measured with that
- * word on its left — a bare `' '` resolves to the primary
- * font, but between two fallback-font words (Hebrew in Merriweather) the
- * engine sets it in the fallback, and a context of `' '` alone mis-measured
- * every RTL word after it.
- */
 interface Cumulative {
   text: string;
   width: number;
   word: number;
 }
 
-/**
- * How far back an open bracket still holds the context (`contextStart`).
- * Past this the bracket is let go, so a stray "(" cannot make a paragraph's
- * measuring quadratic again.
- */
+/** How far back an open bracket holds the context; a stray "(" cannot go quadratic. */
 const MEASURE_BRACKET = 256;
 
 /**
- * Where a context restart may cut `text`: at `word`, or earlier, when a
- * bracket is still open there. A bracket pair's direction (UBA N0) comes
- * from the strong type inside it and the one BEFORE the opener, and its
- * glyphs (mirrored or not, and in whose font) follow. So the context keeps
- * the opener and the word holding the nearest LETTER before it — not a digit:
- * a number takes its own type from the letter before it (UBA W7). In
- * Lobster, `)` in `<Arabic>: $42.99 (<Arabic> … ₪158.50)` measured 0.38px
- * narrower with the context cut at the last word, and that moved a wrap.
+ * Where a context restart may cut `text`: at `word`, or earlier at a still-open bracket
+ * and the word with the nearest letter before it: a pair takes its direction from the
+ * type before the opener (UBA N0), and a number takes its type from a letter (W7).
  */
 function contextStart(text: string, word: number): number {
   const open: number[] = [];
@@ -1148,7 +926,7 @@ function measureAfter(m: Measurer, state: MeasureState, cum: Cumulative, piece: 
   return cum.width - before;
 }
 
-// ─── Prepared inline content ───────────────────────────────────────────
+// ── Prepared inline content ──
 
 /** What a segment shares with its run: the run itself, one per run, referenced by index. */
 type SegmentRefs = Readonly<Omit<TextRun, 'text' | 'wordBoundaryBefore'>>;
@@ -1160,17 +938,11 @@ const SEG_TAB = 1 << 1;
 /** Breaks after a soft hyphen: a visible '-' when a line ends here. */
 const SEG_SOFT_HYPHEN = 1 << 2;
 /**
- * No soft-wrap opportunity before this segment: it abuts the previous one
- * with no whitespace (adjacent inline spans `<span>a</span><span>b</span>`),
- * so the two are one unbreakable unit at that boundary.
+ * No soft-wrap opportunity before this segment: it abuts the previous one with no
+ * whitespace (`<span>a</span><span>b</span>`).
  */
 const SEG_NO_BREAK_BEFORE = 1 << 3;
-/**
- * Starts a new measuring run right after a run of the SAME style object
- * (text nodes of one element split by a comment, an empty or hidden
- * element): the two were measured apart, so paint must not batch across the
- * seam — see `startsMeasuredRun`. Set only on those rare segments.
- */
+/** A new measuring run right after one of the same style object (`startsMeasuredRun`). */
 const SEG_RUN_SEAM = 1 << 4;
 /** Flags a piece cut from a segment keeps (`FlowItems.cut`); the rest come from its own text. */
 const SEG_INHERITED = SEG_SPACE | SEG_TAB | SEG_SOFT_HYPHEN | SEG_NO_BREAK_BEFORE | SEG_RUN_SEAM;
@@ -1212,22 +984,10 @@ function breakFlags(text: string): number {
 }
 
 /**
- * One inline formatting context's text, segmented and measured ONCE per
- * layout call: every pass that reads the content — min-content (a flow at
- * 0), max-content (a flow at Infinity) and the real flow at the used width —
- * reads these arrays (`preparedInline`). Width-independent by construction:
- * everything here depends on the content and the call's measurer, never on
- * a container width, so a pass may not write to it.
- *
- * Struct of arrays, one entry per segment (a word, a space, a tab, a forced
- * break, an inline box edge or an atomic inline-block); what a segment shares
- * with its run sits once in `refs`. Plain arrays, not typed ones: V8 already
- * stores these unboxed, and typed arrays measured slower (a buffer to
- * allocate and track per paragraph). Segment text is the exact string that
- * was measured and that `LayoutText.text` publishes — not a range into one
- * concatenated paragraph: the text has to be a string to be measured anyway,
- * and a slice of a concatenation may be stored two-byte where the run's own
- * string is one-byte, which nothing should risk handing to `measureText`.
+ * One inline formatting context's text, segmented and measured once per call and read by
+ * every pass (min-content, max-content, the real flow); no pass writes to it. Struct of
+ * arrays, one entry per segment; what a segment shares with its run sits once in `refs`.
+ * Segment text is the exact measured string, never a slice of a concatenation.
  */
 interface PreparedInline {
   /** Text runs the content produced (`collectTextRuns`); 0 = nothing inline at all. */
@@ -1241,10 +1001,8 @@ interface PreparedInline {
   readonly ref: readonly number[];
   readonly refs: readonly SegmentRefs[];
   /**
-   * The segments whose width the final flow decides, not preparing: each
-   * atomic inline-block (prepared at its max-content width) and each inline
-   * box edge holding a percentage padding (prepared at 0). Both depend on
-   * the containing block's used width (`usedSegmentWidths`).
+   * Segments whose width the final flow decides: atomic inline-blocks (prepared at
+   * max-content) and edges with percentage padding (prepared at 0). `usedSegmentWidths`.
    */
   readonly inlineBlocks: readonly number[];
   readonly percentEdges: readonly number[];
@@ -1282,22 +1040,15 @@ function isCollapsibleSpace(code: number): boolean {
   return code === 32 || (code >= 9 && code <= 13);
 }
 
-/**
- * Segment and measure a single string into `out` by white-space mode, in one
- * pass over its characters: each piece is a `text.slice` cut where the rules
- * below allow a break.
- */
+/** Segment and measure one string into `out` by white-space mode. */
 function prepareString(
   session: LayoutSession, out: SegmentBuilder, text: string, run: TextRun, ref: number,
   cumState?: Cumulative,
 ): void {
   const m = session.measurer;
-  // Split on zero-width spaces and soft hyphens (break opportunities).
-  // Pass cumulative state through so pieces are measured as one text run
-  // (preserving kerning accuracy across break points).
+  // Zero-width spaces and soft hyphens are break opportunities; the parts share one context.
   if (text.includes('\u200B') || text.includes('\u00AD')) {
     const parts = text.split(/(\u200B|\u00AD)/);
-    // Share cumulative state across all sub-parts for accurate measurement
     const sharedState = cumState ?? { text: '', width: 0, word: 0 };
     let nextIsSoftHyphen = false;
     for (const part of parts) {
@@ -1323,27 +1074,22 @@ function prepareString(
     return;
   }
 
-  // Every width below is the run's own: its font, kerning and letter-spacing.
   const state = m.stateOf(run.style);
   const n = text.length;
 
-  // `pre-line` preserves newlines (handled by the \n pre-split in
-  // prepareInline) but collapses spaces and tabs — so it goes through the
-  // non-preserving branch below, same as `normal`.
+  // `pre-line` collapses spaces and tabs (its newlines were split off in prepareInline).
   const isPreserve = run.style.whiteSpace === 'pre' ||
     run.style.whiteSpace === 'pre-wrap' ||
     run.style.whiteSpace === 'break-spaces';
 
   if (isPreserve) {
-    // Space runs, single tabs, and the text between them split after
-    // hyphens; each measured on its own.
+    // Space runs, single tabs and the text between them, split after hyphens.
     const tabStopInterval = m.width(state, ' ') * 8; // CSS default: 8 spaces
     let i = 0;
     while (i < n) {
       const code = text.charCodeAt(i);
       if (code === 9) {
-        // Tab width depends on the position it lands at: the flow resolves
-        // it against the tab stops, this is a placeholder.
+        // A placeholder: the flow resolves a tab against the tab stops.
         out.push('\t', tabStopInterval, SEG_SPACE | SEG_TAB, ref);
         i++;
         continue;
@@ -1362,23 +1108,8 @@ function prepareString(
     return;
   }
 
-  // Collapsible white space separates words; inside a word there is a break
-  // opportunity AFTER "?" (the URL query delimiter): Chrome wraps
-  // "\u2026/q3?" | "lang=ar&\u2026" even with overflow-wrap:normal. It does
-  // NOT break at "/", "&", "=", "." or ":" (verified against the browser), so
-  // only "?" counts. The "?" stays with the preceding piece; a trailing "?"
-  // (no follower, or a line separator after it) is left intact.
-  // The second opportunity: a non-breaking space still permits a break
-  // BEFORE it when the preceding character is a hyphen or a break-after one
-  // (UAX #14 LB12a, `[^SP BA HY] x GL`). Measured against the DOM with
-  // `aaaaaaaaaa<c>\u00A0bbbbbbbbbb` at 120px/15px Open Sans: only "-",
-  // "|", "\u2013" and "\u2014" break there. Letters, "\u2026", ")", "\u00BB",
-  // "?", "/" and "," all keep the NBSP glued, so the set is exactly HY
-  // plus BA and nothing wider. Each piece then splits after its hyphens.
-  //
-  // Each piece is measured after its left context (`measureAfter`), so
-  // kerning across word and space edges survives. When cumState is provided
-  // (from a \u200B/\u00AD split), continue from the previous part's context.
+  // A word breaks after "?" (Chrome wraps URLs at the query; not at / & = . :), and before an
+  // NBSP only after a hyphen or break-after char (UAX #14 LB12a; measured: - | \u2013 \u2014).
   const cum: Cumulative = cumState ?? { text: '', width: 0, word: 0 };
   const word = (w: string) => {
     // Use Intl.Segmenter for scripts without spaces (Thai, Khmer, etc.)
@@ -1394,8 +1125,7 @@ function prepareString(
     }
     const width = measureAfter(m, state, cum, w);
     if (session.debug) {
-      // The word measured on its own, against its cumulative delta — a
-      // measurement only the debug callback reads.
+      // Measured alone for the debug callback only.
       const directWidth = m.width(state, w);
       session.debug({
         type: 'measure-word',
@@ -1431,10 +1161,8 @@ function prepareString(
 }
 
 /**
- * `text.slice(start, end)` split after CSS hyphen break opportunities,
- * keeping the hyphen. A hyphen opens one only with a
- * character before it in the same piece: a leading hyphen stays with the
- * word it starts.
+ * `text.slice(start, end)` split after hyphens, keeping the hyphen; a leading hyphen stays
+ * with its word.
  */
 function forEachHyphenPiece(text: string, start: number, end: number, emit: (piece: string) => void): void {
   let from = start;
@@ -1459,10 +1187,7 @@ function lastGrapheme(text: string): string {
   return chars[chars.length - 1];
 }
 
-/**
- * Segment and measure text runs: the one pass over an inline formatting
- * context's text in a layout call (`preparedInline`).
- */
+/** Segment and measure text runs: the one pass over an inline context's text per call. */
 function prepareInline(session: LayoutSession, runs: TextRun[]): PreparedInline {
   const out = new SegmentBuilder();
   /** The text so far ends with a zero-width space (a break opportunity). */
@@ -1472,11 +1197,8 @@ function prepareInline(session: LayoutSession, runs: TextRun[]): PreparedInline 
   let runStart = 0;
 
   for (const run of transformTextRuns(runs)) {
-    // Atomic inline-block: entire element (margin + padding + content) is one
-    // segment, at its max-content width — its intrinsic contribution, with any
-    // percentage of the line's containing block at 0. The final flow re-sizes
-    // it (`usedSegmentWidths`). Must check before boxOpen/boxClose handlers
-    // since atomic has both set.
+    // Atomic inline-block: one segment at its max-content width, re-sized by the final flow
+    // (`usedSegmentWidths`). Checked before the box edges: it has both.
     if (run.boxOpen && run.boxClose && run.text) {
       const source = run.inlineBlock!;
       out.inlineBlocks.push(out.count);
@@ -1484,9 +1206,8 @@ function prepareInline(session: LayoutSession, runs: TextRun[]): PreparedInline 
       continue;
     }
 
-    // Inline box edges (padding + border). An empty inline-block lands here
-    // as its opening edge only. A percentage padding is 0 here, and the final
-    // flow resolves it (`usedSegmentWidths`).
+    // Inline box edge (padding + border), or an empty inline-block's opening edge. A
+    // percentage padding is 0 until `usedSegmentWidths`.
     const edge = run.boxOpen ?? run.boxClose;
     if (edge) {
       const box = intrinsicStyle(edge);
@@ -1501,11 +1222,7 @@ function prepareInline(session: LayoutSession, runs: TextRun[]): PreparedInline 
     const text = run.text;
     const ref = out.addRefs(run);
     runStart = out.count;
-    /**
-     * Flag the first segment of this run when the previous text run had the
-     * same style object: a seam between two measuring runs that paint could
-     * otherwise batch (`SEG_RUN_SEAM`).
-     */
+    /** Flag a seam when the previous text run had the same style object (`SEG_RUN_SEAM`). */
     const markSeam = (startLen: number, first: boolean) => {
       if (first && run.style === lastTextStyle && out.count > startLen) out.flags[startLen] |= SEG_RUN_SEAM;
     };
@@ -1549,11 +1266,7 @@ function prepareInline(session: LayoutSession, runs: TextRun[]): PreparedInline 
   return out;
 }
 
-/**
- * The prepared content of the inline formatting context `node` roots, for
- * intrinsic sizing: made once per call and kept for the passes still to
- * come — max-content, min-content, then the layout that places it.
- */
+/** The prepared content of `node`'s inline context for intrinsic sizing, made once per call. */
 function preparedInline(session: LayoutSession, node: StyledNode): PreparedInline {
   let prepared = session.prepared.get(node);
   if (!prepared) {
@@ -1564,9 +1277,8 @@ function preparedInline(session: LayoutSession, node: StyledNode): PreparedInlin
 }
 
 /**
- * The prepared content for the layout itself, the last pass to read it: it
- * leaves the session, so a long document does not hold every paragraph's
- * segments until the call ends. A block nothing sized is never kept.
+ * The prepared content for the layout, its last reader: taken off the session so a long
+ * document does not hold every paragraph's segments.
  */
 function takePreparedInline(session: LayoutSession, node: StyledNode): PreparedInline {
   const prepared = session.prepared.get(node);
@@ -1598,18 +1310,11 @@ export function graphemes(text: string): string[] {
 }
 
 const EMOJI_PICTOGRAPHIC = /\p{Extended_Pictographic}/u;
-/**
- * Exactly the characters `isEmojiCluster` can answer `true` for: something in
- * the emoji planes (regional-indicator flags included), a ZWJ, or a VS16. A
- * word without one of these cannot contain an emoji cluster, so this skips
- * grapheme segmentation for the overwhelming majority of words.
- */
+/** The characters `isEmojiCluster` can be true for: a cheap check before segmenting. */
 const EMOJI_CANDIDATE = /[\u{1F000}-\u{10FFFF}\u200D\uFE0F]/u;
 /**
- * Is this grapheme cluster an emoji that creates a line-break opportunity?
- * Restricted to emoji-presentation clusters (emoji planes, regional-indicator
- * flags, and ZWJ/VS16 sequences) so plain text symbols like ©/®/™ — which are
- * Extended_Pictographic but render as text and do NOT break — are excluded.
+ * An emoji cluster that is a break opportunity: emoji presentation only, so text symbols
+ * like ©/®/™ (Extended_Pictographic, but no break) are excluded.
  */
 function isEmojiCluster(s: string): boolean {
   for (const ch of s) {
@@ -1622,15 +1327,11 @@ function isEmojiCluster(s: string): boolean {
   return false;
 }
 
-// ─── Line flow ─────────────────────────────────────────────────────────
+// ── Line flow ──
 
 /**
- * What one flow places on lines, by index: the prepared segments first
- * (`0 … prepared.count - 1`), then the pieces this flow cuts from them —
- * per-character CJK/emoji and break-word pieces, glued-chain fragments, a
- * soft hyphen's visible '-', a tab at its stop. A flow never writes to the
- * prepared arrays, so every pass over one `PreparedInline` starts from the
- * same content.
+ * What one flow places on lines, by index: the prepared segments, then the pieces this
+ * flow cuts from them. A flow never writes to the prepared arrays.
  */
 class FlowItems {
   private readonly base: number;
@@ -1643,10 +1344,8 @@ class FlowItems {
   private textOnlyRefs: Map<SegmentRefs, SegmentRefs> | undefined;
 
   /**
-   * `refs` stands in for `prepared.refs` (min-content neutralizes
-   * `overflow-wrap`), and `widths` for `prepared.width` (an inline-block's
-   * width is its laid-out box, a percentage padding its used value:
-   * `usedSegmentWidths`).
+   * `refs` and `widths` stand in for the prepared ones (min-content neutralizes
+   * `overflow-wrap`; `usedSegmentWidths` sizes inline-blocks and percentage padding).
    */
   constructor(
     readonly prepared: PreparedInline,
@@ -1661,11 +1360,7 @@ class FlowItems {
     return i < this.base ? this.prepared.text[i] : this.pieceText[i - this.base];
   }
 
-  /**
-   * Item `i`'s text for debug entries: an atomic inline reads as its
-   * content's text — its segment is U+FFFC, which only line breaking and
-   * bidi should see.
-   */
+  /** Item `i`'s text for debug entries: an atomic inline reads as its content, not U+FFFC. */
   debugText(i: number): string {
     const inlineBlock = this.refs(i).inlineBlock;
     return inlineBlock ? inlineBlock.element?.textContent ?? '' : this.text(i);
@@ -1695,9 +1390,8 @@ class FlowItems {
   }
 
   /**
-   * New text continuing item `from`'s run but not its box: the visible
-   * hyphen of a soft-hyphen break, a fragment of a broken glued chain. They
-   * keep the style and declarers, never the inline box edges.
+   * New text continuing item `from`'s run but not its box (a soft hyphen's '-', a glued
+   * chain fragment): style and declarers, never box edges.
    */
   textOf(from: SegmentRefs, text: string, width: number): number {
     this.textOnlyRefs ??= new Map();
@@ -1749,13 +1443,8 @@ interface FlowLine {
 }
 
 /**
- * The one canvas state every glyph on these items is measured under — only
- * then can the line be re-measured as a single string. `'mixed'` when the
- * glyphs need more than one, `null` when the line holds no glyph at all.
- * Compared on the interned `MeasureState`, i.e. on what the canvas is
- * actually set to, not on the raw declarations — `font-kerning: auto` and
- * `normal` are one state. Spaces do not count; the re-measure keeps their
- * own widths where they differ.
+ * The one measuring state every glyph on these items shares, so the line can be
+ * re-measured as one string; `'mixed'` otherwise, `null` with no glyph. Spaces do not count.
  */
 function lineMeasureState(
   m: Measurer, items: FlowItems, line: readonly number[], next: number,
@@ -1773,15 +1462,9 @@ function lineMeasureState(
 }
 
 /**
- * Break segment `index` into character-level pieces if it contains CJK/emoji,
- * or if overflow-wrap: break-word is set and it is too wide. `null` when it
- * stays whole — the common case, decided from the prepared flags without
- * touching the text.
- *
- * `emergency` distinguishes the two reasons. CJK and emoji carry their own
- * break opportunities, so those splits are ordinary and fill the current line.
- * `overflow-wrap: break-word` is a last resort, and the caller has to know
- * which of the two it got.
+ * Break segment `index` into character pieces if it holds CJK/emoji, or if break-word
+ * applies and it is too wide; `null` when it stays whole. `emergency` marks the break-word
+ * last resort, which the caller treats unlike ordinary CJK/emoji opportunities.
  */
 function splitSegment(
   session: LayoutSession,
@@ -1791,36 +1474,25 @@ function splitSegment(
 ): { texts: string[]; widths: number[]; emergency: boolean } | null {
   const flags = items.flags(index);
   const style = items.refs(index).style;
-  // CJK always breaks at character level; emoji form their own break
-  // opportunities (a run of emoji wraps between clusters).
   const hasCJK = (flags & SEG_CJK) !== 0;
   const hasEmoji = (flags & SEG_EMOJI) !== 0;
 
-  // Check if the segment needs break-word splitting — when it won't fit on a fresh line
   const needsBreak = items.width(index) > contentWidth &&
     (style.overflowWrap === 'break-word' || style.wordBreak === 'break-all');
 
   if (!hasCJK && !hasEmoji && !needsBreak) return null;
 
-  // `overflow-wrap: break-word` is the last-resort split; CJK/emoji breaks are
-  // ordinary opportunities that behave nothing like it at the line edge.
-  // `word-break: break-all` genuinely allows a break anywhere, so it is not an
-  // emergency either.
+  // break-word is the last resort; CJK/emoji and `word-break: break-all` are ordinary
+  // opportunities.
   const emergency = needsBreak && !hasCJK && !hasEmoji &&
     style.wordBreak !== 'break-all';
 
-  // Split into characters, each measured after its left context like the
-  // tokenizer's pieces (`MEASURE_CONTEXT`): measuring each char alone ignores
-  // kerning, and the sum of individual widths diverges from the true string
-  // width over many characters. Positions below (`measuredWidth`,
-  // `currentStartWidth`) are offsets in the context's coordinates, so a
-  // context restart shifts them together. Break points use THIS segment's
-  // state, whatever run was measured last.
+  // Each character is measured after its left context (`MEASURE_CONTEXT`); positions below
+  // are in the context's coordinates, so a restart shifts them together.
   const m = session.measurer;
   const state = m.stateOf(style);
   const text = items.text(index);
-  // When the segment contains emoji, iterate by GRAPHEME cluster so multi-codepoint
-  // emoji (ZWJ families, skin tones, flags) are never split mid-cluster.
+  // By grapheme when emoji are present, so clusters never split.
   const chars = hasEmoji ? graphemes(text) : [...text];
   const texts: string[] = [];
   const widths: number[] = [];
@@ -1848,8 +1520,7 @@ function splitSegment(
     const nextMeasuredWidth = m.width(state, nextMeasuredText);
     const charWidth = nextMeasuredWidth - measuredWidth;
 
-    // Emoji clusters and CJK characters each get their own piece — a break
-    // opportunity between them, matching the browser line breaker.
+    // Each emoji cluster and CJK character is a piece of its own: a break opportunity.
     if ((hasEmoji && isEmojiCluster(char)) || isCJKCode(char.codePointAt(0)!)) {
       if (current) {
         piece(current, currentWidth);
@@ -1863,11 +1534,9 @@ function splitSegment(
       continue;
     }
 
-    // Use cumulative measurement: measure the growing string, not individual chars
     const candidateText = current + char;
     const candidateWidth = nextMeasuredWidth - currentStartWidth;
 
-    // For break-word: break when adding this char would exceed container
     if (needsBreak && candidateWidth > contentWidth && current) {
       piece(current, currentWidth);
       current = char;
@@ -1889,7 +1558,7 @@ function splitSegment(
   return { texts, widths, emergency };
 }
 
-// ─── Break opportunities ───────────────────────────────────────────────
+// ── Break opportunities ──
 
 /** Punctuation that cannot start a line — stays with the preceding word. */
 const TRAILING_PUNCT = /^[,.\;:!?\)\]\}'"»›」』】〕〉》”、。・！），：；？၊-၏។-៖៘-៚]+$/;
@@ -1897,13 +1566,8 @@ const TRAILING_PUNCT = /^[,.\;:!?\)\]\}'"»›」』】〕〉》”、。・！�
 const OPENING_PUNCT = /^[\(\[\{«‹“‘「『【〔〈《（]+$/;
 
 /**
- * Whether the text run starting at segment `at` abuts the text before it with
- * no soft-wrap opportunity between them: adjacent inline elements with no
- * whitespace (`<span>E</span>xperience`) continue one word. This is where
- * `SEG_NO_BREAK_BEFORE` comes from; `breakBefore` is what the flow reads.
- * The preceding segment must be actual text — not a space, newline, empty
- * box-padding marker, or box edge — so a whitespace/padding boundary still
- * allows a break.
+ * Whether the run at segment `at` continues the text before it with no break opportunity
+ * (`<span>E</span>xperience`): the source of `SEG_NO_BREAK_BEFORE`.
  */
 function abutsWithoutBreak(out: SegmentBuilder, at: number): boolean {
   if (at >= out.count || at === 0) return false;
@@ -1915,13 +1579,8 @@ function abutsWithoutBreak(out: SegmentBuilder, at: number): boolean {
     (out.flags[at - 1] & SEG_SPACE) || !prev.trim() ||
     prevRefs.boxOpen || prevRefs.boxClose
   ) return false;
-  // CJK, emoji and segmenter-driven scripts (Thai/Khmer/…) have break
-  // opportunities between characters regardless of element boundaries, so
-  // an element edge between them is NOT a no-break point. Only glue when
-  // both sides are ordinary (Latin-like) text with no intrinsic break.
-  // Take the boundary characters as GRAPHEME clusters — indexing by code
-  // unit reads past the end of a surrogate pair, and indexing by code point
-  // splits VS16 emoji (❤️ = U+2764 U+FE0F) so the cluster reads as non-emoji.
+  // Glue only ordinary text: CJK, emoji and segmenter scripts break at any element edge.
+  // Graphemes, not code units or points: a VS16 emoji (❤️ = U+2764 U+FE0F) must read as emoji.
   const firstChar = firstGrapheme(first);
   const prevChar = lastGrapheme(prev);
   return !(
@@ -1932,22 +1591,13 @@ function abutsWithoutBreak(out: SegmentBuilder, at: number): boolean {
 }
 
 /**
- * What the boundary BEFORE a flow item allows — the one answer to "may a
- * line start here?" that every breaking decision in the flow reads (the
- * glued tail, the glued chain, the fit test, the kinsoku of split pieces):
- *
- * - `'space'`: white space or a forced break; never inside a glued unit.
- * - `'continues'`: the item continues a word across an inline run boundary
- *   (`SEG_NO_BREAK_BEFORE`, from `abutsWithoutBreak`).
- * - `'glued'`: punctuation that cannot start a line (`TRAILING_PUNCT`), or
- *   an inline box's closing edge — its right padding/border belongs with
- *   the content before it.
+ * What the boundary BEFORE a flow item allows; every breaking decision reads it.
+ * - `'space'`: white space or a forced break.
+ * - `'continues'`: a word continuing across a run boundary (`SEG_NO_BREAK_BEFORE`).
+ * - `'glued'`: closing punctuation (`TRAILING_PUNCT`) or an inline box's closing edge.
  * - `'allowed'`: an ordinary break opportunity.
- *
- * `splitPiece` is a piece after the first of a segment the flow split (CJK,
- * emoji, break-word): that split is itself the opportunity, so the
- * segment's run-boundary glue stays with its first piece. A closer still
- * glues.
+ * `splitPiece`: a piece after the first of a split segment. The split is the opportunity,
+ * so run-boundary glue stays on the first piece; a closer still glues.
  */
 type BreakBefore = 'space' | 'continues' | 'glued' | 'allowed';
 
@@ -1966,17 +1616,12 @@ function cannotStartLine(cls: BreakBefore): boolean {
   return cls === 'continues' || cls === 'glued';
 }
 
-// ─── Glue: what must share a line ──────────────────────────────────────
+// ── Glue: what must share a line ──
 
 /**
- * Total width of the content directly after segment `from` that cannot start
- * a line (`breakBefore`): trailing punctuation (",.)]}…"), an inline span's
- * right padding/border (empty boxClose markers), and a word continuation
- * abutting across a run boundary — one word split across two inline spans
- * with different font sizes. The browser includes all of it when deciding
- * whether the preceding word fits, so the unit wraps together: if "Music
- * Experie" doesn't leave room for the glued "nce", the whole word wraps as
- * one. Stops at whitespace or the next breakable segment.
+ * Width of what follows segment `from` that cannot start a line (`breakBefore`): closing
+ * punctuation, a closing box edge, a word continued across runs. It wraps with the word
+ * before it ("Music Experie" + "nce" wraps whole).
  */
 function gluedRunWidth(items: FlowItems, from: number): number {
   const count = items.prepared.count;
@@ -1989,12 +1634,8 @@ function gluedRunWidth(items: FlowItems, from: number): number {
 }
 
 /**
- * The glued width that rides on split piece `piece` (of `pieceEnd`): a
- * trailing-punctuation piece produced by character splitting still belongs
- * to the preceding character. Include it before deciding whether that
- * character fits; appending it afterward can overflow the line (`…습니다.`
- * must wrap as `다.`, never leave a hanging period). The segment's own glued
- * tail (`gluedRunWidth`) rides on its last piece.
+ * The glued width riding on split piece `piece`: a closing-punctuation piece belongs to the
+ * character before it (`…습니다.` wraps as `다.`). The segment's own tail rides on its last.
  */
 function trailingGlueWidth(items: FlowItems, piece: number, pieceEnd: number, gluedTailWidth: number): number {
   let tail = piece === pieceEnd - 1 ? gluedTailWidth : 0;
@@ -2007,13 +1648,8 @@ function trailingGlueWidth(items: FlowItems, piece: number, pieceEnd: number, gl
 }
 
 /**
- * The width after piece `piece` (of segment `segment`) that must share its
- * line because no line may END at the piece: opening punctuation
- * (`OPENING_PUNCT`) and an inline box's opening edge. Leading inline
- * padding/border (an empty boxOpen marker) must not be stranded at the end
- * of a line — it belongs with the span's following content (CSS applies
- * padding-left at the box's start), so the two wrap together and the left
- * padding lands on the new line with the content.
+ * The width after piece `piece` that must share its line because no line may END there:
+ * opening punctuation and an inline box's opening edge (padding-left goes with the content).
  */
 function headGlueWidth(
   flow: LineFlow, segment: number, piece: number, isLastPiece: boolean, gluedTailWidth: number,
@@ -2023,36 +1659,25 @@ function headGlueWidth(
   let headExtra = 0;
   const isOpener = (items.flags(piece) & SEG_OPENING_PUNCT) !== 0;
   if (isOpener && !isLastPiece) {
-    // An opener stranded mid-word by the per-character CJK split glues to
-    // its NEXT PIECE, not the next word: Chrome never ends a line with
-    // 「 or （ (measured: 水x5 + opener + 水x7 at width
-    // 100 — the DOM wraps the opener down with its following character).
-    // The segment-level branch below reads the next segment and finds
-    // nothing mid-word, which left the bracket dangling at end of line.
+    // A CJK opener split mid-word glues to its next piece: Chrome never ends a line with
+    // 「 or （ (measured).
     headExtra = items.width(piece + 1);
   } else if ((!items.text(piece) && items.refs(piece).boxOpen) ||
       (isOpener && gluedTailWidth === 0)) {
     let nextIndex = segment + 1;
-    // Opening punctuation can be followed by an inline box edge before
-    // its first glyph: `(<span>word</span>)`. Keep both the edge and that
-    // first breakable glyph on the same line as the punctuation.
+    // An opener may be followed by box edges before its first glyph: `(<span>word</span>)`.
     while (nextIndex < count && !items.text(nextIndex) && items.refs(nextIndex).boxOpen) {
       headExtra += items.width(nextIndex);
       nextIndex++;
     }
     const nextText = nextIndex < count ? items.text(nextIndex) : '';
     if (nextText && !flow.isSpace(nextIndex)) {
-      // Only the next segment's first BREAKABLE unit must stay with the
-      // leading padding — the whole word for unbreakable Latin, but just
-      // the first character for CJK / break-word (which wrap per
-      // character). Using the whole word here would over-wrap a long CJK
-      // run that follows padding.
+      // Only the next segment's first BREAKABLE unit stays with the padding: the whole word, or
+      // one character for CJK / break-word.
       const split = nextText.length > 1 ? splitSegment(flow.session, items, nextIndex, flow.budget()) : null;
       headExtra += split ? split.widths[0] : items.width(nextIndex);
       if (!split || split.texts.length === 1) {
-        // The first word's own inseparable tail is part of the same unit:
-        // `(<span>p50</span>,` may break before `(` or after the comma,
-        // never between the word, closing edge, and comma.
+        // Plus the word's own tail: `(<span>p50</span>,` never breaks inside word, edge and comma.
         headExtra += gluedRunWidth(items, nextIndex + 1);
       }
     }
@@ -2060,12 +1685,9 @@ function headGlueWidth(
   return headExtra;
 }
 
-// ─── The line breaker ──────────────────────────────────────────────────
+// ── The line breaker ──
 
-/**
- * One flow's line state: the lines committed so far and the one being
- * filled. The phases of `flowLines` read and grow it.
- */
+/** One flow's line state: the committed lines and the one being filled. */
 class LineFlow {
   readonly lines: FlowLine[] = [];
   line: FlowLine;
@@ -2074,10 +1696,7 @@ class LineFlow {
   readonly m: Measurer;
   /** No soft wrapping at all: everything up to a forced break is one line. */
   readonly noWrap: boolean;
-  /**
-   * `pre`, `pre-wrap`, and `break-spaces` preserve author whitespace
-   * (leading and trailing); the others collapse it.
-   */
+  /** `pre`, `pre-wrap` and `break-spaces` preserve leading and trailing white space. */
   readonly preservesWhitespace: boolean;
   private readonly keepsSpaceOnlyLines: boolean;
 
@@ -2099,11 +1718,7 @@ class LineFlow {
       whiteSpace === 'pre' || whiteSpace === 'pre-wrap' || whiteSpace === 'break-spaces';
   }
 
-  /**
-   * Every line box starts at the block's own "strut" height (its font +
-   * line-height), so a line whose only content is a SMALLER inline font is
-   * still at least the block's line-height tall — matching CSS. See callers.
-   */
+  /** A line starts at the block's strut height: never shorter than its line-height. */
   private newLine(): FlowLine {
     return { items: [], totalWidth: 0, lineHeight: this.strutLineHeight };
   }
@@ -2129,10 +1744,8 @@ class LineFlow {
   }
 
   /**
-   * The current line holds an item whose flags masked by `mask` equal
-   * `value`. A plain loop, not `some` with a closure: a closure over a
-   * local makes V8 allocate a context on every call of the function that
-   * holds it, and these run per piece.
+   * The current line holds an item whose `flags & mask` equals `value`. A loop, not `some`:
+   * a closure here makes V8 allocate a context per call.
    */
   holds(mask: number, value: number): boolean {
     for (const i of this.line.items) if ((this.items.flags(i) & mask) === value) return true;
@@ -2154,10 +1767,8 @@ class LineFlow {
   }
 
   /**
-   * Tab: advance to the next tab stop (stops measured from the content
-   * edge). Chrome rule: when the next stop is closer than half a space
-   * width, skip to the following stop (Blink Font::TabWidth). The tab
-   * placed is a piece of its own: its width is where THIS flow put it.
+   * Advance to the next tab stop; a stop closer than half a space is skipped (Blink
+   * Font::TabWidth). The tab placed is a piece of its own, at this flow's width.
    */
   placeTab(tab: number, lineHeight: number): void {
     const interval = this.tabMetrics?.interval || this.items.width(tab);
@@ -2174,9 +1785,8 @@ class LineFlow {
     const current = this.line;
     const line = current.items;
     const hadWords = line.length > 0;
-    // Trim trailing spaces. `break-spaces` preserves them even at soft wraps;
-    // `pre`/`pre-wrap` preserve them at hard breaks and end-of-content but not
-    // at soft wraps (per CSS Text 3 §4.1.1).
+    // Trim trailing spaces: `break-spaces` keeps them; `pre`/`pre-wrap` keep them except at
+    // soft wraps (CSS Text 3 §4.1.1).
     const preserveTrailing = this.whiteSpace === 'break-spaces'
       || (this.preservesWhitespace && !isSoftWrap);
     if (!preserveTrailing) {
@@ -2185,15 +1795,13 @@ class LineFlow {
         line.pop();
       }
     }
-    // Soft hyphen: if this is a soft wrap and the last item has a soft-hyphen
-    // break, append a visible '-' since the word is being broken here.
+    // A soft wrap at a soft hyphen appends a visible '-'.
     if (isSoftWrap && line.length > 0) {
       const last = line[line.length - 1];
       if (items.flags(last) & SEG_SOFT_HYPHEN) {
         const refs = items.refs(last);
         const hyphenWidth = softHyphenAdvance(this.m, refs.style);
-        // The visible hyphen continues the broken word, so it keeps the
-        // word's clip/stroke-image declarer (else it paints transparent).
+        // The '-' keeps the word's clip/stroke-image declarer, else it paints transparent.
         line.push(items.textOf(refs, '-', hyphenWidth));
         current.totalWidth += hyphenWidth;
       }
@@ -2234,10 +1842,7 @@ class LineFlow {
   }
 }
 
-/**
- * The visible '-' a soft-hyphen break draws, in the broken word's own
- * measuring state.
- */
+/** The visible '-' of a soft-hyphen break, in the word's own measuring state. */
 function softHyphenAdvance(m: Measurer, style: ResolvedStyle): number {
   return m.width(m.stateOf(style), '-');
 }
@@ -2251,9 +1856,7 @@ function itemLineHeight(flow: LineFlow, i: number): number {
   if (inlineBlockLayout) {
     lineHeight = Math.max(lineHeight, inlineBlockLayout.marginBoxHeight);
   } else if (refs.boxStyle && refs.boxStyle.display === 'inline-block') {
-    // Clamped at 0: negative margins shrink the margin box, but the original
-    // `Math.max(h, h + extra)` never let them shrink the LINE, and nothing
-    // here is measuring a case that says they should.
+    // Clamped at 0: negative margins shrink the box, never the line.
     const extra = inlineBlockExtra(refs.boxStyle);
     lineHeight += Math.max(0, extra.top + extra.bottom);
   }
@@ -2261,16 +1864,9 @@ function itemLineHeight(flow: LineFlow, i: number): number {
 }
 
 /**
- * Flow prepared segments into lines that fit within contentWidth — the ONE
- * line breaker: the real layout runs it at the used width, min-content at 0
- * (every soft-wrap opportunity taken) and max-content at Infinity (forced
- * breaks only).
- *
- * Phases, each the one home of its rules: break classification
- * (`breakBefore`), glue (`gluedRunWidth`, `trailingGlueWidth`,
- * `headGlueWidth`), splitting (`splitSegment`), words across run boundaries
- * (`breakGluedChain`), the fit decision (`placePiece`, `knifeEdgeOverflows`) and
- * line commit (`LineFlow`).
+ * The ONE line breaker: the layout runs it at the used width, min-content at 0 and
+ * max-content at Infinity. Phases: `breakBefore`, glue, `splitSegment`, `breakGluedChain`,
+ * `placePiece` / `knifeEdgeOverflows`, then `LineFlow` commits.
  */
 function flowLines(flow: LineFlow): FlowLine[] {
   const items = flow.items;
@@ -2281,7 +1877,6 @@ function flowLines(flow: LineFlow): FlowLine[] {
       flow.forcedBreak(lineHeight);
       continue;
     }
-    // No wrapping mode — everything on one line
     if (flow.noWrap) {
       flow.place(i, items.width(i), lineHeight);
       continue;
@@ -2298,11 +1893,8 @@ function flowLines(flow: LineFlow): FlowLine[] {
 }
 
 /**
- * The last segment of the glued chain that starts at segment `start`, or
- * `start` when none does: one word split across adjacent inline runs (e.g.
- * <span>E</span>xperience, a font-size change mid-word, or
- * <span>wel</span>l-being), its pieces after the first each continuing it
- * (`breakBefore` → `'continues'`).
+ * The last segment of the glued chain starting at `start` (one word across runs:
+ * `<span>E</span>xperience`, `<span>wel</span>l-being`), or `start` when none.
  */
 function gluedChainEnd(items: FlowItems, start: number): number {
   const cls = breakBefore(items, start);
@@ -2316,12 +1908,8 @@ function gluedChainEnd(items: FlowItems, start: number): number {
 }
 
 /**
- * Breaking a word that is split across a run boundary (`gluedChainEnd`).
- * Per-segment break logic can't see the whole word, so its internal break
- * opportunities — hyphens, and break-word char points — are lost and the
- * unit overflows the edge. Break the chain `start..end` across the run
- * boundaries like the browser. False when the chain needs no breaking here:
- * the caller then flows `start` as an ordinary segment.
+ * Break a word split across runs (`gluedChainEnd`) at its hyphens or break-word points,
+ * which per-segment logic cannot see. False when it needs no breaking here.
  */
 function breakGluedChain(flow: LineFlow, start: number, end: number): boolean {
   const { items, m } = flow;
@@ -2329,14 +1917,8 @@ function breakGluedChain(flow: LineFlow, start: number, end: number): boolean {
   const breakWord = startStyle.overflowWrap === 'break-word' || startStyle.wordBreak === 'break-all';
   let combined = 0;
   for (let j = start; j <= end; j++) combined += items.width(j);
-  // Flatten the chain into characters, each with its segment's refs
-  // (per-run style retained). The refs carry the run's clip/stroke-image
-  // declarer too, else a break-word split drops it and a gradient/stroke
-  // fragment paints nothing (the inherited transparent fill has no clip
-  // box to reveal). `parentStyle` rides along for the same reason:
-  // dropping it made a split `vertical-align` run measure its shift
-  // against the block instead of its real parent, 8px out on a narrow
-  // break-word line.
+  // Flatten into characters, each keeping its segment's refs: style, paint declarers and
+  // `parentStyle` (a split vertical-align run must shift against its real parent).
   type Cell = { ch: string; refs: SegmentRefs };
   const cells: Cell[] = [];
   for (let j = start; j <= end; j++) {
@@ -2349,10 +1931,8 @@ function breakGluedChain(flow: LineFlow, start: number, end: number): boolean {
   if (combinedText) forEachHyphenPiece(combinedText, 0, combinedText.length, (p) => segTexts.push(p));
   const hyphenMode = segTexts.length > 1;
   const fitsLine = flow.line.totalWidth + combined <= flow.budget();
-  // A hyphen is an ordinary break opportunity — intervene whenever the
-  // unit doesn't fit the remaining space. break-word is last-resort —
-  // only when the unit can't fit a full line at all (otherwise the normal
-  // flow + glued-tail fit check correctly wraps it whole to a fresh line).
+  // A hyphen breaks whenever the unit does not fit; break-word only when it cannot fit a
+  // whole line.
   const enter = !fitsLine && (hyphenMode || (breakWord && combined > flow.budget()));
   if (!enter) return false;
 
@@ -2364,15 +1944,12 @@ function breakGluedChain(flow: LineFlow, start: number, end: number): boolean {
     segs.push(cells.slice(ci, ci + len));
     ci += len;
   }
-  // Place a segment's cells onto the current line, splitting same-style
-  // runs into pieces. When `chars` is set, wrap at the line edge between
-  // characters (break-word); otherwise place atomically (it may overflow
-  // its own line, e.g. a hyphen prefix wider than the container).
+  // Place cells, splitting same-style runs into pieces: `chars` wraps between characters
+  // (break-word), else the segment is placed atomically and may overflow.
   const placeCells = (cs: Cell[], chars: boolean) => {
     let i = 0;
     while (i < cs.length) {
-      // The declarers are 1:1 with the style run (same source
-      // segment), so the refs at the run start cover every piece below.
+      // Refs are 1:1 with the style run, so the run start's cover every piece.
       const refs = cs[i].refs;
       const st = refs.style;
       const state = m.stateOf(st);
@@ -2411,8 +1988,7 @@ function breakGluedChain(flow: LineFlow, start: number, end: number): boolean {
     }
     return w;
   };
-  // Pure break-word (no hyphen) is last-resort: move the whole word to a
-  // fresh line first (using the preceding space), then break it there.
+  // Pure break-word is a last resort: wrap the whole word to a fresh line first.
   if (!hyphenMode && flow.line.items.length > 0) flow.wrap();
   for (const seg of segs) {
     const segW = measureSeg(seg);
@@ -2423,14 +1999,10 @@ function breakGluedChain(flow: LineFlow, start: number, end: number): boolean {
   return true;
 }
 
-/**
- * Flow one segment: cut it into pieces when it breaks per character or
- * cluster (`splitSegment` — CJK, emoji, break-word), then place each piece.
- */
+/** Flow one segment: split it if it breaks per character (`splitSegment`), place each piece. */
 function placeSegment(flow: LineFlow, segment: number, lineHeight: number): void {
   const items = flow.items;
-  // The pieces are a run of consecutive items: the segment itself, or what
-  // it was cut into.
+  // The pieces are consecutive items: the segment itself, or its cuts.
   let pieceStart = segment;
   let pieceEnd = segment + 1;
   let emergency = false;
@@ -2447,11 +2019,8 @@ function placeSegment(flow: LineFlow, segment: number, lineHeight: number): void
     }
   }
 
-  // An emergency break is one taken inside a word that cannot fit on a fresh
-  // line. Native layout first takes the ordinary whitespace opportunity
-  // before that word; it does not pack the first emergency fragment into
-  // space left by the preceding word. Every other kind of split — CJK,
-  // emoji, hyphens, break-all — is a normal opportunity and fills first.
+  // Before an emergency (break-word) split, take the whitespace opportunity first, as native
+  // layout does; ordinary splits fill the current line.
   if (emergency && flow.holds(SEG_SPACE, 0)) flow.wrap();
 
   const gluedTailWidth = gluedRunWidth(items, segment + 1);
@@ -2461,10 +2030,8 @@ function placeSegment(flow: LineFlow, segment: number, lineHeight: number): void
 }
 
 /**
- * The fit decision for one piece of `segment`: wrap first when it, and
- * everything that must share its line (`trailingGlueWidth`,
- * `headGlueWidth`, a soft hyphen's '-'), overflows — unless no line may
- * start at it (`breakBefore`) — then place it.
+ * The fit decision for one piece: wrap when it plus everything that must share its line
+ * overflows (unless no line may start at it), then place it.
  */
 function placePiece(
   flow: LineFlow, segment: number, piece: number, pieceStart: number, pieceEnd: number,
@@ -2474,19 +2041,12 @@ function placePiece(
   const pieceFlags = items.flags(piece);
   const isLastPiece = piece === pieceEnd - 1;
   const tail = trailingGlueWidth(items, piece, pieceEnd, gluedTailWidth);
-  // Trailing punctuation (e.g. comma after </span>), a closing box edge and
-  // a word continuation across a run boundary do not wrap independently —
-  // browsers keep them with the preceding word, unless a space separates
-  // them.
+  // Closing punctuation, a closing edge and a word continuation stay with the word before.
   const glued = cannotStartLine(breakBefore(items, piece, piece !== pieceStart)) &&
     flow.line.items.length > 0 && !flow.endsWithSpace();
   const headExtra = headGlueWidth(flow, segment, piece, isLastPiece, gluedTailWidth);
 
-  // A soft-hyphen break point draws a visible '-' when the line breaks
-  // right after this piece. Chrome only allows a break there if the prefix
-  // PLUS the hyphen fits, so reserve the hyphen advance in the overflow
-  // test — otherwise we pack one extra segment and the appended hyphen
-  // overflows the line (breaking one segment later than the browser).
+  // Chrome breaks at a soft hyphen only if the prefix PLUS its '-' fits: reserve it.
   let shReserve = 0;
   if (pieceFlags & SEG_SOFT_HYPHEN) {
     shReserve = softHyphenAdvance(m, items.refs(piece).style);
@@ -2496,7 +2056,6 @@ function placePiece(
   const candidateLineWidth = flow.line.totalWidth + pieceWidth +
     shReserve + tail + headExtra;
 
-  // Would this piece overflow?
   if (!(pieceFlags & SEG_SPACE) && !glued && flow.line.items.length > 0) {
     const overflow = candidateLineWidth - flow.budget();
     // Under 1px over, the summed advances may be wrong: re-measure.
@@ -2514,9 +2073,7 @@ function placePiece(
     }
   }
 
-  // Skip leading spaces at the start of a line. Preserving modes
-  // (pre/pre-wrap/break-spaces) keep them after hard breaks; collapsing
-  // modes (normal/nowrap/pre-line) drop them in all cases.
+  // Leading spaces are dropped, except preserved ones after a hard break.
   if ((pieceFlags & SEG_SPACE) && flow.line.items.length === 0
       && (!flow.afterHardBreak || !flow.preservesWhitespace)) return;
 
@@ -2529,43 +2086,20 @@ function placePiece(
 }
 
 /**
- * Whether the current line plus `piece`, whose summed advances overflow the
- * budget by under 1px, really overflows. The knife-edge rule lives here.
- *
- * Word-by-word delta accumulation may not be what one string measures.
- * Re-measure the full candidate line as a single string and let that
- * decide. Only works for lines whose glyphs share one measuring state;
- * any other line trusts the sum.
- *
- * Over the edge only. A sum UNDER the edge is trusted: re-measuring in
- * both directions moved wraps both ways across the 1px sweeps — the
- * one string drops the last glyph's kern against the space after it,
- * which Blink keeps (the space hangs). Modelling the line ends is
- * fidelity work, not this.
+ * Whether a line whose summed advances overflow by under 1px really does: re-measure it
+ * as one string when its glyphs share one state. Only over the edge; a sum under it is
+ * trusted (one string drops the kern against the hanging space Blink keeps).
  */
 function knifeEdgeOverflows(flow: LineFlow, piece: number, tail: number, headExtra: number): boolean {
   const { items, m } = flow;
-  // A preserved tab's advance is position-dependent (tab stops), but
-  // measureText('\t') reports a flat control advance — the one-string
-  // re-measure would under-count the line by most of a tab stop and
-  // falsely keep the overflowing word. Cumulative widths already carry
-  // the true tab advance, so trust them on tab lines. (The piece itself
-  // is never a tab here: tabs are spaces, and the fit test requires
-  // a non-space piece.)
+  // A tab's advance depends on its stop, which measureText('\t') ignores: trust the sum.
   if (flow.holds(SEG_TAB, SEG_TAB)) return true;
   const lineState = lineMeasureState(m, items, flow.line.items, piece);
   if (lineState === 'mixed') return true;
-  // Re-measured under the state every glyph on it shares — ALL of it.
-  // Setting only the font measured with the letter-spacing of
-  // whichever run came last, and kept lines that overflow.
+  // Under the full state every glyph shares, letter-spacing included.
   const state = lineState ?? m.stateOf(items.refs(piece).style);
-  // Empty-text items carry non-glyph advance (inline padding/border
-  // markers) that the measured text misses, and an
-  // atomic inline-block is a box whose width no string measures —
-  // add them back so padded inline spans aren't under-measured. A
-  // space set in ANOTHER state (`<b style="font-size:.7em"> </b>`)
-  // keeps its own width too: at the line's size it reads wider than
-  // it is. The text either side of it is measured as separate strings.
+  // Add back what the string misses: box-edge markers, atomic inline-blocks, and spaces set
+  // in another state (`<b style="font-size:.7em"> </b>`).
   let textWidth = 0;
   let markerWidth = 0;
   let text = '';
@@ -2587,32 +2121,20 @@ function knifeEdgeOverflows(flow: LineFlow, piece: number, tail: number, headExt
   if (items.flags(piece) & SEG_SOFT_HYPHEN) text += '-';
   if (text) textWidth += m.width(state, text);
   const fullWidth = textWidth + markerWidth + tail + headExtra;
-  // Allow only a hair of sub-pixel overflow. A broader tolerance fixes
-  // isolated knife-edges but packs extra words in ordinary paragraphs.
+  // Only a hair of sub-pixel overflow: a broader tolerance packs extra words.
   return fullWidth > flow.budget() + 0.02;
 }
 
-/**
- * The widest line of a flow — what an intrinsic size is. The first line
- * stands `textIndent` further in (the flow narrowed its budget by it, but
- * its `totalWidth` is the content alone).
- */
+/** The widest line of a flow, the first standing `textIndent` further in. */
 function widestLine(lines: readonly FlowLine[], textIndent: number): number {
   return lines.reduce(
     (widest, line, index) => Math.max(widest, index === 0 ? line.totalWidth + textIndent : line.totalWidth), 0);
 }
 
 /**
- * Shared line budget for `-webkit-line-clamp` on a block container whose
- * text lives in block descendants (Chrome legacy `-webkit-box` semantics:
- * line boxes are counted across ALL descendants; the Nth line gets an
- * ellipsis and everything after it is dropped). Created in layoutBlock at
- * the clamped element and threaded through descendant layout calls.
- *
- * Known limitation: when the budget runs out exactly at a paragraph
- * boundary (Nth line is a paragraph's last line), following content is
- * dropped but the already-emitted Nth line gets no ellipsis — its layout
- * nodes were positioned before we learned more content follows.
+ * `-webkit-line-clamp` line budget shared across block descendants (Chrome legacy
+ * `-webkit-box`). Known gap: a budget spent exactly at a paragraph end drops what follows
+ * without an ellipsis.
  */
 interface LineClampState {
   /** Line boxes still allowed before the cut. */
@@ -2629,13 +2151,9 @@ function clampSpent(clamp: LineClampState | undefined): boolean {
 }
 
 /**
- * The final flow's widths for the segments preparing could not size
- * (`PreparedInline.inlineBlocks`, `.percentEdges`), at `containingWidth`,
- * the used width of the line's containing block — and each inline-block laid
- * out at its width: its box takes its own width or shrinks to fit its content
- * (`inlineBlockContentWidth`), its content's percentages resolve against that
- * content box, and the emit pass draws what it laid out. Undefined when every
- * prepared width stands.
+ * The final flow's widths for segments preparing could not size (inline-blocks,
+ * percentage edges) at `containingWidth`, each inline-block laid out at its width.
+ * Undefined when every prepared width stands.
  */
 function usedSegmentWidths(
   session: LayoutSession,
@@ -2659,10 +2177,7 @@ function usedSegmentWidths(
     const frame = horizontalFrame(s);
     const contentWidth = inlineBlockContentWidth(
       session, source, s, Math.max(0, containingWidth - margins - frame));
-    // The source node IS the inner root: the inline formatting context reads
-    // only font, whiteSpace, direction, text-align/indent and line-clamp off
-    // it. Its box properties are applied here, by the caller, so there is
-    // nothing to zero out first.
+    // The source node is the inner root; its box properties are applied here.
     resolvePercentages(s, contentWidth, true);
     resolveChildPercentages(source, contentWidth);
     const inner = layoutInlineContent(session, source, 0, 0, contentWidth, useBulletProbe);
@@ -2687,11 +2202,8 @@ function usedSegmentWidths(
 }
 
 /**
- * Re-resolve the percentages of `node`'s children against `cbWidth`, their
- * containing block's width as layout settled it (`resolvePercentages`) —
- * before anything reads them. Inline boxes pass the block's width through to
- * their own children; a block or an inline-block resolves its children when
- * it is laid out. A text node shares its parent's style and is skipped.
+ * Re-resolve `node`'s children's percentages against `cbWidth`. Inline boxes pass it on to
+ * their children; blocks and inline-blocks resolve their own when laid out.
  */
 function resolveChildPercentages(node: StyledNode, cbWidth: number): void {
   for (const child of node.children) {
@@ -2702,18 +2214,12 @@ function resolveChildPercentages(node: StyledNode, cbWidth: number): void {
   }
 }
 
-// ─── Bidi reordering ───────────────────────────────────────────────────
+// ── Bidi reordering ──
 
 /**
- * Per committed line, per word, the word's UAX #9 levels after L1 (`null` for
- * a padding marker) — or `null` for a line that needs no reordering. `null`
- * overall for a paragraph with nothing right-to-left in it, which costs one
- * scan: every plain LTR paragraph keeps its word-by-word emission untouched.
- *
- * Levels are resolved over the WHOLE paragraph, not per line: a neutral at a
- * line end, or a number after a wrapped Arabic word (W2/W7), takes its type
- * from text on another line. A forced break separates paragraphs; an atomic
- * inline is one U+FFFC (CSS Writing Modes 3 §2.4.2).
+ * Per line, per word, UAX #9 levels after L1 (`null` for a padding marker or a line that
+ * needs none; `null` overall for a paragraph without RTL). Resolved over the whole
+ * paragraph, as W2/W7 look across lines; an atomic inline is one U+FFFC.
  */
 function resolveLineBidi(
   lines: PositionedLine[], rtl: boolean,
@@ -2792,13 +2298,9 @@ function sameBidiRun(a: Word, b: Word): boolean {
 }
 
 /**
- * A line in ONE paint (style, box, declarers and bidi context all shared; no
- * padding, atomic inline, tab or justification) as a single run in the
- * paragraph direction — the engine's Canvas then shapes the whole line as its
- * layout does (`CANVAS_BIDI_LINE`). Only when Canvas, resolving the line's
- * text on its own, reaches the levels the paragraph gave it: a line whose
- * neutrals or numbers take their type from another line (W2/W7, N1 across a
- * soft wrap) goes through the ordered runs instead. `null` otherwise.
+ * A line in ONE paint as a single run in the paragraph direction, so Canvas shapes it as
+ * layout does (`CANVAS_BIDI_LINE`), only when Canvas alone reaches the paragraph's
+ * levels for it (not when W2/W7/N1 reach across a wrap). `null` otherwise.
  */
 function singlePaintLine(
   words: Word[],
@@ -2829,23 +2331,10 @@ function singlePaintLine(
 }
 
 /**
- * One line's words as level-uniform pieces in VISUAL order (UAX #9 L2), each
- * with its level.
- *
- * - A word whose characters resolve to different levels (`abc:` before RTL
- *   text, `(123)` in Arabic) is cut where the level changes; the pieces share
- *   the word's flow width in proportion to their own measure.
- * - Padding markers are not characters: content is reordered without them,
- *   then each box's open marker (it carries padding-LEFT) goes before the
- *   visually leftmost piece of that box and its close marker after the
- *   rightmost — the physical edges, whatever the box's content direction.
- * - Visually adjacent pieces of one non-zero level and one paint merge into a
- *   single run (one fillText, so Canvas shapes and kerns it as the engine
- *   does); its logical text is its pieces right to left at an odd level, and
- *   its width the sum of their flow advances. Level-0 (LTR paragraph) words
- *   are never merged, so LTR stays word-granular.
- * - `keys` give each output piece its logical position (the first item it
- *   holds), so the caller can emit nodes in document order.
+ * One line's words as level-uniform pieces in VISUAL order (UAX #9 L2). A word with mixed
+ * levels is cut, sharing its width by measure. Padding markers go at the visual edges of
+ * their box's content. Adjacent pieces of one non-zero level and paint merge into one run
+ * (one fillText); level-0 words never merge. `keys` give each piece its logical position.
  */
 function bidiLineItems(
   m: Measurer,
@@ -2892,11 +2381,8 @@ function bidiLineItems(
     });
   });
 
-  // Content in visual order; padding markers are put back afterwards at the
-  // VISUAL edges of their box's content. A marker is not a character, and
-  // letting it ride on a neighbour's level moved it inside the box whenever a
-  // deeper level was reversed (`<code>render()</code>` in Arabic: the open
-  // padding landed between "()" and "render").
+  // Markers are not characters: reorder the content alone, then put each marker at its
+  // box's visual edge (`<code>render()</code>` in Arabic).
   const content: number[] = [];
   items.forEach((_, i) => { if (levels[i] >= 0) content.push(i); });
   const order = visualOrder(content.map((i) => levels[i]));
@@ -2973,10 +2459,7 @@ function bidiLineItems(
       outWords.push({
         ...run[0],
         text: run.map((w) => w.text).join(''),
-        // The flow's own advances, not a fresh measure of the joined text:
-        // they were taken with the text before them as context (kerning,
-        // and the font a fallback-script space resolves to), so the run
-        // ends where the wrap decision and the DOM put it.
+        // The flow's own advances (measured with context), not a fresh measure of the joined text.
         width: run.reduce((sum, w) => sum + w.width, 0),
         isSpace: run.every((w) => w.isSpace),
       });
@@ -2988,22 +2471,13 @@ function bidiLineItems(
   return { words: outWords, levels: outLevels, keys: outKeys };
 }
 
-/**
- * What laying out one inline formatting context produces, and what every
- * line of it shares. `layoutInlineContent` makes one; the per-line phases
- * (`emitLine` and what it calls) append to it.
- */
+/** One inline context's layout output and the state its lines share (`emitLine` appends). */
 interface InlineEmit {
   readonly session: LayoutSession;
   readonly useBulletProbe: boolean;
   /**
-   * The block's style. The block strut also participates in the line's
-   * baseline, not just its height: inline content aligns to the block-font
-   * baseline, so a line whose only content is a SMALLER inline font sits on
-   * the strut baseline (lower in the box), not centered in it. Each line's
-   * ascent/descent is seeded with the block font's metrics so the baseline
-   * lands where the DOM puts it. The block is also the parent of any run
-   * with no inline ancestor.
+   * The block's style: its strut seeds every line's height AND baseline, so small inline
+   * text sits on the block-font baseline. Also the parent of runs with no inline ancestor.
    */
   readonly blockStyle: ResolvedStyle;
   readonly x: number;
@@ -3018,23 +2492,15 @@ interface InlineEmit {
   readonly lines: LayoutLine[];
   readonly lineBoxes: LayoutLineBox[];
   /**
-   * Text nodes covered by an inline element declaring background-clip:text
-   * (clipRuns) or --rt-text-stroke-image (strokeImageRuns), mapped to that
-   * declaring element's style. A post-pass turns each per-line run of
-   * same-declarer nodes into a fragment-spanning paint box.
+   * Text nodes under a clip / stroke-image declarer, to its style (`assignInlineFragmentBoxes`).
    */
   readonly clipRuns: Map<LayoutText, ResolvedStyle>;
   readonly strokeImageRuns: Map<LayoutText, ResolvedStyle>;
 }
 
 /**
- * Layout inline content: text wrapping + positioning using pure canvas measurement.
- * Returns layout nodes and the total height consumed.
- *
- * Phases: flow (`flowInlineLines`), line clamp (`clampLines`), then per line
- * (`emitLine`) horizontal alignment, the line box (`lineBoxExtent`), bidi
- * reordering, inline backgrounds (`emitInlineBackgrounds`) and text
- * (`emitLineText`); last, the paint fragments (`assignInlineFragmentBoxes`).
+ * Lay out inline content: `flowInlineLines`, `clampLines`, `emitLine` per line, then
+ * `assignInlineFragmentBoxes`.
  */
 function layoutInlineContent(
   session: LayoutSession,
@@ -3111,12 +2577,7 @@ function layoutInlineContent(
   return { nodes: out.nodes, height: curY - y, lines: out.lines, lineBoxes: out.lineBoxes };
 }
 
-/**
- * The final flow of `prepared` at `contentWidth`, its lines materialized for
- * the emit pass: inline-blocks laid out first (their widths are what the
- * flow places), then `flowLines` under the block's indent, tab stops and
- * strut.
- */
+/** The final flow of `prepared` at `contentWidth`, inline-blocks laid out first. */
 function flowInlineLines(
   session: LayoutSession,
   node: StyledNode,
@@ -3128,11 +2589,9 @@ function flowInlineLines(
   const used = usedSegmentWidths(session, prepared, contentWidth, useBulletProbe);
   const textIndent = node.style.textIndent || 0;
   const tabMetrics = m.tabStops(node.style);
-  // The block's own font + line-height set the strut: the minimum height of
-  // every line box, even a line holding only smaller inline content.
+  // The block's strut: the minimum height of every line box.
   const strutLineHeight = m.lineHeight(node.style, useBulletProbe);
   const items = new FlowItems(prepared, prepared.refs, used?.widths, used?.layouts);
-  // The emit pass reads each placed item as a `Word`.
   const lines: PositionedLine[] = flowLines(new LineFlow(
     session, items, contentWidth, node.style.whiteSpace, useBulletProbe, textIndent, tabMetrics, strutLineHeight,
   )).map((line) => ({
@@ -3151,11 +2610,8 @@ function flowInlineLines(
 }
 
 /**
- * `-webkit-line-clamp` / `line-clamp`: truncate to N lines and append a
- * CSS-style ellipsis ("…") to the Nth line, back-trimming trailing words
- * until the ellipsis fits within contentWidth. The budget comes from an
- * ancestor's shared clamp state when one is active (clamp on a block
- * container with block children), else from this element's own style.
+ * `-webkit-line-clamp`: keep N lines and end the Nth with "…". The budget is an
+ * ancestor's shared clamp when one is active, else this element's own.
  */
 function clampLines(
   session: LayoutSession,
@@ -3168,12 +2624,10 @@ function clampLines(
   if (clampN > 0 && lines.length > clampN) {
     lines.length = clampN;
     const lastLine = lines[clampN - 1];
-    // First line has reduced width because of text-indent; a cut on this
-    // element's first line (effective budget of 1) hits it.
+    // A first-line cut also loses the text-indent.
     const lineMaxForEllipsis = contentWidth - (clampN === 1 ? (style.textIndent || 0) : 0);
     applyEllipsisToLine(session, lastLine, lineMaxForEllipsis);
-    // The ellipsis replaces the original ending. Alignment already treats
-    // this as the last visible line; it is not a source hard break.
+    // The ellipsis ends the line; it is not a source hard break.
     lastLine.endedByHardBreak = false;
     if (clamp) {
       clamp.remaining = 0;
@@ -3185,21 +2639,9 @@ function clampLines(
 }
 
 /**
- * The left edge of a line `lineMaxWidth` wide (after the first line's
- * indent) under `align`.
- *
- * When the line overflows its container, browsers fall back to start
- * alignment (per CSS Text 3 §7.1) instead of pushing the line outside
- * the box. Common trigger: wide letter-spacing on text that doesn't
- * wrap at letter boundaries (no break-word/break-all), where centering
- * would put glyphs at negative x. Sub-pixel tolerance avoids switching
- * to start for rounding noise on lines that visually fit.
- * Start edge differs by direction. LTR lines start at the left (x+indent).
- * RTL lines are anchored at the right, inset from the content's right edge
- * by text-indent — and lineMaxWidth already subtracts indent, so the RTL
- * right edge is x+lineMaxWidth. `align` here is physically resolved
- * (start/end → left/right), so RTL with align==='left' (explicit left, or
- * end) correctly falls through to left alignment.
+ * The left edge of a line under physical `align`. A line overflowing its container falls
+ * back to its start edge (CSS Text 3 §7.1), with sub-pixel tolerance; an RTL start is the
+ * right edge, `x + lineMaxWidth` (which already excludes the indent).
  */
 function alignedLineStart(
   out: InlineEmit, totalWidth: number, align: string, indent: number, lineMaxWidth: number,
@@ -3221,10 +2663,7 @@ function alignedLineStart(
   return curX;
 }
 
-/**
- * Lay out one committed line at `y`: its nodes, its `LayoutLine` and its
- * line box. Returns the line's height.
- */
+/** Lay out one committed line at `y`: nodes, `LayoutLine` and line box. Returns its height. */
 function emitLine(
   out: InlineEmit,
   line: PositionedLine,
@@ -3238,11 +2677,9 @@ function emitLine(
   const useLast = isLastLine || line.endedByHardBreak;
   const align = useLast ? out.textAlignLast : out.textAlign;
 
-  // text-indent narrows the first line's available width.
   const indent = isFirstLine ? out.textIndent : 0;
   const lineMaxWidth = out.contentWidth - indent;
 
-  // Justify: expand spaces to fill the line.
   let justifyExtraPerSpace = 0;
   if (align === 'justify' && line.totalWidth < lineMaxWidth) {
     const spaceCount = line.words.filter(w => w.isSpace).length;
@@ -3251,9 +2688,7 @@ function emitLine(
     }
   }
 
-  // text-align, with first-line indent baked in.
   let curX = alignedLineStart(out, line.totalWidth, align, indent, lineMaxWidth);
-  // Snapshot the line's left edge before LTR emission advances curX.
   const lineLeftX = curX;
 
   if (line.words.length === 0) {
@@ -3264,15 +2699,11 @@ function emitLine(
     return line.lineHeight;
   }
 
-  // Inline background boxes and text are emitted after baseline computation
-  // (below) so that emitInlineBox can use line-level metrics for alignment.
   const extent = lineBoxExtent(out, line.words);
   const lineBoxHeight = extent.ascent + extent.descent;
   const lineBaselineY = y + extent.ascent;
 
-  // Bidi: the line's words cut into level-uniform pieces in VISUAL order
-  // (UAX #9 L2), so both passes below walk the line left to right whatever
-  // its direction. A plain LTR line keeps its own words.
+  // Bidi: level-uniform pieces in visual order, so both passes walk left to right.
   let emitWords = line.words;
   let emitLevels: number[] | null = null;
   let emitKeys: number[] | null = null;
@@ -3280,40 +2711,30 @@ function emitLine(
     ({ words: emitWords, levels: emitLevels, keys: emitKeys } = bidiLineItems(
       out.session.measurer, line.words, wordLevels, out.isRTL ? 1 : 0, justifyExtraPerSpace > 0));
     if (out.isRTL) {
-      // An RTL line is anchored at its right edge (curX + totalWidth); its
-      // pieces may measure a little differently from the words they came from.
+      // An RTL line is anchored at its right edge; its pieces may measure differently.
       let total = 0;
       for (const w of emitWords) total += w.width + (w.isSpace ? justifyExtraPerSpace : 0);
       curX = curX + line.totalWidth - total;
     }
   }
 
-  // Inline background boxes before text.
   emitInlineBackgrounds(out, emitWords, curX, lineBaselineY, justifyExtraPerSpace);
   emitLineText(out, emitWords, emitLevels, emitKeys, curX, y, lineBaselineY, justifyExtraPerSpace);
 
-  // Emit a public LayoutLine record for this committed line.
-  // bounds.width: justified lines fill lineMaxWidth (spaces expanded);
-  // others use the measured words width.
+  // Justified lines fill lineMaxWidth.
   const lineWidth =
     align === 'justify' && justifyExtraPerSpace > 0
       ? lineMaxWidth
       : line.totalWidth;
   const emittedLine: LayoutLine = {
     y: Math.round(lineBaselineY),
-    // An inline-block's earlier rows were emitted as their own lines above,
-    // so this line carries only its LAST row — every glyph appears once,
-    // in order.
-    // An inline-block whose content laid out no line (whitespace only) adds
-    // nothing: its segment's U+FFFC is line breaking's, never text.
+    // An inline-block contributes only its LAST row (earlier rows are lines of their own), and
+    // nothing when it laid out no line.
     text: line.words.map((word) =>
       word.inlineBlockLayout?.lines.at(-1)?.text ?? (isAtomicInlineBlock(word) ? '' : word.text)).join(''),
     bounds: {
       x: lineLeftX,
-      // The line box starts at y — this is the CSS line box, which
-      // `lineBoxExtent` grew to cover every box on the line. Ink can still
-      // overflow it (an ascender under `line-height: 1`), exactly as it
-      // does in the DOM; a caller that clips must allow for that.
+      // The CSS line box; ink may overflow it, as in the DOM.
       y,
       width: lineWidth,
       height: lineBoxHeight,
@@ -3325,13 +2746,8 @@ function emitLine(
 }
 
 /**
- * The line box's ascent and descent above and below its baseline.
- *
- * The line box is the union of every box on it — strut, run, shifted run,
- * inline-block — each carrying its own leading over its own line-height:
- *   lineAscent = max(ascent - shift), lineDescent = max(descent + shift).
- * One font, one line-height and no shift collapse that back to the plain
- * half-leading every single-style line already had.
+ * The line box's ascent and descent: the union of every box on it (strut, runs, shifted
+ * runs, inline-blocks), each with its own leading: max(ascent - shift), max(descent + shift).
  */
 function lineBoxExtent(out: InlineEmit, words: readonly Word[]): { ascent: number; descent: number } {
   const { session, useBulletProbe, blockStyle } = out;
@@ -3341,17 +2757,9 @@ function lineBoxExtent(out: InlineEmit, words: readonly Word[]): { ascent: numbe
   let lineDescent = strutBox.descent;
   for (const word of words) {
     if (word.text === '') continue;
-    // A wrapper element with no text of its own — `<span lh:3><span>x</span>`
-    // — never becomes a Word, but it is still a box on the line and still
-    // brings its own line-height. Its run children carry it as `parentStyle`,
-    // so take it from there, AT ITS OWN SHIFT: added unshifted, a wrapper
-    // that carries a vertical-align and direct text enters the union twice
-    // at two different places, and the line spans both (measured 60px where
-    // the DOM has 40). With the shift it is idempotent — a wrapper with
-    // direct text contributes the identical box through its own run.
-    // A shift moves the box, not the line's baseline: positive is downward,
-    // so it lifts the box's demand on the ascent side and adds to the
-    // descent one.
+    // A wrapper with no text of its own is still a box with its own line-height; its children
+    // carry it as `parentStyle`. Added at its own shift, so it matches the box a direct-text
+    // run of it brings. Positive shift is downward.
     if (word.refs.parentStyle) {
       const parentBox = m.leadedBox(word.refs.parentStyle, useBulletProbe);
       const shift = verticalAlignShift(
@@ -3362,11 +2770,8 @@ function lineBoxExtent(out: InlineEmit, words: readonly Word[]): { ascent: numbe
     const own = m.leadedBox(word.refs.style, useBulletProbe);
     let ascent = own.ascent;
     let descent = own.descent;
-    // An inline-block joins the line as an ATOMIC box: its own content
-    // baseline with its margin box stacked around it. It takes the extra
-    // space, but no shift — the emit pass puts its content on the line
-    // baseline and does not honour vertical-align on it, so shifting the box
-    // here would grow the line one way while the paint went the other.
+    // An inline-block is an atomic box: its baseline with its margin box around it, unshifted,
+    // as the emit pass ignores its vertical-align.
     const atomic = word.refs.boxStyle?.display === 'inline-block' ? word.refs.boxStyle : null;
     if (word.inlineBlockLayout) {
       const ib = word.inlineBlockLayout;
@@ -3392,17 +2797,11 @@ function wordBaselineShift(out: InlineEmit, word: Word): number {
     : 0;
 }
 
-/**
- * Emit an inline background box hanging off the line's baseline. Uses the
- * line's baseline (not the box's own font) so the box aligns with its text.
- */
+/** Emit an inline background box hanging off the line's baseline. */
 function emitInlineBox(
   out: InlineEmit, style: ResolvedStyle, bx: number, bw: number, lineBaselineY: number, textWord?: Word,
 ): void {
-  // The box's OWN font decides its height, not the line's largest. An
-  // inline-block's content box is its LINE-HEIGHT, though, not the bare
-  // font metrics — measured against Chrome, bare metrics put it at
-  // y=6 h=29 where the DOM has y=4 h=33.2.
+  // Height from the box's OWN font; an inline-block's content box is its line-height.
   const { ascent: boxAscent, descent: boxDescent } =
     style.display === 'inline-block'
       ? out.session.measurer.leadedBox(style, out.useBulletProbe)
@@ -3410,18 +2809,10 @@ function emitInlineBox(
   const padTop = style.paddingTop + style.borderTopWidth;
   const padBottom = style.paddingBottom + style.borderBottomWidth;
   const boxHeight = boxAscent + boxDescent + padTop + padBottom;
-  // Every inline box hangs off the line's baseline, an inline-block too:
-  // its content is emitted on that baseline, so a box pinned to the line
-  // TOP instead detached from its own glyphs as soon as something taller
-  // shared the line — measured, a background at y 4..33 around text whose
-  // baseline was 46.
+  // Every box hangs off the line's baseline, inline-blocks too, so it stays with its glyphs.
   let baselineY = lineBaselineY;
-  // A vertical-align that moves the glyphs moves their band with them: the
-  // shift comes from the SAME call, on the SAME word, as the text emit
-  // (`wordBaselineShift`), so box and glyphs cannot drift apart. Computed
-  // independently they did — the band painted at the unshifted baseline
-  // under super/sub'd text. Inline-block stays put: the emit pass does not
-  // honour vertical-align on it (see `lineBoxExtent`).
+  // A shifted run's band moves by the same `wordBaselineShift` as its glyphs (not an
+  // inline-block's: its vertical-align is ignored).
   if (textWord && style.display !== 'inline-block') {
     if (isShiftedVAlign(textWord.refs.style.verticalAlign)) {
       baselineY += wordBaselineShift(out, textWord);
@@ -3435,9 +2826,8 @@ function emitInlineBox(
 }
 
 /**
- * The line's inline background boxes, left to right from `startX`: one per
- * run of words sharing a box style (emitted only when the run holds text),
- * and one per atomic inline-block.
+ * The line's inline background boxes from `startX`: one per run of words sharing a box
+ * style (when it holds text), one per atomic inline-block.
  */
 function emitInlineBackgrounds(
   out: InlineEmit, words: readonly Word[], startX: number, lineBaselineY: number, justifyExtraPerSpace: number,
@@ -3445,9 +2835,7 @@ function emitInlineBackgrounds(
   let scanX = startX;
   let boxStartX = scanX;
   let currentBoxStyle: ResolvedStyle | undefined;
-  // First text word of the open box group — its presence decides whether
-  // the group's band is emitted at all, and its style pair decides where
-  // the band's baseline sits (the same pair the text emit shifts by).
+  // The open box group's first text word: decides whether its band is emitted and where.
   let boxTextWord: Word | undefined;
 
   for (const word of words) {
@@ -3513,10 +2901,8 @@ function registerTextNode(out: InlineEmit, node: LayoutText, word: Word, lineTop
 }
 
 /**
- * The line's text nodes, placed left to right from `startX`. A bidi line's
- * nodes are then put back in LOGICAL order (`keys`): layoutRoot keeps
- * document order, as every consumer walking it (and the geometry oracle)
- * expects.
+ * The line's text nodes, left to right from `startX`; a bidi line's are put back in
+ * logical order (`keys`), the document order consumers expect.
  */
 function emitLineText(
   out: InlineEmit,
@@ -3570,7 +2956,6 @@ function emitLineText(
       continue;
     }
 
-    // Adjust baseline for vertical-align
     let baselineY = lineBaselineY;
     if (isShiftedVAlign(word.refs.style.verticalAlign)) baselineY += wordBaselineShift(out, word);
     const effectiveWidth = word.width + (word.isSpace ? justifyExtraPerSpace : 0);
@@ -3584,10 +2969,8 @@ function emitLineText(
       x: rtlPiece ? curX + effectiveWidth : curX,
       y: baselineY,
       width: effectiveWidth,
-      // Paint direction is the bidi LEVEL's, never the inherited CSS
-      // `direction`: `<span style="direction:rtl">` (unicode-bidi: normal)
-      // over LTR words reorders nothing, and painting them right-anchored
-      // at their left edge drew them a run-width too far left.
+      // Paint direction is the bidi LEVEL's, never the CSS `direction` (unicode-bidi: normal
+      // reorders nothing).
       style: withDirection(out.session, word.refs.style, rtlPiece ? 'rtl' : 'ltr'),
       // Only when vertical-align moved this run off the line — an
       // underline from an unshifted declarer still hangs off the line.
@@ -3629,11 +3012,7 @@ function translateInlineNode(layoutNode: LayoutNode, dx: number, dy: number): vo
   }
 }
 
-/**
- * An inline-block's own layout, placed with its content box at
- * (textX, contentY). Its rows before the last become lines of their own; the
- * last row is the text of the outer line it sits on (`emitLine`).
- */
+/** An inline-block's layout at (textX, contentY); rows before the last become lines. */
 function emitInlineBlockContent(out: InlineEmit, ib: InlineBlockLayout, textX: number, contentY: number): void {
   for (const innerNode of ib.nodes) {
     translateInlineNode(innerNode, textX, contentY);
@@ -3654,18 +3033,9 @@ function emitInlineBlockContent(out: InlineEmit, ib: InlineBlockLayout, textX: n
 }
 
 /**
- * Give each text run covered by an inline paint declarer (background-clip:text
- * background, --rt-text-stroke-image) a paint box spanning the declaring
- * element's fragment on its line.
- *
- * Browsers paint the declaring element's background over its inline fragment
- * (the run of glyphs it covers on one line) and clip it to the text; with
- * `background-size:100% 100%` the gradient fills that fragment box. Consecutive
- * text nodes sharing the same declaring element (same style object) on the
- * same baseline form one fragment; a wrap to the next line starts a new one
- * (box-decoration-break:clone semantics — Chrome's default `slice` continues
- * the gradient across line fragments; accepted approximation), and unlike a
- * per-run gradient it never restarts per word.
+ * Give each run under an inline paint declarer (background-clip:text, stroke image) a
+ * paint box spanning the declarer's fragment on its line. A wrap starts a new fragment
+ * (box-decoration-break: clone; Chrome's default `slice` would continue it).
  */
 function assignInlineFragmentBoxes(
   session: LayoutSession,
@@ -3704,13 +3074,11 @@ function assignInlineFragmentBoxes(
   }
 }
 
-// ─── Block layout ──────────────────────────────────────────────────────
+// ── Block layout ──
 
 /**
- * A set of adjoining vertical margins (CSS 2.1 §8.3.1). However many margins
- * collapse together, the result is the largest positive one plus the most
- * negative one — which pairwise folding does not give once three margins of
- * mixed sign meet (10, -5, 20 is 15, not 20).
+ * Adjoining vertical margins (CSS 2.1 §8.3.1): the largest positive plus the most negative,
+ * which pairwise folding misses (10, -5, 20 is 15).
  */
 interface MarginStrut { positive: number; negative: number }
 
@@ -3735,9 +3103,8 @@ function strutSize(strut: MarginStrut): number {
 }
 
 /**
- * Does this box establish a block formatting context of its own? A BFC root's
- * margins never collapse with its children's. Flex items, table cells and the
- * layout root are BFC roots by position and are told so by their caller.
+ * Whether the box roots a block formatting context (its margins never collapse with its
+ * children's). Flex items, table cells and the root are told so by their caller.
  */
 function establishesBfc(style: ResolvedStyle): boolean {
   const d = style.display;
@@ -3749,10 +3116,8 @@ function establishesBfc(style: ResolvedStyle): boolean {
 }
 
 /**
- * Whitespace that collapses away and so produces no line box. A newline that
- * reaches layout is always a forced break — `<br>` becomes a `'\n'` text node,
- * and the resolver already turned source newlines into spaces where they
- * collapse — so it makes a line box.
+ * Whitespace that collapses away (no line box). A newline reaching layout is always a
+ * forced break, so it makes one.
  */
 function isCollapsibleWhitespace(node: StyledNode): boolean {
   if (node.tagName !== '#text') return false;
@@ -3763,12 +3128,8 @@ function isCollapsibleWhitespace(node: StyledNode): boolean {
 }
 
 /**
- * Does this inline content make a line box? CSS 2.1 §9.4.2: a line box with
- * no text, no preserved white space, no atomic inline and no inline element
- * with a non-zero inline-axis margin, border or padding is treated as zero
- * height — for margin collapsing, as if it did not exist. An empty `<span>`
- * makes none; `<span style="padding:0 3px">` or an empty inline-block does
- * (measured, Chromium and WebKit: a 20px line box).
+ * Whether inline content makes a line box (CSS 2.1 §9.4.2): text, preserved white space, an
+ * atomic inline, or an inline with inline-axis margin/border/padding. An empty `<span>` does not.
  */
 function createsLineBox(node: StyledNode): boolean {
   if (node.tagName === '#text') return !isCollapsibleWhitespace(node);
@@ -3803,9 +3164,8 @@ function bottomAdjoinsChildren(style: ResolvedStyle): boolean {
 }
 
 /**
- * A block whose top and bottom margins adjoin each other: no line box, no
- * padding, border or min-height, and every in-flow child collapses through
- * too. Its margins join the run of margins around it.
+ * A block whose top and bottom margins adjoin: no line box, padding, border or min-height,
+ * and every in-flow child collapses through too.
  */
 function collapsesThrough(node: StyledNode): boolean {
   const s = node.style;
@@ -3818,9 +3178,8 @@ function collapsesThrough(node: StyledNode): boolean {
 }
 
 /**
- * Every margin that adjoins this block's top margin: its own, and — unless
- * padding, border or a BFC separates them — its first in-flow child's,
- * recursively, continuing past children that collapse through.
+ * Every margin adjoining this block's top: its own and, unless padding, border or a BFC
+ * intervene, its first in-flow child's, recursively.
  */
 function leadingStrut(node: StyledNode, strut: MarginStrut = NO_MARGIN): MarginStrut {
   strut = withMargin(strut, node.style.marginTop);
@@ -3838,14 +3197,9 @@ function leadingStrut(node: StyledNode, strut: MarginStrut = NO_MARGIN): MarginS
 }
 
 /**
- * Layout a block-level element and all its children.
- *
- * `y` is the border-box top: the caller has already resolved the margins
- * above it (`leadingStrut`). Returns the border-box height and the margins
- * that leave through the bottom edge (`marginBottomOut`) for the caller to
- * collapse with whatever follows. `bfcRoot` marks a box that is a block
- * formatting context root by position (the layout root, a flex item, a table
- * cell), so its margins never collapse with its children's.
+ * Lay out a block and its children. `y` is the border-box top (the caller resolved the
+ * margins above, `leadingStrut`); margins leaving the bottom return as `marginBottomOut`.
+ * `bfcRoot`: a BFC root by position (the root, a flex item, a table cell).
  */
 function layoutBlock(
   session: LayoutSession,
@@ -3858,10 +3212,8 @@ function layoutBlock(
 ): { box: LayoutBox; height: number; marginBottomOut: MarginStrut } {
   const style = node.style;
 
-  // `-webkit-line-clamp` on a block container: start a shared line budget
-  // here and thread it through descendant layout so the count spans block
-  // children (Chrome legacy -webkit-box semantics). An ancestor's active
-  // clamp wins over a nested one.
+  // `-webkit-line-clamp` here starts a line budget shared with descendants (Chrome legacy
+  // -webkit-box); an ancestor's clamp wins.
   if (!clamp && style.lineClamp > 0) {
     clamp = { remaining: style.lineClamp, exhausted: false };
   }
@@ -3871,9 +3223,7 @@ function layoutBlock(
   const padTop = style.paddingTop;
   const padBottom = style.paddingBottom;
   const boxX = x + style.marginLeft;
-  // An explicit width sizes the box `box-sizing` names (content-box, the
-  // initial value, unless the style says border-box); otherwise the box
-  // fills the available width.
+  // An explicit width sizes the box `box-sizing` names; otherwise the box fills the width.
   let boxWidth: number;
   let contentWidth: number;
   if (style.width > 0) {
@@ -3916,9 +3266,7 @@ function layoutBlock(
     return { box, height: box.height, marginBottomOut: ownMarginOut };
   }
 
-  // Empty block elements: zero content height (CSS spec — no line boxes created).
-  // Only min-height or padding/border contribute to height — except a list
-  // item's outside marker, which makes a line box of its own (Chrome, WebKit).
+  // An empty block has no line boxes, except a list item's outside marker (Chrome, WebKit).
   if (node.children.length === 0) {
     const markerLine = hasMarkerLine(node)
       ? session.measurer.lineHeight(style, bulletProbe)
@@ -3928,7 +3276,6 @@ function layoutBlock(
     return { box, height: box.height, marginBottomOut: ownMarginOut };
   }
 
-  // Layout children
   if (hasOnlyInlineChildren(node)) {
     const { nodes, height, lines, lineBoxes } = layoutInlineContent(
       session, node, contentX, contentStartY, contentWidth, node.tagName === 'li' && bulletProbe, clamp);
@@ -3937,8 +3284,7 @@ function layoutBlock(
     box.lineBoxes = lineBoxes;
     box.height = borderTop + padTop + height + padBottom + borderBottom;
   } else {
-    // Block formatting context — stack children vertically, collapsing the
-    // margins between them (CSS 2.1 §8.3.1).
+    // Stack block children, collapsing margins (CSS 2.1 §8.3.1).
     let curY = contentStartY;
     // Margins collapsed so far and not yet placed: a previous child's bottom
     // margins plus any child that collapsed through since.
@@ -3954,8 +3300,7 @@ function layoutBlock(
     for (let ci = 0; ci < node.children.length; ci++) {
       const child = node.children[ci];
 
-      // Line-clamp budget exhausted — everything below the cut is dropped,
-      // including the margin trailing the cut line.
+      // Line-clamp spent: drop everything below the cut, its trailing margin too.
       if (clampSpent(clamp)) {
         pending = NO_MARGIN;
         break;
@@ -3968,7 +3313,6 @@ function layoutBlock(
         // inline), so margins keep collapsing across it.
         if (!inlineChildren.some(createsLineBox)) continue;
 
-        // Apply pending margin before inline content
         if (!atTop) curY += strutSize(pending);
         pending = NO_MARGIN;
         atTop = false;
@@ -3989,7 +3333,6 @@ function layoutBlock(
         continue;
       }
 
-      // Block child
       const top = leadingStrut(child);
       if (collapsesThrough(child)) {
         // Its top and bottom margins adjoin: they join the pending run. Its
@@ -4048,7 +3391,7 @@ function layoutBlock(
   return { box, height: box.height, marginBottomOut: ownMarginOut };
 }
 
-// ─── Table layout ──────────────────────────────────────────────────────
+// ── Table layout ──
 
 function layoutTable(
   session: LayoutSession,
@@ -4107,19 +3450,12 @@ function layoutTable(
   return { children, height: curY - contentY };
 }
 
-// ─── Flex layout ───────────────────────────────────────────────────────
+// ── Flex layout ──
 
 /**
- * Bare text in a flex container is an anonymous flex item: a block box of its
- * own, sized and placed like any other. Built once per text node, because the
- * min- and max-content caches are keyed by node identity and sizing must ask
- * about the very node the layout places.
- *
- * Its style is the container's (a text node shares its parent's) with every
- * box property at its initial value: an anonymous box inherits, it does not
- * copy the container's margins, padding, border, background or sizes — with
- * them it drew the container's border a second time around the text, and
- * indented the text by the container's padding twice.
+ * Bare text in a flex container is an anonymous flex item, built once per text node (the
+ * content-size caches key by identity). It inherits the container's style with every box
+ * property at its initial value.
  */
 function anonymousFlexItem(session: LayoutSession, text: StyledNode): StyledNode {
   let wrapper = session.anonymousFlexItems.get(text);
@@ -4137,9 +3473,8 @@ function anonymousFlexItem(session: LayoutSession, text: StyledNode): StyledNode
 }
 
 /**
- * The children a flex container lays out. A bare text node is an anonymous
- * flex item only when it has actual text — and min-content sizing has to agree
- * with the layout about that, or an item is frozen at the wrong minimum.
+ * A flex container's items: a bare text node counts only with actual text, the same answer
+ * for sizing and layout.
  */
 function flexItems(session: LayoutSession, node: StyledNode): StyledNode[] {
   return node.children
@@ -4160,11 +3495,7 @@ function horizontalMargins(style: ResolvedStyle): number {
   return style.marginLeft + style.marginRight;
 }
 
-/**
- * Min- or max-content width of one inline formatting context: the real line
- * flow at a width nothing fits in (every soft-wrap opportunity taken, so each
- * line is one unbreakable unit) or nothing can exceed (only forced breaks).
- */
+/** Min- or max-content width of an inline context: the real flow at 0 or at Infinity. */
 function inlineContentSize(session: LayoutSession, node: StyledNode, max: boolean): number {
   const prepared = preparedInline(session, node);
   let refs = prepared.refs;
@@ -4196,9 +3527,8 @@ function inlineContentSize(session: LayoutSession, node: StyledNode, max: boolea
 }
 
 /**
- * Min- or max-content width of `node`'s CONTENT box. Percentages inside are
- * cyclic, so descendants are read through `intrinsicStyle`. Memoized for the
- * call: nested flex rows otherwise cost O(depth x nodes).
+ * Min- or max-content width of `node`'s content box, memoized per call. Percentages inside
+ * are cyclic, so descendants read `intrinsicStyle`.
  */
 function contentSize(session: LayoutSession, node: StyledNode, max: boolean): number {
   const memo = max ? session.maxContent : session.minContent;
@@ -4224,10 +3554,8 @@ function contentSize(session: LayoutSession, node: StyledNode, max: boolean): nu
 }
 
 /**
- * Min-content contribution of `node` as an outer (margin-box) width, its own
- * box read from `style`: `node.style` for a flex item, whose percentages
- * resolve against the container, or `intrinsicStyle` inside a size being
- * computed.
+ * Min-content contribution of `node` as a margin-box width, its box read from `style`
+ * (`node.style` for a flex item, else `intrinsicStyle`).
  */
 function minimumContribution(session: LayoutSession, node: StyledNode, style: ResolvedStyle): number {
   const margins = horizontalMargins(style);
@@ -4253,20 +3581,15 @@ function maximumContribution(session: LayoutSession, node: StyledNode, style: Re
 }
 
 /**
- * An inline-block's content-box width when `available` px are left for its
- * content: its own width (by `box-sizing`), else shrink-to-fit,
- * min(max(min-content, available), max-content) (CSS 2.1 §10.3.9) — floored
- * at its min-width. At 0 that is its min-content width and at Infinity its
- * max-content width, so intrinsic sizing and the final flow ask the same
- * question. Its box is read from `style` (`node.style`, or `intrinsicStyle`).
+ * An inline-block's content width with `available` px left: its own width, else
+ * shrink-to-fit (CSS 2.1 §10.3.9), floored at min-width. At 0 / Infinity that is min- /
+ * max-content, so sizing and the final flow ask the same question.
  */
 function inlineBlockContentWidth(
   session: LayoutSession, node: StyledNode, style: ResolvedStyle, available: number,
 ): number {
   const frame = horizontalFrame(style);
-  // Block children inside an inline-block are not laid out as blocks: its
-  // content is ONE inline flow (`layoutInlineContent` of the node), and it is
-  // sized by that same flow — never by a block layout it does not get.
+  // An inline-block's content is ONE inline flow, block children included, sized by it.
   const inlineOnly = hasOnlyInlineChildren(node);
   let width = style.width > 0
     ? contentBoxSize(style, style.width, frame)
@@ -4289,11 +3612,8 @@ function inlineBlockOuterWidth(
 }
 
 /**
- * Flex base size of one item, as an outer width. `flex-basis: auto` (the
- * initial value, and what `flex-grow: 1` on its own leaves in place) resolves
- * against the item's own content; `flex: 1` sets it to 0 so the item's content
- * stops mattering and the row splits by grow factor alone. A flex-basis sizes
- * the box `box-sizing` names, like a width.
+ * Flex base size as an outer width: `flex-basis` (sizing the `box-sizing` box), or for
+ * `auto` the item's max-content. `flex: 1` makes it 0, so grow factors alone split the row.
  */
 function flexBaseSize(session: LayoutSession, node: StyledNode): number {
   return node.style.flexBasis !== null
@@ -4302,13 +3622,9 @@ function flexBaseSize(session: LayoutSession, node: StyledNode): number {
 }
 
 /**
- * CSS flexible length resolution (CSS Flexbox §9.7) over outer widths.
- *
- * Grow or shrink is decided once, for the whole line, by whether the items'
- * hypothetical sizes fit. Each pass distributes the space the unfrozen items
- * are still free to take, then freezes every item that landed under its
- * automatic minimum — freeing one item changes every other item's share, so
- * the pass repeats until nothing new is clamped.
+ * Flexible length resolution over outer widths (CSS Flexbox §9.7): each pass shares the
+ * free space and freezes items under their automatic minimum, until none is clamped.
+ * flex-parity.
  */
 function resolveFlexibleLengths(
   styles: ResolvedStyle[],
@@ -4365,7 +3681,6 @@ function layoutFlex(
   if (flexChildren.length === 0) return { children, height: 0 };
 
   if (isFlexRow(style)) {
-    // Row layout
     const totalGaps = gap * (flexChildren.length - 1);
     const available = Math.max(0, contentWidth - totalGaps);
     // If the minima themselves do not fit, they overflow the container exactly
@@ -4403,19 +3718,16 @@ function layoutFlex(
   return { children, height: curY - contentY };
 }
 
-// ─── List marker layout ────────────────────────────────────────────────
+// ── List marker layout ──
 
-/**
- * Add list marker to a layout box if applicable.
- */
+/** Add list marker to a layout box if applicable. */
 function addListMarker(
   session: LayoutSession,
   box: LayoutBox,
   node: StyledNode,
 ): void {
   if (!node.listMarker) return;
-  // `::marker { content: none }` suppresses the marker entirely —
-  // canonical CSS behavior, matches the DOM reference.
+  // `::marker { content: none }` suppresses the marker.
   if (node.markerHidden) return;
 
   const style = node.style;
@@ -4423,8 +3735,7 @@ function addListMarker(
   const ms = node.markerStyle;
   const markerStyleObj: ResolvedStyle = ms ? { ...style, ...ms } : style;
 
-  // The marker measures in its own style — letter-spacing and kerning too,
-  // as it is painted, not in whatever the li's last run left on the ctx.
+  // The marker measures in its own style, as it is painted.
   const m = session.measurer;
   const markerState = m.stateOf(markerStyleObj);
   // ascent + descent is the li's line-height by construction, so one call
@@ -4435,22 +3746,15 @@ function addListMarker(
   const markerWidth = m.width(markerState, node.listMarker);
   const isRTL = style.direction === 'rtl';
   const isBullet = BULLET_MARKERS.has(style.listStyleType);
-  // Gap between marker and content, matching Chrome (measured empirically):
-  // - bullets: Chrome paints a symbol (diameter ascent/3) whose ink ends
-  //   7px + ascent/3 before the content edge, centered ascent/3 above the
-  //   baseline. We keep the glyph but position its ink to land there.
-  // - text markers ("1."): Chrome's marker text carries a ". " suffix, so
-  //   the gap is one space advance and the baseline is the line baseline.
-  // `::marker { padding-inline-end: <length> }` overrides the gap — we honor
-  // the direction-resolved physical padding (paddingRight in LTR, paddingLeft
-  // in RTL) when explicitly set on the marker.
+  // Marker gap, matching Chrome: a bullet's ink ends 7px + ascent/3 before the content,
+  // centered ascent/3 above the baseline; a text marker ("1.") is one space advance away.
+  // `::marker` padding-inline-end overrides the gap.
   const explicitGap = isRTL ? ms?.paddingLeft : ms?.paddingRight;
 
   let markerX: number;
   let markerY = baselineY;
   let markerDirection = 'ltr';
-  // Style/width the marker glyph is actually DRAWN with. Numbers draw at the
-  // li font (unchanged); bullets scale up (see below), so keep these separate.
+  // What the glyph is DRAWN with: numbers at the li font, bullets scaled (below).
   let markerDrawStyle: ResolvedStyle = markerStyleObj;
   let markerDrawWidth = markerWidth;
   const contentStartX = box.x + style.borderLeftWidth + style.paddingLeft;
@@ -4458,17 +3762,11 @@ function addListMarker(
   if (isBullet) {
     const { ascent } = m.metrics(markerStyleObj);
     const ink = m.measureText(markerState, node.listMarker);
-    // Blink's marker unit: the disc DIAMETER, the variable part of the gap, and
-    // the vertical centering all key off this one value (a 2/3·ascent marker
-    // box with a half-filling disc → ascent/3). Named once so tuning one keeps
-    // the trio in sync.
+    // Blink's marker unit (a 2/3-ascent box, half-filled): disc diameter, gap and centering.
     const markerUnit = ascent / 3;
     const gap = explicitGap !== undefined ? explicitGap : 7 + markerUnit;
-    // Chrome paints bullet symbols (disc/circle/square) as a SYNTHETIC shape of
-    // that diameter, NOT the font's smaller '•'/'○'/'■' glyph (Roboto's '•' ink
-    // is ~0.22em vs Chrome's ~0.31em disc). Match it by scaling the glyph so its
-    // ink height equals markerUnit. Keeping the marker a text node means fill /
-    // stroke / shadow / gradient still apply exactly as before.
+    // Chrome paints a SYNTHETIC disc, larger than the font's '•' (Roboto ~0.22em vs ~0.31em):
+    // scale the glyph so its ink height is markerUnit, keeping it a text node.
     const inkH = (ink.actualBoundingBoxAscent ?? 0) + (ink.actualBoundingBoxDescent ?? 0);
     const scale = inkH > 0 ? markerUnit / inkH : 1;
     const inkRight = (ink.actualBoundingBoxRight ?? markerWidth) * scale;
@@ -4489,9 +3787,7 @@ function addListMarker(
       ? explicitGap
       : m.width(markerState, ' ');
     if (isRTL) {
-      // RTL: marker in the parent's right padding area (outside the li box).
-      // Numbered markers ("1.") need RTL direction to display as ".1".
-      // With textAlign='right', x is the right edge — so add markerWidth.
+      // RTL: marker right of the li; a numbered one paints RTL (".1") with x as its right edge.
       const isNumbered = /\d/.test(node.listMarker);
       if (isNumbered) {
         markerDirection = 'rtl';
@@ -4517,14 +3813,8 @@ function addListMarker(
   runLineTops.set(marker, box.y + style.borderTopWidth + style.paddingTop);
   box.children.unshift(marker);
 
-  // Also publish the marker through the LayoutLine stream so result.lines
-  // sees the bullet/number alongside the item text. Markers are added AFTER
-  // inline content is laid out, so they don't go through layoutInlineContent.
-  // The buildLayoutTree sort+merge step picks up the marker by its baseline.
-  // RTL numbered markers store their right edge in markerX (textAlign trick).
-  // bounds.width is the (scaled) glyph ADVANCE, not its ink extent — same
-  // convention as numbered markers; the ink right edge itself is pinned to
-  // contentStart - gap above.
+  // Publish the marker as a LayoutLine too, merged with its item's text by baseline.
+  // bounds.width is the scaled glyph ADVANCE, not its ink.
   const markerLeftX = markerDirection === 'rtl' ? markerX - markerDrawWidth : markerX;
   session.lines.push({
     y: Math.round(baselineY),
@@ -4538,7 +3828,7 @@ function addListMarker(
   });
 }
 
-// ─── Main entry ────────────────────────────────────────────────────────
+// ── Main entry ──
 
 /** Parse `html` and resolve its styles; ch/ex measure on `ctx` only when used. */
 export function styleTree(
@@ -4553,10 +3843,7 @@ export function styleTree(
   });
 }
 
-/**
- * Build the layout tree from the styled tree using pure canvas measurement.
- * No DOM measurements used — all positions computed from CSS values + canvas.measureText.
- */
+/** Build the layout tree from the styled tree with canvas measurement only. */
 export function buildLayoutTree(
   ctx: CanvasRenderingContext2D,
   styledTree: StyledNode,
@@ -4565,10 +3852,7 @@ export function buildLayoutTree(
   debug?: (entry: import('./types.ts').DebugEntry) => void,
   stats?: LayoutStats,
 ): { root: LayoutBox; height: number; lines: LayoutLine[] } {
-  // Everything starts empty with the call and ends with it — fonts may have
-  // loaded since the last one. A fresh measurer also has no idea what the
-  // ctx holds: the caller may have touched it. The font metrics table
-  // outlives the call on the result alone (`layoutFontMetrics`).
+  // Everything starts empty with the call: fonts may have loaded since the last one.
   const fontMetrics: FontMetricsTable = new Map();
   const session: LayoutSession = {
     measurer: new Measurer(ctx, fontMetrics, useDomMeasurements),
@@ -4584,35 +3868,25 @@ export function buildLayoutTree(
   // The styledTree root is our container div — layout its children as a block flow
   const { box, height } = layoutBlock(session, styledTree, 0, 0, containerWidth, undefined, true);
 
-  // Add list markers post-layout
   addListMarkersRecursive(session, box, styledTree);
 
-  // Sort by baseline y, then by left edge so cross-cell content merges in
-  // reading order (LTR). List markers sit at smaller x than their content
-  // and so come first, producing "• Item" rather than "Item •".
+  // By baseline, then left edge: cross-cell content merges in reading order, markers first.
   const sorted = session.lines.sort((a, b) =>
     (a.y - b.y) || (a.bounds.x - b.bounds.x)
   );
   const lines: LayoutLine[] = [];
   for (const candidate of sorted) {
     const last = lines[lines.length - 1];
-    // How far apart two baselines can sit and still be one visual row is
-    // bounded by the SHORTER of the two rows — the same rule the native DOM
-    // reference groups word rects by (`overlap / minH`). Using max() leaks
-    // across rows in tight multi-column layouts, and using the candidate's own
-    // height alone lets a line box that contains a tall atomic inline-block
-    // swallow the row above it.
+    // Two baselines are one row within half the SHORTER line's height, as the DOM reference
+    // groups (`overlap / minH`); max() or the candidate alone leaks across rows.
     const tolerance = Math.min(last?.bounds.height ?? Infinity,
       candidate.bounds.height) * 0.5;
     if (last && Math.abs(candidate.y - last.y) < tolerance) {
-      // Cross-cell merge: insert a space separator so the text stays
-      // readable when N cells of a table row collapse into one LayoutLine.
-      // Skip if either side already has a boundary space.
+      // Cross-cell merge: separate with a space unless either side has one.
       const needsSep = last.text.length > 0 && candidate.text.length > 0 &&
         !/\s$/.test(last.text) && !/^\s/.test(candidate.text);
       last.text += (needsSep ? ' ' : '') + candidate.text;
-      // Carry baseline forward so the next comparison uses the running
-      // edge of the group, not the stale first element's baseline.
+      // Carry the baseline forward so the next comparison uses the group's running edge.
       last.y = Math.max(last.y, candidate.y);
       const x1 = Math.min(last.bounds.x, candidate.bounds.x);
       const y1 = Math.min(last.bounds.y, candidate.bounds.y);
@@ -4634,8 +3908,7 @@ function addListMarkersRecursive(
 ): void {
   addListMarker(session, box, node);
 
-  // Match children — box.children may have extra text/inline nodes,
-  // so we correlate by walking both in parallel
+  // box.children may hold extra text/inline nodes: walk both in parallel.
   let boxChildIdx = 0;
   for (const styledChild of node.children) {
     if (isInline(styledChild)) {
