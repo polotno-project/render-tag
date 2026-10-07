@@ -487,15 +487,6 @@ function parseComplex(text: string, allowPseudoElement: boolean): ParsedSelector
   return { compounds, combinators, spec, pseudoElement, rootKind };
 }
 
-/**
- * Parse one complex selector (one member of a selector list). null when it
- * is invalid or uses anything unsupported.
- */
-export function parseSelector(text: string): ParsedSelector | null {
-  const sel = parseComplex(text, true);
-  return sel === INVALID || sel === UNSUPPORTED ? null : sel;
-}
-
 /** A selector list's supported members, or INVALID when any member is invalid. */
 function parseSelectorListResult(prelude: string): ParsedSelector[] | typeof INVALID {
   const out: ParsedSelector[] = [];

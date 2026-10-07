@@ -17,7 +17,7 @@
  * and minus `!important`, which becomes a flag).
  */
 
-export interface CSSDeclaration {
+interface CSSDeclaration {
   /** Lower-cased property name. */
   property: string;
   /** Trimmed value, `!important` removed. Never empty. */
@@ -25,7 +25,7 @@ export interface CSSDeclaration {
   important: boolean;
 }
 
-export interface CSSStyleRule {
+interface CSSStyleRule {
   /** The selector list as written, comments removed, trimmed. */
   prelude: string;
   declarations: CSSDeclaration[];

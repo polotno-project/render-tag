@@ -20,7 +20,7 @@ import type { PaintState } from './paint-state.js';
 // text_decoration_info.cc, styled_stroke_data.cc). Gecko is unmeasured — it
 // keeps render-tag's older shapes and positions (`legacyBand`).
 
-export type DecorationLine = 'underline' | 'overline' | 'line-through';
+type DecorationLine = 'underline' | 'overline' | 'line-through';
 
 /** One decoration band across one text fragment. */
 export interface Band {
@@ -50,23 +50,15 @@ export interface Band {
 const toDevice = (v: number, scale: number) => Math.floor(v * scale + 0.5) / scale;
 
 /**
- * Painted thickness for `auto`: Blink paints max(1, floor(fontSize / 10))
- * rows (measured across 6 fonts × 16-64px against the DOM raster). Shared by
- * both renderers.
- */
-export function decorationThickness(fontSize: number): number {
-  return Math.max(1, Math.floor(fontSize / 10));
-}
-
-/**
  * The band width for one decoration entry: the declarer's explicit
  * text-decoration-thickness when set (Chrome draws round(T) rows; a declared
  * 0 hides the band — callers skip on 0), else the auto thickness from the
- * declarer's font size. Shared by both renderers.
+ * declarer's font size. Shared by both renderers. Blink's auto thickness is
+ * max(1, floor(fontSize / 10)) rows (measured across 6 fonts x 16-64px).
  */
 export function bandWidthFor(deco: DecorationEntry): number {
   const t = deco.declarer.textDecorationThickness;
-  if (t === null) return decorationThickness(deco.declarer.fontSize);
+  if (t === null) return Math.max(1, Math.floor(deco.declarer.fontSize / 10));
   return t <= 0 ? 0 : Math.max(1, Math.round(t));
 }
 
@@ -128,7 +120,7 @@ function webkitAutoRows(fontSize: number, deviceScale: number): number {
 }
 
 /** Where a fragment's decorations hang: what `decorationBand` needs to know. */
-export interface FragmentLine {
+interface FragmentLine {
   /** The painted baseline of the crossed text. */
   baseline: number;
   /** The baseline an underline hangs off (the line's own when the run was

@@ -11,8 +11,7 @@
  */
 
 import type { ResolvedStyle, StyledNode } from '../types.js';
-import { Measurer, type FontMetricsTable, type MeasureState, hasTextClip, transformTextRuns } from '../layout.js';
-import { stringToArray } from './grapheme.js';
+import { Measurer, type FontMetricsTable, type MeasureState, graphemes as splitGraphemes, hasTextClip, transformTextRuns } from '../layout.js';
 import {
   BidiTextBuilder, bidiClass, bidiContextFor, lineLevels, resolveBidi, visualOrder,
   type BidiContext,
@@ -87,7 +86,7 @@ export type AlignMode = 'left' | 'center' | 'right' | 'justify';
 export type TextBaseline =
   | 'alphabetic' | 'middle' | 'top' | 'bottom' | 'hanging' | 'ideographic';
 
-export interface LayoutInput {
+interface LayoutInput {
   segments: Segment[];
   /** The paragraph direction (UAX #9 paragraph level); default `ltr`. */
   direction?: 'ltr' | 'rtl';
@@ -295,7 +294,7 @@ function preGlyphsForSegment(
   seg: Segment,
   levels: Uint8Array,
 ): PreGlyph[] {
-  const graphemes = stringToArray(seg.text);
+  const graphemes = splitGraphemes(seg.text);
   if (graphemes.length === 0) return [];
 
   const { ascent, descent } = m.metrics(seg.style);

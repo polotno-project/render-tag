@@ -10,18 +10,14 @@ import {
 import { isTransparent, paintOrderHasStrokeFirst } from './css-resolver.js';
 import { paintTextShadows, ScratchPool, shadowBounds, textPaintBounds, unionBounds, withCanvasShadow, withoutCanvasShadow, type PaintBounds, type ShadowPiece } from './shadow.js';
 import { PaintState } from './paint-state.js';
-import { parseLinearGradient } from './gradient.js';
 import { decorationBand, paintBand, type Band } from './decoration.js';
 import { STROKE_CASTS_TEXT_SHADOW } from './engine.js';
-
-export { parseLinearGradient };
-export { bandWidthFor, decorationThickness, drawDecorationLine, explicitUnderlineDelta } from './decoration.js';
 
 /**
  * Parse a CSS text-shadow string into individual shadow values.
  * Format: "2px 2px 4px rgba(0,0,0,0.3), ..."
  */
-export function parseTextShadows(shadow: string, currentColor = 'black'): Array<{
+export function parseTextShadows(shadow: string, currentColor: string): Array<{
   offsetX: number; offsetY: number; blur: number; color: string;
 }> {
   if (!shadow || shadow === 'none') return [];

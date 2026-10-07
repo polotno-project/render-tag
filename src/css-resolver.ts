@@ -4,12 +4,12 @@ import { bidiClass } from './bidi.js';
 import { parseDeclarationList, parseStylesheet } from './css-syntax.js';
 import { SelectorMatcher, parseSelectorList, type ElementContext, type ParsedSelector } from './css-selectors.js';
 import {
-  LEGACY_FONT_SIZES, resolveFontSize, resolveFontWeight, resolveLength, resolveNumberOrLength,
+  FONT_SIZE_KEYWORDS, LEGACY_FONT_SIZES, resolveFontSize, resolveFontWeight, resolveLength, resolveNumberOrLength,
   type FontUnits, type LengthBasis, type Viewport,
 } from './css-values.js';
 import {
   BORDER_STYLES, KEYWORDS, backgroundClip, display, fontStyle, isColor, isFontFamilyList, isImageList,
-  isImageToken, isListStyleType, isTextShadow, listStyleType, paintOrder, parseLegacyColor, splitTopLevel,
+  MATH, isImage, isTextShadow, listStyleType, paintOrder, parseLegacyColor, splitTopLevel,
   splitTopLevelWhitespace, textDecorationLine, textTransform, verticalAlign,
 } from './css-validate.js';
 
@@ -434,7 +434,7 @@ export function expandShorthand(property: string, value: string): Longhand[] {
     let width = '', style = '', color = '';
     for (const p of splitTopLevelWhitespace(value.trim())) {
       const lower = p.toLowerCase();
-      if (!width && (/^[+-]?(?:\d|\.\d)/.test(p) || MATH_FUNCTION.test(p) || lower in BORDER_WIDTH_KEYWORDS)) width = p;
+      if (!width && (/^[+-]?(?:\d|\.\d)/.test(p) || MATH.test(p) || lower in BORDER_WIDTH_KEYWORDS)) width = p;
       else if (!style && BORDER_STYLES.has(lower)) style = lower;
       else if (!color && isColor(p)) color = p;
       else return [];
@@ -495,8 +495,8 @@ export function expandShorthand(property: string, value: string): Longhand[] {
     for (const p of splitTopLevelWhitespace(value.trim())) {
       const lower = p.toLowerCase();
       if (lower === 'none') nones++;
-      else if (lower === 'inside' || lower === 'outside' || isImageToken(p)) continue;
-      else if (!type && isListStyleType(p)) type = p;
+      else if (lower === 'inside' || lower === 'outside' || isImage(p)) continue;
+      else if (!type && listStyleType(p) !== null) type = p;
       else return [];
     }
     if (nones > (type ? 1 : 2)) return [];
@@ -529,7 +529,7 @@ export function expandShorthand(property: string, value: string): Longhand[] {
       else if (!none && (lower === 'underline' || lower === 'overline' || lower === 'line-through' || lower === 'blink') &&
           !lines.includes(lower)) lines.push(lower);
       else if (!style && KEYWORDS['text-decoration-style'].has(lower)) style = lower;
-      else if (!thickness && (lower === 'auto' || lower === 'from-font' || /^[\d.+-]/.test(p) || MATH_FUNCTION.test(p))) thickness = p;
+      else if (!thickness && (lower === 'auto' || lower === 'from-font' || /^[\d.+-]/.test(p) || MATH.test(p))) thickness = p;
       else if (!color && isColor(p)) color = p;
       else return [];
     }
@@ -547,7 +547,7 @@ export function expandShorthand(property: string, value: string): Longhand[] {
     // (rgb(255, 255, 255), color(srgb 1 0 0), …) survive intact.
     let width = '', color = '';
     for (const p of splitTopLevelWhitespace(value.trim())) {
-      if (!width && (/^[+-]?(?:\d|\.\d)/.test(p) || MATH_FUNCTION.test(p) || p.toLowerCase() in BORDER_WIDTH_KEYWORDS)) width = p;
+      if (!width && (/^[+-]?(?:\d|\.\d)/.test(p) || MATH.test(p) || p.toLowerCase() in BORDER_WIDTH_KEYWORDS)) width = p;
       else if (!color && isColor(p)) color = p;
       else return [];
     }
@@ -599,10 +599,7 @@ const FONT_STRETCHES = new Set([
   'ultra-condensed', 'extra-condensed', 'condensed', 'semi-condensed',
   'semi-expanded', 'expanded', 'extra-expanded', 'ultra-expanded',
 ]);
-const FONT_SIZE_KEYWORDS = new Set([
-  'xx-small', 'x-small', 'small', 'medium', 'large', 'x-large', 'xx-large', 'xxx-large', 'larger', 'smaller',
-]);
-const MATH_FUNCTION = /^(?:calc|min|max|clamp)\(/i;
+const isFontSizeKeyword = (v: string) => Object.hasOwn(FONT_SIZE_KEYWORDS, v) || v === 'larger' || v === 'smaller';
 
 /**
  * The `font` shorthand (CSS Fonts 4 §2.8):
@@ -637,8 +634,8 @@ function expandFont(value: string): Longhand[] {
     // The size, optionally glued to `/line-height` or followed by `/ lh`.
     const slash = token.indexOf('/');
     const size = slash === -1 ? token : token.slice(0, slash);
-    if (!size || !(/^[+]?(?:\d|\.\d)/.test(size) || FONT_SIZE_KEYWORDS.has(size.toLowerCase()) ||
-        MATH_FUNCTION.test(size))) return [];
+    if (!size || !(/^[+]?(?:\d|\.\d)/.test(size) || isFontSizeKeyword(size.toLowerCase()) ||
+        MATH.test(size))) return [];
     let rest = v.slice(m.index + (slash === -1 ? token.length : slash)).trim();
     let lineHeight = 'normal';
     if (rest.startsWith('/')) {
@@ -691,11 +688,11 @@ function expandBackground(value: string): Longhand[] {
     const boxes: string[] = [];
     for (const token of splitTopLevelWhitespace(layers[li])) {
       const lower = token.toLowerCase();
-      if (lower === 'none' || isImageToken(token)) {
+      if (lower === 'none' || isImage(token)) {
         image = lower === 'none' ? 'none' : token;
       } else if (BACKGROUND_BOXES.has(lower)) {
         boxes.push(lower);
-      } else if (BACKGROUND_KEYWORDS.has(lower) || /^[+-]?(?:\d|\.\d)/.test(token) || MATH_FUNCTION.test(token) ||
+      } else if (BACKGROUND_KEYWORDS.has(lower) || /^[+-]?(?:\d|\.\d)/.test(token) || MATH.test(token) ||
           /^\//.test(token)) {
         // position / size / repeat / attachment — not rendered
       } else if (li === layers.length - 1 && !colorSeen && isColor(token)) {
@@ -1086,7 +1083,7 @@ export function anonymousBlockStyle(style: ResolvedStyle): ResolvedStyle {
 }
 
 /** `box-sizing: border-box`. */
-export function isBorderBox(style: ResolvedStyle): boolean {
+function isBorderBox(style: ResolvedStyle): boolean {
   return (style as InternalStyle)[BOX_SIZING] === 'border-box';
 }
 
@@ -1114,7 +1111,7 @@ function paddingOf(value: string, env: DeclarationEnv): number {
  * 0, and a second (elliptical) component on a longhand is ignored.
  */
 function borderRadiusValue(value: string, env: DeclarationEnv): BorderRadius | null {
-  const v = MATH_FUNCTION.test(value.trim()) ? value.trim() : value.trim().split(/\s+/)[0];
+  const v = MATH.test(value.trim()) ? value.trim() : value.trim().split(/\s+/)[0];
   if (/^[+-]?(?:\d+\.?\d*|\.\d+)%$/.test(v)) {
     const pct = parseFloat(v);
     return pct > 0 ? { pct } : 0;
@@ -1369,7 +1366,7 @@ function applyDeclaration(style: ResolvedStyle, property: string, value: string,
     case 'gap': {
       const v = value.trim();
       // `gap: <row> <column>`: the row gap is first; flex rows use one gap.
-      const first = MATH_FUNCTION.test(v) ? v : v.split(/\s+/)[0];
+      const first = MATH.test(v) ? v : v.split(/\s+/)[0];
       return set('gap', first.toLowerCase() === 'normal' ? 0 : cbLengthOf(first, env));
     }
     // A non-negative <number>; anything else is invalid.

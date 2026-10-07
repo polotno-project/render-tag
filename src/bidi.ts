@@ -27,20 +27,20 @@
  * approximates rare symbols as ON.
  */
 
-export type BidiClass =
+type BidiClass =
   | 'L' | 'R' | 'AL' | 'EN' | 'ES' | 'ET' | 'AN' | 'CS' | 'NSM' | 'BN'
   | 'B' | 'S' | 'WS' | 'ON'
   | 'LRE' | 'LRO' | 'RLE' | 'RLO' | 'PDF' | 'LRI' | 'RLI' | 'FSI' | 'PDI';
 
-export const LRE = '‪';
-export const RLE = '‫';
-export const PDF = '‬';
-export const LRO = '‭';
-export const RLO = '‮';
-export const LRI = '⁦';
-export const RLI = '⁧';
-export const FSI = '⁨';
-export const PDI = '⁩';
+const LRE = '‪';
+const RLE = '‫';
+const PDF = '‬';
+const LRO = '‭';
+const RLO = '‮';
+const LRI = '⁦';
+const RLI = '⁧';
+const FSI = '⁨';
+const PDI = '⁩';
 
 const inRanges = (cp: number, ranges: readonly number[]): boolean => {
   for (let i = 0; i < ranges.length; i += 2) {
@@ -173,12 +173,11 @@ const MAX_DEPTH = 125;
 const isIsolateInit = (t: BidiClass) => t === 'LRI' || t === 'RLI' || t === 'FSI';
 const isRemovedByX9 = (t: BidiClass) =>
   t === 'RLE' || t === 'LRE' || t === 'RLO' || t === 'LRO' || t === 'PDF' || t === 'BN';
-const isStrongOrNumber = (t: BidiClass) => t === 'L' || t === 'R' || t === 'AL' || t === 'EN' || t === 'AN';
 const isNI = (t: BidiClass) =>
   t === 'B' || t === 'S' || t === 'WS' || t === 'ON' || isIsolateInit(t) || t === 'PDI';
 
 /** A resolved paragraph: one level and one ORIGINAL class per UTF-16 unit. */
-export interface BidiParagraph {
+interface BidiParagraph {
   paragraphLevel: number;
   levels: Uint8Array;
   classes: BidiClass[];

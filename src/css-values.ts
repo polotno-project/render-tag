@@ -197,7 +197,7 @@ class MathParser {
 }
 
 /** A number or length (percentages resolved), possibly a math function; null when invalid. */
-function evaluate(value: string, b: LengthBasis): Typed | null {
+export function resolveNumberOrLength(value: string, b: LengthBasis): Typed | null {
   const v = value.trim();
   const plain = dimension(v, b);
   if (plain) return plain;
@@ -214,14 +214,9 @@ function evaluate(value: string, b: LengthBasis): Typed | null {
  * number is not a length (standards mode), except a literal 0.
  */
 export function resolveLength(value: string, b: LengthBasis): number {
-  const t = evaluate(value, b);
+  const t = resolveNumberOrLength(value, b);
   if (!t) return NaN;
   return !t.number || t.value === 0 ? t.value : NaN;
-}
-
-/** A `<number>` or `<length-percentage>`: `line-height`'s grammar. null when invalid. */
-export function resolveNumberOrLength(value: string, b: LengthBasis): { value: number; number: boolean } | null {
-  return evaluate(value, b);
 }
 
 /**
@@ -229,7 +224,7 @@ export function resolveNumberOrLength(value: string, b: LengthBasis): { value: n
  * them (their table, not the CSS ratio: `small` is 13px, not 14.2). Gecko's
  * table has the same values at 16px (unverified here).
  */
-const FONT_SIZE_KEYWORDS: Record<string, number> = {
+export const FONT_SIZE_KEYWORDS: Record<string, number> = {
   'xx-small': 9, 'x-small': 10, small: 13, medium: 16, large: 18, 'x-large': 24, 'xx-large': 32, 'xxx-large': 48,
 };
 

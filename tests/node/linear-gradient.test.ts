@@ -5,7 +5,7 @@
  * pins the arithmetic.
  */
 import { describe, expect, it } from 'vitest';
-import { parseLinearGradient } from '../../src/render.ts';
+import { parseLinearGradient } from '../../src/gradient.ts';
 
 interface Recorded { line: number[]; stops: [number, string][] }
 

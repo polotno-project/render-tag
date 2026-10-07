@@ -1,6 +1,6 @@
 import type { AnyCanvas, CanvasFactory, ResolvedStyle } from './types.js';
 
-export interface TextShadow {
+interface TextShadow {
   offsetX: number;
   offsetY: number;
   blur: number;

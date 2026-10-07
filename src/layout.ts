@@ -603,7 +603,7 @@ export function paintLineSnap(node: LayoutText): number {
  * WebKit's answer, which is render-tag's rule from before the general
  * collapse; UNVERIFIED.
  */
-export const MARKER_LINE_WITHOUT_CONTENT = !IS_GECKO && !IS_SAFARI;
+const MARKER_LINE_WITHOUT_CONTENT = !IS_GECKO && !IS_SAFARI;
 
 export const MIN_HEIGHT_END_MARGINS: 'drop' | 'collapse' | 'contain' =
   IS_GECKO ? 'contain' : IS_SAFARI ? 'collapse' : 'drop';
@@ -1170,15 +1170,16 @@ function collectTextRuns(node: StyledNode): TextRun[] {
       return;
     }
     const isInlineBlock = n.style.display === 'inline-block';
+    const inline = isInline(n);
     // Inline-block always needs box treatment (padding/margin affect layout)
-    const isBox = isInlineBlock || (isInline(n) && hasVisibleBoxStyles(n.style));
+    const isBox = isInlineBlock || (inline && hasVisibleBoxStyles(n.style));
     const newBoxStyle = isBox ? n.style : boxStyle;
     // Track the nearest inline element declaring a background-clip:text
     // background or a --rt-text-stroke-image, so those paints reach descendant
     // runs that don't carry the (non-inheriting) properties themselves.
-    const newClipStyle = isInline(n) && hasTextClip(n.style) ? n.style : clipStyle;
+    const newClipStyle = inline && hasTextClip(n.style) ? n.style : clipStyle;
     const newStrokeImageStyle =
-      isInline(n) && n.style.webkitTextStrokeImage && n.style.webkitTextStrokeImage !== 'none'
+      inline && n.style.webkitTextStrokeImage && n.style.webkitTextStrokeImage !== 'none'
         ? n.style : strokeImageStyle;
     const hasHorizSpacing = isBox && (n.style.paddingLeft > 0 || n.style.paddingRight > 0 ||
       n.style.borderLeftWidth > 0 || n.style.borderRightWidth > 0);
@@ -1227,7 +1228,7 @@ function collectTextRuns(node: StyledNode): TextRun[] {
 
     for (const child of n.children) {
       walk(
-        child, isBox ? newBoxStyle : boxStyle, newClipStyle, newStrokeImageStyle,
+        child, newBoxStyle, newClipStyle, newStrokeImageStyle,
         // An element child measures against this element; a text child's
         // vertical-align belongs to this element, so it measures against what
         // this element measures against.
@@ -1281,14 +1282,13 @@ function needsSegmenter(text: string): boolean {
   return false;
 }
 
-let _segmenter: Intl.Segmenter | undefined;
-function getSegmenter(): Intl.Segmenter | null {
-  if (_segmenter) return _segmenter;
-  if (typeof Intl !== 'undefined' && Intl.Segmenter) {
-    _segmenter = new Intl.Segmenter(undefined, { granularity: 'word' });
-    return _segmenter;
+const segmenters: Partial<Record<'word' | 'grapheme', Intl.Segmenter>> = {};
+function segmenter(granularity: 'word' | 'grapheme'): Intl.Segmenter | undefined {
+  let seg = segmenters[granularity];
+  if (!seg && typeof Intl !== 'undefined' && Intl.Segmenter) {
+    seg = segmenters[granularity] = new Intl.Segmenter(undefined, { granularity });
   }
-  return null;
+  return seg;
 }
 
 /**
@@ -1451,7 +1451,7 @@ function breakFlags(text: string): number {
   }
   // Emoji only with a grapheme segmenter, so ZWJ sequences, skin tones and
   // flag pairs stay intact.
-  if (getGraphemeSegmenter() && EMOJI_CANDIDATE.test(text) && graphemes(text).some(isEmojiCluster)) {
+  if (segmenter('grapheme') && EMOJI_CANDIDATE.test(text) && graphemes(text).some(isEmojiCluster)) {
     flags |= SEG_EMOJI;
   }
   return flags;
@@ -1651,9 +1651,9 @@ function prepareString(
   const word = (w: string) => {
     // Use Intl.Segmenter for scripts without spaces (Thai, Khmer, etc.)
     if (needsSegmenter(w)) {
-      const segmenter = getSegmenter();
-      if (segmenter) {
-        for (const seg of segmenter.segment(w)) {
+      const wordSeg = segmenter('word');
+      if (wordSeg) {
+        for (const seg of wordSeg.segment(w)) {
           const s = seg.segment;
           out.push(s, measureAfter(m, state, cum, s), breakFlags(s), ref);
         }
@@ -1700,7 +1700,7 @@ function prepareString(
 
 /**
  * `text.slice(start, end)` split after CSS hyphen break opportunities,
- * keeping the hyphen (`splitHyphenated`). A hyphen opens one only with a
+ * keeping the hyphen. A hyphen opens one only with a
  * character before it in the same piece: a leading hyphen stays with the
  * word it starts.
  */
@@ -1717,11 +1717,11 @@ function forEachHyphenPiece(text: string, start: number, end: number, emit: (pie
 
 /** The first and last grapheme clusters of a non-empty text. */
 function firstGrapheme(text: string): string {
-  const seg = getGraphemeSegmenter();
+  const seg = segmenter('grapheme');
   return seg ? seg.segment(text).containing(0)!.segment : String.fromCodePoint(text.codePointAt(0)!);
 }
 function lastGrapheme(text: string): string {
-  const seg = getGraphemeSegmenter();
+  const seg = segmenter('grapheme');
   if (seg) return seg.segment(text).containing(text.length - 1)!.segment;
   const chars = [...text];
   return chars[chars.length - 1];
@@ -1732,7 +1732,6 @@ function lastGrapheme(text: string): string {
  * context's text in a layout call (`preparedInline`).
  */
 function prepareInline(session: LayoutSession, runs: TextRun[]): PreparedInline {
-  const m = session.measurer;
   const out = new SegmentBuilder(session.debug ? [] : null);
   /** The text so far ends with a zero-width space (a break opportunity). */
   let zwspBefore = false;
@@ -1876,13 +1875,6 @@ function replayMeasures(session: LayoutSession, prepared: PreparedInline): void 
   }
 }
 
-/**
- * Check if a character is CJK (Chinese/Japanese/Korean) — these wrap at character level.
- */
-function isCJK(char: string): boolean {
-  return isCJKCode(char.codePointAt(0) || 0);
-}
-
 function isCJKCode(code: number): boolean {
   return (
     (code >= 0x4E00 && code <= 0x9FFF) ||   // CJK Unified
@@ -1896,23 +1888,13 @@ function isCJKCode(code: number): boolean {
   );
 }
 
-let _graphemeSegmenter: Intl.Segmenter | undefined;
-function getGraphemeSegmenter(): Intl.Segmenter | null {
-  if (_graphemeSegmenter) return _graphemeSegmenter;
-  if (typeof Intl !== 'undefined' && Intl.Segmenter) {
-    _graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
-    return _graphemeSegmenter;
-  }
-  return null;
-}
-
-/**
- * Split into grapheme clusters — falls back to code points when
- * Intl.Segmenter is unavailable.
- */
-function graphemes(text: string): string[] {
-  const seg = getGraphemeSegmenter();
-  return seg ? [...seg.segment(text)].map((s) => s.segment) : [...text];
+/** Split into grapheme clusters; code points when Intl.Segmenter is unavailable. */
+export function graphemes(text: string): string[] {
+  const seg = segmenter('grapheme');
+  if (!seg) return [...text];
+  const out: string[] = [];
+  for (const s of seg.segment(text)) out.push(s.segment);
+  return out;
 }
 
 const EMOJI_PICTOGRAPHIC = /\p{Extended_Pictographic}/u;
@@ -1938,15 +1920,6 @@ function isEmojiCluster(s: string): boolean {
     return EMOJI_PICTOGRAPHIC.test(s); // ZWJ sequence or VS16 emoji presentation
   }
   return false;
-}
-
-/**
- * Split after CSS hyphen break opportunities, preserving the hyphen. The
- * two-character lookbehind cannot match at index 1, which is what keeps a
- * leading hyphen attached to the word it starts.
- */
-function splitHyphenated(text: string): string[] {
-  return text.split(/(?<=[^]-)/).filter(Boolean);
 }
 
 // ─── Line flow ─────────────────────────────────────────────────────────
@@ -2185,7 +2158,7 @@ function splitSegment(
 
     // Emoji clusters and CJK characters each get their own piece — a break
     // opportunity between them, matching the browser line breaker.
-    if ((hasEmoji && isEmojiCluster(char)) || isCJK(char)) {
+    if ((hasEmoji && isEmojiCluster(char)) || isCJKCode(char.codePointAt(0)!)) {
       if (current) {
         piece(current, currentWidth);
         current = '';
@@ -2260,7 +2233,7 @@ function abutsWithoutBreak(out: SegmentBuilder, at: number): boolean {
   const firstChar = firstGrapheme(first);
   const prevChar = lastGrapheme(prev);
   return !(
-    isCJK(firstChar) || isCJK(prevChar) ||
+    isCJKCode(firstChar.codePointAt(0)!) || isCJKCode(prevChar.codePointAt(0)!) ||
     isEmojiCluster(firstChar) || isEmojiCluster(prevChar) ||
     needsSegmenter(first) || needsSegmenter(prev)
   );
@@ -2691,7 +2664,8 @@ function breakGluedChain(flow: LineFlow, start: number, end: number): boolean {
   }
   const combinedText = cells.map((c) => c.ch).join('');
   // Hyphen break opportunities (same rule as the single-word hyphen path).
-  const segTexts = splitHyphenated(combinedText);
+  const segTexts: string[] = [];
+  if (combinedText) forEachHyphenPiece(combinedText, 0, combinedText.length, (p) => segTexts.push(p));
   const hyphenMode = segTexts.length > 1;
   const fitsLine = flow.line.totalWidth + combined <= flow.budget();
   // A hyphen is an ordinary break opportunity — intervene whenever the
@@ -2942,7 +2916,7 @@ function knifeEdgeOverflows(flow: LineFlow, piece: number, tail: number, headExt
  * stands `textIndent` further in (the flow narrowed its budget by it, but
  * its `totalWidth` is the content alone).
  */
-function widestLine(lines: readonly FlowLine[], textIndent = 0): number {
+function widestLine(lines: readonly FlowLine[], textIndent: number): number {
   return lines.reduce(
     (widest, line, index) => Math.max(widest, index === 0 ? line.totalWidth + textIndent : line.totalWidth), 0);
 }
@@ -4983,7 +4957,7 @@ export function buildLayoutTree(
   ctx: CanvasRenderingContext2D,
   styledTree: StyledNode,
   containerWidth: number,
-  useDomMeasurements = true,
+  useDomMeasurements: boolean,
   debug?: (entry: import('./types.ts').DebugEntry) => void,
   stats?: LayoutStats,
 ): { root: LayoutBox; height: number; lines: LayoutLine[] } {

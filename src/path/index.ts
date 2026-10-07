@@ -34,14 +34,9 @@ import type { ShadowOptions, ResolvedStyle, DecorationEntry } from '../types.js'
 import { parseHTML } from '../parse.js';
 import { resolveStylesFromCSS, paintOrderHasStrokeFirst, isTransparent } from '../css-resolver.js';
 import { hasTextClip, sameDecorationBand, Measurer, layoutFontMetrics, type FontMetricsTable } from '../layout.js';
-import {
-  parseTextShadows,
-  parseLinearGradient,
-  drawDecorationLine,
-  bandWidthFor,
-  explicitUnderlineDelta,
-  textFillColor,
-} from '../render.js';
+import { parseTextShadows, textFillColor } from '../render.js';
+import { bandWidthFor, drawDecorationLine, explicitUnderlineDelta } from '../decoration.js';
+import { parseLinearGradient } from '../gradient.js';
 import { PaintState } from '../paint-state.js';
 import { STROKE_CASTS_TEXT_SHADOW } from '../engine.js';
 import { paintTextShadows, ScratchPool, shadowBounds, textPaintBounds, transformBounds, unionBounds, withCanvasShadow, withoutCanvasShadow, measurePaintBounds, type PaintBounds } from '../shadow.js';

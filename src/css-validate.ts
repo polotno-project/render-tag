@@ -86,7 +86,7 @@ function functionToken(value: string): { name: string; args: string } | null {
 const NUMBER = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i;
 const PERCENT = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?%$/i;
 const ANGLE = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?(?:deg|rad|grad|turn)$/i;
-const MATH = /^(?:calc|min|max|clamp)\(/i;
+export const MATH = /^(?:calc|min|max|clamp)\(/i;
 
 /** A basis that resolves every unit, for syntax checks only. */
 const CHECK_BASIS: LengthBasis = {
@@ -95,7 +95,7 @@ const CHECK_BASIS: LengthBasis = {
 const CHECK_BASIS_NO_PERCENT: LengthBasis = { ...CHECK_BASIS, percent: NaN };
 
 /** A `<length>` (or `<length-percentage>`), math functions included. */
-export function isLength(token: string, allowPercent: boolean): boolean {
+function isLength(token: string, allowPercent: boolean): boolean {
   return !Number.isNaN(resolveLength(token, allowPercent ? CHECK_BASIS : CHECK_BASIS_NO_PERCENT));
 }
 
@@ -112,7 +112,7 @@ function isAngleOrZero(token: string): boolean {
 // ─── Colors ─────────────────────────────────────────────────────────
 
 /** The CSS named colors (CSS Color 4 §6.1). */
-export const NAMED_COLORS = new Set(
+const NAMED_COLORS = new Set(
   ('aliceblue antiquewhite aqua aquamarine azure beige bisque black blanchedalmond blue blueviolet brown ' +
   'burlywood cadetblue chartreuse chocolate coral cornflowerblue cornsilk crimson cyan darkblue darkcyan ' +
   'darkgoldenrod darkgray darkgreen darkgrey darkkhaki darkmagenta darkolivegreen darkorange darkorchid ' +
@@ -345,7 +345,7 @@ function isGradient(kind: string, args: string): boolean {
 }
 
 /** One `<image>`: url(), a gradient, or another image function (checked for balance only). */
-function isImage(value: string): boolean {
+export function isImage(value: string): boolean {
   const v = value.trim();
   const fn = functionToken(v);
   if (!fn || /\b(?:var|attr|env)\(/i.test(fn.args)) return false;
@@ -365,11 +365,6 @@ export function isImageList(value: string): boolean {
     const v = layer.trim();
     return v.toLowerCase() === 'none' || isImage(v);
   });
-}
-
-/** One image of the `background` shorthand (a function token). */
-export function isImageToken(token: string): boolean {
-  return isImage(token);
 }
 
 // ─── Shadows, fonts ─────────────────────────────────────────────────
@@ -417,6 +412,9 @@ export function isFontFamilyList(value: string): boolean {
 
 const set = (words: string) => new Set(words.split(' '));
 
+const OVERFLOW = set('visible hidden clip scroll auto overlay');
+export const BORDER_STYLES = set('none hidden dotted dashed solid double groove ridge inset outset');
+
 /** Single-keyword properties: the values a browser accepts. */
 export const KEYWORDS: Record<string, Set<string>> = {
   'text-align': set('start end left right center justify match-parent -webkit-left -webkit-right -webkit-center'),
@@ -432,15 +430,13 @@ export const KEYWORDS: Record<string, Set<string>> = {
   'stroke-linejoin': set('miter round bevel miter-clip arcs'),
   'flex-direction': set('row row-reverse column column-reverse'),
   'box-sizing': set('content-box border-box'),
-  'overflow-x': set('visible hidden clip scroll auto overlay'),
-  'overflow-y': set('visible hidden clip scroll auto overlay'),
-  'border-top-style': set('none hidden dotted dashed solid double groove ridge inset outset'),
-  'border-right-style': set('none hidden dotted dashed solid double groove ridge inset outset'),
-  'border-bottom-style': set('none hidden dotted dashed solid double groove ridge inset outset'),
-  'border-left-style': set('none hidden dotted dashed solid double groove ridge inset outset'),
+  'overflow-x': OVERFLOW,
+  'overflow-y': OVERFLOW,
+  'border-top-style': BORDER_STYLES,
+  'border-right-style': BORDER_STYLES,
+  'border-bottom-style': BORDER_STYLES,
+  'border-left-style': BORDER_STYLES,
 };
-
-export const BORDER_STYLES = KEYWORDS['border-top-style'];
 
 const VERTICAL_ALIGN = set('baseline sub super text-top text-bottom middle top bottom');
 
@@ -556,7 +552,3 @@ export function listStyleType(value: string): string | null {
   return FAMILY_IDENT.test(v) && !NOT_FAMILY_NAMES.has(lower) ? v : null;
 }
 
-/** Is `token` a list-style-type value (for the `list-style` shorthand)? */
-export function isListStyleType(token: string): boolean {
-  return listStyleType(token) !== null;
-}
