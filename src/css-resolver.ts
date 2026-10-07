@@ -1,6 +1,17 @@
 import type { BorderRadius, DecorationEntry, ResolvedStyle, StyledNode } from './types.js';
 import { INTEGER_PERCENT_LINE_HEIGHT } from './engine.js';
 import { bidiClass } from './bidi.js';
+import { parseDeclarationList, parseStylesheet } from './css-syntax.js';
+import { SelectorMatcher, parseSelectorList, type ElementContext, type ParsedSelector } from './css-selectors.js';
+import {
+  LEGACY_FONT_SIZES, resolveFontSize, resolveFontWeight, resolveLength, resolveNumberOrLength,
+  type FontUnits, type LengthBasis, type Viewport,
+} from './css-values.js';
+import {
+  BORDER_STYLES, KEYWORDS, backgroundClip, display, fontStyle, isColor, isFontFamilyList, isImageList,
+  isImageToken, isListStyleType, isTextShadow, listStyleType, paintOrder, parseLegacyColor, splitTopLevel,
+  splitTopLevelWhitespace, textDecorationLine, textTransform, verticalAlign,
+} from './css-validate.js';
 
 // Node.TEXT_NODE / Node.ELEMENT_NODE without the ambient `Node` global
 // (unavailable in non-browser environments).
@@ -18,295 +29,71 @@ export function isTransparent(color: string): boolean {
   return alpha !== undefined && Number(alpha.replace(/%$/, '')) <= 0;
 }
 
-// ─── CSS Parser ──────────────────────────────────────────────────────
-
-interface CSSDeclaration {
+/** A shorthand's longhand, or one declaration as the cascade applies it. */
+interface Longhand {
   property: string;
   value: string;
 }
 
-interface CSSRule {
-  selectors: string[];
-  declarations: CSSDeclaration[];
+/** A declaration with its importance, as a rule or `style=""` carries it. */
+interface Declaration extends Longhand {
+  important: boolean;
 }
 
 /**
- * Parse a simple CSS string into rules.
- * Supports: tag, .class, parent > child, comma-separated selectors.
+ * Options of one resolve call. The resolver itself touches no ctx: viewport
+ * units and font-relative units come from what the caller passes here.
  */
-function parseCSS(css: string): CSSRule[] {
-  const rules: CSSRule[] = [];
-  // Remove comments
-  css = css.replace(/\/\*[\s\S]*?\*\//g, '');
-
-  let i = 0;
-  while (i < css.length) {
-    // Skip whitespace
-    while (i < css.length && /\s/.test(css[i])) i++;
-    if (i >= css.length) break;
-
-    // Handle at-rules (@font-face, @media, etc.)
-    if (css[i] === '@') {
-      let braceDepth = 0;
-      while (i < css.length) {
-        if (css[i] === '{') braceDepth++;
-        if (css[i] === '}') {
-          braceDepth--;
-          if (braceDepth <= 0) { i++; break; }
-        }
-        i++;
-      }
-      continue;
-    }
-
-    // Read selector(s) up to '{'
-    const selectorStart = i;
-    while (i < css.length && css[i] !== '{') i++;
-    if (i >= css.length) break;
-    const selectorStr = css.slice(selectorStart, i).trim();
-    i++; // skip '{'
-
-    // Read declarations up to '}'
-    const declStart = i;
-    while (i < css.length && css[i] !== '}') i++;
-    const declStr = css.slice(declStart, i).trim();
-    i++; // skip '}'
-
-    if (!selectorStr) continue;
-
-    // Parse selectors (comma-separated)
-    const selectors = selectorStr.split(',').map(s => s.trim()).filter(Boolean);
-
-    // Parse declarations
-    const declarations: CSSDeclaration[] = [];
-    for (const decl of declStr.split(';')) {
-      const colonIdx = decl.indexOf(':');
-      if (colonIdx === -1) continue;
-      const property = decl.slice(0, colonIdx).trim().toLowerCase();
-      const value = decl.slice(colonIdx + 1).trim();
-      if (property && value) {
-        declarations.push({ property, value });
-      }
-    }
-
-    if (selectors.length > 0 && declarations.length > 0) {
-      rules.push({ selectors, declarations });
-    }
-  }
-
-  return rules;
-}
-
-// ─── Selector Matching ───────────────────────────────────────────────
-
-interface ElementContext {
-  tagName: string;
-  classes: Set<string>;
-  parent: ElementContext | null;
-  el: Element;
-}
-
-/**
- * Compute specificity for a simple selector.
- * Returns [ids, classes, tags] tuple.
- */
-function selectorSpecificity(selector: string): [number, number, number] {
-  // Remove pseudo-elements for specificity calculation
-  const sel = selector.replace(/::[\w-]+/g, '');
-  const parts = sel.split(/\s*>\s*|\s+/);
-  let ids = 0, classes = 0, tags = 0;
-  for (const part of parts) {
-    // Count #id
-    const idMatches = part.match(/#[\w-]+/g);
-    if (idMatches) ids += idMatches.length;
-    // Count .class
-    const classMatches = part.match(/\.[\w-]+/g);
-    if (classMatches) classes += classMatches.length;
-    // Count tag (strip classes/ids/pseudo)
-    const tagPart = part.replace(/[#.][\w-]+/g, '').replace(/:[\w-]+/g, '').trim();
-    if (tagPart && tagPart !== '*') tags++;
-  }
-  return [ids, classes, tags];
-}
-
-/** Parsed representation of a simple selector part (e.g. "ul.foo") */
-interface ParsedPart {
-  tag: string;       // '' if no tag, or the tag name
-  classes: string[];  // class names without the dot
-}
-
-function parsePart(part: string): ParsedPart {
-  const classMatches = part.match(/\.[\w-]+/g) || [];
-  const tag = part.replace(/\.[\w-]+/g, '').replace(/:[\w-]+/g, '').trim();
-  return {
-    tag: (tag && tag !== '*') ? tag : '',
-    classes: classMatches.map(c => c.slice(1)),
-  };
-}
-
-/**
- * Check if a parsed selector part matches an element context.
- */
-function matchesPart(part: string, ctx: ElementContext): boolean {
-  const classMatches = part.match(/\.[\w-]+/g) || [];
-  const tag = part.replace(/\.[\w-]+/g, '').replace(/:[\w-]+/g, '').trim();
-
-  if (tag && tag !== '*' && tag !== ctx.tagName) return false;
-  for (const cls of classMatches) {
-    if (!ctx.classes.has(cls.slice(1))) return false;
-  }
-  return true;
-}
-
-function matchesParsedPart(part: ParsedPart, ctx: ElementContext): boolean {
-  if (part.tag && part.tag !== ctx.tagName) return false;
-  for (const cls of part.classes) {
-    if (!ctx.classes.has(cls)) return false;
-  }
-  return true;
-}
-
-/** Pre-parsed selector ready for fast matching */
-interface ParsedSelector {
-  /** Parsed parts, rightmost first (match order) */
-  parts: ParsedPart[];
-  /** Combinators between parts[i] and parts[i+1]: '>' or ' ' */
-  combinators: string[];
-  /** Rightmost part — used for index lookup */
-  rightmost: ParsedPart;
-  /** Whether the rightmost part is 'html' or 'body' (matches root) */
-  rightmostIsRoot: boolean;
-  /** Original specificity */
-  spec: [number, number, number];
+export interface ResolveOptions {
   /**
-   * Pseudo-element on the rightmost compound. Currently we only honor
-   * `::marker` — its declarations apply to the marker box of `<li>`,
-   * not to the element body.
+   * The layout viewport for vw/vh/vmin/vmax. Without one (text on a path has
+   * none) a viewport unit is invalid and its declaration is ignored.
    */
-  pseudoElement?: 'marker';
-}
-
-/**
- * Pre-parse and tokenize a selector string into a ParsedSelector.
- * Returns null for selectors we can't handle (pseudo-classes; pseudo-elements
- * other than `::marker`).
- */
-function parseSelector(selector: string): ParsedSelector | null {
-  // Detect `::marker` on the rightmost compound. Other pseudo-elements
-  // (::before, ::after, ::first-line, …) are still rejected.
-  let pseudoElement: 'marker' | undefined;
-  if (selector.includes('::')) {
-    // Allow only a single trailing ::marker on the rightmost compound.
-    // Anything else is unsupported.
-    const otherPseudo = selector.replace(/::marker\b/g, '');
-    if (otherPseudo.includes('::')) return null;
-    if (/::marker\b/.test(selector)) {
-      pseudoElement = 'marker';
-      // Bare `::marker` (start of input or after whitespace/`>`) → `*`
-      // so descendant/child combinators are preserved.
-      selector = selector.replace(/(^|[\s>])::marker\b/g, '$1*');
-      // `::marker` glued to a tag/class compound → strip the pseudo only.
-      selector = selector.replace(/::marker\b/g, '');
-    } else {
-      return null;
-    }
-  }
-  if (/:(?:nth-|hover|focus|active|visited|first-child|last-child)/.test(selector)) return null;
-
-  const tokens: string[] = [];
-  const combinators: string[] = [];
-
-  const raw = selector.trim().split(/\s+/);
-  for (let i = 0; i < raw.length; i++) {
-    if (raw[i] === '>') {
-      combinators.push('>');
-    } else {
-      if (tokens.length > combinators.length + 1) {
-        combinators.push(' ');
-      }
-      tokens.push(raw[i]);
-    }
-  }
-  while (combinators.length < tokens.length - 1) {
-    combinators.push(' ');
-  }
-
-  if (tokens.length === 0) return null;
-
-  const parts = tokens.map(parsePart);
-  const rightmost = parts[parts.length - 1];
-  const rightmostTag = rightmost.tag;
-
-  return {
-    parts,
-    combinators,
-    rightmost,
-    rightmostIsRoot: rightmostTag === 'html' || rightmostTag === 'body',
-    spec: selectorSpecificity(selector),
-    pseudoElement,
-  };
-}
-
-/**
- * Match a pre-parsed selector against an element context.
- */
-function matchesParsedSelector(sel: ParsedSelector, ctx: ElementContext): boolean {
-  // Quick check: rightmost part must match current element
-  if (sel.rightmostIsRoot) {
-    if (ctx.parent !== null) return false; // html/body only match root
-  } else {
-    if (!matchesParsedPart(sel.rightmost, ctx)) return false;
-  }
-
-  // Single-part selector — already matched
-  if (sel.parts.length === 1) return true;
-
-  // Walk ancestors for remaining parts (right-to-left)
-  let current: ElementContext | null = ctx.parent;
-  for (let ti = sel.parts.length - 2; ti >= 0; ti--) {
-    if (!current) return false;
-    const part = sel.parts[ti];
-    const combinator = sel.combinators[ti];
-
-    if (combinator === '>') {
-      // Direct child: current ancestor must match
-      const isRoot = current.parent === null;
-      if (isRoot && (part.tag === 'html' || part.tag === 'body')) {
-        current = current.parent;
-      } else if (matchesParsedPart(part, current)) {
-        current = current.parent;
-      } else {
-        return false;
-      }
-    } else {
-      // Descendant: any ancestor must match
-      let found = false;
-      while (current) {
-        const isRoot = current.parent === null;
-        if (isRoot && (part.tag === 'html' || part.tag === 'body')) {
-          current = current.parent;
-          found = true;
-          break;
-        }
-        if (matchesParsedPart(part, current)) {
-          current = current.parent;
-          found = true;
-          break;
-        }
-        current = current.parent;
-      }
-      if (!found) return false;
-    }
-  }
-
-  return true;
+  viewport?: Viewport;
+  /**
+   * Measures `ch` (advance of `0`) and `ex` (x-height) for a style's font.
+   * Called only when such a unit occurs. Without it both are 0.5em, the
+   * CSS Values 4 fallback for a font whose metrics are unknown.
+   */
+  fontUnits?: (style: ResolvedStyle) => FontUnits;
 }
 
 // ─── Style Resolution ────────────────────────────────────────────────
 
-/** Default values for all ResolvedStyle properties */
+/**
+ * The resolver's private per-style fields, under SYMBOL keys. A symbol-keyed
+ * own property is copied by every spread layout makes (`{ ...style,
+ * direction }`) and declared in `defaultStyle()`'s literal (one hidden class
+ * for all styles), yet it is not a public field: `Object.keys`, `for…in` and
+ * JSON never show it (tests/node/public-exports.test.ts). String keys could
+ * have only one of those: always declared (enumerable on every public style)
+ * or added on demand (a hidden-class change per style, measured at +10%
+ * layout time on perf50).
+ */
+/** Unitless line-height multiplier; children re-resolve it (see types.ts). */
+export const LINE_HEIGHT_MULTIPLIER: unique symbol = Symbol('lineHeightMultiplier');
+/** Percentage text-underline-offset; children re-resolve it. */
+export const UNDERLINE_OFFSET_PCT: unique symbol = Symbol('underlineOffsetPct');
+/** `overflow-x`/`-y`, read only to find BFC roots (`establishesBfc`). */
+export const OVERFLOW_X: unique symbol = Symbol('overflowX');
+export const OVERFLOW_Y: unique symbol = Symbol('overflowY');
+
+interface PrivateStyleFields {
+  [LINE_HEIGHT_MULTIPLIER]: number | undefined;
+  [UNDERLINE_OFFSET_PCT]: number | undefined;
+  [OVERFLOW_X]: string | undefined;
+  [OVERFLOW_Y]: string | undefined;
+}
+
+type InternalStyle = ResolvedStyle & PrivateStyleFields;
+
+/**
+ * Default values for all ResolvedStyle properties, the private (symbol-keyed)
+ * ones included, in one literal: all styles then share one hidden class, so
+ * the resolver's and layout's property reads stay monomorphic.
+ */
 function defaultStyle(): ResolvedStyle {
-  return {
+  const style = {
     // Browsers default unstyled text to the UA serif font (Times). Match it so
     // HTML without an explicit font-family wraps/positions like the browser.
     fontFamily: 'serif',
@@ -344,7 +131,8 @@ function defaultStyle(): ResolvedStyle {
     overflowWrap: 'normal',
     unicodeBidi: 'normal',
     direction: 'ltr',
-    display: 'block',
+    // CSS's initial value; the UA table makes block elements blocks.
+    display: 'inline',
     width: 0,
     minWidth: null,
     minHeight: 0,
@@ -380,47 +168,98 @@ function defaultStyle(): ResolvedStyle {
     flexBasis: null,
     listStyleType: 'disc',
     lineClamp: 0,
-  };
+  } as InternalStyle;
+  // Assigned, not written as computed keys: a literal with computed keys
+  // loses V8's fast literal path (defaultStyle went from 1% to 12% of resolve
+  // time). Always the same four, in the same order, so the shape is shared.
+  style[LINE_HEIGHT_MULTIPLIER] = undefined;
+  style[UNDERLINE_OFFSET_PCT] = undefined;
+  style[OVERFLOW_X] = undefined;
+  style[OVERFLOW_Y] = undefined;
+  return style;
 }
 
-/** Tag-level default display values and browser default margins */
+/**
+ * The HTML UA stylesheet, as far as render-tag renders it. An element not
+ * listed here gets CSS's initial `display: inline` — unknown and custom
+ * elements, `<label>`, `<abbr>`, `<time>`, ... — so only real block elements
+ * break lines.
+ *
+ * Encoding (resolved per element in `resolveElement`): a `fontSize` below 10
+ * is a multiple of the parent's size, a negative margin is a multiple of the
+ * element's own em.
+ */
+const BLOCK: Partial<ResolvedStyle> = { display: 'block' };
+const HIDDEN: Partial<ResolvedStyle> = { display: 'none' };
+const BLOCK_MARGINS: Partial<ResolvedStyle> = { display: 'block', marginTop: -1, marginBottom: -1 };
+const LIST: Partial<ResolvedStyle> = { display: 'block', listStyleType: 'disc', marginTop: -1, marginBottom: -1 };
+const PRE: Partial<ResolvedStyle> = { display: 'block', whiteSpace: 'pre', fontFamily: 'monospace', marginTop: -1, marginBottom: -1 };
+const MONOSPACE: Partial<ResolvedStyle> = { fontFamily: 'monospace' };
+const ITALIC: Partial<ResolvedStyle> = { fontStyle: 'italic' };
+const BOLD: Partial<ResolvedStyle> = { fontWeight: 700 };
+const UNDERLINE: Partial<ResolvedStyle> = { textDecorationLine: 'underline' };
+const LINE_THROUGH: Partial<ResolvedStyle> = { textDecorationLine: 'line-through' };
+
 const TAG_DEFAULTS: Record<string, Partial<ResolvedStyle>> = {
-  span: { display: 'inline' },
-  a: { display: 'inline' },
-  strong: { display: 'inline', fontWeight: 700 },
-  b: { display: 'inline', fontWeight: 700 },
-  em: { display: 'inline', fontStyle: 'italic' },
-  i: { display: 'inline', fontStyle: 'italic' },
-  u: { display: 'inline', textDecorationLine: 'underline' },
-  s: { display: 'inline', textDecorationLine: 'line-through' },
-  strike: { display: 'inline', textDecorationLine: 'line-through' },
-  del: { display: 'inline', textDecorationLine: 'line-through' },
-  sub: { display: 'inline', verticalAlign: 'sub', fontSize: 0.83 },
-  sup: { display: 'inline', verticalAlign: 'super', fontSize: 0.83 },
-  code: { display: 'inline', fontFamily: 'monospace' },
-  cite: { display: 'inline', fontStyle: 'italic' },
+  strong: BOLD,
+  b: BOLD,
+  em: ITALIC,
+  i: ITALIC,
+  cite: ITALIC,
+  var: ITALIC,
+  dfn: ITALIC,
+  u: UNDERLINE,
+  ins: UNDERLINE,
+  s: LINE_THROUGH,
+  strike: LINE_THROUGH,
+  del: LINE_THROUGH,
+  sub: { verticalAlign: 'sub', fontSize: 0.83 },
+  sup: { verticalAlign: 'super', fontSize: 0.83 },
+  // `font-size: smaller` / `larger`: the parent's size over / times 1.2.
+  small: { fontSize: 1 / 1.2 },
+  big: { fontSize: 1.2 },
+  mark: { backgroundColor: 'yellow', color: 'black' },
+  nobr: { whiteSpace: 'nowrap' },
+  code: MONOSPACE,
+  kbd: MONOSPACE,
+  samp: MONOSPACE,
+  tt: MONOSPACE,
   // The HTML rendering rules (and Blink/WebKit's computed style) give <bdo>
   // `isolate-override`, not `bidi-override`.
-  bdo: { display: 'inline', unicodeBidi: 'isolate-override' },
-  bdi: { display: 'inline', unicodeBidi: 'isolate' },
-  p: { display: 'block', marginTop: -1, marginBottom: -1 }, // -1 = 1em, resolved later
-  div: { display: 'block' },
+  bdo: { unicodeBidi: 'isolate-override' },
+  bdi: { unicodeBidi: 'isolate' },
+
+  html: BLOCK, body: BLOCK, div: BLOCK, article: BLOCK, aside: BLOCK, footer: BLOCK, header: BLOCK,
+  hgroup: BLOCK, main: BLOCK, nav: BLOCK, search: BLOCK, section: BLOCK, figcaption: BLOCK, form: BLOCK,
+  dialog: BLOCK, legend: BLOCK, fieldset: BLOCK, details: BLOCK, summary: BLOCK, dt: BLOCK, optgroup: BLOCK,
+  // Table internals stay plain blocks: layout reads rows through them.
+  thead: BLOCK, tbody: BLOCK, tfoot: BLOCK, caption: BLOCK, colgroup: BLOCK, col: BLOCK,
+  address: { display: 'block', fontStyle: 'italic' },
+  center: { display: 'block', textAlign: 'center' },
+  p: BLOCK_MARGINS,
+  dl: BLOCK_MARGINS,
+  dd: BLOCK, // + margin-inline-start: 40px, set with the list paddings
+  figure: { display: 'block', marginTop: -1, marginBottom: -1, marginLeft: 40, marginRight: 40 },
   h1: { display: 'block', fontSize: 2, fontWeight: 700, marginTop: -0.67, marginBottom: -0.67 },
   h2: { display: 'block', fontSize: 1.5, fontWeight: 700, marginTop: -0.83, marginBottom: -0.83 },
   h3: { display: 'block', fontSize: 1.17, fontWeight: 700, marginTop: -1, marginBottom: -1 },
   h4: { display: 'block', fontSize: 1, fontWeight: 700, marginTop: -1.33, marginBottom: -1.33 },
   h5: { display: 'block', fontSize: 0.83, fontWeight: 700, marginTop: -1.67, marginBottom: -1.67 },
   h6: { display: 'block', fontSize: 0.67, fontWeight: 700, marginTop: -2.33, marginBottom: -2.33 },
-  ul: { display: 'block', listStyleType: 'disc', marginTop: -1, marginBottom: -1 },
+  ul: LIST,
+  menu: LIST,
+  dir: LIST,
   ol: { display: 'block', listStyleType: 'decimal', marginTop: -1, marginBottom: -1 },
   li: { display: 'list-item' },
   blockquote: { display: 'block', marginTop: -1, marginBottom: -1, marginLeft: 40, marginRight: 40 },
-  pre: { display: 'block', whiteSpace: 'pre', fontFamily: 'monospace', marginTop: -1, marginBottom: -1 },
+  pre: PRE,
+  listing: PRE,
+  xmp: PRE,
+  plaintext: PRE,
   table: { display: 'table' },
   tr: { display: 'table-row' },
   td: { display: 'table-cell' },
   th: { display: 'table-cell', fontWeight: 700 },
-  br: { display: 'inline' },
   hr: {
     display: 'block',
     borderTopWidth: 1,
@@ -429,37 +268,46 @@ const TAG_DEFAULTS: Record<string, Partial<ResolvedStyle>> = {
     marginTop: -0.5,
     marginBottom: -0.5,
   },
+  // Never rendered.
+  head: HIDDEN, title: HIDDEN, meta: HIDDEN, link: HIDDEN, base: HIDDEN, template: HIDDEN,
+  noembed: HIDDEN, noframes: HIDDEN, param: HIDDEN, rp: HIDDEN, datalist: HIDDEN, area: HIDDEN,
 };
 
-/**
- * Parse a CSS value to pixels given a parent font size for em/% resolution.
- */
-function parseValue(value: string, parentFontSize: number, containerWidth: number): number {
-  if (!value || value === 'normal' || value === 'auto' || value === 'none') return 0;
-  const trimmed = value.trim();
-
-  if (trimmed.endsWith('em')) {
-    const num = parseFloat(trimmed);
-    return isNaN(num) ? 0 : num * parentFontSize;
-  }
-  if (trimmed.endsWith('%')) {
-    const num = parseFloat(trimmed);
-    return isNaN(num) ? 0 : (num / 100) * containerWidth;
-  }
-  if (trimmed.endsWith('px')) {
-    const num = parseFloat(trimmed);
-    return isNaN(num) ? 0 : num;
-  }
-  // Bare number (for line-height, etc.)
-  const num = parseFloat(trimmed);
-  return isNaN(num) ? 0 : num;
+/** The UA `display` of a tag: `inline` unless the UA sheet says otherwise. */
+function uaDisplay(tag: string): string {
+  return TAG_DEFAULTS[tag]?.display ?? 'inline';
 }
 
-function parseFontWeight(value: string): number {
-  if (value === 'bold') return 700;
-  if (value === 'normal') return 400;
-  const num = parseInt(value, 10);
-  return isNaN(num) ? 400 : num;
+/**
+ * TAG_DEFAULTS minus fontSize (resolved first, separately), as
+ * [field, css property, value] — the kebab-case name precomputed once.
+ */
+const TAG_DEFAULT_ENTRIES: Record<string, [string, string, unknown][]> = {};
+for (const [tag, def] of Object.entries(TAG_DEFAULTS)) {
+  TAG_DEFAULT_ENTRIES[tag] = Object.entries(def)
+    .filter(([key]) => key !== 'fontSize')
+    .map(([key, val]) => [key, key.replace(/[A-Z]/g, m => '-' + m.toLowerCase()), val]);
+}
+
+/**
+ * The presentational hints of `<font color size face>`: author-level
+ * declarations with zero specificity, before every stylesheet rule.
+ */
+function fontHints(el: Element): Declaration[] {
+  const out: Declaration[] = [];
+  const color = parseLegacyColor(el.getAttribute('color') ?? '');
+  if (color) out.push({ property: 'color', value: color, important: false });
+  const face = el.getAttribute('face');
+  if (face) out.push({ property: 'font-family', value: face, important: false });
+  // HTML "rules for parsing a legacy font size": [+-]digits, relative to 3, clamped to 1-7.
+  const size = /^\s*([+-]?)(\d+)/.exec(el.getAttribute('size') ?? '');
+  if (size) {
+    const n = parseInt(size[2], 10);
+    const value = size[1] === '+' ? 3 + n : size[1] === '-' ? 3 - n : n;
+    const px = LEGACY_FONT_SIZES[Math.min(7, Math.max(1, value)) - 1];
+    out.push({ property: 'font-size', value: `${px}px`, important: false });
+  }
+  return out;
 }
 
 /**
@@ -478,7 +326,7 @@ export function paintOrderHasStrokeFirst(paintOrder: string): boolean {
   return strokeIdx < fillIdx;
 }
 
-function flexLonghands(grow: string, shrink: string, basis: string): CSSDeclaration[] {
+function flexLonghands(grow: string, shrink: string, basis: string): Longhand[] {
   return [
     { property: 'flex-grow', value: grow },
     { property: 'flex-shrink', value: shrink },
@@ -486,28 +334,11 @@ function flexLonghands(grow: string, shrink: string, basis: string): CSSDeclarat
   ];
 }
 
-/** Split on whitespace, but only at paren-depth 0 — keeps `rgb(1, 2, 3)` intact. */
-function splitTopLevelWhitespace(value: string): string[] {
-  const parts: string[] = [];
-  let depth = 0;
-  let cur = '';
-  for (let i = 0; i < value.length; i++) {
-    const ch = value[i];
-    if (ch === '(') { depth++; cur += ch; }
-    else if (ch === ')') { depth = Math.max(0, depth - 1); cur += ch; }
-    else if (depth === 0 && /\s/.test(ch)) {
-      if (cur) { parts.push(cur); cur = ''; }
-    } else cur += ch;
-  }
-  if (cur) parts.push(cur);
-  return parts;
-}
-
 /**
  * Expand shorthand properties into individual ones.
  * E.g., margin: 10px 20px → marginTop/Right/Bottom/Left
  */
-export function expandShorthand(property: string, value: string): CSSDeclaration[] {
+export function expandShorthand(property: string, value: string): Longhand[] {
   if (property === 'margin' || property === 'padding') {
     const parts = value.trim().split(/\s+/);
     let top: string, right: string, bottom: string, left: string;
@@ -536,12 +367,21 @@ export function expandShorthand(property: string, value: string): CSSDeclaration
     // from a style="" attribute. A plain whitespace split truncated the color
     // to `rgb(29,`, which canvas silently drops — the border then painted
     // with whatever strokeStyle was left over from the previous box.
-    const parts = splitTopLevelWhitespace(value.trim());
-    const borderStyles = ['solid', 'dashed', 'dotted', 'double', 'none', 'hidden'];
-    const width = parts.find(p => p.endsWith('px') || /^\d/.test(p)) || '0';
-    const style = parts.find(p => borderStyles.includes(p)) || 'none';
-    const color = parts.find(p => !p.endsWith('px') && !/^\d/.test(p) && !borderStyles.includes(p)) || 'currentColor';
-    const result: CSSDeclaration[] = [];
+    // Each of width, style and color at most once, in any order; anything
+    // else makes the whole declaration invalid. Unnamed parts reset.
+    let width = '', style = '', color = '';
+    for (const p of splitTopLevelWhitespace(value.trim())) {
+      const lower = p.toLowerCase();
+      if (!width && (/^[+-]?(?:\d|\.\d)/.test(p) || MATH_FUNCTION.test(p) || lower in BORDER_WIDTH_KEYWORDS)) width = p;
+      else if (!style && BORDER_STYLES.has(lower)) style = lower;
+      else if (!color && isColor(p)) color = p;
+      else return [];
+    }
+    if (!width && !style && !color) return [];
+    width ||= 'medium';
+    style ||= 'none';
+    color ||= 'currentcolor';
+    const result: Longhand[] = [];
     const sides = property === 'border'
       ? ['top', 'right', 'bottom', 'left']
       : [property.replace('border-', '')];
@@ -552,6 +392,21 @@ export function expandShorthand(property: string, value: string): CSSDeclaration
     }
     return result;
   }
+
+  if (property === 'border-width' || property === 'border-style' || property === 'border-color') {
+    // 1-4 values, top/right/bottom/left like margin; colors keep their spaces.
+    const [top, right = top, bottom = top, left = right] = splitTopLevelWhitespace(value.trim());
+    const kind = property.slice('border-'.length);
+    return [
+      { property: `border-top-${kind}`, value: top },
+      { property: `border-right-${kind}`, value: right },
+      { property: `border-bottom-${kind}`, value: bottom },
+      { property: `border-left-${kind}`, value: left },
+    ];
+  }
+
+  if (property === 'font') return expandFont(value);
+  if (property === 'background') return expandBackground(value);
 
   if (property === 'border-radius') {
     // 1-4 values assign corners as TL, TR, BR, BL (css-backgrounds §4.5).
@@ -570,59 +425,73 @@ export function expandShorthand(property: string, value: string): CSSDeclaration
   }
 
   if (property === 'list-style') {
-    // list-style: none → list-style-type: none
-    if (value === 'none') {
-      return [{ property: 'list-style-type', value: 'none' }];
+    // `<position> || <image> || <type>`: only the type reaches ResolvedStyle.
+    // A `none` with no other type is the type (`list-style: none`); one
+    // beside a type is the image. Unnamed parts reset (the type to disc).
+    let type = '';
+    let nones = 0;
+    for (const p of splitTopLevelWhitespace(value.trim())) {
+      const lower = p.toLowerCase();
+      if (lower === 'none') nones++;
+      else if (lower === 'inside' || lower === 'outside' || isImageToken(p)) continue;
+      else if (!type && isListStyleType(p)) type = p;
+      else return [];
     }
-    return [{ property: 'list-style-type', value }];
+    if (nones > (type ? 1 : 2)) return [];
+    return [{ property: 'list-style-type', value: type || (nones > 0 ? 'none' : 'disc') }];
   }
 
   if (property === 'text-decoration') {
+    // `<line> || <style> || <color> || <thickness>` (css-text-decor-4). The
+    // shorthand RESETS every longhand it does not name — line to none, style
+    // to solid, color to currentcolor, thickness to auto — and a token none
+    // of them accepts makes the whole declaration invalid.
     const v = value.trim();
-    // Thickness is a longhand of this shorthand (css-text-decor-4): the
-    // shorthand resets it to `auto` when no thickness token is present. The
-    // reset is emitted FIRST so an explicit token parsed below overrides it.
-    if (v === 'inherit' || v === 'none') {
+    // `inherit` stays `none`: textDecorationLine holds the propagated UNION
+    // of lines, so copying it would declare every ancestor's line again.
+    if (v.toLowerCase() === 'inherit') {
       return [
         { property: 'text-decoration-line', value: 'none' },
         { property: 'text-decoration-thickness', value: 'auto' },
       ];
     }
-    // Extract color functions (rgb(...), hsl(...)) before splitting on whitespace,
-    // because they contain spaces internally (e.g. "rgb(231, 76, 60)").
-    let colorValue = '';
-    const withoutColorFn = v.replace(/\b(rgba?\([^)]*\)|hsla?\([^)]*\))/i, (match) => {
-      colorValue = match;
-      return '';
-    });
-    const parts = withoutColorFn.split(/\s+/).filter(Boolean);
-    const lineValues = ['underline', 'overline', 'line-through'];
-    const styleValues = ['solid', 'double', 'dotted', 'dashed', 'wavy'];
-    const result: CSSDeclaration[] = [
-      { property: 'text-decoration-thickness', value: 'auto' },
-    ];
-    const lines: string[] = [];
-    for (const p of parts) {
-      if (lineValues.includes(p)) lines.push(p);
-      else if (styleValues.includes(p)) result.push({ property: 'text-decoration-style', value: p });
-      // Thickness values (2px, .5em, 10%) and its keywords go to the longhand.
-      else if (/^[\d.+-]/.test(p) || p === 'auto' || p === 'from-font')
-        result.push({ property: 'text-decoration-thickness', value: p });
-      // Remaining tokens are the color (#hex or named).
-      else result.push({ property: 'text-decoration-color', value: p });
+    if (/^(?:initial|unset|revert|revert-layer)$/i.test(v)) {
+      return ['text-decoration-line', 'text-decoration-style', 'text-decoration-color', 'text-decoration-thickness']
+        .map(property => ({ property, value: v }));
     }
-    if (colorValue) result.push({ property: 'text-decoration-color', value: colorValue });
-    if (lines.length > 0) result.unshift({ property: 'text-decoration-line', value: lines.join(' ') });
-    return result;
+    const lines: string[] = [];
+    let style = '', color = '', thickness = '', none = false;
+    for (const p of splitTopLevelWhitespace(v)) {
+      const lower = p.toLowerCase();
+      if (lower === 'none' && !none && lines.length === 0) none = true;
+      else if (!none && (lower === 'underline' || lower === 'overline' || lower === 'line-through' || lower === 'blink') &&
+          !lines.includes(lower)) lines.push(lower);
+      else if (!style && KEYWORDS['text-decoration-style'].has(lower)) style = lower;
+      else if (!thickness && (lower === 'auto' || lower === 'from-font' || /^[\d.+-]/.test(p) || MATH_FUNCTION.test(p))) thickness = p;
+      else if (!color && isColor(p)) color = p;
+      else return [];
+    }
+    return [
+      { property: 'text-decoration-line', value: lines.length > 0 ? lines.join(' ') : 'none' },
+      { property: 'text-decoration-style', value: style || 'solid' },
+      { property: 'text-decoration-color', value: color || 'currentcolor' },
+      { property: 'text-decoration-thickness', value: thickness || 'auto' },
+    ];
   }
 
   if (property === '-webkit-text-stroke') {
     // -webkit-text-stroke: 1px #1e40af → width + color
     // Split on whitespace at paren-depth 0 so colors with internal spaces
-    // (rgb(255, 255, 255), var(--c, ...), color(srgb 1 0 0), …) survive intact.
-    const parts = splitTopLevelWhitespace(value.trim());
-    const width = parts.find(p => p.endsWith('px') || /^\d/.test(p)) || '0';
-    const color = parts.find(p => !p.endsWith('px') && !/^\d/.test(p)) || 'currentColor';
+    // (rgb(255, 255, 255), color(srgb 1 0 0), …) survive intact.
+    let width = '', color = '';
+    for (const p of splitTopLevelWhitespace(value.trim())) {
+      if (!width && (/^[+-]?(?:\d|\.\d)/.test(p) || MATH_FUNCTION.test(p) || p.toLowerCase() in BORDER_WIDTH_KEYWORDS)) width = p;
+      else if (!color && isColor(p)) color = p;
+      else return [];
+    }
+    if (!width && !color) return [];
+    width ||= '0';
+    color ||= 'currentcolor';
     return [
       { property: '-webkit-text-stroke-width', value: width },
       { property: '-webkit-text-stroke-color', value: color },
@@ -659,17 +528,130 @@ export function expandShorthand(property: string, value: string): CSSDeclaration
   return [{ property, value }];
 }
 
+/** `thin`/`medium`/`thick` border widths, as Blink, WebKit and Gecko size them. */
+const BORDER_WIDTH_KEYWORDS: Record<string, number> = { thin: 1, medium: 3, thick: 5 };
+
+const FONT_STYLES = new Set(['normal', 'italic', 'oblique']);
+const FONT_WEIGHTS = new Set(['bold', 'bolder', 'lighter']);
+const FONT_STRETCHES = new Set([
+  'ultra-condensed', 'extra-condensed', 'condensed', 'semi-condensed',
+  'semi-expanded', 'expanded', 'extra-expanded', 'ultra-expanded',
+]);
+const FONT_SIZE_KEYWORDS = new Set([
+  'xx-small', 'x-small', 'small', 'medium', 'large', 'x-large', 'xx-large', 'xxx-large', 'larger', 'smaller',
+]);
+const MATH_FUNCTION = /^(?:calc|min|max|clamp)\(/i;
+
 /**
- * A border-radius value: px, or `{ pct }` resolved at paint; negatives stay
- * 0, and a second (elliptical) component on a longhand is ignored.
+ * The `font` shorthand (CSS Fonts 4 §2.8):
+ * `[ style || variant-caps || weight || stretch ]? size [ / line-height ]? family`.
+ * It RESETS every sub-property it does not name — line-height to normal,
+ * weight to 400 and so on — so an inherited value never survives it. Without
+ * a size and a family the declaration is invalid and ignored, as is a system
+ * font keyword (`caption`, `menu`, ...), which canvas cannot name.
  */
-function borderRadiusValue(value: string, fontSize: number): BorderRadius {
+function expandFont(value: string): Longhand[] {
   const v = value.trim();
-  if (v.endsWith('%')) {
-    const pct = parseFloat(v);
-    return pct > 0 ? { pct } : 0;
+  if (/^(?:inherit|initial|unset|revert)$/i.test(v)) {
+    return ['font-style', 'font-variant-caps', 'font-weight', 'font-size', 'line-height', 'font-family']
+      .map(property => ({ property, value: v }));
   }
-  return Math.max(0, parseValue(v, fontSize, 0));
+  let fontStyle = 'normal', variant = 'normal', weight = 'normal';
+  // Whitespace-separated tokens at paren depth 0, with where each starts.
+  const re = /(?:[^\s(]|\([^)]*\))+/g;
+  let m: RegExpExecArray | null;
+  let prefixTokens = 0;
+  while ((m = re.exec(v)) !== null) {
+    const token = m[0];
+    const lower = token.toLowerCase();
+    if (prefixTokens < 4) {
+      // `normal` resets whichever of the four it lands on; all are normal already.
+      if (lower === 'normal') { prefixTokens++; continue; }
+      if (FONT_STYLES.has(lower)) { fontStyle = lower; prefixTokens++; continue; }
+      if (lower === 'small-caps') { variant = lower; prefixTokens++; continue; }
+      if (FONT_WEIGHTS.has(lower) || /^\d+(?:\.\d+)?$/.test(token)) { weight = lower; prefixTokens++; continue; }
+      if (FONT_STRETCHES.has(lower)) { prefixTokens++; continue; }
+    }
+    // The size, optionally glued to `/line-height` or followed by `/ lh`.
+    const slash = token.indexOf('/');
+    const size = slash === -1 ? token : token.slice(0, slash);
+    if (!size || !(/^[+]?(?:\d|\.\d)/.test(size) || FONT_SIZE_KEYWORDS.has(size.toLowerCase()) ||
+        MATH_FUNCTION.test(size))) return [];
+    let rest = v.slice(m.index + (slash === -1 ? token.length : slash)).trim();
+    let lineHeight = 'normal';
+    if (rest.startsWith('/')) {
+      rest = rest.slice(1).trim();
+      const lh = /^(?:[^\s(]|\([^)]*\))+/.exec(rest);
+      if (!lh) return [];
+      lineHeight = lh[0];
+      rest = rest.slice(lh[0].length).trim();
+    }
+    if (!rest) return [];
+    return [
+      { property: 'font-style', value: fontStyle },
+      { property: 'font-variant-caps', value: variant },
+      { property: 'font-weight', value: weight },
+      { property: 'font-size', value: size },
+      { property: 'line-height', value: lineHeight },
+      { property: 'font-family', value: rest },
+    ];
+  }
+  return [];
+}
+
+/** `background-repeat`/`-attachment`/`-position`/`-size` keywords: parsed past, not rendered. */
+const BACKGROUND_KEYWORDS = new Set([
+  'repeat', 'repeat-x', 'repeat-y', 'no-repeat', 'space', 'round', 'scroll', 'fixed', 'local',
+  'left', 'right', 'top', 'bottom', 'center', 'auto', 'cover', 'contain', '/',
+]);
+const BACKGROUND_BOXES = new Set(['border-box', 'padding-box', 'content-box', 'text']);
+
+/**
+ * The `background` shorthand. It RESETS every longhand it does not name, so
+ * `background: none` is transparent (not a color called "none") and a color
+ * alone clears an earlier image. Only the color, the image list and the clip
+ * reach ResolvedStyle; positions, sizes and repeats are parsed past. The
+ * color may only come in the final layer; a token nothing accepts makes the
+ * whole declaration invalid.
+ */
+function expandBackground(value: string): Longhand[] {
+  const v = value.trim();
+  if (/^(?:inherit|initial|unset|revert)$/i.test(v)) {
+    return ['background-color', 'background-image', 'background-clip'].map(property => ({ property, value: v }));
+  }
+  let color = 'transparent';
+  let colorSeen = false;
+  let clip = 'border-box';
+  const images: string[] = [];
+  const layers = splitTopLevel(v, ',');
+  for (let li = 0; li < layers.length; li++) {
+    let image = 'none';
+    const boxes: string[] = [];
+    for (const token of splitTopLevelWhitespace(layers[li])) {
+      const lower = token.toLowerCase();
+      if (lower === 'none' || isImageToken(token)) {
+        image = lower === 'none' ? 'none' : token;
+      } else if (BACKGROUND_BOXES.has(lower)) {
+        boxes.push(lower);
+      } else if (BACKGROUND_KEYWORDS.has(lower) || /^[+-]?(?:\d|\.\d)/.test(token) || MATH_FUNCTION.test(token) ||
+          /^\//.test(token)) {
+        // position / size / repeat / attachment — not rendered
+      } else if (li === layers.length - 1 && !colorSeen && isColor(token)) {
+        color = token;
+        colorSeen = true;
+      } else {
+        return [];
+      }
+    }
+    images.push(image);
+    // One box sets origin and clip; with two, the second is the clip.
+    if (li === layers.length - 1 && boxes.length > 0) clip = boxes[boxes.length - 1];
+  }
+  return [
+    { property: 'background-color', value: color },
+    { property: 'background-image', value: images.every(i => i === 'none') ? 'none' : images.join(', ') },
+    { property: 'background-clip', value: clip },
+  ];
 }
 
 /** Normalize the (case-insensitive) currentColor keyword to '', the canonical unset value. */
@@ -678,150 +660,365 @@ function normalizeCurrentColor(value: string): string {
   return v.toLowerCase() === 'currentcolor' ? '' : v;
 }
 
+const FONT_VARIANT_CAPS = new Set([
+  'normal', 'small-caps', 'all-small-caps', 'petite-caps', 'all-petite-caps', 'unicase', 'titling-caps',
+]);
+
+/** Properties the cascade resolves FIRST: everything else may measure the font (em, ch, ex). */
+const FONT_PROPERTIES = new Set(['font-size', 'font-family', 'font-weight', 'font-style', 'font-variant', 'font-variant-caps']);
+
 /**
- * Apply a CSS declaration to a ResolvedStyle, resolving units.
+ * Apply a font declaration. Relative sizes and weights resolve against the
+ * PARENT (`parentBasis`: em/%/ch/ex of the parent's font). Returns false for
+ * an invalid value, which the cascade then ignores.
  */
-function applyDeclaration(
+function applyFontDeclaration(
   style: ResolvedStyle,
   property: string,
   value: string,
-  parentFontSize: number,
-  containerWidth: number,
-  direction: string,
-): void {
-  // Resolve the font-size first if that's what we're setting, since
-  // em values for other properties depend on the element's own font-size
-  const fontSize = style.fontSize || parentFontSize;
-
+  parent: ResolvedStyle,
+  parentBasis: LengthBasis,
+): boolean {
   switch (property) {
-    // Font & text
-    case 'font-family': style.fontFamily = value.trim(); break;
+    case 'font-family':
+      if (!isFontFamilyList(value)) return false;
+      style.fontFamily = value.trim();
+      return true;
     case 'font-size': {
-      const v = value.trim();
-      if (v.endsWith('em')) {
-        style.fontSize = parseFloat(v) * parentFontSize;
-      } else if (v.endsWith('%')) {
-        style.fontSize = (parseFloat(v) / 100) * parentFontSize;
-      } else {
-        style.fontSize = parseFloat(v) || parentFontSize;
-      }
-      break;
+      const px = resolveFontSize(value, parent.fontSize, parentBasis);
+      if (Number.isNaN(px)) return false;
+      style.fontSize = px;
+      return true;
     }
-    case 'font-weight': style.fontWeight = parseFontWeight(value); break;
-    case 'font-style': style.fontStyle = value.trim(); break;
+    case 'font-weight': {
+      const weight = resolveFontWeight(value, parent.fontWeight);
+      if (Number.isNaN(weight)) return false;
+      style.fontWeight = weight;
+      return true;
+    }
+    case 'font-style': {
+      const v = fontStyle(value);
+      if (v === null) return false;
+      style.fontStyle = v;
+      return true;
+    }
     // Canvas only renders the `small-caps` variant; map anything containing it
     // (incl. the font-variant shorthand) to small-caps, else normal.
-    case 'font-variant':
     case 'font-variant-caps':
-      style.fontVariantCaps = /\bsmall-caps\b/.test(value) ? 'small-caps' : 'normal';
-      break;
-    case 'color': style.color = value.trim(); break;
-    case 'text-align': style.textAlign = value.trim(); break;
-    case 'text-align-last': style.textAlignLast = value.trim(); break;
-    case 'text-indent':
-      style.textIndent = parseValue(value, fontSize, containerWidth); break;
-    case 'text-transform': style.textTransform = value.trim(); break;
-    case 'text-decoration-line': style.textDecorationLine = value.trim(); break;
-    // text-decoration is expanded in expandShorthand, should not reach here
-    // but handle just in case
-    case 'text-decoration': break;
-    case 'text-decoration-style': style.textDecorationStyle = value.trim(); break;
-    case 'text-decoration-color': style.textDecorationColor = value.trim(); break;
+      if (!FONT_VARIANT_CAPS.has(value.trim().toLowerCase())) return false;
+      style.fontVariantCaps = value.trim().toLowerCase() === 'small-caps' ? 'small-caps' : 'normal';
+      return true;
+    case 'font-variant':
+      style.fontVariantCaps = /\bsmall-caps\b/i.test(value) ? 'small-caps' : 'normal';
+      return true;
+  }
+  return false;
+}
+
+/**
+ * The ResolvedStyle fields each property writes, for the CSS-wide keywords.
+ * A logical property maps through the direction (`physical`).
+ */
+const PROPERTY_FIELDS: Record<string, readonly (keyof InternalStyle)[]> = {
+  'font-family': ['fontFamily'], 'font-size': ['fontSize'], 'font-weight': ['fontWeight'],
+  'font-style': ['fontStyle'], 'font-variant-caps': ['fontVariantCaps'], color: ['color'],
+  'text-align': ['textAlign'], 'text-align-last': ['textAlignLast'], 'text-indent': ['textIndent'],
+  'text-transform': ['textTransform'], 'white-space': ['whiteSpace'], 'word-break': ['wordBreak'],
+  'overflow-wrap': ['overflowWrap'], direction: ['direction'], 'letter-spacing': ['letterSpacing'],
+  'word-spacing': ['wordSpacing'], 'line-height': ['lineHeight', LINE_HEIGHT_MULTIPLIER],
+  'text-shadow': ['textShadow'], 'font-kerning': ['fontKerning'], 'list-style-type': ['listStyleType'],
+  'vertical-align': ['verticalAlign'], 'text-underline-offset': ['textUnderlineOffset', UNDERLINE_OFFSET_PCT],
+  'paint-order': ['paintOrder'], 'stroke-linejoin': ['strokeLinejoin'],
+  '-webkit-text-stroke-width': ['webkitTextStrokeWidth'], '-webkit-text-stroke-color': ['webkitTextStrokeColor'],
+  '-webkit-text-fill-color': ['webkitTextFillColor'],
+  'text-decoration-line': ['textDecorationLine'], 'text-decoration-style': ['textDecorationStyle'],
+  'text-decoration-color': ['textDecorationColor'], 'text-decoration-thickness': ['textDecorationThickness'],
+  '--rt-text-stroke-image': ['webkitTextStrokeImage'], 'background-clip': ['webkitBackgroundClip'],
+  'background-image': ['backgroundImage'], 'background-color': ['backgroundColor'],
+  'line-clamp': ['lineClamp'], '-webkit-line-clamp': ['lineClamp'], 'unicode-bidi': ['unicodeBidi'],
+  display: ['display'], width: ['width'], 'min-width': ['minWidth'], 'min-height': ['minHeight'],
+  overflow: [OVERFLOW_X, OVERFLOW_Y], 'overflow-x': [OVERFLOW_X], 'overflow-y': [OVERFLOW_Y],
+  'padding-top': ['paddingTop'], 'padding-right': ['paddingRight'], 'padding-bottom': ['paddingBottom'],
+  'padding-left': ['paddingLeft'], 'margin-top': ['marginTop'], 'margin-right': ['marginRight'],
+  'margin-bottom': ['marginBottom'], 'margin-left': ['marginLeft'],
+  'border-top-width': ['borderTopWidth'], 'border-top-color': ['borderTopColor'], 'border-top-style': ['borderTopStyle'],
+  'border-right-width': ['borderRightWidth'], 'border-right-color': ['borderRightColor'], 'border-right-style': ['borderRightStyle'],
+  'border-bottom-width': ['borderBottomWidth'], 'border-bottom-color': ['borderBottomColor'], 'border-bottom-style': ['borderBottomStyle'],
+  'border-left-width': ['borderLeftWidth'], 'border-left-color': ['borderLeftColor'], 'border-left-style': ['borderLeftStyle'],
+  'border-top-left-radius': ['borderTopLeftRadius'], 'border-top-right-radius': ['borderTopRightRadius'],
+  'border-bottom-right-radius': ['borderBottomRightRadius'], 'border-bottom-left-radius': ['borderBottomLeftRadius'],
+  'flex-direction': ['flexDirection'], gap: ['gap'], 'flex-grow': ['flexGrow'], 'flex-shrink': ['flexShrink'],
+  'flex-basis': ['flexBasis'],
+};
+
+/** The properties render-tag inherits (see `inheritFont` and `inheritFrom`). */
+const INHERITED_PROPERTIES = new Set([
+  'font-family', 'font-size', 'font-weight', 'font-style', 'font-variant-caps', 'color', 'text-align',
+  'text-align-last', 'text-indent', 'text-transform', 'white-space', 'word-break', 'overflow-wrap',
+  'direction', 'letter-spacing', 'word-spacing', 'line-height', 'text-shadow', 'font-kerning',
+  'list-style-type', 'vertical-align', 'text-underline-offset', 'paint-order', 'stroke-linejoin',
+  '-webkit-text-stroke-width', '-webkit-text-stroke-color', '-webkit-text-fill-color',
+]);
+
+/** Initial values. Colors whose initial value is `currentcolor` say so, for the fix-ups to resolve. */
+const INITIAL: Readonly<InternalStyle> = Object.freeze({
+  ...(defaultStyle() as InternalStyle),
+  textDecorationColor: 'currentcolor',
+  borderTopColor: 'currentcolor',
+  borderRightColor: 'currentcolor',
+  borderBottomColor: 'currentcolor',
+  borderLeftColor: 'currentcolor',
+});
+
+const LOGICAL_PROPERTIES: Record<string, [ltr: string, rtl: string]> = {
+  'padding-inline-start': ['padding-left', 'padding-right'],
+  'padding-inline-end': ['padding-right', 'padding-left'],
+  'margin-inline-start': ['margin-left', 'margin-right'],
+  'margin-inline-end': ['margin-right', 'margin-left'],
+};
+
+/**
+ * The CSS-wide keyword a declaration's value is, or null. `revert` and
+ * `revert-layer` act as `unset` (render-tag does not keep the UA's value
+ * apart). `color: currentcolor` is the inherited color.
+ */
+function cssWideKeyword(property: string, value: string): string | null {
+  // Every keyword starts with c, i, r or u: most values are rejected without
+  // allocating (values arrive trimmed; a padded one takes the slow path).
+  const first = value.charCodeAt(0) | 0x20;
+  if (first !== 0x63 && first !== 0x69 && first !== 0x72 && first !== 0x75 && first !== 0x20) return null;
+  const v = value.trim().toLowerCase();
+  if (v === 'inherit' || v === 'initial' || v === 'unset') return v;
+  if (v === 'revert' || v === 'revert-layer') return 'unset';
+  if (v === 'currentcolor' && property === 'color') return 'inherit';
+  return null;
+}
+
+/**
+ * Apply a CSS-wide keyword. An inherited property that inherits is simply
+ * left unset, so `inheritFont`/`inheritFrom` copy it (and re-resolve a
+ * unitless line-height for this element's font). Returns the canonical
+ * property, or null when render-tag does not know it.
+ */
+function applyKeyword(
+  style: ResolvedStyle,
+  parent: ResolvedStyle,
+  property: string,
+  keyword: string,
+  setProps: Set<string>,
+  direction: string,
+  concrete: CurrentColorTable,
+): string | null {
+  const logical = LOGICAL_PROPERTIES[property];
+  const prop = logical ? logical[direction === 'rtl' ? 1 : 0] : (PROP_ALIASES[property] || property);
+  const fields = PROPERTY_FIELDS[prop];
+  if (!fields) return null;
+  const inherited = INHERITED_PROPERTIES.has(prop);
+  if (inherited && keyword !== 'initial') {
+    setProps.delete(prop);
+    return prop;
+  }
+  const source = (keyword === 'inherit' ? parent : INITIAL) as InternalStyle;
+  for (const field of fields) (style as any)[field] = source[field];
+  // A parent's currentcolor computed value is the keyword, not its color:
+  // the child resolves it against its own color.
+  if (keyword === 'inherit' && CURRENTCOLOR_FIELDS.has(fields[0]) && !concrete.get(parent)?.has(fields[0])) {
+    (style as any)[fields[0]] = 'currentcolor';
+  }
+  setProps.add(prop);
+  return prop;
+}
+
+/** Color fields whose initial value is `currentcolor`, resolved per element after the cascade, with their property. */
+const CURRENTCOLOR_PROPERTIES: readonly [keyof InternalStyle, string][] = [
+  ['textDecorationColor', 'text-decoration-color'], ['borderTopColor', 'border-top-color'],
+  ['borderRightColor', 'border-right-color'], ['borderBottomColor', 'border-bottom-color'],
+  ['borderLeftColor', 'border-left-color'],
+];
+const CURRENTCOLOR_FIELDS = new Set(CURRENTCOLOR_PROPERTIES.map(([field]) => field));
+
+/**
+ * Per resolve call: which CURRENTCOLOR_FIELDS of a style hold a concrete
+ * color rather than a resolved `currentcolor`. Absent = all currentcolor.
+ * (A side table, not a style field: it is only read for `inherit`.)
+ */
+type CurrentColorTable = Map<ResolvedStyle, Set<keyof InternalStyle>>;
+
+/** What phase-2 declarations of one element resolve against. */
+interface DeclarationEnv {
+  /** em = the element's own font-size; `percent` is set per property. */
+  b: LengthBasis;
+  containerWidth: number;
+  /** The parent's direction: logical properties map through it. */
+  direction: string;
+}
+
+/** A `<length-percentage>` with `percentBase` as 100%; NaN when invalid. */
+function lengthOf(value: string, env: DeclarationEnv, percentBase: number): number {
+  env.b.percent = percentBase;
+  return resolveLength(value, env.b);
+}
+
+/** A non-negative border/stroke width (keywords allowed, no percentages). */
+function widthOf(value: string, env: DeclarationEnv): number {
+  const keyword = BORDER_WIDTH_KEYWORDS[value.trim().toLowerCase()];
+  if (keyword !== undefined) return keyword;
+  const px = lengthOf(value, env, NaN);
+  return px >= 0 ? px : NaN;
+}
+
+/** `margin`: a length-percentage of the containing block's width; `auto` is 0 here (no auto margins). */
+function marginOf(value: string, env: DeclarationEnv): number {
+  return value.trim().toLowerCase() === 'auto' ? 0 : lengthOf(value, env, env.containerWidth);
+}
+
+/** `padding`: a non-negative length-percentage of the containing block's width. */
+function paddingOf(value: string, env: DeclarationEnv): number {
+  const px = lengthOf(value, env, env.containerWidth);
+  return px >= 0 ? px : NaN;
+}
+
+/**
+ * A border-radius value: px, or `{ pct }` resolved at paint; negatives stay
+ * 0, and a second (elliptical) component on a longhand is ignored.
+ */
+function borderRadiusValue(value: string, env: DeclarationEnv): BorderRadius | null {
+  const v = MATH_FUNCTION.test(value.trim()) ? value.trim() : value.trim().split(/\s+/)[0];
+  if (/^[+-]?(?:\d+\.?\d*|\.\d+)%$/.test(v)) {
+    const pct = parseFloat(v);
+    return pct > 0 ? { pct } : 0;
+  }
+  const px = lengthOf(v, env, NaN);
+  return Number.isNaN(px) ? null : Math.max(0, px);
+}
+
+/**
+ * Apply a (non-font) CSS declaration to a ResolvedStyle, resolving units.
+ * Returns false when the value is invalid: the declaration is then ignored,
+ * as a browser ignores it, instead of overwriting the cascaded value.
+ */
+function applyDeclaration(style: ResolvedStyle, property: string, value: string, env: DeclarationEnv): boolean {
+  const fontSize = style.fontSize;
+  const containerWidth = env.containerWidth;
+  /** Assign a numeric result unless it is invalid. */
+  const set = <K extends keyof ResolvedStyle>(key: K, px: number): boolean => {
+    if (Number.isNaN(px)) return false;
+    (style as unknown as Record<K, number>)[key] = px;
+    return true;
+  };
+  /** Assign a validated string (keyword lower-cased by its check) unless it is null. */
+  const str = <K extends keyof InternalStyle>(key: K, v: string | null): boolean => {
+    if (v === null) return false;
+    (style as unknown as Record<K, string>)[key] = v;
+    return true;
+  };
+  /** A single keyword from the property's KEYWORDS set, lower-cased, or null. */
+  const keyword = (): string | null => {
+    const v = value.trim().toLowerCase();
+    return KEYWORDS[property].has(v) ? v : null;
+  };
+  /** A color, as written (canvas parses it), or null. */
+  const color = (): string | null => (isColor(value) ? value.trim() : null);
+
+  switch (property) {
+    case 'color': return str('color', color());
+    case 'text-align': return str('textAlign', keyword());
+    case 'text-align-last': return str('textAlignLast', keyword());
+    case 'text-indent': return set('textIndent', lengthOf(value, env, containerWidth));
+    case 'text-transform': return str('textTransform', textTransform(value));
+    case 'text-decoration-line': return str('textDecorationLine', textDecorationLine(value));
+    case 'text-decoration-style': return str('textDecorationStyle', keyword());
+    case 'text-decoration-color': return str('textDecorationColor', color());
     case 'text-underline-offset': {
-      // px value or null for `auto`; the `_underlineOffsetPct` shadow lets
+      // px value or null for `auto`; the UNDERLINE_OFFSET_PCT shadow lets
       // inheritFrom re-resolve a % per child (see the field doc in types.ts).
       // `= undefined` rather than `delete`: same semantics for the only
       // consumer (`!== undefined`), keeps the object's hidden class.
       const v = value.trim();
-      if (v === 'auto') {
-        (style as any)._underlineOffsetPct = undefined;
+      if (v.toLowerCase() === 'auto') {
+        (style as InternalStyle)[UNDERLINE_OFFSET_PCT] = undefined;
         style.textUnderlineOffset = null;
-      } else if (isNaN(parseFloat(v))) {
-        // Invalid declaration — ignored, like the browser (parseValue would
-        // coerce it to 0 and pin the band at the baseline).
-      } else if (v.endsWith('%')) {
+        return true;
+      }
+      if (/^[+-]?(?:\d+\.?\d*|\.\d+)%$/.test(v)) {
         const num = parseFloat(v);
         style.textUnderlineOffset = (num / 100) * fontSize;
-        (style as any)._underlineOffsetPct = num;
-      } else {
-        (style as any)._underlineOffsetPct = undefined;
-        style.textUnderlineOffset = parseValue(v, fontSize, containerWidth);
+        (style as InternalStyle)[UNDERLINE_OFFSET_PCT] = num;
+        return true;
       }
-      break;
+      const px = lengthOf(v, env, fontSize);
+      if (Number.isNaN(px)) return false;
+      (style as InternalStyle)[UNDERLINE_OFFSET_PCT] = undefined;
+      style.textUnderlineOffset = px;
+      return true;
     }
     case 'text-decoration-thickness': {
       // px value or null for `auto`/`from-font` (see the field doc in
       // types.ts). A % resolves against the element's own font size.
       const v = value.trim();
-      if (v === 'auto' || v === 'from-font') {
+      const lower = v.toLowerCase();
+      if (lower === 'auto' || lower === 'from-font') {
         style.textDecorationThickness = null;
-      } else if (isNaN(parseFloat(v))) {
-        // Invalid declaration — ignored, like the browser (parseValue would
-        // coerce it to 0 and hide the band).
-      } else if (v.endsWith('%')) {
-        style.textDecorationThickness = (parseFloat(v) / 100) * fontSize;
-      } else {
-        style.textDecorationThickness = parseValue(v, fontSize, containerWidth);
+        return true;
       }
-      break;
+      const px = lengthOf(v, env, fontSize);
+      if (Number.isNaN(px)) return false;
+      style.textDecorationThickness = px;
+      return true;
     }
-    case 'text-shadow': style.textShadow = value.trim(); break;
-    case '-webkit-text-stroke-width': style.webkitTextStrokeWidth = parseValue(value, fontSize, containerWidth); break;
+    case 'text-shadow': return str('textShadow', isTextShadow(value) ? (value.trim().toLowerCase() === 'none' ? 'none' : value.trim()) : null);
+    case '-webkit-text-stroke-width': return set('webkitTextStrokeWidth', widthOf(value, env));
     // '' is the canonical currentColor for these two: it must survive
     // inheritance as a keyword and resolve against each element's own
     // color at render time, so it is never eagerly resolved here.
-    case '-webkit-text-stroke-color': style.webkitTextStrokeColor = normalizeCurrentColor(value); break;
-    // A CSS custom property (not a real -webkit- property) so the browser keeps
-    // it in the element's inline cssText — an unknown real property would be
-    // dropped before render-tag reads it.
-    case '--rt-text-stroke-image': style.webkitTextStrokeImage = value.trim(); break;
-    case '-webkit-text-fill-color': style.webkitTextFillColor = normalizeCurrentColor(value); break;
-    case 'paint-order': style.paintOrder = value.trim(); break;
-    case 'stroke-linejoin': style.strokeLinejoin = value.trim(); break;
+    case '-webkit-text-stroke-color': return isColor(value) && str('webkitTextStrokeColor', normalizeCurrentColor(value));
+    // A CSS custom property (not a real -webkit- property): a browser drops an
+    // unknown real property whenever it re-serializes a style (contenteditable,
+    // el.style writes), so html that passed through an editor would lose it.
+    case '--rt-text-stroke-image': style.webkitTextStrokeImage = value.trim(); return true;
+    case '-webkit-text-fill-color': return isColor(value) && str('webkitTextFillColor', normalizeCurrentColor(value));
+    case 'paint-order': return str('paintOrder', paintOrder(value));
+    case 'stroke-linejoin': return str('strokeLinejoin', keyword());
     case '-webkit-background-clip':
-    case 'background-clip': style.webkitBackgroundClip = value.trim(); break;
-    case 'background-image': style.backgroundImage = value.trim(); break;
+    case 'background-clip': return str('webkitBackgroundClip', backgroundClip(value));
+    case 'background-image':
+      return str('backgroundImage', isImageList(value) ? (value.trim().toLowerCase() === 'none' ? 'none' : value.trim()) : null);
+    // Percentages are of the element's own font-size (CSS Text 4; Blink, WebKit).
     case 'letter-spacing':
-      style.letterSpacing = value.trim() === 'normal' ? 0 : parseValue(value, fontSize, containerWidth); break;
+      return set('letterSpacing', value.trim().toLowerCase() === 'normal' ? 0 : lengthOf(value, env, fontSize));
     case 'word-spacing':
-      style.wordSpacing = value.trim() === 'normal' ? 0 : parseValue(value, fontSize, containerWidth); break;
-    case 'font-kerning': style.fontKerning = value.trim(); break;
+      return set('wordSpacing', value.trim().toLowerCase() === 'normal' ? 0 : lengthOf(value, env, fontSize));
+    case 'font-kerning': return str('fontKerning', keyword());
     case 'line-height': {
       const v = value.trim();
-      // A later declaration replaces an earlier unitless one.
-      delete (style as any)._lineHeightMultiplier;
-      if (v === 'normal') {
+      const internal = style as InternalStyle;
+      if (v.toLowerCase() === 'normal') {
+        internal[LINE_HEIGHT_MULTIPLIER] = undefined;
         style.lineHeight = 0; // 0 signals "normal"
-      } else if (v.endsWith('px')) {
-        style.lineHeight = parseFloat(v) || 0;
-      } else if (v.endsWith('em')) {
-        style.lineHeight = parseFloat(v) * fontSize;
-      } else if (v.endsWith('%')) {
+        return true;
+      }
+      let lineHeight: number;
+      let multiplier: number | undefined;
+      if (/^[+]?(?:\d+\.?\d*|\.\d+)%$/.test(v)) {
         // Percentage — computed against the element's own font size and
-        // inherited as that computed value (no multiplier for children),
-        // same as the em branch. Without this branch "120%" used to fall
-        // into the unitless path as parseFloat("120%") = 120, producing a
-        // 120x line height.
+        // inherited as that computed value (no multiplier for children).
         // Blink and WebKit use an INTEGER percentage (INTEGER_PERCENT_LINE_HEIGHT).
         const num = parseFloat(v);
-        if (!isNaN(num)) {
-          style.lineHeight = ((INTEGER_PERCENT_LINE_HEIGHT ? Math.trunc(num) : num) / 100) * fontSize;
-        }
+        lineHeight = ((INTEGER_PERCENT_LINE_HEIGHT ? Math.trunc(num) : num) / 100) * fontSize;
       } else {
-        // Unitless multiplier — compute for this element's font size
-        // and mark as unitless so children re-compute
-        const num = parseFloat(v);
-        if (!isNaN(num)) {
-          style.lineHeight = num * fontSize;
-          (style as any)._lineHeightMultiplier = num;
-        }
+        env.b.percent = fontSize;
+        const t = resolveNumberOrLength(v, env.b);
+        if (!t || t.value < 0) return false;
+        // A number is a multiplier: computed for this element's font size,
+        // and children re-compute it for theirs.
+        if (t.number) multiplier = t.value;
+        lineHeight = t.number ? t.value * fontSize : t.value;
       }
+      style.lineHeight = lineHeight;
       // `lineHeight: 0` means `normal`, so a real zero line-height (any unit)
       // is carried as the multiplier 0 — which also inherits as 0.
-      if (v !== 'normal' && style.lineHeight === 0 && parseFloat(v) === 0) {
-        (style as any)._lineHeightMultiplier = 0;
-      }
-      break;
+      internal[LINE_HEIGHT_MULTIPLIER] = lineHeight === 0 ? 0 : multiplier;
+      return true;
     }
     case '-webkit-line-clamp':
     case 'line-clamp': {
@@ -835,305 +1032,351 @@ function applyDeclaration(
         const n = parseInt(v, 10);
         style.lineClamp = Number.isFinite(n) && n > 0 ? n : 0;
       }
-      break;
+      return true;
     }
-    case 'vertical-align': style.verticalAlign = value.trim(); break;
-    case 'white-space': style.whiteSpace = value.trim(); break;
-    case 'word-break': style.wordBreak = value.trim(); break;
+    case 'vertical-align': return str('verticalAlign', verticalAlign(value));
+    case 'white-space': return str('whiteSpace', keyword());
+    case 'word-break': return str('wordBreak', keyword());
     case 'overflow-wrap':
-    case 'word-wrap': style.overflowWrap = value.trim(); break;
-    case 'direction': style.direction = value.trim(); break;
-    case 'unicode-bidi': style.unicodeBidi = value.trim(); break;
+    case 'word-wrap': return str('overflowWrap', keyword());
+    case 'direction': return str('direction', keyword());
+    case 'unicode-bidi': return str('unicodeBidi', keyword());
 
     // Box model
-    case 'display': style.display = value.trim(); break;
+    case 'display': return str('display', display(value));
     case 'width': {
       const v = value.trim();
-      if (v === '100%') style.width = containerWidth;
-      else if (v !== 'auto') style.width = parseValue(v, fontSize, containerWidth);
-      break;
+      if (v.toLowerCase() === 'auto') { style.width = 0; return true; }
+      const px = lengthOf(v, env, containerWidth);
+      return px >= 0 ? set('width', px) : false;
     }
     case 'min-width': {
       const v = value.trim();
-      style.minWidth = v === 'auto' ? null : parseValue(v, fontSize, containerWidth);
-      break;
+      if (v.toLowerCase() === 'auto') { style.minWidth = null; return true; }
+      const px = lengthOf(v, env, containerWidth);
+      if (!(px >= 0)) return false;
+      style.minWidth = px;
+      return true;
     }
     // A percentage resolves against the containing block's HEIGHT, which is
     // never definite here (no box has a height): it computes to none (CSS 2.1
     // §10.7), not to a share of the width.
-    case 'min-height':
-      style.minHeight = value.trim().endsWith('%') ? 0 : parseValue(value, fontSize, containerWidth);
-      break;
-    // Only read to find block formatting context roots (`establishesBfc`);
-    // render-tag does not clip. Private, like `_lineHeightMultiplier`.
-    case 'overflow': {
-      const [x, y = x] = value.trim().split(/\s+/);
-      (style as any)._overflowX = x;
-      (style as any)._overflowY = y;
-      break;
-    }
-    case 'overflow-x': (style as any)._overflowX = value.trim(); break;
-    case 'overflow-y': (style as any)._overflowY = value.trim(); break;
-    case 'padding-top': style.paddingTop = parseValue(value, fontSize, containerWidth); break;
-    case 'padding-right': style.paddingRight = parseValue(value, fontSize, containerWidth); break;
-    case 'padding-bottom': style.paddingBottom = parseValue(value, fontSize, containerWidth); break;
-    case 'padding-left': style.paddingLeft = parseValue(value, fontSize, containerWidth); break;
-    case 'margin-top': style.marginTop = parseValue(value, fontSize, containerWidth); break;
-    case 'margin-right': style.marginRight = parseValue(value, fontSize, containerWidth); break;
-    case 'margin-bottom': style.marginBottom = parseValue(value, fontSize, containerWidth); break;
-    case 'margin-left': style.marginLeft = parseValue(value, fontSize, containerWidth); break;
-    case 'background-color': style.backgroundColor = value.trim(); break;
-    case 'background': {
+    case 'min-height': {
       const v = value.trim();
-      if (v.includes('gradient(')) {
-        // background: linear-gradient(...) → backgroundImage
-        style.backgroundImage = v;
-      } else if (v.startsWith('#') || v.startsWith('rgb') || v.startsWith('hsl') ||
-          ['transparent', 'none', 'inherit'].includes(v) ||
-          /^[a-z]+$/.test(v)) {
-        style.backgroundColor = v;
-      }
-      break;
+      if (v.toLowerCase() === 'auto' || /%/.test(v)) { style.minHeight = 0; return true; }
+      const px = lengthOf(v, env, NaN);
+      return px >= 0 ? set('minHeight', px) : false;
     }
+    // Only read to find block formatting context roots (`establishesBfc`);
+    // render-tag does not clip. Private, like LINE_HEIGHT_MULTIPLIER.
+    case 'overflow': {
+      const [x, y = x, extra] = value.trim().toLowerCase().split(/\s+/);
+      const allowed = KEYWORDS['overflow-x'];
+      if (extra !== undefined || !allowed.has(x) || !allowed.has(y)) return false;
+      (style as InternalStyle)[OVERFLOW_X] = x;
+      (style as InternalStyle)[OVERFLOW_Y] = y;
+      return true;
+    }
+    case 'overflow-x': return str(OVERFLOW_X, keyword());
+    case 'overflow-y': return str(OVERFLOW_Y, keyword());
+    case 'padding-top': return set('paddingTop', paddingOf(value, env));
+    case 'padding-right': return set('paddingRight', paddingOf(value, env));
+    case 'padding-bottom': return set('paddingBottom', paddingOf(value, env));
+    case 'padding-left': return set('paddingLeft', paddingOf(value, env));
+    case 'margin-top': return set('marginTop', marginOf(value, env));
+    case 'margin-right': return set('marginRight', marginOf(value, env));
+    case 'margin-bottom': return set('marginBottom', marginOf(value, env));
+    case 'margin-left': return set('marginLeft', marginOf(value, env));
+    case 'background-color': return str('backgroundColor', color());
 
     // Logical properties → physical (based on direction)
     case 'padding-inline-start':
-      if (direction === 'rtl') style.paddingRight = parseValue(value, fontSize, containerWidth);
-      else style.paddingLeft = parseValue(value, fontSize, containerWidth);
-      break;
+      return set(env.direction === 'rtl' ? 'paddingRight' : 'paddingLeft', paddingOf(value, env));
     case 'padding-inline-end':
-      if (direction === 'rtl') style.paddingLeft = parseValue(value, fontSize, containerWidth);
-      else style.paddingRight = parseValue(value, fontSize, containerWidth);
-      break;
+      return set(env.direction === 'rtl' ? 'paddingLeft' : 'paddingRight', paddingOf(value, env));
     case 'margin-inline-start':
-      if (direction === 'rtl') style.marginRight = parseValue(value, fontSize, containerWidth);
-      else style.marginLeft = parseValue(value, fontSize, containerWidth);
-      break;
+      return set(env.direction === 'rtl' ? 'marginRight' : 'marginLeft', marginOf(value, env));
     case 'margin-inline-end':
-      if (direction === 'rtl') style.marginLeft = parseValue(value, fontSize, containerWidth);
-      else style.marginRight = parseValue(value, fontSize, containerWidth);
-      break;
+      return set(env.direction === 'rtl' ? 'marginLeft' : 'marginRight', marginOf(value, env));
 
     // Border
-    case 'border-top-width': style.borderTopWidth = parseValue(value, fontSize, containerWidth); break;
-    case 'border-top-color': style.borderTopColor = value.trim(); break;
-    case 'border-top-style': style.borderTopStyle = value.trim(); break;
-    case 'border-right-width': style.borderRightWidth = parseValue(value, fontSize, containerWidth); break;
-    case 'border-right-color': style.borderRightColor = value.trim(); break;
-    case 'border-right-style': style.borderRightStyle = value.trim(); break;
-    case 'border-bottom-width': style.borderBottomWidth = parseValue(value, fontSize, containerWidth); break;
-    case 'border-bottom-color': style.borderBottomColor = value.trim(); break;
-    case 'border-bottom-style': style.borderBottomStyle = value.trim(); break;
-    case 'border-left-width': style.borderLeftWidth = parseValue(value, fontSize, containerWidth); break;
-    case 'border-left-color': style.borderLeftColor = value.trim(); break;
-    case 'border-left-style': style.borderLeftStyle = value.trim(); break;
+    case 'border-top-width': return set('borderTopWidth', widthOf(value, env));
+    case 'border-top-color': return str('borderTopColor', color());
+    case 'border-top-style': return str('borderTopStyle', keyword());
+    case 'border-right-width': return set('borderRightWidth', widthOf(value, env));
+    case 'border-right-color': return str('borderRightColor', color());
+    case 'border-right-style': return str('borderRightStyle', keyword());
+    case 'border-bottom-width': return set('borderBottomWidth', widthOf(value, env));
+    case 'border-bottom-color': return str('borderBottomColor', color());
+    case 'border-bottom-style': return str('borderBottomStyle', keyword());
+    case 'border-left-width': return set('borderLeftWidth', widthOf(value, env));
+    case 'border-left-color': return str('borderLeftColor', color());
+    case 'border-left-style': return str('borderLeftStyle', keyword());
 
     // Border radius. Percentages resolve against the border box's own size,
     // unknown until paint, so they stay symbolic here (see BorderRadius).
     case 'border-top-left-radius':
-      style.borderTopLeftRadius = borderRadiusValue(value, fontSize); break;
     case 'border-top-right-radius':
-      style.borderTopRightRadius = borderRadiusValue(value, fontSize); break;
     case 'border-bottom-right-radius':
-      style.borderBottomRightRadius = borderRadiusValue(value, fontSize); break;
-    case 'border-bottom-left-radius':
-      style.borderBottomLeftRadius = borderRadiusValue(value, fontSize); break;
+    case 'border-bottom-left-radius': {
+      const radius = borderRadiusValue(value, env);
+      if (radius === null) return false;
+      if (property === 'border-top-left-radius') style.borderTopLeftRadius = radius;
+      else if (property === 'border-top-right-radius') style.borderTopRightRadius = radius;
+      else if (property === 'border-bottom-right-radius') style.borderBottomRightRadius = radius;
+      else style.borderBottomLeftRadius = radius;
+      return true;
+    }
 
     // Flex
-    case 'flex-direction': style.flexDirection = value.trim(); break;
-    case 'gap': style.gap = parseValue(value, fontSize, containerWidth); break;
-    case 'flex-grow': style.flexGrow = parseFloat(value) || 0; break;
+    case 'flex-direction': return str('flexDirection', keyword());
+    case 'gap': {
+      const v = value.trim();
+      // `gap: <row> <column>`: the row gap is first; flex rows use one gap.
+      const first = MATH_FUNCTION.test(v) ? v : v.split(/\s+/)[0];
+      return set('gap', first.toLowerCase() === 'normal' ? 0 : lengthOf(first, env, containerWidth));
+    }
+    // A non-negative <number>; anything else is invalid.
+    case 'flex-grow':
     case 'flex-shrink': {
-      const shrink = parseFloat(value);
-      style.flexShrink = Number.isFinite(shrink) && shrink >= 0 ? shrink : 1;
-      break;
+      const n = /^[+]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(value.trim()) ? parseFloat(value) : NaN;
+      return set(property === 'flex-grow' ? 'flexGrow' : 'flexShrink', n);
     }
     case 'flex-basis': {
       const v = value.trim();
-      style.flexBasis = v === 'auto' || v === 'content'
-        ? null
-        : parseValue(v, fontSize, containerWidth);
-      break;
+      const lower = v.toLowerCase();
+      if (lower === 'auto' || lower === 'content') { style.flexBasis = null; return true; }
+      const px = lengthOf(v, env, containerWidth);
+      if (!(px >= 0)) return false;
+      style.flexBasis = px;
+      return true;
     }
 
     // List
-    case 'list-style-type': style.listStyleType = value.trim(); break;
-
-    // Ignored properties (not relevant for our layout)
-    case 'position':
-    case 'top':
-    case 'left':
-    case 'right':
-    case 'bottom':
-    case 'inset-inline-start':
-    case 'inset-inline-end':
-    case 'content':
-    case 'counter-reset':
-    case 'counter-increment':
-    case 'cursor':
-    case 'opacity':
-    case 'box-sizing':
-    case 'outline':
-    case 'transition':
-    case 'transform':
-    case 'font-stretch':
-    case 'font-display':
-    case 'src':
-    case 'unicode-range':
-      break;
+    case 'list-style-type': return str('listStyleType', listStyleType(value));
   }
+  // Unknown or ignored properties (position, opacity, transform, ...).
+  return false;
 }
 
-/** Inheritable property names (CSS kebab-case) mapped to ResolvedStyle keys */
-const INHERITABLE_KEYS: [string, keyof ResolvedStyle][] = [
-  ['font-family', 'fontFamily'],
-  ['font-size', 'fontSize'],
-  ['font-weight', 'fontWeight'],
-  ['font-style', 'fontStyle'],
-  ['color', 'color'],
-  ['text-align', 'textAlign'],
-  ['text-align-last', 'textAlignLast'],
-  ['text-indent', 'textIndent'],
-  ['text-transform', 'textTransform'],
-  ['white-space', 'whiteSpace'],
-  ['word-break', 'wordBreak'],
-  ['overflow-wrap', 'overflowWrap'],
-  ['direction', 'direction'],
-  ['letter-spacing', 'letterSpacing'],
-  ['word-spacing', 'wordSpacing'],
-  ['line-height', 'lineHeight'],
-  ['text-shadow', 'textShadow'],
-  ['font-kerning', 'fontKerning'],
-  ['list-style-type', 'listStyleType'],
-  ['vertical-align', 'verticalAlign'],
-  ['text-underline-offset', 'textUnderlineOffset'],
-  ['paint-order', 'paintOrder'],
-  ['stroke-linejoin', 'strokeLinejoin'],
-  ['-webkit-text-stroke-width', 'webkitTextStrokeWidth'],
-  ['-webkit-text-stroke-color', 'webkitTextStrokeColor'],
-  ['-webkit-text-fill-color', 'webkitTextFillColor'],
-];
+/**
+ * The inherited font properties, resolved before any other declaration (so
+ * em, ch and ex see the element's final font): font-family, font-weight,
+ * font-style, font-variant-caps. (font-size is resolved with them.)
+ */
+function inheritFont(child: ResolvedStyle, parent: ResolvedStyle, setProps: Set<string>): void {
+  if (!setProps.has('font-size')) child.fontSize = parent.fontSize;
+  if (!setProps.has('font-family')) child.fontFamily = parent.fontFamily;
+  if (!setProps.has('font-weight')) child.fontWeight = parent.fontWeight;
+  if (!setProps.has('font-style')) child.fontStyle = parent.fontStyle;
+  if (!setProps.has('font-variant-caps')) child.fontVariantCaps = parent.fontVariantCaps;
+}
 
 /**
  * Inherit properties from parent style to child style for properties
- * not explicitly set (tracked via setProps).
+ * not explicitly set (tracked via setProps). The inherited properties
+ * (the font ones are inherited earlier, by `inheritFont`):
+ *
+ *   color, text-align, text-align-last, text-indent,
+ *   text-transform, white-space, word-break, overflow-wrap, direction,
+ *   letter-spacing, word-spacing, line-height, text-shadow, font-kerning,
+ *   list-style-type, vertical-align, text-underline-offset, paint-order,
+ *   stroke-linejoin, -webkit-text-stroke-width, -webkit-text-stroke-color,
+ *   -webkit-text-fill-color.
+ *
+ * Written out field by field rather than looped over a key table: a keyed
+ * `child[key] = parent[key]` over ~26 names is megamorphic and was a quarter
+ * of all resolve time.
+ *
+ * A CSS-wide `inherit`/`unset` never reaches a field: `applyKeyword` leaves
+ * the property unset, so it is copied here like any other.
  */
 function inheritFrom(child: ResolvedStyle, parent: ResolvedStyle, setProps: Set<string>): void {
-  for (const [cssProp, key] of INHERITABLE_KEYS) {
-    // The explicit CSS-wide `inherit` keyword wins the cascade but still
-    // resolves to the parent's computed value. String properties otherwise
-    // leaked the literal word into canvas state (notably font-family).
-    if ((child as any)[key] === 'inherit') {
-      (child as any)[key] = (parent as any)[key];
-    } else if (!setProps.has(cssProp)) {
-      if (key === 'lineHeight') {
-        // Unitless line-height: re-compute relative to child's font-size
-        const multiplier = (parent as any)._lineHeightMultiplier;
-        if (multiplier !== undefined) {
-          child.lineHeight = multiplier * child.fontSize;
-          (child as any)._lineHeightMultiplier = multiplier;
-        } else {
-          child.lineHeight = parent.lineHeight;
-        }
-      } else if (key === 'textUnderlineOffset') {
-        // Percentage offset: re-resolve against the child's own font size
-        // (Chrome-measured), same pattern as the line-height multiplier.
-        const pct = (parent as any)._underlineOffsetPct;
-        if (pct !== undefined) {
-          child.textUnderlineOffset = (pct / 100) * child.fontSize;
-          (child as any)._underlineOffsetPct = pct;
-        } else {
-          child.textUnderlineOffset = parent.textUnderlineOffset;
-        }
-      } else {
-        (child as any)[key] = (parent as any)[key];
-      }
+  const c = child as InternalStyle, p = parent as InternalStyle;
+  if (!setProps.has('color')) c.color = p.color;
+  if (!setProps.has('text-align')) c.textAlign = p.textAlign;
+  if (!setProps.has('text-align-last')) c.textAlignLast = p.textAlignLast;
+  if (!setProps.has('text-indent')) c.textIndent = p.textIndent;
+  if (!setProps.has('text-transform')) c.textTransform = p.textTransform;
+  if (!setProps.has('white-space')) c.whiteSpace = p.whiteSpace;
+  if (!setProps.has('word-break')) c.wordBreak = p.wordBreak;
+  if (!setProps.has('overflow-wrap')) c.overflowWrap = p.overflowWrap;
+  if (!setProps.has('direction')) c.direction = p.direction;
+  if (!setProps.has('letter-spacing')) c.letterSpacing = p.letterSpacing;
+  if (!setProps.has('word-spacing')) c.wordSpacing = p.wordSpacing;
+  if (!setProps.has('line-height')) {
+    // Unitless line-height: re-compute relative to child's font-size
+    const multiplier = p[LINE_HEIGHT_MULTIPLIER];
+    if (multiplier !== undefined) {
+      c.lineHeight = multiplier * c.fontSize;
+      c[LINE_HEIGHT_MULTIPLIER] = multiplier;
+    } else {
+      c.lineHeight = p.lineHeight;
     }
   }
+  if (!setProps.has('text-shadow')) c.textShadow = p.textShadow;
+  if (!setProps.has('font-kerning')) c.fontKerning = p.fontKerning;
+  if (!setProps.has('list-style-type')) c.listStyleType = p.listStyleType;
+  if (!setProps.has('vertical-align')) c.verticalAlign = p.verticalAlign;
+  if (!setProps.has('text-underline-offset')) {
+    // Percentage offset: re-resolve against the child's own font size
+    // (Chrome-measured), same pattern as the line-height multiplier.
+    const pct = p[UNDERLINE_OFFSET_PCT];
+    if (pct !== undefined) {
+      c.textUnderlineOffset = (pct / 100) * c.fontSize;
+      c[UNDERLINE_OFFSET_PCT] = pct;
+    } else {
+      c.textUnderlineOffset = p.textUnderlineOffset;
+    }
+  }
+  if (!setProps.has('paint-order')) c.paintOrder = p.paintOrder;
+  if (!setProps.has('stroke-linejoin')) c.strokeLinejoin = p.strokeLinejoin;
+  if (!setProps.has('-webkit-text-stroke-width')) c.webkitTextStrokeWidth = p.webkitTextStrokeWidth;
+  if (!setProps.has('-webkit-text-stroke-color')) c.webkitTextStrokeColor = p.webkitTextStrokeColor;
+  if (!setProps.has('-webkit-text-fill-color')) c.webkitTextFillColor = p.webkitTextFillColor;
 }
 
 // ─── Main resolver ───────────────────────────────────────────────────
 
-interface MatchedDeclaration {
-  property: string;
-  value: string;
-  specificity: [number, number, number];
-  order: number;
-  important: boolean;
-}
-
 /** A pre-processed rule entry with parsed selector and pre-expanded declarations */
 interface ProcessedRule {
   selector: ParsedSelector;
-  declarations: { property: string; value: string; important: boolean }[];
+  declarations: Declaration[];
   /** Global order for cascade sorting */
   orderBase: number;
 }
 
-/**
- * Build an index of processed rules keyed by rightmost tag name and class names.
- * The '*' key holds rules that match any element (no tag or class constraint).
- */
-function buildRuleIndex(rules: CSSRule[]): {
-  byTag: Map<string, ProcessedRule[]>;
+interface RuleIndex {
+  byId: Map<string, ProcessedRule[]>;
   byClass: Map<string, ProcessedRule[]>;
+  byTag: Map<string, ProcessedRule[]>;
+  /** Rules whose rightmost compound has no id, class or plain tag. */
   universal: ProcessedRule[];
-} {
-  const byTag = new Map<string, ProcessedRule[]>();
+  /** Retained size, in entries + declarations: what the rule cache budgets. */
+  cost: number;
+}
+
+function addTo(map: Map<string, ProcessedRule[]>, key: string, rule: ProcessedRule): void {
+  const list = map.get(key);
+  if (list) list.push(rule);
+  else map.set(key, [rule]);
+}
+
+/**
+ * Build an index of processed rules, each in ONE bucket by its rightmost
+ * compound's most selective part: id, else first class, else tag (an
+ * html/body/:root compound targets the root and goes to `universal`).
+ * The index is shared between calls (see `ruleIndexFor`): nothing reachable
+ * from it is ever written after this returns, and nothing from it reaches a
+ * result — the cascade copies declaration strings out. (Not frozen: freezing
+ * ~1k objects cost a quarter of a cold build. tests/node/determinism.test.ts
+ * gates the isolation instead.)
+ */
+function buildRuleIndex(css: string): RuleIndex {
+  const byId = new Map<string, ProcessedRule[]>();
   const byClass = new Map<string, ProcessedRule[]>();
+  const byTag = new Map<string, ProcessedRule[]>();
   const universal: ProcessedRule[] = [];
   let orderBase = 0;
+  let cost = 0;
 
-  for (const rule of rules) {
+  for (const rule of parseStylesheet(css)) {
     // Pre-expand declarations once
-    const expandedDecls: { property: string; value: string; important: boolean }[] = [];
+    const expandedDecls: Declaration[] = [];
     for (const decl of rule.declarations) {
-      const isImportant = decl.value.includes('!important');
-      const cleanValue = isImportant
-        ? decl.value.replace(/\s*!important\s*/g, '').trim()
-        : decl.value;
-      const expanded = expandShorthand(decl.property, cleanValue);
-      for (const exp of expanded) {
-        expandedDecls.push({ property: exp.property, value: exp.value, important: isImportant });
+      for (const exp of expandShorthand(decl.property, decl.value)) {
+        expandedDecls.push({ property: exp.property, value: exp.value, important: decl.important });
       }
     }
 
-    for (const sel of rule.selectors) {
-      const parsed = parseSelector(sel);
-      if (!parsed) continue;
-
-      const entry: ProcessedRule = {
-        selector: parsed,
-        declarations: expandedDecls,
-        orderBase: orderBase++,
-      };
-
-      const rm = parsed.rightmost;
-      if (rm.tag && !parsed.rightmostIsRoot) {
-        // Index by tag
-        const list = byTag.get(rm.tag);
-        if (list) list.push(entry);
-        else byTag.set(rm.tag, [entry]);
-      }
-      if (rm.classes.length > 0) {
-        // Index by first class (most selective)
-        const cls = rm.classes[0];
-        const list = byClass.get(cls);
-        if (list) list.push(entry);
-        else byClass.set(cls, [entry]);
-      }
-      if (!rm.tag && rm.classes.length === 0) {
-        // Universal selector or html/body root
-        universal.push(entry);
-      }
-      // Also add root-matching selectors to universal
-      if (parsed.rightmostIsRoot) {
-        universal.push(entry);
-      }
+    const selectors = parseSelectorList(rule.prelude);
+    if (selectors.length > 0) cost += expandedDecls.length;
+    for (const selector of selectors) {
+      cost++;
+      const entry: ProcessedRule = { selector, declarations: expandedDecls, orderBase: orderBase++ };
+      const rm = selector.compounds[0];
+      if (rm.id !== null) addTo(byId, rm.id, entry);
+      else if (rm.classes.length > 0) addTo(byClass, rm.classes[0], entry);
+      else if (rm.tag && !rm.rootAlias) addTo(byTag, rm.tag, entry);
+      else universal.push(entry);
     }
   }
 
-  return { byTag, byClass, universal };
+  return { byId, byClass, byTag, universal, cost };
+}
+
+/** Cascade order within one importance: specificity, then source order. */
+function byCascadeOrder(a: ProcessedRule, b: ProcessedRule): number {
+  return a.selector.spec - b.selector.spec || a.orderBase - b.orderBase;
+}
+
+/**
+ * Rule indexes of the most recently used stylesheets, by their exact text.
+ *
+ * Safe to keep across calls because the index is a pure function of the css
+ * string: it reads no ctx, font or DOM state, and nothing in it is mutable or
+ * reaches a LayoutResult (declarations are copied out as strings). It pays off
+ * in fit loops and re-renders, which resolve the same sheet many times.
+ *
+ * A sheet's index is admitted on the SECOND sighting of its text (the first
+ * only records the key): a one-off sheet then never retains an index, whose
+ * ~1k objects would otherwise be promoted and collected as old-generation
+ * garbage — measured at +70 µs per call on a stream of distinct 300-rule
+ * sheets.
+ *
+ * Bounded three ways, so memory cannot grow with use: at most
+ * RULE_CACHE_ENTRIES sheets, RULE_CACHE_CHARS characters of key text (the key
+ * is retained) and RULE_CACHE_COST index entries + declarations in total. The
+ * last is the one that bounds the heap: an index is far bigger than its key
+ * (a selector-heavy sheet retains ~85x its text; one unit costs ~0.3-0.55 KB).
+ * Measured with `node --expose-gc` filling the budget with distinct sheets of
+ * long selector chains, of plain selector lists, and of many declarations,
+ * the cache retains at most ~5.6 MB (it was ~86 MB under the key-chars bound
+ * alone). A sheet whose own index is over the budget is never cached; a
+ * 300-rule sheet costs ~1,200.
+ */
+const RULE_CACHE_ENTRIES = 16;
+const RULE_CACHE_CHARS = 1 << 20;
+const RULE_CACHE_COST = 10_000;
+const ruleCache = new Map<string, RuleIndex | null>();
+let ruleCacheChars = 0;
+let ruleCacheCost = 0;
+
+function forget(key: string): void {
+  const index = ruleCache.get(key);
+  ruleCache.delete(key);
+  ruleCacheChars -= key.length;
+  if (index) ruleCacheCost -= index.cost;
+}
+
+function ruleIndexFor(css: string): RuleIndex {
+  if (ruleCache.has(css)) {
+    const cached = ruleCache.get(css)!;
+    const index = cached ?? buildRuleIndex(css);
+    forget(css);
+    if (index.cost > RULE_CACHE_COST) return index; // too big to keep: never cached
+    // Most recently used last: Map keeps insertion order.
+    ruleCache.set(css, index);
+    ruleCacheChars += css.length;
+    ruleCacheCost += index.cost;
+    evictRuleCache();
+    return index;
+  }
+  if (css.length <= RULE_CACHE_CHARS) {
+    ruleCache.set(css, null);
+    ruleCacheChars += css.length;
+    evictRuleCache();
+  }
+  return buildRuleIndex(css);
+}
+
+/** Drop least recently used sheets until every bound holds. */
+function evictRuleCache(): void {
+  for (const key of ruleCache.keys()) {
+    if (ruleCache.size <= RULE_CACHE_ENTRIES && ruleCacheChars <= RULE_CACHE_CHARS &&
+        ruleCacheCost <= RULE_CACHE_COST) break;
+    forget(key);
+  }
 }
 
 /** Format an integer using a CSS list-style-type. */
@@ -1247,31 +1490,25 @@ function getListMarker(el: Element, listStyleType: string, ordinals: ListOrdinal
   return undefined;
 }
 
-/**
- * Inline-style access without `instanceof HTMLElement` — duck-typed so nodes
- * from non-browser DOMs (linkedom, jsdom) qualify without their constructors
- * being installed as globals.
- */
-function inlineStyleOf(el: Element): CSSStyleDeclaration | null {
-  const style = (el as HTMLElement).style;
-  return style && typeof style.cssText === 'string' ? style : null;
-}
+const NO_DECLARATIONS: readonly Declaration[] = Object.freeze([]);
 
 /**
- * Parse inline style attribute into declarations.
+ * The element's `style=""` declarations as longhands, read from the attribute
+ * itself (not the CSSOM's re-serialized `style.cssText`), parsed ONCE by the
+ * shared tokenizer and expanded once. The attribute is the same string in
+ * every DOM — browser, linkedom, jsdom — so no environment rewrites, expands
+ * or drops a value before render-tag sees it.
  */
-function parseInlineStyle(styleAttr: string): CSSDeclaration[] {
-  const declarations: CSSDeclaration[] = [];
-  for (const decl of styleAttr.split(';')) {
-    const colonIdx = decl.indexOf(':');
-    if (colonIdx === -1) continue;
-    const property = decl.slice(0, colonIdx).trim().toLowerCase();
-    const value = decl.slice(colonIdx + 1).trim();
-    if (property && value) {
-      declarations.push({ property, value });
+function inlineDeclarations(el: Element): readonly Declaration[] {
+  const attr = el.getAttribute('style');
+  if (!attr) return NO_DECLARATIONS;
+  const out: Declaration[] = [];
+  for (const decl of parseDeclarationList(attr)) {
+    for (const longhand of expandShorthand(decl.property, decl.value)) {
+      out.push({ property: longhand.property, value: longhand.value, important: decl.important });
     }
   }
-  return declarations;
+  return out;
 }
 
 /**
@@ -1301,6 +1538,67 @@ function autoDirection(el: Element): 'ltr' | 'rtl' | null {
   return null;
 }
 
+/** Property aliases: CSS name → canonical name for setProps tracking. */
+const PROP_ALIASES: Record<string, string> = {
+  'word-wrap': 'overflow-wrap',
+  'font-variant': 'font-variant-caps',
+  '-webkit-background-clip': 'background-clip',
+};
+
+/**
+ * `<q>`'s quotation marks by nesting depth: `quotes: auto` for an element
+ * with no language, as Blink and WebKit render it (English curly quotes).
+ * Language-specific quotes (`lang="fr"`) and the `quotes` property are not
+ * supported.
+ */
+const QUOTES: readonly [string, string][] = [['“', '”'], ['‘', '’']];
+
+/** Rules of `rules` that match `ctx`, sorted into element and `::marker` lists. */
+function collectMatches(
+  rules: ProcessedRule[] | undefined,
+  matcher: SelectorMatcher,
+  ctx: ElementContext,
+  matched: ProcessedRule[],
+  matchedMarker: ProcessedRule[],
+): void {
+  if (!rules) return;
+  for (const rule of rules) {
+    if (matcher.matches(rule.selector, ctx)) {
+      (rule.selector.pseudoElement === 'marker' ? matchedMarker : matched).push(rule);
+    }
+  }
+}
+
+/**
+ * An element's declarations in ascending cascade precedence (CSS Cascade 4),
+ * into `out` (reused; `inlineFrom` marks where `style=""` ones start in each
+ * importance): presentational hints, then normal declarations by
+ * specificity and order with `style=""` above every rule, then `!important`
+ * ones, where `style=""` again wins. Later entries win. Returns `out.length`.
+ */
+function cascadeOrder(
+  hints: readonly Declaration[],
+  matched: readonly ProcessedRule[],
+  inline: readonly Declaration[],
+  out: Declaration[],
+  isInline: boolean[],
+): number {
+  let n = 0;
+  for (const d of hints) { out[n] = d; isInline[n++] = false; }
+  for (const rule of matched) for (const d of rule.declarations) if (!d.important) { out[n] = d; isInline[n++] = false; }
+  for (const d of inline) if (!d.important) { out[n] = d; isInline[n++] = true; }
+  for (const rule of matched) for (const d of rule.declarations) if (d.important) { out[n] = d; isInline[n++] = false; }
+  for (const d of inline) if (d.important) { out[n] = d; isInline[n++] = true; }
+  return n;
+}
+
+function textNode(text: string, style: ResolvedStyle): StyledNode {
+  // A text node matches no rule and declares nothing: its style IS its
+  // parent element's, so it shares the object rather than copying it
+  // (41% of a styled tree's heap). Nothing downstream writes to a style.
+  return { element: null, tagName: '#text', style, children: [], textContent: text };
+}
+
 /**
  * Resolve styles for a DOM tree without inserting into the document.
  * Parses CSS rules, matches selectors, resolves cascade + inheritance.
@@ -1309,11 +1607,11 @@ export function resolveStylesFromCSS(
   fragment: DocumentFragment,
   css: string,
   containerWidth: number,
+  options: ResolveOptions = {},
 ): StyledNode {
-  const rules = parseCSS(css);
-
-  // Build indexed rule lookup
-  const ruleIndex = buildRuleIndex(rules);
+  const ruleIndex = ruleIndexFor(css);
+  const viewport = options.viewport ?? null;
+  const measureUnits = options.fontUnits;
 
   // Wrap fragment in a container div so resolveElement has a single root
   // Element. Created from the fragment's own document so no ambient DOM is
@@ -1322,30 +1620,65 @@ export function resolveStylesFromCSS(
   container.appendChild(fragment);
 
   const ordinals: ListOrdinals = new Map();
+  const matcher = new SelectorMatcher();
+  const concreteColors: CurrentColorTable = new Map();
+  /** What `rem` resolves against: the root's font-size once it is known, the initial 16px before. */
+  let rootFontSize = 16;
 
-  function buildContext(el: Element, parent: ElementContext | null): ElementContext {
-    const classes = new Set<string>();
-    const className = el.getAttribute('class');
-    if (className) {
-      for (const c of className.split(/\s+/)) {
-        if (c) classes.add(c);
+  /**
+   * Lengths against `style`'s font (em, ch, ex). ONE object per call, re-aimed
+   * per use: an element finishes its cascade before its children start.
+   */
+  const basis: LengthBasis = {
+    em: 16, rem: 16, percent: NaN, viewport, fontStyle: null, measure: measureUnits,
+  };
+  function basisFor(style: ResolvedStyle, percent: number): LengthBasis {
+    basis.em = style.fontSize;
+    basis.rem = rootFontSize;
+    basis.percent = percent;
+    basis.fontStyle = style;
+    return basis;
+  }
+  const env: DeclarationEnv = { b: basis, containerWidth, direction: 'ltr' };
+  /** Scratch for `cascadeOrder`, reused by every element. */
+  const order: Declaration[] = [];
+  const orderInline: boolean[] = [];
+
+  /**
+   * The root's font-size as `html`/`:root` rules alone set it: what `rem`
+   * means. The root container also stands for `body`, whose font-size is
+   * not the root font-size.
+   */
+  function htmlFontSize(matched: readonly ProcessedRule[]): number {
+    const base: LengthBasis = { em: 16, rem: 16, percent: 16, viewport, fontStyle: null, measure: undefined };
+    let size = 16;
+    const visit = (important: boolean) => {
+      for (const rule of matched) {
+        if (rule.selector.rootKind !== 'html') continue;
+        for (const d of rule.declarations) {
+          if (d.important !== important || d.property !== 'font-size') continue;
+          const px = resolveFontSize(d.value, 16, base);
+          if (!Number.isNaN(px)) size = px;
+        }
       }
-    }
-    return {
-      tagName: el.tagName.toLowerCase(),
-      classes,
-      parent,
-      el,
     };
+    visit(false);
+    visit(true);
+    return size;
   }
 
+  /**
+   * `cbWidth`: the width of the element's containing block, which its
+   * percentages (margin, padding, width, text-indent, ...) resolve against.
+   */
   function resolveElement(
     el: Element,
     parentStyle: ResolvedStyle,
     parentCtx: ElementContext | null,
+    cbWidth: number,
   ): StyledNode {
     const tag = el.tagName.toLowerCase();
-    const ctx = buildContext(el, parentCtx);
+    const ctx = matcher.context(el, parentCtx);
 
     // Start with defaults
     const style = defaultStyle();
@@ -1353,164 +1686,97 @@ export function resolveStylesFromCSS(
     // Track which properties are explicitly set (tag defaults, CSS rules, inline styles)
     const setProps = new Set<string>();
 
-    // --- Step 1: Determine font-size first (needed for em/multiplier resolution) ---
-
-    // Collect candidate rules from index (only rules that could match this element)
-    const candidates: ProcessedRule[] = [];
-    const seen = new Set<ProcessedRule>();
-
-    const tagRules = ruleIndex.byTag.get(tag);
-    if (tagRules) for (const r of tagRules) { seen.add(r); candidates.push(r); }
-
-    for (const cls of ctx.classes) {
-      const clsRules = ruleIndex.byClass.get(cls);
-      if (clsRules) for (const r of clsRules) {
-        if (!seen.has(r)) { seen.add(r); candidates.push(r); }
-      }
+    // Matching rules, in cascade order. Each rule sits in one index bucket.
+    const matched: ProcessedRule[] = [];
+    const matchedMarker: ProcessedRule[] = [];
+    if (ruleIndex.byId.size > 0) {
+      const id = el.getAttribute('id');
+      if (id) collectMatches(ruleIndex.byId.get(id), matcher, ctx, matched, matchedMarker);
     }
+    for (const cls of ctx.classes) collectMatches(ruleIndex.byClass.get(cls), matcher, ctx, matched, matchedMarker);
+    collectMatches(ruleIndex.byTag.get(tag), matcher, ctx, matched, matchedMarker);
+    collectMatches(ruleIndex.universal, matcher, ctx, matched, matchedMarker);
+    if (matched.length > 1) matched.sort(byCascadeOrder);
+    const hints = tag === 'font' ? fontHints(el) : NO_DECLARATIONS;
+    const inline = inlineDeclarations(el);
 
-    for (const r of ruleIndex.universal) {
-      if (!seen.has(r)) { seen.add(r); candidates.push(r); }
-    }
-
-    // Match candidates and collect pre-expanded declarations.
-    // Rules with `::marker` are routed to a separate list and applied to the
-    // <li>'s markerStyle later — they do not affect the element body.
-    const matched: MatchedDeclaration[] = [];
-    const matchedMarker: MatchedDeclaration[] = [];
-    for (const candidate of candidates) {
-      if (matchesParsedSelector(candidate.selector, ctx)) {
-        const target = candidate.selector.pseudoElement === 'marker' ? matchedMarker : matched;
-        for (const decl of candidate.declarations) {
-          target.push({
-            property: decl.property,
-            value: decl.value,
-            specificity: candidate.selector.spec,
-            order: candidate.orderBase,
-            important: decl.important,
-          });
-        }
-      }
-    }
-
-    // Tag default font-size
+    // --- Step 1: the UA stylesheet (tag defaults) ---
     const tagDef = TAG_DEFAULTS[tag];
-    let fontSizeSet = false;
     if (tagDef?.fontSize !== undefined) {
       const val = tagDef.fontSize as number;
-      if (val < 10) {
-        style.fontSize = val * parentStyle.fontSize;
-      } else {
-        style.fontSize = val;
-      }
-      fontSizeSet = true;
+      style.fontSize = val < 10 ? val * parentStyle.fontSize : val;
       setProps.add('font-size');
     }
-
-    // Sort by: !important first, then specificity, then source order
-    if (matched.length > 1) {
-      matched.sort((a, b) => {
-        if (a.important !== b.important) return a.important ? 1 : -1;
-        const sa = a.specificity, sb = b.specificity;
-        if (sa[0] !== sb[0]) return sa[0] - sb[0];
-        if (sa[1] !== sb[1]) return sa[1] - sb[1];
-        if (sa[2] !== sb[2]) return sa[2] - sb[2];
-        return a.order - b.order;
-      });
-    }
-
-    // Apply font-size from CSS rules
-    for (const m of matched) {
-      if (m.property === 'font-size') {
-        applyDeclaration(style, m.property, m.value, parentStyle.fontSize, containerWidth, parentStyle.direction);
-        fontSizeSet = true;
-      }
-    }
-
-    // Apply font-size from inline styles
-    const elStyle = inlineStyleOf(el);
-    if (elStyle && elStyle.cssText) {
-      const inlineDecls = parseInlineStyle(elStyle.cssText);
-      for (const decl of inlineDecls) {
-        if (decl.property === 'font-size') {
-          applyDeclaration(style, decl.property, decl.value, parentStyle.fontSize, containerWidth, parentStyle.direction);
-          fontSizeSet = true;
-        }
-      }
-    }
-
-    // Inherit font-size from parent if not set
-    if (!fontSizeSet) {
-      style.fontSize = parentStyle.fontSize;
-    }
-
-    // Now style.fontSize is the element's computed font-size
-    const elemFontSize = style.fontSize;
-
-    // --- Step 2: Apply all other properties using resolved font-size ---
-
-    // Apply non-fontSize tag defaults
     if (tagDef) {
-      for (const [key, val] of Object.entries(tagDef)) {
-        if (key === 'fontSize') continue; // already handled
+      for (const [key, cssKey, val] of TAG_DEFAULT_ENTRIES[tag]) {
         (style as any)[key] = val;
-        const cssKey = key.replace(/[A-Z]/g, m => '-' + m.toLowerCase());
         setProps.add(cssKey);
       }
+    }
+    // HTML's UA sheet: `[hidden] { display: none }` (an author display wins).
+    if (el.hasAttribute('hidden')) style.display = 'none';
+    // `:any-link { color: LinkText; text-decoration: underline }` — LinkText
+    // is #0000ee in Blink, WebKit and Gecko.
+    if ((tag === 'a' || tag === 'area') && el.hasAttribute('href')) {
+      style.color = '#0000ee';
+      style.textDecorationLine = 'underline';
+      setProps.add('color');
+      setProps.add('text-decoration-line');
+    }
 
+    // --- Step 2: the font, before anything that measures it (em, ch, ex) ---
+    const count = cascadeOrder(hints, matched, inline, order, orderInline);
+    for (let i = 0; i < count; i++) {
+      const d = order[i];
+      if (!FONT_PROPERTIES.has(d.property)) continue;
+      const keyword = cssWideKeyword(d.property, d.value);
+      if (keyword) applyKeyword(style, parentStyle, d.property, keyword, setProps, parentStyle.direction, concreteColors);
+      else if (applyFontDeclaration(style, d.property, d.value, parentStyle, basisFor(parentStyle, parentStyle.fontSize))) {
+        setProps.add(PROP_ALIASES[d.property] || d.property);
+      }
+    }
+    inheritFont(style, parentStyle, setProps);
+    if (parentCtx === null) rootFontSize = htmlFontSize(matched);
+    const elemFontSize = style.fontSize;
+
+    // --- Step 3: everything else, against the element's final font ---
+
+    if (tagDef) {
       // Resolve negative margin values (em multipliers from tag defaults)
       if (style.marginTop < 0) style.marginTop = Math.abs(style.marginTop) * elemFontSize;
       if (style.marginBottom < 0) style.marginBottom = Math.abs(style.marginBottom) * elemFontSize;
 
-      // Default padding-inline-start for lists (direction-aware)
-      if (tag === 'ul' || tag === 'ol') {
-        const dir = parentStyle.direction;
-        if (dir === 'rtl') {
-          style.paddingRight = 40;
-          setProps.add('padding-right');
-        } else {
-          style.paddingLeft = 40;
-          setProps.add('padding-left');
-        }
+      // Default padding-inline-start for lists, margin-inline-start for
+      // <dd> (direction-aware).
+      const rtl = parentStyle.direction === 'rtl';
+      if (tag === 'ul' || tag === 'ol' || tag === 'menu' || tag === 'dir') {
+        style[rtl ? 'paddingRight' : 'paddingLeft'] = 40;
+        setProps.add(rtl ? 'padding-right' : 'padding-left');
+      } else if (tag === 'dd') {
+        style[rtl ? 'marginRight' : 'marginLeft'] = 40;
       }
     }
 
-    // Determine direction from parent for logical property resolution
-    const direction = parentStyle.direction;
-
-    // Property aliases: CSS name → canonical name for setProps tracking
-    const PROP_ALIASES: Record<string, string> = {
-      'word-wrap': 'overflow-wrap',
-    };
-
-    // Apply matched CSS declarations (skip font-size, already applied)
-    for (const m of matched) {
-      if (m.property === 'font-size') continue;
-      applyDeclaration(style, m.property, m.value, elemFontSize, containerWidth, direction);
-      setProps.add(PROP_ALIASES[m.property] || m.property);
-    }
-
-    // Apply inline styles (highest specificity, skip font-size)
-    const hasInlineWidth = !!elStyle?.width;
-    if (elStyle && elStyle.cssText) {
-      const inlineDecls = parseInlineStyle(elStyle.cssText);
-      for (const decl of inlineDecls) {
-        if (decl.property === 'font-size') {
-          setProps.add('font-size');
-          continue;
-        }
-        const expanded = expandShorthand(decl.property, decl.value);
-        for (const exp of expanded) {
-          applyDeclaration(style, exp.property, exp.value, elemFontSize, containerWidth, direction);
-          setProps.add(PROP_ALIASES[exp.property] || exp.property);
-        }
+    // Logical properties resolve through the parent's direction.
+    basisFor(style, cbWidth);
+    env.containerWidth = cbWidth;
+    env.direction = parentStyle.direction;
+    let widthFromSheet = false;
+    for (let i = 0; i < count; i++) {
+      const d = order[i];
+      if (FONT_PROPERTIES.has(d.property)) continue;
+      const keyword = cssWideKeyword(d.property, d.value);
+      if (keyword) {
+        applyKeyword(style, parentStyle, d.property, keyword, setProps, env.direction, concreteColors);
+      } else {
+        if (!applyDeclaration(style, d.property, d.value, env)) continue;
+        setProps.add(PROP_ALIASES[d.property] || d.property);
       }
+      if (d.property === 'width') widthFromSheet = !orderInline[i];
     }
 
     // Only keep explicit width from inline styles (match DOM resolver behavior)
-    if (!hasInlineWidth) {
-      style.width = 0;
-    }
+    if (widthFromSheet) style.width = 0;
 
     // Handle `dir` attribute
     const dirAttr = el.getAttribute('dir')?.trim().toLowerCase();
@@ -1528,37 +1794,40 @@ export function resolveStylesFromCSS(
     }
 
     // Inherit from parent for properties not explicitly set
-    setProps.add('font-size'); // already resolved
     inheritFrom(style, parentStyle, setProps);
 
     // A border whose style is none or hidden computes to width 0 (CSS
     // Backgrounds 3): `border-top: 3px none red` takes no space and does not
     // stop a margin collapse.
-    for (const side of ['Top', 'Right', 'Bottom', 'Left'] as const) {
-      const borderStyle = style[`border${side}Style`];
-      if (borderStyle === 'none' || borderStyle === 'hidden') style[`border${side}Width`] = 0;
-    }
+    if (style.borderTopStyle === 'none' || style.borderTopStyle === 'hidden') style.borderTopWidth = 0;
+    if (style.borderRightStyle === 'none' || style.borderRightStyle === 'hidden') style.borderRightWidth = 0;
+    if (style.borderBottomStyle === 'none' || style.borderBottomStyle === 'hidden') style.borderBottomWidth = 0;
+    if (style.borderLeftStyle === 'none' || style.borderLeftStyle === 'hidden') style.borderLeftWidth = 0;
 
     // Auto-set currentColor defaults (browser default behavior).
     // An automatic HTML decoration uses the text stroke color when a visible
     // stroke is enabled, otherwise the text fill color, falling back to `color`.
     // This selects the band's paint; it does not outline or widen the band.
     // Resolve it on the declarer so descendant runs and path text agree.
+    for (const [field, prop] of CURRENTCOLOR_PROPERTIES) {
+      if (setProps.has(prop) && String((style as InternalStyle)[field]).toLowerCase() !== 'currentcolor') {
+        let set = concreteColors.get(style);
+        if (!set) concreteColors.set(style, set = new Set());
+        set.add(field);
+      }
+    }
     if (!setProps.has('text-decoration-color') || style.textDecorationColor.toLowerCase() === 'currentcolor') {
       const strokeColor = style.webkitTextStrokeColor || style.color;
       style.textDecorationColor = style.webkitTextStrokeWidth > 0 && !isTransparent(strokeColor)
         ? strokeColor
         : style.webkitTextFillColor || style.color;
     }
-    for (const side of ['Top', 'Right', 'Bottom', 'Left'] as const) {
-      const colorKey = `border${side}Color` as keyof ResolvedStyle;
-      const propName = `border-${side.toLowerCase()}-color`;
-      if (!setProps.has(propName)) {
-        (style as any)[colorKey] = style.color;
-      } else if ((style as any)[colorKey] === 'currentColor') {
-        (style as any)[colorKey] = style.color;
-      }
-    }
+    // An unset border color is currentColor; so is the keyword, in any case.
+    if (!setProps.has('border-top-color') || style.borderTopColor.toLowerCase() === 'currentcolor') style.borderTopColor = style.color;
+    if (!setProps.has('border-right-color') || style.borderRightColor.toLowerCase() === 'currentcolor') style.borderRightColor = style.color;
+    if (!setProps.has('border-bottom-color') || style.borderBottomColor.toLowerCase() === 'currentcolor') style.borderBottomColor = style.color;
+    if (!setProps.has('border-left-color') || style.borderLeftColor.toLowerCase() === 'currentcolor') style.borderLeftColor = style.color;
+    if (style.backgroundColor.toLowerCase() === 'currentcolor') style.backgroundColor = style.color;
 
     // Handle text-decoration inheritance (propagates visually, not via normal
     // inheritance). Each decoration keeps the color/style of the element that
@@ -1606,17 +1875,7 @@ export function resolveStylesFromCSS(
     let markerStyle: Partial<ResolvedStyle> | undefined;
     let markerHidden = false;
     if (tag === 'li' && matchedMarker.length > 0) {
-      // Sort by cascade order — same rules as element style.
-      if (matchedMarker.length > 1) {
-        matchedMarker.sort((a, b) => {
-          if (a.important !== b.important) return a.important ? 1 : -1;
-          const sa = a.specificity, sb = b.specificity;
-          if (sa[0] !== sb[0]) return sa[0] - sb[0];
-          if (sa[1] !== sb[1]) return sa[1] - sb[1];
-          if (sa[2] !== sb[2]) return sa[2] - sb[2];
-          return a.order - b.order;
-        });
-      }
+      if (matchedMarker.length > 1) matchedMarker.sort(byCascadeOrder);
 
       // Apply to a scratch style cloned from the resolved <li> style, then
       // copy out the keys that changed. Whitelist the physical fields we
@@ -1629,7 +1888,9 @@ export function resolveStylesFromCSS(
       ];
       const scratch = { ...style } as ResolvedStyle;
       const touched = new Set<keyof ResolvedStyle>();
-      for (const m of matchedMarker) {
+      const markerCount = cascadeOrder(NO_DECLARATIONS, matchedMarker, NO_DECLARATIONS, order, orderInline);
+      for (let i = 0; i < markerCount; i++) {
+        const m = order[i];
         // `content: none` (and `content: ''`) suppresses the marker entirely,
         // matching DOM `::marker` behavior. `content` isn't part of
         // ResolvedStyle, so we handle it inline.
@@ -1641,10 +1902,18 @@ export function resolveStylesFromCSS(
           }
           continue;
         }
+        // The marker starts as a copy of the <li>: inherit/unset change nothing.
+        if (cssWideKeyword(m.property, m.value)) continue;
         const before = TRACKED.map(k => scratch[k]);
-        applyDeclaration(scratch, m.property, m.value, elemFontSize, containerWidth, direction);
-        TRACKED.forEach((k, i) => {
-          if (scratch[k] !== before[i]) touched.add(k);
+        if (FONT_PROPERTIES.has(m.property)) {
+          applyFontDeclaration(scratch, m.property, m.value, style, basisFor(style, style.fontSize));
+        } else {
+          basisFor(style, cbWidth);
+          env.containerWidth = cbWidth;
+          applyDeclaration(scratch, m.property, m.value, env);
+        }
+        TRACKED.forEach((k, j) => {
+          if (scratch[k] !== before[j]) touched.add(k);
         });
       }
       if (touched.size > 0) {
@@ -1653,11 +1922,24 @@ export function resolveStylesFromCSS(
       }
     }
 
-    // Walk children
+    // Walk children, against this element's content box — or, for an
+    // inline box, against the block container's, which it passes through.
+    const childCb = style.display === 'inline' || style.display === 'contents'
+      ? cbWidth
+      : Math.max(0, (style.width > 0 ? style.width : cbWidth - style.marginLeft - style.marginRight) -
+        style.borderLeftWidth - style.borderRightWidth - style.paddingLeft - style.paddingRight);
     const children: StyledNode[] = [];
     for (const child of el.childNodes) {
-      const childNode = walkNode(child, style, ctx);
+      const childNode = walkNode(child, style, ctx, childCb);
       if (childNode) children.push(childNode);
+    }
+    if (tag === 'q') {
+      // `q::before { content: open-quote }` / `::after { content: close-quote }`.
+      let depth = 0;
+      for (let a = parentCtx; a; a = a.parent) if (a.tagName === 'q') depth++;
+      const [open, close] = QUOTES[depth % 2];
+      children.unshift(textNode(open, style));
+      children.push(textNode(close, style));
     }
 
     return {
@@ -1676,6 +1958,7 @@ export function resolveStylesFromCSS(
     node: Node,
     parentStyle: ResolvedStyle,
     parentCtx: ElementContext | null,
+    cbWidth: number,
   ): StyledNode | null {
     if (node.nodeType === TEXT_NODE) {
       const text = node.textContent;
@@ -1687,9 +1970,7 @@ export function resolveStylesFromCSS(
         const next = node.nextSibling;
         const isInlineSibling = (n: Node | null) => {
           if (!n || n.nodeType !== ELEMENT_NODE) return n?.nodeType === TEXT_NODE;
-          const tag = (n as Element).tagName.toLowerCase();
-          const def = TAG_DEFAULTS[tag];
-          const d = def?.display || 'block';
+          const d = uaDisplay((n as Element).tagName.toLowerCase());
           return d === 'inline' || d === 'inline-block';
         };
 
@@ -1712,9 +1993,6 @@ export function resolveStylesFromCSS(
         }
       }
 
-      // Clone parent style for text node (text nodes don't match CSS rules)
-      const style = { ...parentStyle };
-
       // CSS Text 3 §4.1.1: in `normal` and `nowrap`, a source newline is
       // collapsed to a single space (no forced break). Only `pre`,
       // `pre-wrap`, `pre-line`, and `break-spaces` preserve newlines.
@@ -1725,14 +2003,7 @@ export function resolveStylesFromCSS(
       if (ws !== 'pre' && ws !== 'pre-wrap' && ws !== 'pre-line' && ws !== 'break-spaces') {
         normalizedText = text.replace(/[\n\r]/g, ' ');
       }
-
-      return {
-        element: null,
-        tagName: '#text',
-        style,
-        children: [],
-        textContent: normalizedText,
-      };
+      return textNode(normalizedText, parentStyle);
     }
 
     if (node.nodeType !== ELEMENT_NODE) return null;
@@ -1742,21 +2013,15 @@ export function resolveStylesFromCSS(
     if (tag === 'style' || tag === 'script') return null;
 
     // <br> → text node with newline
-    if (tag === 'br') {
-      return {
-        element: null,
-        tagName: '#text',
-        style: { ...parentStyle },
-        children: [],
-        textContent: '\n',
-      };
-    }
+    if (tag === 'br') return textNode('\n', parentStyle);
+    // <wbr> is a line break opportunity: HTML renders it as a zero-width space.
+    if (tag === 'wbr') return textNode('\u200B', parentStyle);
 
-    const resolved = resolveElement(el, parentStyle, parentCtx);
+    const resolved = resolveElement(el, parentStyle, parentCtx, cbWidth);
     // display:none generates no box: no text, no margins, no line box.
     return resolved.style.display === 'none' ? null : resolved;
   }
 
   const rootStyle = defaultStyle();
-  return resolveElement(container, rootStyle, null);
+  return resolveElement(container, rootStyle, null, containerWidth);
 }

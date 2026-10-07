@@ -11,6 +11,105 @@ HTML string + CSS → parseHTML (DOMParser) → resolveStylesFromCSS (pure CSS p
 → buildLayoutTree (canvas measureText) → renderNode (canvas fillText/fillRect)
 ```
 
+### CSS resolver (`css-syntax.ts`, `css-selectors.ts`, `css-values.ts`, `css-validate.ts`, `css-resolver.ts`, `parse.ts`)
+
+- **One tokenizer** (`css-syntax.ts`) for `<style>` sheets AND `style=""`. It
+  follows CSS Syntax 3 block structure: strings, escapes, comments, `url()`,
+  nested `()`/`[]`/`{}`. So `url(data:…;base64,…)` and `"a;b"` stay one
+  value, a `}` in a string does not end a rule, block @-rules are skipped by
+  depth, and a nested style rule is dropped. `!important` becomes a flag; a
+  leftover `!` (`!important !important`, `!ie`) drops the declaration. Error
+  recovery is the spec's: a stray `}` in `style=""` drops its item up to the
+  next `;`; a stray top-level `}` joins the next prelude (so that rule is
+  dropped); a comment in a prelude is removed with NO space (`.a/**/.b` is
+  `.a.b`). Never go back to `split(';')`.
+- **Inline styles come from `getAttribute('style')`**, parsed and expanded
+  once, never from `el.style.cssText`. The CSSOM re-serializes per engine:
+  WebKit expanded `font:`/`border:` into longhands, Chrome lower-cased
+  `currentColor`. The resolver gave different answers per browser and per DOM
+  (linkedom), and the CSSOM silently dropped what it did not know (inline
+  `line-clamp`). Shorthands are therefore OURS to expand (`expandShorthand`:
+  `font`, `border*`, `margin`/`padding`, `flex`, `text-decoration`, ...).
+- **The rule index is the ONE cache that outlives a call.** It is keyed by
+  the exact css text, a pure function of that string (no ctx, font or DOM
+  state). Nothing in it reaches a result. It is LRU-bounded (16 sheets, 1M key
+  chars, and 10k index entries + declarations — the bound that caps the heap,
+  measured at ≤ ~5.6 MB retained), and an index is admitted only on the
+  second sighting of a sheet. (`isColor` keeps a 512-entry answer map, the
+  same kind of pure string function.)
+  `tests/node/determinism.test.ts` ("a caller writing into a result…") gates
+  the isolation.
+- **A `#text`/`<br>` node's `style` IS its parent element's object** (not a
+  copy; 41% of the styled heap). So `run.style === parentElementStyle` for
+  direct text, and nothing downstream may write to a style: copy it
+  (`{ ...style, x }`) as layout does. Style identity therefore does NOT mean
+  "same text node": Blink paint batching must not merge two MEASURING runs
+  of one style (`Hello<!---->World` is two runs, measured apart). Layout flags
+  the first piece of such a run (`startsMeasuredRun`, a symbol key set only
+  on those rare pieces — a per-piece side table cost 7% of layout) and paint
+  never batches across it (`tests/node/paint-runs.test.ts`). Inheritance is
+  a fixed, field-by-field `inheritFrom`. `defaultStyle()` declares every
+  field in one shape; the private ones (`LINE_HEIGHT_MULTIPLIER`,
+  `UNDERLINE_OFFSET_PCT`, `OVERFLOW_X/Y`) are SYMBOL keys: copied by spreads,
+  invisible to `Object.keys`/JSON, so they are no public field. Assign them
+  after the literal — computed keys in the literal cost 12% of resolve.
+- **Cascade order** (`cascadeOrder`): UA tag defaults (`TAG_DEFAULTS`, plus
+  `[hidden]` and `a[href]` links) < `<font>` presentational hints < sheet
+  normal (specificity, order) < `style=""` normal < sheet `!important` <
+  `style=""` `!important`. The FONT properties (`FONT_PROPERTIES`) resolve
+  first, against the parent, and are inherited before anything else
+  (`inheritFont`), so em, ch and ex in every other declaration see the
+  element's final font. CSS-wide keywords (`inherit`/`initial`/`unset`,
+  `revert` = `unset`) are handled once, generically (`applyKeyword`,
+  `PROPERTY_FIELDS`), never stored as strings.
+- **An invalid value is IGNORED** (the parser returns NaN / false), as in a
+  browser — it never writes 0 over the cascaded value. A unitless non-zero
+  length is invalid (standards mode). Strings are validated too
+  (`css-validate.ts`): keywords against their property's allowed set and
+  stored LOWER-CASED (`display:INLINE` is `inline`; layout compares with
+  `===`), colors / images / `text-shadow` / `font-family` by grammar. The raw
+  `style` attribute is no longer filtered by the CSSOM, so this is the only
+  thing standing between `style="color: foo"` and a canvas that ignores the
+  fillStyle and paints with the previous one. Shorthands (`border*`,
+  `text-decoration`, `-webkit-text-stroke`, `list-style`, `background`) drop
+  whole on a token nothing accepts, and reset what they do not name.
+- **Percentages resolve against the containing block**, threaded down the
+  recursion (`cbWidth`): a block's content box, passed through inline boxes.
+  Exact for block flow and for flex items (the container's content box);
+  descendants of a shrink-to-fit or flex-sized box use that box as if it
+  filled its own containing block (known approximation).
+- **Units** (`css-values.ts`): px, em, rem (the root's `html`/`:root`
+  font-size — NOT `body`'s, though the root container stands for both), %,
+  pt, pc, in, cm, mm, Q, vw/vh/vmin/vmax (+ s/l/d variants, vi/vb), ch, ex,
+  `calc()`/`min()`/`max()`/`clamp()`. The viewport is `layout()`'s
+  `width` x `height` (no height: vh falls back to the width); text on a path
+  has none, so a viewport unit is ignored there. ch/ex come from the
+  caller's ctx through `Measurer.fontUnits` — measured only when used; ex is
+  the ink ascent of `x` (engines read OS/2 x-height, ~1-2% apart). Without a
+  ctx (`resolveStylesFromCSS` called bare) both are 0.5em.
+- **Selectors are an allowlist** (`css-selectors.ts`): anything unsupported
+  but VALID (`:has()`, `::before`, `*|p`, form states) makes that selector
+  never match, and only that member of a list; anything INVALID (`:foo`,
+  `::bogus`, `]`) drops the whole list, as Selectors 4 says. Dynamic states
+  (`:hover`, `:focus`, `:visited`) are valid and never active, so
+  `:not(:hover)` matches. `:is()`/`:where()`/`:not()` take complex
+  selectors. Never strip an unknown part and match the rest — that made
+  `:root {}` hit every element. Matching walks the DOM (`SelectorMatcher`:
+  one context per element, sibling positions per parent, and the `~` answer
+  per element, all cached per call — `~` was quadratic, 610 ms for one rule
+  on 4,000 items; `tests/node/perf-counters.test.ts` ratchets it).
+- **Display defaults to `inline`** (CSS initial). Only elements in the HTML
+  UA sheet's block list are blocks; table internals (`thead`/`tbody`/...)
+  stay plain blocks because layout reads rows through them. `<wbr>` becomes a
+  `\u200B` text node; `<q>` gets quote text nodes sharing its style.
+- `parseHTML` lifts LEADING `<style>` blocks off as text before DOMParser
+  (RAWTEXT rules, CR/LF and NUL normalized). DOMParser spent ~1.7 ms on a
+  321 KB @font-face sheet. Anything less plain falls back to the DOM. A
+  `<style media>` applies only for `all`/`screen` (`not print` too); media
+  features are not evaluated, so a query with one does not apply — like an
+  `@media` block, which is skipped. A `type` other than `text/css` drops it.
+  `tests/parse-style-extraction.test.ts` holds it to each engine's parser.
+
 - **`accuracy` option** (default: `'performance'`) — `'balanced'` enables hidden DOM probes for line heights. `'performance'` uses pure canvas API only.
 - **`render()` is synchronous** — no async, no font loading. Caller must load fonts first.
 - **Vector consumers exist.** PDF exporters pass Canvas-like proxies that emit
@@ -29,8 +128,8 @@ HTML string + CSS → parseHTML (DOMParser) → resolveStylesFromCSS (pure CSS p
 Some paints reach descendant text via **painting rules, not CSS inheritance**:
 `background-clip:text` backgrounds (gradient AND solid color), `--rt-text-stroke-image`,
 and text-decoration bands. `resolveStylesFromCSS` correctly does NOT inherit
-`background-image`/`background-clip`/`--rt-text-stroke-image` — but `#text` nodes copy
-their parent ELEMENT's full style, so a paint declared on an element "works" for its
+`background-image`/`background-clip`/`--rt-text-stroke-image` — but `#text` nodes SHARE
+their parent ELEMENT's style object, so a paint declared on an element "works" for its
 direct text and silently vanishes one nested inline deeper (`<s clip><u>text</u></s>`).
 Every historical gradient/underline/stroke invisibility bug came from re-deriving
 propagation from a run's own style somewhere in a renderer.
@@ -135,6 +234,7 @@ npm run test:clear-native-cache               # remove local native-reference PN
 npx vitest run -c vitest.node.config.ts tests/node/layout-logic.test.ts  # layout unit tests (Node, mocked measureText, <1s)
 npx vitest run tests/wrapping-parity.test.ts  # focused Chrome DOM-wrap regressions
 npx vitest run tests/flex-parity.test.ts      # flex item geometry vs the DOM (all 3 lanes)
+npx vitest run tests/computed-style-parity.test.ts  # ResolvedStyle vs getComputedStyle (all 3 lanes)
 npx vitest run tests/margin-collapse-parity.test.ts  # block margins vs the DOM (Chromium + WebKit)
 npx vitest run tests/geometry-oracle.test.ts  # line/token geometry vs the DOM, report-only (Chromium + WebKit)
 npx vitest run tests/render.test.ts           # render quality tests
@@ -206,7 +306,32 @@ image update flakes them, move that gate behind the flag too.
   - `npm run test:update-cross-browser-baseline:{firefox,webkit}` — structural residuals
   - `npm run test:update-stress-baseline[:firefox|:webkit]` — width-sweep residuals
   - `npm run test:update-wrap-sweep-baseline[:firefox|:webkit]` — full-corpus 1px sweep bands
+  - `npm run test:update-computed-style-failures[:firefox|:webkit]` — computed-style known failures
   - `npm run test:update-perf-counters` — Node work-counter bounds (`tests/perf-counters-baseline.json`)
+
+### Computed-style oracle (`tests/computed-style-parity.test.ts`)
+
+Tier 1: the resolver's `ResolvedStyle` against the browser's own
+`getComputedStyle`, field by field, for every element of the generated
+CSS-feature fixtures in `tests/helpers/css-feature-cases.ts` (units, the `font`
+shorthand, `!important`, `background`, `currentcolor`, `url(data:…)`,
+phrasing/legacy/unknown elements, structural/attribute selectors and
+combinators, inheritance and CSS-wide keywords, containing-block
+percentages). No fonts, no pixels: about 2 s per lane. The pixel corpus has
+none of these features, so this is where resolver bugs are named.
+
+`ResolvedStyle` is not computed style: the test file's header maps each
+sentinel (`lineHeight: 0` = normal, `width: 0` = auto, `''` = currentcolor,
+own vs propagated decoration lines, the decoration PAINT color, ...)
+explicitly. Free-form strings (colors, images, shadows, families) are
+normalized through a probe element in the top document.
+
+`tests/computed-style-known-failures.json` records today's divergences per
+browser — a ratchet like the baselines: a new divergence fails, and so does a
+listed key that now passes (remove it; the list only shrinks). The
+git-ignored `tests/computed-style-report.<browser>.json` holds every divergence
+with both values for triage. Firefox is `null` (never recorded): that lane runs
+the cases but does not gate the set until recorded there.
 
 ### Unit tests for layout logic (`tests/node/layout-logic.test.ts`)
 Unit tests cover deterministic layout algorithms directly — no browser, no fonts, no pixels. They mock `ctx.measureText` to return predictable widths (e.g., 10px per character), then assert the output of layout functions.
@@ -514,9 +639,9 @@ ask about the same node — the min/max-content caches are keyed by identity.
 Before that it was counted in the width distribution and then skipped at
 placement, so the text vanished and every item after it shifted left.
 
-Not supported, and silently ignored: `:first-child` / `:last-child` and every
-other pseudo-class (`parseSelector` returns null for them), so flex fixtures
-address items by class.
+Flex fixtures address items by class. Structural pseudo-classes
+(`:first-child`, `:nth-child()`, ...) are supported now (see the CSS resolver
+section), but the recorded fixtures predate them.
 
 ### Line boxes and the baseline (`lineBaselineOffset`, `layoutInlineContent`)
 A line box is the union of EVERY box on the line — the block strut, each run,

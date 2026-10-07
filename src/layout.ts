@@ -1,5 +1,5 @@
 import type { StyledNode, LayoutNode, LayoutBox, LayoutText, ResolvedStyle, LayoutLine, LayoutLineBox, DecorationEntry } from './types.js';
-import { isTransparent } from './css-resolver.js';
+import { isTransparent, LINE_HEIGHT_MULTIPLIER, OVERFLOW_X, OVERFLOW_Y } from './css-resolver.js';
 import { IS_GECKO, IS_SAFARI } from './engine.js';
 export { INTEGER_PERCENT_LINE_HEIGHT } from './engine.js';
 import {
@@ -311,6 +311,21 @@ export class Measurer {
     return box;
   }
 
+  /**
+   * The resolver's font-relative units for a style's font: `ch`, the advance
+   * of `0`, and `ex`, the x-height — read as the ink ascent of `x`, which
+   * includes the glyph's overshoot (an engine reads the font's OS/2 x-height;
+   * they differ by about 1-2%). A ctx that cannot answer gets 0.5em, the CSS
+   * Values 4 fallback.
+   */
+  fontUnits(style: ResolvedStyle): { ch: number; ex: number } {
+    const state = this.intern(buildCanvasFont(style), 'normal', '0px');
+    const ch = this.width(state, '0');
+    const ex = this.measureText(state, 'x').actualBoundingBoxAscent;
+    const half = style.fontSize / 2;
+    return { ch: ch > 0 ? ch : half, ex: ex > 0 ? ex : half };
+  }
+
   /** See `tabStopMetrics`. */
   tabStops(style: ResolvedStyle): TabStops {
     const fs = this.font(style);
@@ -486,6 +501,24 @@ export const BLINK_UNDERLINE_GAP = !IS_GECKO && !IS_SAFARI;
  */
 const runLineTops = new WeakMap<LayoutText, number>();
 
+/** Marks a LayoutText that starts a measuring run (`startsMeasuredRun`). A symbol: no public field. */
+const RUN_SEAM: unique symbol = Symbol('runSeam');
+type SeamFlagged = LayoutText & { [RUN_SEAM]?: true };
+
+/**
+ * Does `node` start a new measuring run although the piece before it has
+ * the same style? Then paint must not batch the two into one fillText: they
+ * were measured apart, and one shaped string drifts from their layout
+ * positions by the kerning across the seam. Text nodes of one element share
+ * its style object, so style identity alone does NOT mean "same run"
+ * (`Hello<!---->World` is two). Flagged only on those rare pieces (a symbol
+ * key, copied with the node), so the common path costs a missed property
+ * read; a tree this layout did not produce batches by style, the old rule.
+ */
+export function startsMeasuredRun(node: LayoutText): boolean {
+  return (node as SeamFlagged)[RUN_SEAM] === true;
+}
+
 /**
  * How far the engine moves a run's paint off its layout position
  * (`SNAPS_LINE_PAINT`): `round(lineTop) - lineTop`, the same for every run on
@@ -560,7 +593,7 @@ function hasLineHeight(style: ResolvedStyle): boolean {
 
 /** The line-height multiplier of a unitless `line-height` (css-resolver). */
 function lineHeightMultiplier(style: ResolvedStyle): number | undefined {
-  return (style as { _lineHeightMultiplier?: number })._lineHeightMultiplier;
+  return (style as { [LINE_HEIGHT_MULTIPLIER]?: number })[LINE_HEIGHT_MULTIPLIER];
 }
 
 /**
@@ -968,6 +1001,13 @@ interface Word {
   inlineBlockLayout?: InlineBlockLayout;
   /** See `TextRun.bidi`. */
   bidi?: BidiContext | null;
+  /**
+   * This word starts a new measuring run right after a run of the SAME style
+   * object (text nodes of one element split by a comment, an empty or hidden
+   * element): the two were measured apart, so paint must not batch across
+   * the seam — see `startsMeasuredRun`. Set only on those rare words.
+   */
+  runSeam?: true;
 }
 
 interface PositionedLine {
@@ -1488,6 +1528,11 @@ function tokenizeString(m: Measurer, text: string, run: TextRun, allWords: Word[
 function tokenizeRuns(ctx: CanvasRenderingContext2D, runs: TextRun[]): Word[] {
   const m = measurerFor(ctx);
   const allWords: Word[] = [];
+  /** The text so far ends with a zero-width space (a break opportunity). */
+  let zwspBefore = false;
+  /** Style of the last text run that produced words (`markSeam`). */
+  let lastTextStyle: ResolvedStyle | null = null;
+  let runStart = 0;
 
   for (const run of transformTextRuns(runs)) {
     // Handle inline-block margins (empty text, no boxOpen/boxClose)
@@ -1543,6 +1588,19 @@ function tokenizeRuns(ctx: CanvasRenderingContext2D, runs: TextRun[]): Word[] {
     }
 
     const text = run.text;
+    runStart = allWords.length;
+    /**
+     * Flag the first word of this run when the previous text run had the
+     * same style object: a seam between two measuring runs that paint could
+     * otherwise batch (`Word.runSeam`).
+     */
+    const markSeam = (startLen: number, first: boolean) => {
+      if (first && run.style === lastTextStyle && allWords.length > startLen) allWords[startLen].runSeam = true;
+    };
+    // A zero-width space at the run boundary (a `<wbr>`, or one ending the
+    // previous run) is a break opportunity there; it produces no word itself.
+    const breakAtStart = zwspBefore || text.charCodeAt(0) === 0x200B;
+    zwspBefore = text.charCodeAt(text.length - 1) === 0x200B || (zwspBefore && /^\u200B*$/.test(text));
 
     // Mark the first word produced from `startLen` as having no soft-wrap
     // opportunity before it when it directly abuts real text from a previous
@@ -1551,6 +1609,7 @@ function tokenizeRuns(ctx: CanvasRenderingContext2D, runs: TextRun[]): Word[] {
     // box-padding marker, or box edge — so a whitespace/padding boundary still
     // allows a break.
     const markGlue = (startLen: number) => {
+      if (breakAtStart) return;
       const first = allWords[startLen];
       if (!first || first.isSpace || !first.text || first.text === '\n') return;
       const prev = allWords[startLen - 1];
@@ -1586,14 +1645,17 @@ function tokenizeRuns(ctx: CanvasRenderingContext2D, runs: TextRun[]): Word[] {
         if (parts[i]) {
           const startLen = allWords.length;
           tokenizeString(m, parts[i], run, allWords);
+          markSeam(startLen, i === 0);
           markGlue(startLen);
         }
       }
     } else {
       const startLen = allWords.length;
       tokenizeString(m, text, run, allWords);
+      markSeam(startLen, true);
       markGlue(startLen);
     }
+    if (allWords.length > runStart) lastTextStyle = run.style;
   }
 
   return allWords;
@@ -3070,6 +3132,7 @@ function layoutInlineContent(
         };
         results.push(node);
         runLineTops.set(node, curY);
+        if (word.runSeam) (node as SeamFlagged)[RUN_SEAM] = true;
         if (word.clipStyle) clipRuns.set(node, word.clipStyle);
         if (word.strokeImageStyle) strokeImageRuns.set(node, word.strokeImageStyle);
         curX += word.width;
@@ -3105,6 +3168,7 @@ function layoutInlineContent(
       };
       results.push(node);
       runLineTops.set(node, curY);
+      if (word.runSeam) (node as SeamFlagged)[RUN_SEAM] = true;
       if (word.clipStyle) clipRuns.set(node, word.clipStyle);
       if (word.strokeImageStyle) strokeImageRuns.set(node, word.strokeImageStyle);
 
@@ -3256,7 +3320,7 @@ function establishesBfc(style: ResolvedStyle): boolean {
   const d = style.display;
   if (d !== 'block' && d !== 'list-item') return true; // flex, table, flow-root, ...
   // `overflow` (either axis) other than visible/clip. Private resolver fields.
-  const { _overflowX: x, _overflowY: y } = style as { _overflowX?: string; _overflowY?: string };
+  const { [OVERFLOW_X]: x, [OVERFLOW_Y]: y } = style as { [OVERFLOW_X]?: string; [OVERFLOW_Y]?: string };
   const scrolls = (v: string | undefined) => v === 'hidden' || v === 'auto' || v === 'scroll';
   return scrolls(x) || scrolls(y);
 }

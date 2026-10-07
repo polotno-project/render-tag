@@ -248,7 +248,9 @@ across formats. No separate shadow-layer or preparation API is required.
 
 ## What it renders
 
-Paragraphs, headings, divs, spans · bold, italic, underline, strikethrough, overline · colors, background colors, text-shadow, text-stroke (solid **and gradient**), gradient text · font families, sizes, weights (100–900) · line-height, letter-spacing, text-align (left/center/right/justify) · ordered/unordered lists with nesting · flexbox (row/column, with `flex-grow`/`flex-shrink`/`flex-basis` sized against min- and max-content like the browser), basic tables · `-webkit-line-clamp` · `pre-wrap`, `overflow-wrap: break-word`, soft hyphens · RTL, CJK, emoji.
+Paragraphs, headings, divs, spans · bold, italic, underline, strikethrough, overline · colors, background colors, text-shadow, text-stroke (solid **and gradient**), gradient text · font families, sizes, weights (100–900), the `font` shorthand · line-height, letter-spacing, text-align (left/center/right/justify) · ordered/unordered lists with nesting · flexbox (row/column, with `flex-grow`/`flex-shrink`/`flex-basis` sized against min- and max-content like the browser), basic tables · `-webkit-line-clamp` · `pre-wrap`, `overflow-wrap: break-word`, soft hyphens · RTL, CJK, emoji.
+
+CSS input: selectors with type, `.class`, `#id`, attribute (`[a]`, `=`, `~=`, `|=`, `^=`, `$=`, `*=`, `i`), descendant/`>`/`+`/`~` combinators, and the structural pseudo-classes (`:root`, `:first-child`, `:last-child`, `:only-child`, `:nth-child()`, `:nth-last-child()`, the `-of-type` forms, `:empty`, `:not()`, `:is()`, `:where()` with complex selectors inside, `:link`); dynamic states (`:hover`, `:focus`, …) are never active, a selector using anything else valid (`:has()`, `::before`, …) never matches, and an invalid one (`p:foo`) drops its whole rule, as in a browser. Units: px, em, rem, %, pt, pc, in, cm, mm, Q, ch, ex, vw/vh/vmin/vmax (the viewport is `width` × `height`; without a `height`, vh uses the width) and `calc()`/`min()`/`max()`/`clamp()`. `!important`, `inherit`/`initial`/`unset`, the `font`, `background` and `border-width/style/color` shorthands, and the HTML defaults of phrasing elements (`<small>`, `<mark>`, `<font color size face>`, `<q>` quotes, `<wbr>`, unknown and custom elements render inline). An invalid value is ignored, as in a browser — keywords, colors, images, shadows and font families included — and keywords are case-insensitive. Percentages resolve against the containing block (approximated for the contents of shrink-to-fit and flex-sized boxes). `<style media>` applies for `all`/`screen` only. Not supported: `var()`, `@media`/`@supports` (skipped; media features in `<style media>` likewise), `attr()`.
 
 Text decorations follow HTML painting rules. A visible text stroke supplies the
 automatic decoration color without widening the band. An explicit decoration
@@ -290,8 +292,9 @@ render-tag the gradient via `--rt-text-stroke-image`:
 The gradient spans the declaring element (like a `background-clip: text` fill
 gradient) and threads through block children (`<p>`, `<li>`), so wrapped lines
 and list items share one continuous stroke gradient. A custom property is used
-because a browser strips unknown *real* properties from inline `cssText` before
-render-tag can read them — custom properties survive.
+because a browser drops unknown *real* properties whenever it re-serializes a
+style (a `contenteditable` editor, a write through `el.style`) — custom
+properties survive that round trip.
 
 The gradient paints glyph outlines. Automatic decorations use the solid text
 stroke color, following the HTML rules above.
@@ -314,7 +317,7 @@ li::marker { content: none; font-size: 0; line-height: 0; }
 ## How it works
 
 1. Parse HTML with `DOMParser`.
-2. Resolve styles with a built-in CSS parser (selectors, specificity, cascade, inheritance — no DOM insertion).
+2. Resolve styles with a built-in CSS parser (selectors, specificity, cascade, inheritance — no DOM insertion). `style=""` attributes are read as written and parsed by the same tokenizer as `<style>` sheets, so every DOM (browser, linkedom, jsdom) resolves the same declarations. `@`-rules (`@font-face`, `@media`, …) are skipped.
 3. Lay out with canvas `measureText` (block flow, inline wrapping, margin collapsing).
 4. Render with the canvas 2D API (`fillText`, `fillRect`, `strokeText`, …).
 

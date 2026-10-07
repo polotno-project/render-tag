@@ -9,6 +9,7 @@ import {
   hasTextClip,
   isShiftedVAlign,
   paintLineSnap,
+  startsMeasuredRun,
 } from './layout.js';
 import { isTransparent, paintOrderHasStrokeFirst } from './css-resolver.js';
 import { paintTextShadows, shadowBounds, textPaintBounds, unionBounds, withCanvasShadow, withoutCanvasShadow, type PaintBounds } from './shadow.js';
@@ -518,7 +519,8 @@ function forEachPaintedChild(
   for (let i = 0; i < runs.length; i++) {
     const head = runs[i];
     let text = head.text, width = head.width;
-    while (i + 1 < runs.length && runs[i + 1].style === head.style &&
+    // One fillText only for pieces measured as one run (`startsMeasuredRun`).
+    while (i + 1 < runs.length && runs[i + 1].style === head.style && !startsMeasuredRun(runs[i + 1]) &&
       runs[i + 1].y === head.y && Math.abs(runs[i + 1].x - (head.x + width)) <= 0.01) {
       text += runs[i + 1].text;
       width += runs[++i].width;

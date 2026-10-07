@@ -2577,3 +2577,27 @@ describe('Bidi visual order', () => {
     expect(run.x).toBe(50);
   });
 });
+
+describe('<wbr> across text runs', () => {
+  // The resolver turns <wbr> into its own '​' text node, so the break
+  // opportunity sits BETWEEN runs: the word after it must not be glued to
+  // the word before it as a mid-word run boundary.
+  it('a zero-width-space run between two runs is a break opportunity', () => {
+    const style = defaultStyle({ display: 'inline' });
+    const run = (text: string): StyledNode => ({ element: null, tagName: '#text', style, children: [], textContent: text });
+    const root = doLayout(block('div', [block('p', [run('hello'), run('​'), run('world')])]), 80);
+    expect(getLines(root)).toEqual(['hello', 'world']);
+  });
+
+  it('also after an inline element and before one', () => {
+    const tree = block('div', [block('p', [
+      inline('b', [textNode('hello')]), textNode('​'), inline('i', [textNode('world')]),
+    ])]);
+    expect(getLines(doLayout(tree, 80))).toEqual(['hello', 'world']);
+  });
+
+  it('a trailing zero-width space in a run breaks before the next run', () => {
+    const tree = block('div', [block('p', [inline('b', [textNode('hello​')]), textNode('world')])]);
+    expect(getLines(doLayout(tree, 80))).toEqual(['hello', 'world']);
+  });
+});

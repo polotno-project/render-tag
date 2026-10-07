@@ -29,6 +29,8 @@ tests/wrap-sweep-report.*.json
 tests/wrap-sweep-progress.*.log
 # Geometry oracle shadow-mode reports (generated)
 tests/geometry-report.*.json
+# Computed-style oracle triage reports (generated)
+tests/computed-style-report.*.json
 # List-marker parity harness reports (generated)
 tests/list-marker-report.*.html
 tests/list-marker-table.*.txt

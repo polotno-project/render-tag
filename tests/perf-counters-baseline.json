@@ -1,6 +1,9 @@
 {
   "long paragraph (2000 words)": {
     "sourceChars": 12886,
+    "resolve.styledNodes": 3,
+    "resolve.styleObjects": 2,
+    "resolve.siblingSteps": 0,
     "layoutTexts": 3791,
     "layout.measureText": 141,
     "layout.measuredChars": 3132,
@@ -15,6 +18,9 @@
   },
   "CJK paragraph (2000 chars)": {
     "sourceChars": 2000,
+    "resolve.styledNodes": 3,
+    "resolve.styleObjects": 2,
+    "resolve.siblingSteps": 0,
     "layoutTexts": 2000,
     "layout.measureText": 760,
     "layout.measuredChars": 14902,
@@ -29,6 +35,9 @@
   },
   "large rich document (perf.test)": {
     "sourceChars": 17245,
+    "resolve.styledNodes": 1642,
+    "resolve.styleObjects": 767,
+    "resolve.siblingSteps": 0,
     "layoutTexts": 4575,
     "layout.measureText": 97,
     "layout.measuredChars": 414,
@@ -41,8 +50,28 @@
     "draw.save": 3675,
     "draw.restore": 3675
   },
+  "sibling selectors (4000 items)": {
+    "sourceChars": 34890,
+    "resolve.styledNodes": 8002,
+    "resolve.styleObjects": 4002,
+    "resolve.siblingSteps": 12000,
+    "layoutTexts": 16000,
+    "layout.measureText": 8005,
+    "layout.measuredChars": 38902,
+    "layout.fontSets": 1,
+    "layout.kerningSets": 1,
+    "layout.letterSpacingSets": 1,
+    "draw.measureText": 0,
+    "draw.fontSets": 8000,
+    "draw.fillText": 8000,
+    "draw.save": 8000,
+    "draw.restore": 8000
+  },
   "ordered list (4000 items)": {
     "sourceChars": 102890,
+    "resolve.styledNodes": 8002,
+    "resolve.styleObjects": 4002,
+    "resolve.siblingSteps": 0,
     "layoutTexts": 48000,
     "layout.measureText": 40004,
     "layout.measuredChars": 600914,

@@ -5,6 +5,8 @@ export default browserConfig('firefox', 60_000, [
   'tests/native-dom-oracle.test.ts',
   'tests/font-fixtures.test.ts',
   'tests/flex-parity.test.ts',
+  'tests/computed-style-parity.test.ts',
+  'tests/parse-style-extraction.test.ts',
   // Stage 1.5 parity tests. Never run in Firefox yet (it cannot launch on the
   // machine they were written on): the Gecko branches they cover are
   // UNVERIFIED until these pass here.

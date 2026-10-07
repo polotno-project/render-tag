@@ -40,10 +40,16 @@ describe('expandShorthand("-webkit-text-stroke")', () => {
     expect(color(decls)).toBe('hsl(200, 50%, 40%)');
   });
 
-  it('preserves var() with fallback', () => {
-    const decls = expandShorthand('-webkit-text-stroke', '2px var(--stroke, #ff0000)');
+  it('drops a var() color whole: var() is not supported, so the declaration is invalid', () => {
+    // It used to pass `var(--stroke, #ff0000)` through as the color, which
+    // canvas then ignored (the stroke took the previous strokeStyle).
+    expect(expandShorthand('-webkit-text-stroke', '2px var(--stroke, #ff0000)')).toEqual([]);
+  });
+
+  it('preserves color-mix() with spaces and commas', () => {
+    const decls = expandShorthand('-webkit-text-stroke', '2px color-mix(in srgb, red 40%, blue)');
     expect(width(decls)).toBe('2px');
-    expect(color(decls)).toBe('var(--stroke, #ff0000)');
+    expect(color(decls)).toBe('color-mix(in srgb, red 40%, blue)');
   });
 
   it('preserves color(srgb ...) function', () => {

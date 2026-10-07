@@ -201,6 +201,55 @@ describe('determinism and cache isolation', () => {
     expect(failures, `${failures.length} paint(s) depended on the layout ctx:\n${failures.slice(0, 5).join('\n\n')}`).toEqual([]);
   });
 
+  it('a caller writing into a result cannot reach a later call', async () => {
+    // State that outlives a call (the rule-index cache keyed by css text) must
+    // never hand the same MUTABLE object to two results. Scribble over every
+    // object of one result — styles, decoration entries, marker styles,
+    // arrays — then lay the same html out again: it must equal a fresh run.
+    const corpus = (await loadNodeCorpus()).filter((c) => c.css);
+    expect(corpus.length).toBeGreaterThan(10);
+    const fresh = new Map<string, Outcome>();
+    for (const c of corpus) {
+      const { api } = await freshApis();
+      fresh.set(c.name, runBlock(api, recordingCtx(c.width, 4000), caseHtml(c), c.width));
+    }
+    const scribble = (root: unknown) => {
+      const seen = new Set<object>();
+      const walk = (value: unknown) => {
+        if (value === null || typeof value !== 'object' || seen.has(value)) return;
+        seen.add(value);
+        if (Array.isArray(value)) {
+          value.forEach(walk);
+          value.push({ scribbled: true });
+          return;
+        }
+        for (const key of Object.keys(value)) {
+          const v = (value as Record<string, unknown>)[key];
+          walk(v);
+          if (key === 'paintBounds' || key === 'element') continue;
+          if (typeof v === 'string') (value as Record<string, unknown>)[key] = `${v}!scribbled`;
+          else if (typeof v === 'number') (value as Record<string, unknown>)[key] = v + 1000;
+        }
+      };
+      walk(root);
+    };
+    const { api } = await freshApis();
+    const failures: string[] = [];
+    for (const c of corpus) {
+      const html = caseHtml(c);
+      // Twice: the rule-index cache admits a sheet on its second sighting,
+      // so the compared third run is a cache HIT.
+      for (let k = 0; k < 2; k++) {
+        const earlier = api.layout({ html, width: c.width, ctx: recordingCtx(c.width, 4000).ctx });
+        scribble(earlier.layoutRoot);
+        scribble(earlier.lines);
+      }
+      const diff = difference(fresh.get(c.name)!, runBlock(api, recordingCtx(c.width, 4000), html, c.width));
+      if (diff) failures.push(`${c.name}: ${diff}`);
+    }
+    expect(failures, `${failures.length} result(s) shared state with an earlier one:\n${failures.slice(0, 5).join('\n\n')}`).toEqual([]);
+  });
+
   it('text-on-path layout and paint are independent of earlier calls and ctx state', async () => {
     const corpus = await loadNodeCorpus();
     const fresh = PATH_SNIPPETS.map(() => null as Outcome | null);

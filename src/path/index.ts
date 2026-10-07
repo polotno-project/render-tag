@@ -33,7 +33,7 @@
 import type { ShadowOptions, ResolvedStyle, DecorationEntry } from '../types.js';
 import { parseHTML } from '../parse.js';
 import { resolveStylesFromCSS, paintOrderHasStrokeFirst, isTransparent } from '../css-resolver.js';
-import { applyFont, hasTextClip, getFontMetrics, sameDecorationBand } from '../layout.js';
+import { applyFont, hasTextClip, getFontMetrics, sameDecorationBand, Measurer } from '../layout.js';
 import {
   parseTextShadows,
   parseLinearGradient,
@@ -126,10 +126,15 @@ export function layoutTextOnPath(config: LayoutTextOnPathConfig): TextOnPathLayo
   const ownsCtx = config.ctx === undefined;
 
   const { fragment, css } = parseHTML(html);
-  const tree = resolveStylesFromCSS(fragment, css, Number.MAX_SAFE_INTEGER);
 
   if (!ownsCtx) measureCtx.save();
   try {
+    // No viewport here: a vw/vh declaration is ignored. ch/ex measure with
+    // the ctx, inside the save/restore.
+    let unitMeasurer: Measurer | undefined;
+    const tree = resolveStylesFromCSS(fragment, css, Number.MAX_SAFE_INTEGER, {
+      fontUnits: (style) => (unitMeasurer ??= new Measurer(measureCtx)).fontUnits(style),
+    });
     const segments = flattenSegments(tree);
     const result = layoutGlyphsOnPath({
       segments, path, ctx: measureCtx, align, textBaseline,

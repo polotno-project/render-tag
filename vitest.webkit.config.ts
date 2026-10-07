@@ -5,6 +5,8 @@ export default browserConfig('webkit', 60_000, [
   'tests/native-dom-oracle.test.ts',
   'tests/font-fixtures.test.ts',
   'tests/flex-parity.test.ts',
+  'tests/computed-style-parity.test.ts',
+  'tests/parse-style-extraction.test.ts',
   'tests/geometry-oracle.test.ts',
   'tests/line-box-parity.test.ts',
   'tests/line-baseline-parity.test.ts',

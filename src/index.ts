@@ -5,7 +5,7 @@ import type {
 } from './types.js';
 import { parseHTML } from './parse.js';
 import { resolveStylesFromCSS } from './css-resolver.js';
-import { buildLayoutTree } from './layout.js';
+import { buildLayoutTree, Measurer } from './layout.js';
 import { renderNode, getNodePaintBounds } from './render.js';
 import { measurePaintBounds, type PaintBounds } from './shadow.js';
 export type { PaintBounds } from './shadow.js';
@@ -49,16 +49,24 @@ export function layout(config: LayoutConfig): LayoutResult {
 
   const useDomMeasurements = accuracy === 'balanced';
 
-  const { fragment, css } = parseHTML(html);
-  const tree = resolveStylesFromCSS(fragment, css, width);
-
   // Caller-provided ctx is mutated (font, fontKerning, letterSpacing, and a
   // non-zero wordSpacing reset to 0px) and intentionally NOT save/restored —
   // save/restore is not free on all contexts (e.g. PDF proxies emit stream
-  // operators for it). The layout's `Measurer` is the only writer.
+  // operators for it). A `Measurer` is the only writer.
   const measureCtx =
     (config.ctx as CanvasRenderingContext2D | undefined) ??
     (defaultMeasureCtx ??= createFallbackMeasureCtx(true));
+
+  const { fragment, css } = parseHTML(html);
+  // The viewport (vw/vh) is the layout box: `width` x `height`. Without a
+  // height there is no viewport height yet (the content decides it), so vh
+  // falls back to the width — a square viewport.
+  let unitMeasurer: Measurer | undefined;
+  const tree = resolveStylesFromCSS(fragment, css, width, {
+    viewport: { width, height: height || width },
+    // ch/ex: measured only when a declaration uses them.
+    fontUnits: (style) => (unitMeasurer ??= new Measurer(measureCtx)).fontUnits(style),
+  });
 
   const { root, height: contentHeight, lines } = buildLayoutTree(measureCtx, tree, width, useDomMeasurements, debug);
   const finalHeight = height || contentHeight;

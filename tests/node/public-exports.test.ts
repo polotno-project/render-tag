@@ -66,3 +66,22 @@ it('measures painted bounds through both Node entry points without a DOM canvas'
   expect(bounds.width).toBeGreaterThan(curved.textWidth);
   expect(bounds.height).toBeGreaterThan(0);
 });
+
+it('keeps the resolver\'s private fields out of a style\'s public keys', () => {
+  // The unitless line-height multiplier, the % underline offset and overflow
+  // ride on every style under SYMBOL keys: copied by a spread, invisible to
+  // Object.keys / JSON. No style shows a `_` (or any non-public) string key.
+  setDOMParser(new DOMParser());
+  const result = layout({
+    html: '<p style="line-height:1.5;overflow:hidden;text-underline-offset:10%">a <span>b</span></p>',
+    width: 200, ctx: mockCtx(),
+  });
+  const keys = new Set<string>();
+  const walk = (node: LayoutNode) => {
+    for (const key of Object.keys(node.style)) keys.add(key);
+    expect(JSON.stringify(node.style)).not.toMatch(/"_/);
+    if (node.type === 'box') node.children.forEach(walk);
+  };
+  walk(result.layoutRoot);
+  expect([...keys].filter((k) => k.startsWith('_'))).toEqual([]);
+});
