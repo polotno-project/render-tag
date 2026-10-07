@@ -713,12 +713,6 @@ function expandBackground(value: string): Longhand[] {
   ];
 }
 
-/** Normalize the (case-insensitive) currentColor keyword to '', the canonical unset value. */
-function normalizeCurrentColor(value: string): string {
-  const v = value.trim();
-  return v.toLowerCase() === 'currentcolor' ? '' : v;
-}
-
 const FONT_VARIANT_CAPS = new Set([
   'normal', 'small-caps', 'all-small-caps', 'petite-caps', 'all-petite-caps', 'unicase', 'titling-caps',
 ]);
@@ -773,6 +767,13 @@ function applyFontDeclaration(
   }
   return false;
 }
+
+/** Property aliases: CSS name → canonical name, for setProps and `PROPERTY_FIELDS`. */
+const PROP_ALIASES: Record<string, string> = {
+  'word-wrap': 'overflow-wrap',
+  'font-variant': 'font-variant-caps',
+  '-webkit-background-clip': 'background-clip',
+};
 
 /**
  * The ResolvedStyle fields each property writes, for the CSS-wide keywords.
@@ -942,15 +943,15 @@ const ATOMIC_INLINE = new Set(['inline-block', 'inline-flex', 'inline-grid', 'in
 function trackPercent(
   style: ResolvedStyle, property: string, value: string | null, env: DeclarationEnv, cbWidth: number,
 ): void {
-  const direction = env.direction;
-  const logical = LOGICAL_PROPERTIES[property];
-  const physical = logical ? logical[direction === 'rtl' ? 1 : 0] : property;
-  const field = PROPERTY_FIELDS[physical]?.[0];
-  if (field === undefined || !PERCENT_FIELDS.has(field as string)) return;
   const internal = style as InternalStyle;
   let table = internal[PERCENT_LENGTHS];
+  if (value === null && !table) return;
+  const logical = LOGICAL_PROPERTIES[property];
+  const physical = logical ? logical[env.direction === 'rtl' ? 1 : 0] : property;
+  const field = PROPERTY_FIELDS[physical]?.[0];
+  if (field === undefined || !PERCENT_FIELDS.has(field as string)) return;
   if (value === null) {
-    table?.entries.delete(field as PercentField);
+    table!.entries.delete(field as PercentField);
     return;
   }
   if (!table) {
@@ -1087,37 +1088,119 @@ function isBorderBox(style: ResolvedStyle): boolean {
   return (style as InternalStyle)[BOX_SIZING] === 'border-box';
 }
 
+/**
+ * A (non-font) property's value parser: the value to store in its field
+ * (`PROPERTY_FIELDS`), or null/NaN when the declaration is invalid.
+ */
+type Parser = (value: string, env: DeclarationEnv, style: ResolvedStyle) => unknown;
+
+const keywordOf = (property: string): Parser => {
+  const allowed = KEYWORDS[property];
+  return value => {
+    const v = value.trim().toLowerCase();
+    return allowed.has(v) ? v : null;
+  };
+};
+/** A color, as written (canvas parses it). */
+const color: Parser = value => (isColor(value) ? value.trim() : null);
+/** A color whose `currentcolor` stays '' so it resolves against each element's own color at render time. */
+const colorOrCurrent: Parser = value => {
+  if (!isColor(value)) return null;
+  const v = value.trim();
+  return v.toLowerCase() === 'currentcolor' ? '' : v;
+};
+const noneOr = (valid: (value: string) => boolean): Parser => value =>
+  valid(value) ? (value.trim().toLowerCase() === 'none' ? 'none' : value.trim()) : null;
 /** A non-negative border/stroke width (keywords allowed, no percentages). */
-function widthOf(value: string, env: DeclarationEnv): number {
+const lineWidth: Parser = (value, env) => {
   const keyword = BORDER_WIDTH_KEYWORDS[value.trim().toLowerCase()];
   if (keyword !== undefined) return keyword;
   const px = lengthOf(value, env, NaN);
   return px >= 0 ? px : NaN;
-}
+};
+/** Percentages are of the element's own font-size (CSS Text 4; Blink, WebKit). */
+const spacing: Parser = (value, env, style) =>
+  value.trim().toLowerCase() === 'normal' ? 0 : lengthOf(value, env, style.fontSize);
+/** `none`, `auto` and a non-positive integer all mean no clamp (0). */
+const lineClamp: Parser = value => {
+  const v = value.trim().toLowerCase();
+  const n = v === 'none' || v === 'auto' ? 0 : parseInt(v, 10);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+};
+/** A non-negative <number>. */
+const flexFactor: Parser = value =>
+  /^[+]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(value.trim()) ? parseFloat(value) : NaN;
 
-/** `margin`: a length-percentage of the containing block's width; `auto` is 0 here (no auto margins). */
-function marginOf(value: string, env: DeclarationEnv): number {
-  return value.trim().toLowerCase() === 'auto' ? 0 : cbLengthOf(value, env);
+const PARSERS: Record<string, Parser> = {
+  __proto__: null,
+  color, 'text-decoration-color': color, 'background-color': color,
+  '-webkit-text-stroke-color': colorOrCurrent, '-webkit-text-fill-color': colorOrCurrent,
+  'text-indent': (value, env) => cbLengthOf(value, env),
+  'text-transform': textTransform,
+  'text-decoration-line': textDecorationLine,
+  'text-shadow': noneOr(isTextShadow),
+  'background-image': noneOr(isImageList),
+  '-webkit-text-stroke-width': lineWidth,
+  // A custom property: a browser drops an unknown real property whenever it
+  // re-serializes a style (contenteditable, el.style writes).
+  '--rt-text-stroke-image': value => value.trim(),
+  'paint-order': paintOrder,
+  'background-clip': backgroundClip, '-webkit-background-clip': backgroundClip,
+  'letter-spacing': spacing, 'word-spacing': spacing,
+  'line-clamp': lineClamp, '-webkit-line-clamp': lineClamp,
+  'vertical-align': verticalAlign,
+  display,
+  'list-style-type': listStyleType,
+  width: (value, env) => {
+    const v = value.trim();
+    if (v.toLowerCase() === 'auto') return 0;
+    const px = cbLengthOf(v, env);
+    return px >= 0 ? px : NaN;
+  },
+  // A percentage is of the containing block's HEIGHT, never definite here:
+  // it computes to none (CSS 2.1 §10.7).
+  'min-height': (value, env) => {
+    const v = value.trim();
+    if (v.toLowerCase() === 'auto' || v.includes('%')) return 0;
+    const px = lengthOf(v, env, NaN);
+    return px >= 0 ? px : NaN;
+  },
+  gap: (value, env) => {
+    // `gap: <row> <column>`: flex rows use the row gap, the first.
+    const v = value.trim();
+    const first = MATH.test(v) ? v : v.split(/\s+/)[0];
+    return first.toLowerCase() === 'normal' ? 0 : cbLengthOf(first, env);
+  },
+  'flex-grow': flexFactor, 'flex-shrink': flexFactor,
+} as Record<string, Parser>;
+for (const property in KEYWORDS) PARSERS[property] = keywordOf(property);
+PARSERS['box-sizing'] = value => {
+  const v = value.trim().toLowerCase();
+  return v === 'border-box' ? v : v === 'content-box' ? undefined : null;
+};
+for (const side of ['top', 'right', 'bottom', 'left']) {
+  PARSERS[`padding-${side}`] = (value, env) => {
+    const px = cbLengthOf(value, env);
+    return px >= 0 ? px : NaN;
+  };
+  // No auto margins: `auto` is 0.
+  PARSERS[`margin-${side}`] = (value, env) => (value.trim().toLowerCase() === 'auto' ? 0 : cbLengthOf(value, env));
+  PARSERS[`border-${side}-width`] = lineWidth;
+  PARSERS[`border-${side}-color`] = color;
 }
-
-/** `padding`: a non-negative length-percentage of the containing block's width. */
-function paddingOf(value: string, env: DeclarationEnv): number {
-  const px = cbLengthOf(value, env);
-  return px >= 0 ? px : NaN;
-}
-
-/**
- * A border-radius value: px, or `{ pct }` resolved at paint; negatives stay
- * 0, and a second (elliptical) component on a longhand is ignored.
- */
-function borderRadiusValue(value: string, env: DeclarationEnv): BorderRadius | null {
-  const v = MATH.test(value.trim()) ? value.trim() : value.trim().split(/\s+/)[0];
-  if (/^[+-]?(?:\d+\.?\d*|\.\d+)%$/.test(v)) {
-    const pct = parseFloat(v);
-    return pct > 0 ? { pct } : 0;
-  }
-  const px = lengthOf(v, env, NaN);
-  return Number.isNaN(px) ? null : Math.max(0, px);
+// Percentages are of the border box, unknown until paint: they stay
+// symbolic (`BorderRadius`). Negatives are 0; a second (elliptical)
+// component on a longhand is ignored.
+for (const corner of ['top-left', 'top-right', 'bottom-right', 'bottom-left']) {
+  PARSERS[`border-${corner}-radius`] = (value, env) => {
+    const v = MATH.test(value.trim()) ? value.trim() : value.trim().split(/\s+/)[0];
+    if (/^[+-]?(?:\d+\.?\d*|\.\d+)%$/.test(v)) {
+      const pct = parseFloat(v);
+      return pct > 0 ? { pct } : 0;
+    }
+    const px = lengthOf(v, env, NaN);
+    return Number.isNaN(px) ? null : Math.max(0, px);
+  };
 }
 
 /**
@@ -1126,62 +1209,35 @@ function borderRadiusValue(value: string, env: DeclarationEnv): BorderRadius | n
  * as a browser ignores it, instead of overwriting the cascaded value.
  */
 function applyDeclaration(style: ResolvedStyle, property: string, value: string, env: DeclarationEnv): boolean {
+  const parse = PARSERS[property];
+  if (parse) {
+    const v = parse(value, env, style);
+    if (v === null || Number.isNaN(v)) return false;
+    (style as any)[PROPERTY_FIELDS[PROP_ALIASES[property] || property][0]] = v;
+    return true;
+  }
+  const internal = style as InternalStyle;
   const fontSize = style.fontSize;
-  /** Assign a numeric result unless it is invalid. */
-  const set = <K extends keyof ResolvedStyle>(key: K, px: number): boolean => {
-    if (Number.isNaN(px)) return false;
-    (style as unknown as Record<K, number>)[key] = px;
-    return true;
-  };
-  /** Assign a validated string (keyword lower-cased by its check) unless it is null. */
-  const str = <K extends keyof InternalStyle>(key: K, v: string | null): boolean => {
-    if (v === null) return false;
-    (style as unknown as Record<K, string>)[key] = v;
-    return true;
-  };
-  /** A single keyword from the property's KEYWORDS set, lower-cased, or null. */
-  const keyword = (): string | null => {
-    const v = value.trim().toLowerCase();
-    return KEYWORDS[property].has(v) ? v : null;
-  };
-  /** A color, as written (canvas parses it), or null. */
-  const color = (): string | null => (isColor(value) ? value.trim() : null);
-
   switch (property) {
-    case 'color': return str('color', color());
-    case 'text-align': return str('textAlign', keyword());
-    case 'text-align-last': return str('textAlignLast', keyword());
-    case 'text-indent': return set('textIndent', cbLengthOf(value, env));
-    case 'text-transform': return str('textTransform', textTransform(value));
-    case 'text-decoration-line': return str('textDecorationLine', textDecorationLine(value));
-    case 'text-decoration-style': return str('textDecorationStyle', keyword());
-    case 'text-decoration-color': return str('textDecorationColor', color());
     case 'text-underline-offset': {
-      // px value or null for `auto`; the UNDERLINE_OFFSET_PCT shadow lets
-      // inheritFrom re-resolve a % per child (see the field doc in types.ts).
-      // `= undefined` rather than `delete`: same semantics for the only
-      // consumer (`!== undefined`), keeps the object's hidden class.
+      // px, or null for `auto`; a % also lives in UNDERLINE_OFFSET_PCT for
+      // inheritFrom to re-resolve per child.
       const v = value.trim();
-      if (v.toLowerCase() === 'auto') {
-        (style as InternalStyle)[UNDERLINE_OFFSET_PCT] = undefined;
-        style.textUnderlineOffset = null;
-        return true;
+      let pct: number | undefined;
+      if (v.toLowerCase() === 'auto') style.textUnderlineOffset = null;
+      else if (/^[+-]?(?:\d+\.?\d*|\.\d+)%$/.test(v)) {
+        pct = parseFloat(v);
+        style.textUnderlineOffset = (pct / 100) * fontSize;
+      } else {
+        const px = lengthOf(v, env, fontSize);
+        if (Number.isNaN(px)) return false;
+        style.textUnderlineOffset = px;
       }
-      if (/^[+-]?(?:\d+\.?\d*|\.\d+)%$/.test(v)) {
-        const num = parseFloat(v);
-        style.textUnderlineOffset = (num / 100) * fontSize;
-        (style as InternalStyle)[UNDERLINE_OFFSET_PCT] = num;
-        return true;
-      }
-      const px = lengthOf(v, env, fontSize);
-      if (Number.isNaN(px)) return false;
-      (style as InternalStyle)[UNDERLINE_OFFSET_PCT] = undefined;
-      style.textUnderlineOffset = px;
+      internal[UNDERLINE_OFFSET_PCT] = pct;
       return true;
     }
     case 'text-decoration-thickness': {
-      // px value or null for `auto`/`from-font` (see the field doc in
-      // types.ts). A % resolves against the element's own font size.
+      // px, or null for `auto`/`from-font`; a % is of the own font size.
       const v = value.trim();
       const lower = v.toLowerCase();
       if (lower === 'auto' || lower === 'from-font') {
@@ -1193,32 +1249,8 @@ function applyDeclaration(style: ResolvedStyle, property: string, value: string,
       style.textDecorationThickness = px;
       return true;
     }
-    case 'text-shadow': return str('textShadow', isTextShadow(value) ? (value.trim().toLowerCase() === 'none' ? 'none' : value.trim()) : null);
-    case '-webkit-text-stroke-width': return set('webkitTextStrokeWidth', widthOf(value, env));
-    // '' is the canonical currentColor for these two: it must survive
-    // inheritance as a keyword and resolve against each element's own
-    // color at render time, so it is never eagerly resolved here.
-    case '-webkit-text-stroke-color': return isColor(value) && str('webkitTextStrokeColor', normalizeCurrentColor(value));
-    // A CSS custom property (not a real -webkit- property): a browser drops an
-    // unknown real property whenever it re-serializes a style (contenteditable,
-    // el.style writes), so html that passed through an editor would lose it.
-    case '--rt-text-stroke-image': style.webkitTextStrokeImage = value.trim(); return true;
-    case '-webkit-text-fill-color': return isColor(value) && str('webkitTextFillColor', normalizeCurrentColor(value));
-    case 'paint-order': return str('paintOrder', paintOrder(value));
-    case 'stroke-linejoin': return str('strokeLinejoin', keyword());
-    case '-webkit-background-clip':
-    case 'background-clip': return str('webkitBackgroundClip', backgroundClip(value));
-    case 'background-image':
-      return str('backgroundImage', isImageList(value) ? (value.trim().toLowerCase() === 'none' ? 'none' : value.trim()) : null);
-    // Percentages are of the element's own font-size (CSS Text 4; Blink, WebKit).
-    case 'letter-spacing':
-      return set('letterSpacing', value.trim().toLowerCase() === 'normal' ? 0 : lengthOf(value, env, fontSize));
-    case 'word-spacing':
-      return set('wordSpacing', value.trim().toLowerCase() === 'normal' ? 0 : lengthOf(value, env, fontSize));
-    case 'font-kerning': return str('fontKerning', keyword());
     case 'line-height': {
       const v = value.trim();
-      const internal = style as InternalStyle;
       if (v.toLowerCase() === 'normal') {
         internal[LINE_HEIGHT_MULTIPLIER] = undefined;
         style.lineHeight = 0; // 0 signals "normal"
@@ -1227,169 +1259,49 @@ function applyDeclaration(style: ResolvedStyle, property: string, value: string,
       let lineHeight: number;
       let multiplier: number | undefined;
       if (/^[+]?(?:\d+\.?\d*|\.\d+)%$/.test(v)) {
-        // Percentage — computed against the element's own font size and
-        // inherited as that computed value (no multiplier for children).
-        // Blink and WebKit use an INTEGER percentage (INTEGER_PERCENT_LINE_HEIGHT).
+        // Of the own font size, inherited as that px value. Blink and WebKit
+        // use an INTEGER percentage (INTEGER_PERCENT_LINE_HEIGHT).
         const num = parseFloat(v);
         lineHeight = ((INTEGER_PERCENT_LINE_HEIGHT ? Math.trunc(num) : num) / 100) * fontSize;
       } else {
         env.b.percent = fontSize;
         const t = resolveNumberOrLength(v, env.b);
         if (!t || t.value < 0) return false;
-        // A number is a multiplier: computed for this element's font size,
-        // and children re-compute it for theirs.
+        // A number is a multiplier that children re-compute for their font size.
         if (t.number) multiplier = t.value;
         lineHeight = t.number ? t.value * fontSize : t.value;
       }
       style.lineHeight = lineHeight;
-      // `lineHeight: 0` means `normal`, so a real zero line-height (any unit)
-      // is carried as the multiplier 0 — which also inherits as 0.
+      // A real zero (`lineHeight: 0` means normal) is carried as the multiplier 0.
       internal[LINE_HEIGHT_MULTIPLIER] = lineHeight === 0 ? 0 : multiplier;
       return true;
     }
-    case '-webkit-line-clamp':
-    case 'line-clamp': {
-      // Spec accepts `none` / `auto` / positive integer. We map both
-      // `none` and `auto` to 0 (no clamp); a non-positive integer also
-      // means no clamp. Otherwise store the integer.
-      const v = value.trim().toLowerCase();
-      if (v === 'none' || v === 'auto') {
-        style.lineClamp = 0;
-      } else {
-        const n = parseInt(v, 10);
-        style.lineClamp = Number.isFinite(n) && n > 0 ? n : 0;
+    case 'min-width':
+    case 'flex-basis': {
+      const v = value.trim();
+      const lower = v.toLowerCase();
+      const field = property === 'min-width' ? 'minWidth' : 'flexBasis';
+      if (lower === 'auto' || (lower === 'content' && field === 'flexBasis')) {
+        style[field] = null;
+        return true;
       }
-      return true;
-    }
-    case 'vertical-align': return str('verticalAlign', verticalAlign(value));
-    case 'white-space': return str('whiteSpace', keyword());
-    case 'word-break': return str('wordBreak', keyword());
-    case 'overflow-wrap':
-    case 'word-wrap': return str('overflowWrap', keyword());
-    case 'direction': return str('direction', keyword());
-    case 'unicode-bidi': return str('unicodeBidi', keyword());
-
-    // Box model
-    case 'display': return str('display', display(value));
-    case 'box-sizing': {
-      const v = keyword();
-      if (v === null) return false;
-      (style as InternalStyle)[BOX_SIZING] = v === 'border-box' ? v : undefined;
-      return true;
-    }
-    case 'width': {
-      const v = value.trim();
-      if (v.toLowerCase() === 'auto') { style.width = 0; return true; }
-      const px = cbLengthOf(v, env);
-      return px >= 0 ? set('width', px) : false;
-    }
-    case 'min-width': {
-      const v = value.trim();
-      if (v.toLowerCase() === 'auto') { style.minWidth = null; return true; }
       const px = cbLengthOf(v, env);
       if (!(px >= 0)) return false;
-      style.minWidth = px;
+      style[field] = px;
       return true;
     }
-    // A percentage resolves against the containing block's HEIGHT, which is
-    // never definite here (no box has a height): it computes to none (CSS 2.1
-    // §10.7), not to a share of the width.
-    case 'min-height': {
-      const v = value.trim();
-      if (v.toLowerCase() === 'auto' || /%/.test(v)) { style.minHeight = 0; return true; }
-      const px = lengthOf(v, env, NaN);
-      return px >= 0 ? set('minHeight', px) : false;
-    }
-    // Only read to find block formatting context roots (`establishesBfc`);
-    // render-tag does not clip. Private, like LINE_HEIGHT_MULTIPLIER.
+    // Only read to find BFC roots (`establishesBfc`); render-tag does not clip.
     case 'overflow': {
       const [x, y = x, extra] = value.trim().toLowerCase().split(/\s+/);
       const allowed = KEYWORDS['overflow-x'];
       if (extra !== undefined || !allowed.has(x) || !allowed.has(y)) return false;
-      (style as InternalStyle)[OVERFLOW_X] = x;
-      (style as InternalStyle)[OVERFLOW_Y] = y;
+      internal[OVERFLOW_X] = x;
+      internal[OVERFLOW_Y] = y;
       return true;
     }
-    case 'overflow-x': return str(OVERFLOW_X, keyword());
-    case 'overflow-y': return str(OVERFLOW_Y, keyword());
-    case 'padding-top': return set('paddingTop', paddingOf(value, env));
-    case 'padding-right': return set('paddingRight', paddingOf(value, env));
-    case 'padding-bottom': return set('paddingBottom', paddingOf(value, env));
-    case 'padding-left': return set('paddingLeft', paddingOf(value, env));
-    case 'margin-top': return set('marginTop', marginOf(value, env));
-    case 'margin-right': return set('marginRight', marginOf(value, env));
-    case 'margin-bottom': return set('marginBottom', marginOf(value, env));
-    case 'margin-left': return set('marginLeft', marginOf(value, env));
-    case 'background-color': return str('backgroundColor', color());
-
-    // Logical properties → physical (based on direction)
-    case 'padding-inline-start':
-      return set(env.direction === 'rtl' ? 'paddingRight' : 'paddingLeft', paddingOf(value, env));
-    case 'padding-inline-end':
-      return set(env.direction === 'rtl' ? 'paddingLeft' : 'paddingRight', paddingOf(value, env));
-    case 'margin-inline-start':
-      return set(env.direction === 'rtl' ? 'marginRight' : 'marginLeft', marginOf(value, env));
-    case 'margin-inline-end':
-      return set(env.direction === 'rtl' ? 'marginLeft' : 'marginRight', marginOf(value, env));
-
-    // Border
-    case 'border-top-width': return set('borderTopWidth', widthOf(value, env));
-    case 'border-top-color': return str('borderTopColor', color());
-    case 'border-top-style': return str('borderTopStyle', keyword());
-    case 'border-right-width': return set('borderRightWidth', widthOf(value, env));
-    case 'border-right-color': return str('borderRightColor', color());
-    case 'border-right-style': return str('borderRightStyle', keyword());
-    case 'border-bottom-width': return set('borderBottomWidth', widthOf(value, env));
-    case 'border-bottom-color': return str('borderBottomColor', color());
-    case 'border-bottom-style': return str('borderBottomStyle', keyword());
-    case 'border-left-width': return set('borderLeftWidth', widthOf(value, env));
-    case 'border-left-color': return str('borderLeftColor', color());
-    case 'border-left-style': return str('borderLeftStyle', keyword());
-
-    // Border radius. Percentages resolve against the border box's own size,
-    // unknown until paint, so they stay symbolic here (see BorderRadius).
-    case 'border-top-left-radius':
-    case 'border-top-right-radius':
-    case 'border-bottom-right-radius':
-    case 'border-bottom-left-radius': {
-      const radius = borderRadiusValue(value, env);
-      if (radius === null) return false;
-      if (property === 'border-top-left-radius') style.borderTopLeftRadius = radius;
-      else if (property === 'border-top-right-radius') style.borderTopRightRadius = radius;
-      else if (property === 'border-bottom-right-radius') style.borderBottomRightRadius = radius;
-      else style.borderBottomLeftRadius = radius;
-      return true;
-    }
-
-    // Flex
-    case 'flex-direction': return str('flexDirection', keyword());
-    case 'gap': {
-      const v = value.trim();
-      // `gap: <row> <column>`: the row gap is first; flex rows use one gap.
-      const first = MATH.test(v) ? v : v.split(/\s+/)[0];
-      return set('gap', first.toLowerCase() === 'normal' ? 0 : cbLengthOf(first, env));
-    }
-    // A non-negative <number>; anything else is invalid.
-    case 'flex-grow':
-    case 'flex-shrink': {
-      const n = /^[+]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(value.trim()) ? parseFloat(value) : NaN;
-      return set(property === 'flex-grow' ? 'flexGrow' : 'flexShrink', n);
-    }
-    case 'flex-basis': {
-      const v = value.trim();
-      const lower = v.toLowerCase();
-      if (lower === 'auto' || lower === 'content') { style.flexBasis = null; return true; }
-      const px = cbLengthOf(v, env);
-      if (!(px >= 0)) return false;
-      style.flexBasis = px;
-      return true;
-    }
-
-    // List
-    case 'list-style-type': return str('listStyleType', listStyleType(value));
   }
-  // Unknown or ignored properties (position, opacity, transform, ...).
-  return false;
+  const logical = LOGICAL_PROPERTIES[property];
+  return logical ? applyDeclaration(style, logical[env.direction === 'rtl' ? 1 : 0], value, env) : false;
 }
 
 /**
@@ -1770,13 +1682,6 @@ function autoDirection(el: Element): 'ltr' | 'rtl' | null {
   }
   return null;
 }
-
-/** Property aliases: CSS name → canonical name for setProps tracking. */
-const PROP_ALIASES: Record<string, string> = {
-  'word-wrap': 'overflow-wrap',
-  'font-variant': 'font-variant-caps',
-  '-webkit-background-clip': 'background-clip',
-};
 
 /**
  * `<q>`'s quotation marks by nesting depth: `quotes: auto` for an element
