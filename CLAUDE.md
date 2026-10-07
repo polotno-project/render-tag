@@ -48,9 +48,8 @@ HTML string + CSS → parseHTML (DOMParser) → resolveStylesFromCSS (pure CSS p
   layout-logic). Only the final flow's lines become `Word` objects, for the
   emit pass. Segment text stays the exact measured string (not a range into
   a paragraph string); the columns are plain arrays because typed arrays
-  measured slower. `measure-word` debug entries are recorded while preparing
-  and replayed by each pass, so the debug stream is what it was when every
-  pass tokenized. Every flow emits its `line-wrap`/`line-commit` entries,
+  measured slower. `measure-word` debug entries are emitted once, while
+  preparing. Every flow emits its `line-wrap`/`line-commit` entries,
   sizing flows included (an inline-block's min/max-content flows at 0 and
   Infinity among them); an atomic inline-block's segment is U+FFFC for line
   breaking and bidi only — debug entries and `LayoutLine.text` show its

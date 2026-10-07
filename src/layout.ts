@@ -1072,9 +1072,9 @@ function collectTextRuns(node: StyledNode): TextRun[] {
         boxStyle: newBoxStyle,
         clipStyle: newClipStyle,
         strokeImageStyle: newStrokeImageStyle,
-        // Store the full box info for atomic inline-block handling
-        boxOpen: n.style,  // signals this is a boxed element
-        boxClose: n.style,
+        // Both edges mark it atomic; an empty one is only its opening edge.
+        boxOpen: n.style,
+        boxClose: hasText ? n.style : undefined,
         inlineBlock: n,
         bidi,
       });
@@ -1251,24 +1251,8 @@ function measureAfter(m: Measurer, state: MeasureState, cum: Cumulative, piece: 
 
 // ─── Prepared inline content ───────────────────────────────────────────
 
-/**
- * Everything a segment shares with the run it came from: its style and the
- * declarers `collectTextRuns` stamped onto that run. One per run, so a
- * segment carries an index instead of nine references.
- */
-interface SegmentRefs {
-  readonly style: ResolvedStyle;
-  /** See `TextRun.parentStyle`. */
-  readonly parentStyle?: ResolvedStyle;
-  readonly boxStyle?: ResolvedStyle;
-  readonly boxOpen?: ResolvedStyle;
-  readonly boxClose?: ResolvedStyle;
-  readonly clipStyle?: ResolvedStyle;
-  readonly strokeImageStyle?: ResolvedStyle;
-  readonly bidi?: BidiContext | null;
-  /** Source element of an atomic inline-block (`usedSegmentWidths`). */
-  readonly inlineBlock?: StyledNode;
-}
+/** What a segment shares with its run: the run itself, one per run, referenced by index. */
+type SegmentRefs = Readonly<Omit<TextRun, 'text' | 'wordBoundaryBefore'>>;
 
 /** Collapsible or preserved whitespace; a space's width carries word-spacing. */
 const SEG_SPACE = 1 << 0;
@@ -1365,16 +1349,11 @@ interface PreparedInline {
    */
   readonly inlineBlocks: readonly number[];
   readonly percentEdges: readonly number[];
-  /**
-   * The `measure-word` debug entries preparing emitted, or null without a
-   * `debug` callback. Each pass replays them where it used to tokenize
-   * (`replayMeasures`), so the debug stream reads as it always has.
-   */
-  readonly measures: readonly import('./types.ts').DebugEntry[] | null;
 }
 
 /** Grows the `PreparedInline` arrays while a pass appends segments. */
-class SegmentBuilder {
+class SegmentBuilder implements PreparedInline {
+  runs = 0;
   count = 0;
   readonly text: string[] = [];
   readonly width: number[] = [];
@@ -1383,8 +1362,6 @@ class SegmentBuilder {
   readonly refs: SegmentRefs[] = [];
   readonly inlineBlocks: number[] = [];
   readonly percentEdges: number[] = [];
-
-  constructor(readonly measures: import('./types.ts').DebugEntry[] | null) {}
 
   addRefs(refs: SegmentRefs): number {
     this.refs.push(refs);
@@ -1398,21 +1375,6 @@ class SegmentBuilder {
     this.flags.push(flags & SEG_SPACE ? flags : flags | textFlags(text));
     this.ref.push(ref);
     this.count++;
-  }
-
-  build(runs: number): PreparedInline {
-    return {
-      runs,
-      count: this.count,
-      text: this.text,
-      width: this.width,
-      flags: this.flags,
-      ref: this.ref,
-      refs: this.refs,
-      inlineBlocks: this.inlineBlocks,
-      percentEdges: this.percentEdges,
-      measures: this.measures,
-    };
   }
 }
 
@@ -1532,11 +1494,11 @@ function prepareString(
       }
     }
     const width = measureAfter(m, state, cum, w);
-    if (out.measures) {
+    if (session.debug) {
       // The word measured on its own, against its cumulative delta — a
       // measurement only the debug callback reads.
       const directWidth = m.width(state, w);
-      out.measures.push({
+      session.debug({
         type: 'measure-word',
         message: `"${w}" delta=${width.toFixed(2)} direct=${directWidth.toFixed(2)} diff=${(width - directWidth).toFixed(2)} context="${cum.text}"`,
         data: { text: w, deltaWidth: width, directWidth, contextWidth: cum.width, contextBefore: cum.width - width, font: run.style.fontFamily, fontSize: run.style.fontSize },
@@ -1603,7 +1565,7 @@ function lastGrapheme(text: string): string {
  * context's text in a layout call (`preparedInline`).
  */
 function prepareInline(session: LayoutSession, runs: TextRun[]): PreparedInline {
-  const out = new SegmentBuilder(session.debug ? [] : null);
+  const out = new SegmentBuilder();
   /** The text so far ends with a zero-width space (a break opportunity). */
   let zwspBefore = false;
   /** Style of the last text run that produced segments (`markSeam`). */
@@ -1619,51 +1581,26 @@ function prepareInline(session: LayoutSession, runs: TextRun[]): PreparedInline 
     if (run.boxOpen && run.boxClose && run.text) {
       const source = run.inlineBlock!;
       out.inlineBlocks.push(out.count);
-      out.push(run.text, inlineBlockOuterWidth(session, source, intrinsicStyle(source.style), Infinity), 0, out.addRefs({
-        style: run.style,
-        parentStyle: run.parentStyle,
-        boxStyle: run.boxStyle,
-        boxOpen: run.boxOpen,
-        boxClose: run.boxClose,
-        clipStyle: run.clipStyle,
-        strokeImageStyle: run.strokeImageStyle,
-        bidi: run.bidi,
-        inlineBlock: run.inlineBlock,
-      }));
+      out.push(run.text, inlineBlockOuterWidth(session, source, intrinsicStyle(source.style), Infinity), 0, out.addRefs(run));
       continue;
     }
 
-    // Handle inline box open/close markers (padding). An empty inline-block
-    // lands here too, as its opening edge only. A percentage padding is 0
-    // here, and the final flow resolves it (`usedSegmentWidths`).
-    if (run.boxOpen) {
-      const box = intrinsicStyle(run.boxOpen);
-      const pad = box.paddingLeft + box.borderLeftWidth;
-      if (pad > 0 || box !== run.boxOpen) {
-        if (box !== run.boxOpen) out.percentEdges.push(out.count);
-        out.push('', pad, 0, out.addRefs({ style: run.style, boxStyle: run.boxStyle, boxOpen: run.boxOpen, bidi: run.bidi }));
-      }
-      continue;
-    }
-    if (run.boxClose) {
-      const box = intrinsicStyle(run.boxClose);
-      const pad = box.paddingRight + box.borderRightWidth;
-      if (pad > 0 || box !== run.boxClose) {
-        if (box !== run.boxClose) out.percentEdges.push(out.count);
-        out.push('', pad, 0, out.addRefs({ style: run.style, boxStyle: run.boxStyle, boxClose: run.boxClose, bidi: run.bidi }));
+    // Inline box edges (padding + border). An empty inline-block lands here
+    // as its opening edge only. A percentage padding is 0 here, and the final
+    // flow resolves it (`usedSegmentWidths`).
+    const edge = run.boxOpen ?? run.boxClose;
+    if (edge) {
+      const box = intrinsicStyle(edge);
+      const pad = run.boxOpen ? box.paddingLeft + box.borderLeftWidth : box.paddingRight + box.borderRightWidth;
+      if (pad > 0 || box !== edge) {
+        if (box !== edge) out.percentEdges.push(out.count);
+        out.push('', pad, 0, out.addRefs(run));
       }
       continue;
     }
 
     const text = run.text;
-    const ref = out.addRefs({
-      style: run.style,
-      parentStyle: run.parentStyle,
-      boxStyle: run.boxStyle,
-      clipStyle: run.clipStyle,
-      strokeImageStyle: run.strokeImageStyle,
-      bidi: run.bidi,
-    });
+    const ref = out.addRefs(run);
     runStart = out.count;
     /**
      * Flag the first segment of this run when the previous text run had the
@@ -1709,7 +1646,8 @@ function prepareInline(session: LayoutSession, runs: TextRun[]): PreparedInline 
     session.stats.tokenizePasses++;
     session.stats.segments += out.count;
   }
-  return out.build(runs.length);
+  out.runs = runs.length;
+  return out;
 }
 
 /**
@@ -1736,14 +1674,6 @@ function takePreparedInline(session: LayoutSession, node: StyledNode): PreparedI
   if (!prepared) return prepareInline(session, collectTextRuns(node));
   session.prepared.delete(node);
   return prepared;
-}
-
-/** Re-emit preparing's `measure-word` entries, as fresh objects, for a pass about to read it. */
-function replayMeasures(session: LayoutSession, prepared: PreparedInline): void {
-  if (!session.debug || !prepared.measures) return;
-  for (const entry of prepared.measures) {
-    session.debug({ type: entry.type, message: entry.message, data: { ...entry.data } });
-  }
 }
 
 function isCJKCode(code: number): boolean {
@@ -3233,7 +3163,6 @@ function layoutInlineContent(
     return { nodes: [], height: 0, lines: [], lineBoxes: [] };
   }
 
-  replayMeasures(session, prepared);
   const lines = flowInlineLines(session, node, prepared, contentWidth, useBulletProbe);
   clampLines(session, node.style, lines, contentWidth, clamp);
 
@@ -4386,7 +4315,6 @@ function minimumInlineContentWidth(
   // One copy per source style, not per segment: font state is cached by
   // style identity, and runs of one style must stay one style to glue.
   const prepared = preparedInline(session, node);
-  replayMeasures(session, prepared);
   const breaksWords = (refs: SegmentRefs) =>
     refs.style.overflowWrap === 'break-word' && refs.style.wordBreak !== 'break-all';
   let refs = prepared.refs;
@@ -4479,7 +4407,6 @@ function maximumInlineContentWidth(
   node: StyledNode,
 ): number {
   const prepared = preparedInline(session, node);
-  replayMeasures(session, prepared);
   const textIndent = intrinsicStyle(node.style).textIndent;
   return widestLine(flowLines(
     session, new FlowItems(prepared), Infinity, node.style.whiteSpace, false, textIndent), textIndent);
