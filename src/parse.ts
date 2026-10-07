@@ -2,8 +2,9 @@ import { resolveDOMParser } from './dom.js';
 
 // HTML "ASCII whitespace", the only text allowed before or between the
 // leading sheets. A start tag with no quoted attribute value (a quoted one
-// may hold a `>`), and the RAWTEXT end: `</style` then whitespace, `/` or `>`.
-const LEADING_STYLE_OPEN = /^[\t\n\f\r ]*<style(?:[\t\n\f\r /][^>"'`]*)?>/i;
+// may hold a `>`) and no `&` (DOMParser decodes character references), and the
+// RAWTEXT end: `</style` then whitespace, `/` or `>`.
+const LEADING_STYLE_OPEN = /^[\t\n\f\r ]*<style(?:[\t\n\f\r /][^>"'`&]*)?>/i;
 const STYLE_END = /<\/style(?=[\t\n\f\r />])/gi;
 const STYLE_END_TAIL = /^[\t\n\f\r /]*>/;
 

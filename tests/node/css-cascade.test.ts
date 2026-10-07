@@ -683,3 +683,47 @@ describe('<style media>', () => {
     expect(color(' media="PRINT"')).toBe('rgb(0, 0, 0)');
   });
 });
+
+describe('selector escapes', () => {
+  // CSS Syntax 3 §4.3.7: zero, a surrogate or a code point past U+10FFFF is U+FFFD.
+  it('an out-of-range, surrogate or zero escape decodes to U+FFFD instead of throwing', () => {
+    for (const hex of ['ffffff', '110000', 'd800', '0']) {
+      expect(el(`<style>.\\${hex} { color: red }</style><p class="�">x</p>`, 'p').style.color, hex).toBe('red');
+    }
+  });
+});
+
+describe('an invalid shorthand drops whole', () => {
+  // Each: a valid declaration, then the same shorthand with one bad part.
+  const CASES: [decls: string, expected: Record<string, unknown>][] = [
+    ['margin: 7px; margin: 10px bogus', { marginTop: 7, marginRight: 7 }],
+    ['padding: 7px; padding: 10px bogus', { paddingTop: 7, paddingRight: 7 }],
+    ['padding: 7px; padding: 1px 2px 3px 4px 5px', { paddingTop: 7, paddingRight: 7, paddingBottom: 7, paddingLeft: 7 }],
+    ['margin: 7px; margin: 1px 2px 3px 4px 5px', { marginTop: 7, marginLeft: 7 }],
+    ['border: 3px solid blue; border: 5bad solid red', { borderTopWidth: 3, borderTopColor: 'blue' }],
+    ['border-top: 3px solid blue; border-top: 5bad solid red', { borderTopWidth: 3, borderTopColor: 'blue' }],
+    ['border-style: solid; border-width: 6px; border-width: 9px bogus', { borderTopWidth: 6, borderRightWidth: 6 }],
+    ['border-width: 2px; border-style: solid; border-style: dashed bogus', { borderTopStyle: 'solid' }],
+    ['border: 1px solid; border-color: blue; border-color: red bogus', { borderTopColor: 'blue', borderLeftColor: 'blue' }],
+    ['border-radius: 4px; border-radius: 9px bogus', { borderTopLeftRadius: 4, borderTopRightRadius: 4 }],
+    ['border-radius: 4px; border-radius: 1px 2px 3px 4px 5px', { borderTopLeftRadius: 4 }],
+    ['font: italic 500 24px serif; font: bold 50px nonsense()', { fontSize: 24, fontStyle: 'italic', fontWeight: 500 }],
+    ['background: red; background: blue bogus', { backgroundColor: 'red' }],
+    ['list-style: square; list-style: circle bogus', { listStyleType: 'square' }],
+    ['text-decoration: underline red; text-decoration: overline 5bad', { textDecorationLine: 'underline', textDecorationColor: 'red' }],
+    ['-webkit-text-stroke: 2px red; -webkit-text-stroke: 5bad blue', { webkitTextStrokeWidth: 2, webkitTextStrokeColor: 'red' }],
+    ['flex: 2 3 10px; flex: 1 1 bogus', { flexGrow: 2, flexShrink: 3, flexBasis: 10 }],
+    ['padding: 7px; padding: inherit 5px', { paddingTop: 7, paddingRight: 7 }],
+  ];
+  for (const [decls, expected] of CASES) {
+    it(decls, () => {
+      expect(el(`<p style="${decls}">x</p>`, 'p').style, 'inline').toMatchObject(expected);
+      expect(el(`<style>p { ${decls} }</style><p>x</p>`, 'p').style, 'sheet').toMatchObject(expected);
+    });
+  }
+
+  it('a valid shorthand still applies', () => {
+    expect(el('<p style="margin: 1px 2px; font: italic 500 20px/1.5 serif; flex: 1; border: 2px dashed">x</p>', 'p').style)
+      .toMatchObject({ marginTop: 1, marginRight: 2, fontSize: 20, fontStyle: 'italic', lineHeight: 30, flexGrow: 1, borderTopWidth: 2 });
+  });
+});

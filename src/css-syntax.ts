@@ -247,6 +247,11 @@ function declarationsIn(s: string, start: number, end: number, inBlock: boolean)
   return out;
 }
 
+/** A hex escape's code point as text; zero, a surrogate or past U+10FFFF is U+FFFD (CSS Syntax 3 §4.3.7). */
+export function escapedCodePoint(cp: number): string {
+  return cp === 0 || cp > 0x10ffff || (cp >= 0xd800 && cp <= 0xdfff) ? '\uFFFD' : String.fromCodePoint(cp);
+}
+
 /** Parse a `style=""` attribute (or any declaration list). */
 export function parseDeclarationList(text: string): CSSDeclaration[] {
   return declarationsIn(text, 0, text.length, false);

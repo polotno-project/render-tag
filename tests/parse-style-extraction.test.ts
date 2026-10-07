@@ -58,6 +58,7 @@ const CASES: Record<string, string> = {
   'repeated media attribute: the first wins': `<style media=print media=screen>a{}</style><style>b{}</style><p>a</p>`,
   'print sheet (DOM path)': `<style media="print">a{}</style><style media="not print">b{}</style><p>a</p>`,
   'self-closing start tag still raw text': `<style/>p{}</style><p>a</p>`,
+  'character reference in an unquoted attribute': `<style>p{color:black}</style><style media=scr&#101;en>p{color:red}</style><p>x</p>`,
   'quoted attribute (DOM path)': `<style data-x="a>b">p{}</style><p>a</p>`,
   'end tag with attributes (DOM path)': `<style>p{}</style x="y"><p>a</p>`,
   'unterminated sheet (DOM path)': `<style>p{color:red}`,

@@ -630,6 +630,22 @@ function malformedCases(): CssFeatureCase[] {
         `<div style="display:flex;width:200px"><p style="margin-left:10%;width:100px">b</p></div>`,
     },
     {
+      name: 'malformed invalid inline shorthand keeps the earlier value',
+      html:
+        `<p style="padding:7px;padding:10px bogus;margin:3px;margin:1px 2px 3px 4px 5px">a</p>` +
+        `<p style="font:italic 500 24px serif;font:bold 50px nonsense();text-decoration:underline red;text-decoration:overline 5bad">b</p>` +
+        `<p style="-webkit-text-stroke:2px red;-webkit-text-stroke:5bad blue">c</p>` +
+        `<div style="display:flex"><p style="flex:2 3 10px;flex:1 1 bogus">d</p></div>`,
+    },
+    {
+      name: 'malformed invalid sheet shorthand keeps the earlier value',
+      css:
+        `.a { padding: 7px; padding: 10px bogus; margin: 3px; margin: 1px 2px 3px 4px 5px } ` +
+        `.b { font: italic 500 24px serif; font: bold 50px nonsense(); text-decoration: underline red; text-decoration: overline 5bad } ` +
+        `.c { -webkit-text-stroke: 2px red; -webkit-text-stroke: 5bad blue } .d { flex: 2 3 10px; flex: 1 1 bogus }`,
+      html: `<p class="a">a</p><p class="b">b</p><p class="c">c</p><div style="display:flex"><p class="d">d</p></div>`,
+    },
+    {
       name: 'malformed general sibling and complex :is',
       css: `.x ~ p { color: red } :is(section p) { padding-left: 3px } p:not(:hover) { letter-spacing: 1px }`,
       html: `<section><p>a</p><p class="x">b</p><p>c</p></section>`,

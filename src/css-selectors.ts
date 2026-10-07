@@ -4,6 +4,7 @@
  * unsupported one only itself (Selectors 4 §3.1). Dynamic states are never active.
  * The root container stands for both `html` and `body` (`html > body > p` works).
  */
+import { escapedCodePoint } from './css-syntax.js';
 
 export interface ElementContext {
   /** Lower-case tag name. */
@@ -162,7 +163,7 @@ class SelectorParser {
   private escape(): string {
     const hex = /^[0-9a-f]{1,6}\s?/i.exec(this.s.slice(this.i + 1));
     if (hex) {
-      const ch = String.fromCodePoint(parseInt(hex[0], 16) || 0xfffd);
+      const ch = escapedCodePoint(parseInt(hex[0], 16));
       this.i += 1 + hex[0].length;
       return ch;
     }

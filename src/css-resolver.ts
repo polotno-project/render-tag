@@ -350,7 +350,7 @@ export function expandShorthand(property: string, value: string): Longhand[] {
     return [{ property: 'font-variant-caps', value: caps }];
   }
   if (property === 'margin' || property === 'padding') {
-    return fourSides(value.trim().split(/\s+/)).map((v, i) => ({ property: `${property}-${SIDES[i]}`, value: v }));
+    return (fourSides(value.trim().split(/\s+/)) ?? []).map((v, i) => ({ property: `${property}-${SIDES[i]}`, value: v }));
   }
 
   if (property === 'border' || property === 'border-top' || property === 'border-right' ||
@@ -381,7 +381,7 @@ export function expandShorthand(property: string, value: string): Longhand[] {
   if (property === 'border-width' || property === 'border-style' || property === 'border-color') {
     // Colors keep their spaces.
     const kind = property.slice('border-'.length);
-    return fourSides(splitTopLevelWhitespace(value.trim()))
+    return (fourSides(splitTopLevelWhitespace(value.trim())) ?? [])
       .map((v, i) => ({ property: `border-${SIDES[i]}-${kind}`, value: v }));
   }
 
@@ -390,7 +390,7 @@ export function expandShorthand(property: string, value: string): Longhand[] {
 
   if (property === 'border-radius') {
     // TL, TR, BR, BL; of `4px / 2px` only the horizontal radii are kept (one per corner).
-    return fourSides(value.split('/')[0].trim().split(/\s+/))
+    return (fourSides(value.split('/')[0].trim().split(/\s+/)) ?? [])
       .map((v, i) => ({ property: `border-${CORNERS[i]}-radius`, value: v }));
   }
 
@@ -493,8 +493,9 @@ const isWidthToken = (p: string) =>
 
 const SIDES = ['top', 'right', 'bottom', 'left'];
 const CORNERS = ['top-left', 'top-right', 'bottom-right', 'bottom-left'];
-/** 1-4 box values as top/right/bottom/left (or TL/TR/BR/BL). */
-function fourSides(parts: string[]): string[] {
+/** 1-4 box values as top/right/bottom/left (or TL/TR/BR/BL); null for any other count. */
+function fourSides(parts: string[]): string[] | null {
+  if (parts.length === 0 || parts.length > 4) return null;
   const [a, b = a, c = a, d = b] = parts;
   return [a, b, c, d];
 }
@@ -1109,6 +1110,33 @@ function applyDeclaration(style: ResolvedStyle, property: string, value: string,
   return false;
 }
 
+/** What a shorthand's longhands are checked against: no element, a viewport, a 16px font. */
+const CHECK_BASIS: LengthBasis = {
+  em: 16, rem: 16, percent: 16, viewport: { width: 100, height: 100 }, fontStyle: null, measure: undefined,
+};
+const CHECK_ENV: DeclarationEnv = { b: CHECK_BASIS, containerWidth: 100, percent: false };
+const CHECK_STYLE = defaultStyle();
+
+/**
+ * A declaration as longhands. A shorthand with any invalid longhand drops whole,
+ * as a browser parses it: `padding: 7px; padding: 10px bogus` keeps 7px.
+ */
+function expandDeclaration(property: string, value: string): Longhand[] {
+  const longhands = expandShorthand(property, value);
+  if (longhands.length < 2) return longhands;
+  const wide = cssWideKeyword(property, value) !== null;
+  for (const { property: p, value: v } of longhands) {
+    // A CSS-wide keyword is the whole value or invalid (`padding: inherit 5px`).
+    if (cssWideKeyword(p, v)) { if (wide) continue; return []; }
+    CHECK_BASIS.percent = 16;
+    const valid = FONT_PROPERTIES.has(p)
+      ? applyFontDeclaration(CHECK_STYLE, p, v, INITIAL, CHECK_BASIS)
+      : applyDeclaration(CHECK_STYLE, p, v, CHECK_ENV);
+    if (!valid) return [];
+  }
+  return longhands;
+}
+
 /** Inherit the font properties, before any other declaration measures the font. */
 function inheritFont(child: ResolvedStyle, parent: ResolvedStyle, setProps: Set<string>): void {
   if (!setProps.has('font-size')) child.fontSize = parent.fontSize;
@@ -1204,7 +1232,7 @@ function buildRuleIndex(css: string): RuleIndex {
   for (const rule of parseStylesheet(css)) {
     const expandedDecls: Declaration[] = [];
     for (const decl of rule.declarations) {
-      for (const exp of expandShorthand(decl.property, decl.value)) {
+      for (const exp of expandDeclaration(decl.property, decl.value)) {
         expandedDecls.push({ property: exp.property, value: exp.value, important: decl.important });
       }
     }
@@ -1376,17 +1404,21 @@ const NO_DECLARATIONS: readonly Declaration[] = Object.freeze([]);
 
 /**
  * `style=""` as longhands, read from the attribute (not the CSSOM's re-serialized
- * cssText) so no DOM implementation rewrites a value first.
+ * cssText) so no DOM implementation rewrites a value first. `memo` (one per resolve
+ * call) parses each distinct attribute text once: editor output repeats one per run.
  */
-function inlineDeclarations(el: Element): readonly Declaration[] {
+function inlineDeclarations(el: Element, memo: Map<string, readonly Declaration[]>): readonly Declaration[] {
   const attr = el.getAttribute('style');
   if (!attr) return NO_DECLARATIONS;
+  const cached = memo.get(attr);
+  if (cached) return cached;
   const out: Declaration[] = [];
   for (const decl of parseDeclarationList(attr)) {
-    for (const longhand of expandShorthand(decl.property, decl.value)) {
+    for (const longhand of expandDeclaration(decl.property, decl.value)) {
       out.push({ property: longhand.property, value: longhand.value, important: decl.important });
     }
   }
+  memo.set(attr, out);
   return out;
 }
 
@@ -1476,6 +1508,7 @@ export function resolveStylesFromCSS(
   const ordinals: ListOrdinals = new Map();
   const matcher = new SelectorMatcher();
   const concreteColors: CurrentColorTable = new Map();
+  const inlineMemo = new Map<string, readonly Declaration[]>();
   /** What `rem` resolves against: the root's font-size once it is known, the initial 16px before. */
   let rootFontSize = 16;
 
@@ -1538,7 +1571,7 @@ export function resolveStylesFromCSS(
     collectMatches(ruleIndex.universal, matcher, ctx, matched, matchedMarker);
     if (matched.length > 1) matched.sort(byCascadeOrder);
     const hints = tag === 'font' ? fontHints(el) : NO_DECLARATIONS;
-    const inline = inlineDeclarations(el);
+    const inline = inlineDeclarations(el, inlineMemo);
 
     // --- Step 1: the UA stylesheet (tag defaults) ---
     const tagDef = TAG_DEFAULTS[tag];
