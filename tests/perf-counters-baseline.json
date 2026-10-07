@@ -152,5 +152,15 @@
     "draw.restore": 1,
     "draw.scratchCanvases": 0,
     "draw.scratchPeakPixels": 0
+  },
+  "path text (Latin, 3 pangrams)": {
+    "sourceChars": 135,
+    "layout.measureText": 46,
+    "layout.measuredChars": 168
+  },
+  "path text (Arabic)": {
+    "sourceChars": 36,
+    "layout.measureText": 11,
+    "layout.measuredChars": 68
   }
 }

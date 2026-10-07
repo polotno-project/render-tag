@@ -519,6 +519,11 @@ export function transformTextRuns<T extends {
   });
 }
 
+/** `dst.push(...src)` without spreading: V8 overflows its stack at ~120k arguments. */
+function appendAll<T>(dst: T[], src: readonly T[]): void {
+  for (let i = 0; i < src.length; i++) dst.push(src[i]);
+}
+
 function isInline(node: StyledNode): boolean {
   if (node.tagName === '#text') return true;
   const d = node.style.display;
@@ -836,7 +841,7 @@ function collectTextRuns(node: StyledNode): TextRun[] {
         }
       }
       seg.reverse();
-      runs.push(...seg);
+      appendAll(runs, seg);
     }
   }
 
@@ -2279,13 +2284,21 @@ function withDirection(session: LayoutSession, style: ResolvedStyle, direction: 
 
 /** Can two visually adjacent pieces of one level paint as ONE fillText? */
 function sameBidiRun(a: Word, b: Word): boolean {
-  if (a.refs.boxStyle !== b.refs.boxStyle || a.refs.clipStyle !== b.refs.clipStyle ||
-    a.refs.strokeImageStyle !== b.refs.strokeImageStyle || a.refs.parentStyle !== b.refs.parentStyle) return false;
-  const p = a.refs.style;
-  const q = b.refs.style;
+  return a.refs.boxStyle === b.refs.boxStyle && a.refs.clipStyle === b.refs.clipStyle &&
+    a.refs.strokeImageStyle === b.refs.strokeImageStyle && a.refs.parentStyle === b.refs.parentStyle &&
+    sameGlyphPaint(a.refs.style, b.refs.style);
+}
+
+/**
+ * Do two styles place and paint glyphs alike? A merged bidi run paints with its first
+ * piece's style, so EVERY property the text painter reads must be compared here.
+ */
+function sameGlyphPaint(p: ResolvedStyle, q: ResolvedStyle): boolean {
   if (p === q) return true;
   if (p.fontFamily !== q.fontFamily || p.fontSize !== q.fontSize || p.fontWeight !== q.fontWeight ||
-    p.fontStyle !== q.fontStyle || p.color !== q.color || p.textDecorationLine !== q.textDecorationLine) return false;
+    p.fontStyle !== q.fontStyle || p.fontVariantCaps !== q.fontVariantCaps || p.fontKerning !== q.fontKerning ||
+    p.color !== q.color || p.webkitTextFillColor !== q.webkitTextFillColor ||
+    p.textDecorationLine !== q.textDecorationLine) return false;
   // Decorations that would paint differently must not merge into one band.
   const da = p.textDecorations, db = q.textDecorations;
   if (da !== db) {
@@ -2299,7 +2312,8 @@ function sameBidiRun(a: Word, b: Word): boolean {
     p.letterSpacing === q.letterSpacing && p.wordSpacing === q.wordSpacing &&
     p.verticalAlign === q.verticalAlign && p.textShadow === q.textShadow &&
     p.webkitTextStrokeWidth === q.webkitTextStrokeWidth &&
-    p.webkitTextStrokeColor === q.webkitTextStrokeColor;
+    p.webkitTextStrokeColor === q.webkitTextStrokeColor &&
+    p.strokeLinejoin === q.strokeLinejoin && p.paintOrder === q.paintOrder;
 }
 
 /**
@@ -2417,14 +2431,15 @@ function bidiLineItems(
     } else {
       to = from + 1; // an inline-block's margin: it belongs to the next item
     }
-    const slots: number[] = [];
+    let first = Infinity;
+    let last = -1;
     for (let j = from; j < to; j++) {
       const v = visualPos.get(j);
-      if (v !== undefined) slots.push(v);
+      if (v !== undefined) { first = Math.min(first, v); last = Math.max(last, v); }
     }
-    if (slots.length > 0) {
-      if (closing) after[Math.max(...slots)].push(i);
-      else before[Math.min(...slots)].push(i);
+    if (last >= 0) {
+      if (closing) after[last].push(i);
+      else before[first].push(i);
       continue;
     }
     // An empty box: stay beside the logically nearest content.
@@ -2439,8 +2454,12 @@ function bidiLineItems(
   }
   // Item indices (logical order) in visual order.
   const sequence: number[] = [];
-  order.forEach((k, v) => sequence.push(...before[v], content[k], ...after[v]));
-  sequence.push(...trailing);
+  order.forEach((k, v) => {
+    appendAll(sequence, before[v]);
+    sequence.push(content[k]);
+    appendAll(sequence, after[v]);
+  });
+  appendAll(sequence, trailing);
   const visual = sequence.map((i) => items[i]);
   const visualLevels = sequence.map((i) => levels[i] >= 0 ? levels[i] : paragraphLevel);
 
@@ -2470,7 +2489,9 @@ function bidiLineItems(
       });
     }
     outLevels.push(level);
-    outKeys.push(Math.min(...sequence.slice(i, j)));
+    let key = sequence[i];
+    for (let k = i + 1; k < j; k++) key = Math.min(key, sequence[k]);
+    outKeys.push(key);
     i = j;
   }
   return { words: outWords, levels: outLevels, keys: outKeys };
@@ -3284,7 +3305,7 @@ function layoutBlock(
   if (hasOnlyInlineChildren(node)) {
     const { nodes, height, lines, lineBoxes } = layoutInlineContent(
       session, node, contentX, contentStartY, contentWidth, node.tagName === 'li' && bulletProbe, clamp);
-    session.lines.push(...lines);
+    appendAll(session.lines, lines);
     box.children = nodes;
     box.lineBoxes = lineBoxes;
     box.height = borderTop + padTop + height + padBottom + borderBottom;
@@ -3331,9 +3352,9 @@ function layoutBlock(
         };
         const { nodes, height, lines, lineBoxes } = layoutInlineContent(
           session, inlineGroup, contentX, curY, contentWidth, node.tagName === 'li' && bulletProbe, clamp);
-        session.lines.push(...lines);
-        box.children.push(...nodes);
-        (box.lineBoxes ??= []).push(...lineBoxes);
+        appendAll(session.lines, lines);
+        appendAll(box.children, nodes);
+        appendAll(box.lineBoxes ??= [], lineBoxes);
         curY += height;
         continue;
       }

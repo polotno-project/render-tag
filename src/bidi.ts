@@ -2,9 +2,10 @@
  * UAX #9 for line layout: paragraph levels (X1–X10, W1–W7, N0–N2, I1–I2), L1 and L2.
  * Canvas reorders only inside one fillText call, so a line of several runs is cut
  * into level-uniform pieces ordered here. Forced breaks are paragraph separators.
- * Bidi_Class is approximated from General_Category + Script with explicit weak/
- * neutral tables (JS has no `\p{Bidi_Class}`); rare symbols approximate as ON.
+ * Bidi_Class comes from a generated UCD table (JS has no `\p{Bidi_Class}`).
  */
+
+import { BIDI_RUN_CLASSES, BIDI_RUN_STARTS } from './bidi-class-data.js';
 
 type BidiClass =
   | 'L' | 'R' | 'AL' | 'EN' | 'ES' | 'ET' | 'AN' | 'CS' | 'NSM' | 'BN'
@@ -21,101 +22,39 @@ const RLI = '⁧';
 const FSI = '⁨';
 const PDI = '⁩';
 
-const inRanges = (cp: number, ranges: readonly number[]): boolean => {
-  for (let i = 0; i < ranges.length; i += 2) {
-    if (cp >= ranges[i] && cp <= ranges[i + 1]) return true;
+// Index order of the letters in `BIDI_RUN_CLASSES` (scripts/gen-bidi-class.mjs).
+const CLASS_NAMES: readonly BidiClass[] = [
+  'L', 'R', 'AL', 'EN', 'ES', 'ET', 'AN', 'CS', 'NSM', 'BN', 'B', 'S', 'WS', 'ON',
+  'LRE', 'LRO', 'RLE', 'RLO', 'PDF', 'LRI', 'RLI', 'FSI', 'PDI',
+];
+let runStarts: Uint32Array | undefined;
+
+function decodeRunStarts(): Uint32Array {
+  const starts = new Uint32Array(BIDI_RUN_CLASSES.length);
+  for (let i = 0, k = 0, cp = 0, delta = 0; i < BIDI_RUN_STARTS.length; i++) {
+    const c = BIDI_RUN_STARTS.charCodeAt(i);
+    if (c >= 97) {
+      delta = delta * 26 + c - 97;
+    } else {
+      starts[k++] = cp += delta * 26 + c - 65;
+      delta = 0;
+    }
   }
-  return false;
-};
+  return runStarts = starts;
+}
 
-const EN_RANGES = [
-  0x30, 0x39, 0xB2, 0xB3, 0xB9, 0xB9, 0x06F0, 0x06F9,
-  0x2070, 0x2070, 0x2074, 0x2079, 0x2080, 0x2089, 0x2488, 0x249B,
-  0xFF10, 0xFF19, 0x1D7CE, 0x1D7FF, 0x1F100, 0x1F10A,
-];
-const AN_RANGES = [
-  0x0600, 0x0605, 0x0660, 0x0669, 0x066B, 0x066C, 0x06DD, 0x06DD,
-  0x0890, 0x0891, 0x08E2, 0x08E2, 0x10D30, 0x10D39, 0x10E60, 0x10E7E,
-];
-const ES_RANGES = [
-  0x2B, 0x2B, 0x2D, 0x2D, 0x207A, 0x207B, 0x208A, 0x208B, 0x2212, 0x2212,
-  0xFB29, 0xFB29, 0xFE62, 0xFE63, 0xFF0B, 0xFF0B, 0xFF0D, 0xFF0D,
-];
-const ET_RANGES = [
-  0x23, 0x25, 0xA2, 0xA5, 0xB0, 0xB1, 0x058F, 0x058F, 0x0609, 0x060A,
-  0x066A, 0x066A, 0x09F2, 0x09F3, 0x09FB, 0x09FB, 0x0AF1, 0x0AF1,
-  0x0BF9, 0x0BF9, 0x0E3F, 0x0E3F, 0x17DB, 0x17DB, 0x2030, 0x2034,
-  0x20A0, 0x20CF, 0x212E, 0x212E, 0x2213, 0x2213, 0xA838, 0xA839,
-  0xFE5F, 0xFE5F, 0xFE69, 0xFE6A, 0xFF03, 0xFF05, 0xFFE0, 0xFFE1,
-  0xFFE5, 0xFFE6,
-];
-const CS_RANGES = [
-  0x2C, 0x2C, 0x2E, 0x2F, 0x3A, 0x3A, 0xA0, 0xA0, 0x060C, 0x060C,
-  0x202F, 0x202F, 0x2044, 0x2044, 0xFE50, 0xFE50, 0xFE52, 0xFE52,
-  0xFE55, 0xFE55, 0xFF0C, 0xFF0C, 0xFF0E, 0xFF0F, 0xFF1A, 0xFF1A,
-];
-const WS_RANGES = [
-  0x0C, 0x0C, 0x20, 0x20, 0x1680, 0x1680, 0x2000, 0x200A, 0x2028, 0x2028,
-  0x205F, 0x205F, 0x3000, 0x3000,
-];
-const B_RANGES = [0x0A, 0x0A, 0x0D, 0x0D, 0x1C, 0x1E, 0x85, 0x85, 0x2029, 0x2029];
-const S_RANGES = [0x09, 0x09, 0x0B, 0x0B, 0x1F, 0x1F];
-/** Neutral exceptions inside the Arabic block. */
-const ARABIC_ON = [0x0606, 0x0607, 0x060E, 0x060F, 0x06DE, 0x06DE, 0x06E9, 0x06E9, 0xFD3E, 0xFD3F];
-/** Right-to-left (R) blocks: Hebrew, NKo, Samaritan, Mandaic, Hebrew presentation forms, SMP RTL. */
-const R_RANGES = [
-  0x0590, 0x05FF, 0x07C0, 0x085F, 0xFB1D, 0xFB4F, 0x10800, 0x10CFF,
-  0x10D40, 0x10E5F, 0x10E80, 0x10F2F, 0x10F70, 0x10FFF, 0x1E800, 0x1EC6F,
-  0x1ECC0, 0x1ECFF, 0x1ED50, 0x1EDFF, 0x1EF00, 0x1EFFF,
-];
-/** Arabic-letter (AL) blocks: Arabic, Syriac, Arabic Supplement, Thaana, Arabic Extended, presentation forms. */
-const AL_RANGES = [
-  0x0600, 0x07BF, 0x0860, 0x08FF, 0xFB50, 0xFDFF, 0xFE70, 0xFEFE,
-  0x10D00, 0x10D3F, 0x10F30, 0x10F6F, 0x1EC70, 0x1ECBF, 0x1ED00, 0x1ED4F,
-  0x1EE00, 0x1EEFF,
-];
-
-const NSM_RE = /[\p{Mn}\p{Me}]/u;
-const CF_RE = /\p{Cf}/u;
-const CC_RE = /\p{Cc}/u;
-const NEUTRAL_RE = /[\p{P}\p{S}\p{No}\p{Zs}]/u;
-
-/** Bidi_Class of one code point. */
+/** Bidi_Class of one code point (DerivedBidiClass, Unicode 17). */
 export function bidiClass(cp: number): BidiClass {
-  if (cp < 0x80) {
-    if (cp >= 0x41 && cp <= 0x5A || cp >= 0x61 && cp <= 0x7A) return 'L';
+  if (cp < 0x80 && (cp >= 0x41 && cp <= 0x5A || cp >= 0x61 && cp <= 0x7A)) return 'L';
+  const starts = runStarts ?? decodeRunStarts();
+  let lo = 0;
+  let hi = starts.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (starts[mid] <= cp) lo = mid;
+    else hi = mid - 1;
   }
-  switch (cp) {
-    case 0x202A: return 'LRE';
-    case 0x202B: return 'RLE';
-    case 0x202C: return 'PDF';
-    case 0x202D: return 'LRO';
-    case 0x202E: return 'RLO';
-    case 0x2066: return 'LRI';
-    case 0x2067: return 'RLI';
-    case 0x2068: return 'FSI';
-    case 0x2069: return 'PDI';
-    case 0x200E: return 'L';
-    case 0x200F: return 'R';
-    case 0x061C: return 'AL';
-    case 0xFFFC: return 'ON';
-  }
-  if (inRanges(cp, B_RANGES)) return 'B';
-  if (inRanges(cp, S_RANGES)) return 'S';
-  if (inRanges(cp, WS_RANGES)) return 'WS';
-  if (inRanges(cp, AN_RANGES)) return 'AN';
-  if (inRanges(cp, EN_RANGES)) return 'EN';
-  if (inRanges(cp, ES_RANGES)) return 'ES';
-  if (inRanges(cp, ET_RANGES)) return 'ET';
-  if (inRanges(cp, CS_RANGES)) return 'CS';
-  const ch = String.fromCodePoint(cp);
-  if (NSM_RE.test(ch)) return 'NSM';
-  if (CF_RE.test(ch) || CC_RE.test(ch)) return 'BN';
-  if (inRanges(cp, ARABIC_ON)) return 'ON';
-  if (inRanges(cp, R_RANGES)) return 'R';
-  if (inRanges(cp, AL_RANGES)) return 'AL';
-  if (NEUTRAL_RE.test(ch)) return 'ON';
-  return 'L';
+  return CLASS_NAMES[BIDI_RUN_CLASSES.charCodeAt(lo) - 65];
 }
 
 /** Bidi_Paired_Bracket pairs (BidiBrackets.txt), opener → closer. */
@@ -332,7 +271,7 @@ function resolveParagraph(
     const seq: number[] = [];
     let current: number[] | undefined = run;
     while (current) {
-      seq.push(...current);
+      for (const i of current) seq.push(i);
       const lastChar = current[current.length - 1];
       if (isIsolateInit(orig[lastChar]) && matchingPDI[lastChar] >= 0) {
         current = runOf.get(matchingPDI[lastChar]);
@@ -343,8 +282,10 @@ function resolveParagraph(
     sequences.push(seq);
   }
 
+  // X10 reads neighbours' explicit levels; I1/I2 below overwrite `lv` sequence by sequence.
+  const explicit = lv.slice();
   for (const seq of sequences) {
-    resolveSequence(seq, types, orig, lv, cps, paragraphLevel, len);
+    resolveSequence(seq, types, orig, lv, explicit, cps, paragraphLevel, len);
   }
 
   // X9 removed chars take the level of the preceding char (or the paragraph's).
@@ -356,7 +297,7 @@ function resolveParagraph(
 }
 
 function resolveSequence(
-  seq: number[], types: BidiClass[], orig: BidiClass[], lv: Uint8Array,
+  seq: number[], types: BidiClass[], orig: BidiClass[], lv: Uint8Array, explicit: Uint8Array,
   cps: number[], paragraphLevel: number, len: number,
 ): void {
   const level = lv[seq[0]];
@@ -364,13 +305,13 @@ function resolveSequence(
   // sos/eos: the higher of this level and the neighbouring one (X10).
   let prevLevel = paragraphLevel;
   for (let i = seq[0] - 1; i >= 0; i--) {
-    if (!isRemovedByX9(orig[i])) { prevLevel = lv[i]; break; }
+    if (!isRemovedByX9(orig[i])) { prevLevel = explicit[i]; break; }
   }
   // Ending on an (unmatched) isolate initiator: eos compares with the paragraph level.
   let nextLevel = paragraphLevel;
   if (!isIsolateInit(orig[lastChar])) {
     for (let i = lastChar + 1; i < len; i++) {
-      if (!isRemovedByX9(orig[i])) { nextLevel = lv[i]; break; }
+      if (!isRemovedByX9(orig[i])) { nextLevel = explicit[i]; break; }
     }
   }
   const sos: BidiClass = Math.max(prevLevel, level) % 2 ? 'R' : 'L';

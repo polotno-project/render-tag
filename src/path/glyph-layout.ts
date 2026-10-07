@@ -4,7 +4,7 @@
 import type { ResolvedStyle, StyledNode } from '../types.js';
 import { Measurer, type FontMetricsTable, type MeasureState, graphemes as splitGraphemes, hasStrokeImage, hasTextClip, transformTextRuns } from '../layout.js';
 import {
-  BidiTextBuilder, bidiClass, bidiContextFor, lineLevels, resolveBidi, visualOrder,
+  BidiTextBuilder, bidiClass, bidiContextFor, lineLevels, mayNeedBidi, resolveBidi, visualOrder,
   type BidiContext,
 } from '../bidi.js';
 import type { PathLike, Point } from './svg-path.js';
@@ -165,7 +165,7 @@ function preGlyphsForSegment(
   const emit = (text: string, shaped: boolean, isSpace: boolean, level: number) => {
     out.push({
       text,
-      width: m.measureText(state, text).width,
+      width: m.width(state, text),
       style: seg.style,
       isSpace,
       ascent,
@@ -214,8 +214,11 @@ export function layoutGlyphsOnPath(input: LayoutInput): LayoutOutput {
   const builder = new BidiTextBuilder();
   const starts = segments.map((seg) => builder.push(seg.text, seg.bidi ?? null));
   builder.enter(null);
-  const paragraph = resolveBidi(builder.text, input.direction === 'rtl' ? 1 : 0);
-  const levels = lineLevels(paragraph, 0, builder.text.length);
+  // The controls an RTL context opens are themselves RTL triggers.
+  const rtl = input.direction === 'rtl';
+  const levels = rtl || mayNeedBidi(builder.text)
+    ? lineLevels(resolveBidi(builder.text, rtl ? 1 : 0), 0, builder.text.length)
+    : new Uint8Array(builder.text.length);
   const logical: PreGlyph[] = [];
   let measuredWholeWidth = 0;
   let maxLineHeight = 0;
@@ -228,7 +231,7 @@ export function layoutGlyphsOnPath(input: LayoutInput): LayoutOutput {
     const segGlyphs = preGlyphsForSegment(
       m, state, seg, levels.subarray(starts[i], starts[i] + seg.text.length));
     if (segGlyphs.length === 0) return;
-    logical.push(...segGlyphs);
+    for (const g of segGlyphs) logical.push(g);
     measuredWholeWidth += m.measureText(state, seg.text).width;
   });
   // UAX #9 L2: placements in visual order, across segments.

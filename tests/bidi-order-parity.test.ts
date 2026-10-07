@@ -115,6 +115,13 @@ const CASES: Record<string, string> = {
   // its LTR words must still paint LTR where layout put them.
   'an inline with direction:rtl over LTR text':
     '<p>a <span style="direction:rtl">abc, def!</span> b</p>',
+  // ˈ is Bidi_Class ON though General_Category Lm: it must not read as L.
+  'a modifier letter and digits in a span between Hebrew letters':
+    '<p dir="rtl">א<span style="color:red">ˈ12</span>ב</p>',
+  // X10: the digits' sos comes from the embedding's explicit level, not the
+  // level its Hebrew letter resolved to.
+  'digits after an LTR embed around a Hebrew letter':
+    '<p><span>א</span><span style="unicode-bidi:embed;direction:ltr">ב</span> 1 2</p>',
 };
 
 describe('Bidi visual order parity (DOM Range rects)', () => {

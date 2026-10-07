@@ -30,6 +30,7 @@ import { afterAll, expect, it } from 'vitest';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { DOMParser as LinkedomDOMParser } from 'linkedom';
 import { layout, drawLayout, setDOMParser } from '../../src/index.node.ts';
+import { layoutTextOnPath } from '../../src/path/index.node.ts';
 import { parseHTML } from '../../src/parse.ts';
 import { resolveStylesFromCSS } from '../../src/css-resolver.ts';
 import { buildLayoutTree, type LayoutStats } from '../../src/layout.ts';
@@ -96,6 +97,24 @@ const FIXTURES: Record<string, Fixture> = {
     width: 400,
   },
 };
+
+const PANGRAM = 'The quick brown <b>fox</b> jumps over the <i>lazy</i> dog. ';
+
+/** Text on a path: its measuring, which repeats for every repeated grapheme. */
+const PATH_FIXTURES: Record<string, Fixture> = {
+  'path text (Latin, 3 pangrams)': { html: `<p style="font-size:16px">${PANGRAM.repeat(3)}</p>`, width: 2000 },
+  'path text (Arabic)': { html: '<p dir="rtl" style="font-size:16px">مرحبا بالعالم، هذا نص على مسار منحني</p>', width: 2000 },
+};
+
+function countPath(fixture: Fixture): Counters {
+  const rec = recordingCtx(fixture.width, 1000);
+  layoutTextOnPath({ html: fixture.html, path: `M0,200 Q${fixture.width / 2},0 ${fixture.width},200`, ctx: rec.ctx });
+  return {
+    sourceChars: sourceChars(fixture.html),
+    'layout.measureText': rec.counts.calls.measureText ?? 0,
+    'layout.measuredChars': rec.counts.measuredChars,
+  };
+}
 
 /** Characters of text the fixture carries (text nodes outside <style>). */
 function sourceChars(html: string): number {
@@ -211,6 +230,7 @@ it('work counters match the recorded bounds', () => {
     console.log(`${name}: measuredChars/sourceChars ${(c['layout.measuredChars'] / c.sourceChars).toFixed(2)}, ` +
       `${c['layout.measureText']} measureText, ${c.layoutTexts} LayoutText, ${c['draw.fillText']} fillText`);
   }
+  for (const [name, fixture] of Object.entries(PATH_FIXTURES)) current[name] = countPath(fixture);
 
   if (UPDATE) {
     writeFileSync(BASELINE_PATH, JSON.stringify(current, null, 2) + '\n');
