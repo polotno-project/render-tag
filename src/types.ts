@@ -16,26 +16,13 @@ export interface ShadowOptions {
   createCanvas?: CanvasFactory;
 }
 
-export interface RenderConfig extends ShadowOptions {
+interface LayoutInput {
   /** HTML string to render (include <style> tags for CSS) */
   html: string;
   /** Width of the rendering area in CSS pixels */
   width: number;
   /** Height of the rendering area in CSS pixels (auto-sized from content if omitted) */
   height?: number;
-  /**
-   * Existing 2D rendering context to draw onto.
-   * When provided, render-tag draws directly onto this context without resizing the canvas.
-   * Mutually exclusive with `canvas`.
-   */
-  ctx?: AnyContext;
-  /**
-   * Target canvas element (created if not provided).
-   * Mutually exclusive with `ctx`.
-   */
-  canvas?: AnyCanvas;
-  /** Device pixel ratio (default: globalThis.devicePixelRatio ?? 1) */
-  pixelRatio?: number;
   /**
    * Measurement accuracy mode (default: 'performance').
    * - 'performance' — pure canvas API measurements only. Faster, no DOM touches,
@@ -52,13 +39,21 @@ export interface RenderConfig extends ShadowOptions {
   debug?: (entry: DebugEntry) => void;
 }
 
-export interface LayoutConfig {
-  /** HTML string to render (include <style> tags for CSS) */
-  html: string;
-  /** Width of the rendering area in CSS pixels */
-  width: number;
-  /** Height override in CSS pixels (auto-sized from content if omitted) */
-  height?: number;
+interface DrawTarget {
+  /**
+   * Existing 2D rendering context to draw onto, without resizing or scaling.
+   * Mutually exclusive with `canvas`.
+   */
+  ctx?: AnyContext;
+  /** Target canvas element (created if not provided). Mutually exclusive with `ctx`. */
+  canvas?: AnyCanvas;
+  /** Device pixel ratio (default: globalThis.devicePixelRatio ?? 1) */
+  pixelRatio?: number;
+}
+
+export interface RenderConfig extends LayoutInput, DrawTarget, ShadowOptions {}
+
+export interface LayoutConfig extends LayoutInput {
   /**
    * 2D context used for text measurement. Optional in the browser (a hidden
    * canvas is created); required in non-browser environments. render-tag
@@ -66,14 +61,6 @@ export interface LayoutConfig {
    * wordSpacing to 0px, and performs no save/restore.
    */
   ctx?: AnyContext;
-  /**
-   * Measurement accuracy mode (default: 'performance').
-   * - 'performance' — pure canvas API measurements only.
-   * - 'balanced' — uses hidden DOM probes for line heights.
-   */
-  accuracy?: 'balanced' | 'performance';
-  /** Debug callback for layout diagnostics */
-  debug?: (entry: DebugEntry) => void;
 }
 
 export interface LayoutResult {
@@ -100,23 +87,11 @@ export interface LayoutResult {
   lines: LayoutLine[];
 }
 
-export interface DrawConfig extends ShadowOptions {
+export interface DrawConfig extends DrawTarget, ShadowOptions {
   /** Layout result from layout() */
   layout: LayoutResult;
   /** Width used during layout (must match) */
   width: number;
-  /**
-   * Existing 2D rendering context to draw onto.
-   * No resizing or scaling applied. Mutually exclusive with `canvas`.
-   */
-  ctx?: AnyContext;
-  /**
-   * Target canvas element (created if not provided).
-   * Mutually exclusive with `ctx`.
-   */
-  canvas?: AnyCanvas;
-  /** Device pixel ratio (default: globalThis.devicePixelRatio ?? 1) */
-  pixelRatio?: number;
 }
 
 export interface DebugEntry {

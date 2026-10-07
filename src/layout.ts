@@ -1,8 +1,9 @@
 import type { StyledNode, LayoutNode, LayoutBox, LayoutText, ResolvedStyle, LayoutLine, LayoutLineBox, DecorationEntry } from './types.js';
 import {
   anonymousBlockStyle, borderBoxSize, contentBoxSize, intrinsicStyle, isTransparent, LINE_HEIGHT_MULTIPLIER,
-  OVERFLOW_X, OVERFLOW_Y, resolveOwnPercentages, resolvePercentages,
+  OVERFLOW_X, OVERFLOW_Y, resolveOwnPercentages, resolvePercentages, resolveStylesFromCSS,
 } from './css-resolver.js';
+import { parseHTML } from './parse.js';
 import {
   BLINK_SUPER_SUB, CANVAS_BIDI_LINE, FLOORS_LINE_BASELINE, LAYOUT_UNIT_LINE_HEIGHT, MARKER_LINE_WITHOUT_CONTENT,
   MIN_HEIGHT_END_MARGINS, SNAPS_LINE_PAINT, TRUNCATES_LINE_HEIGHT,
@@ -4813,6 +4814,19 @@ function addListMarker(
 }
 
 // ─── Main entry ────────────────────────────────────────────────────────
+
+/** Parse `html` and resolve its styles; ch/ex measure on `ctx` only when used. */
+export function styleTree(
+  html: string, ctx: CanvasRenderingContext2D, width: number,
+  viewport?: { width: number; height: number },
+): StyledNode {
+  const { fragment, css } = parseHTML(html);
+  let unitMeasurer: Measurer | undefined;
+  return resolveStylesFromCSS(fragment, css, width, {
+    viewport,
+    fontUnits: (style) => (unitMeasurer ??= new Measurer(ctx, new Map())).fontUnits(style),
+  });
+}
 
 /**
  * Build the layout tree from the styled tree using pure canvas measurement.

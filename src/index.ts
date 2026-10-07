@@ -3,9 +3,7 @@ import type {
   LayoutConfig, LayoutResult, DrawConfig,
   LayoutLine, AnyCanvas, AnyContext,
 } from './types.js';
-import { parseHTML } from './parse.js';
-import { resolveStylesFromCSS } from './css-resolver.js';
-import { buildLayoutTree, Measurer } from './layout.js';
+import { buildLayoutTree, styleTree } from './layout.js';
 import { renderNode, getNodePaintBounds } from './render.js';
 import { measurePaintBounds, type PaintBounds } from './shadow.js';
 export type { PaintBounds } from './shadow.js';
@@ -22,65 +20,37 @@ export { setDOMParser, type DOMParserLike } from './dom.js';
 export { lineBaselineOffset, getFontMetrics, tabStopMetrics } from './layout.js';
 import { createFallbackMeasureCtx } from './dom.js';
 
-// Default measurement context, created lazily and reused across layout()
-// calls — safe because font/letterSpacing state is set before every
-// measurement anyway. Browser-first source keeps measurement identical to
-// previous releases.
+// Reused across layout() calls: every measurement writes its own font state.
 let defaultMeasureCtx: CanvasRenderingContext2D | null = null;
-
-// ─── layout() ────────────────────────────────────────────────────────
 
 /**
  * Compute layout for an HTML string without rendering.
  * Returns a reusable LayoutResult that can be drawn onto multiple targets via drawLayout().
  */
 export function layout(config: LayoutConfig): LayoutResult {
-  const {
-    html,
-    width,
-    height,
-    accuracy = 'performance',
-    debug,
-  } = config;
+  const { html, width, height } = config;
 
   if (!width || width <= 0 || Number.isNaN(width)) {
     throw new TypeError(`layout: width must be a positive number, got ${width}`);
   }
 
-  const useDomMeasurements = accuracy === 'balanced';
-
-  // Caller-provided ctx is mutated (font, fontKerning, letterSpacing, and a
-  // non-zero wordSpacing reset to 0px) and intentionally NOT save/restored —
-  // save/restore is not free on all contexts (e.g. PDF proxies emit stream
-  // operators for it). A `Measurer` is the only writer.
+  // No save/restore on a caller's ctx: it is not free on PDF proxies.
   const measureCtx =
     (config.ctx as CanvasRenderingContext2D | undefined) ??
     (defaultMeasureCtx ??= createFallbackMeasureCtx(true));
 
-  const { fragment, css } = parseHTML(html);
-  // The viewport (vw/vh) is the layout box: `width` x `height`. Without a
-  // height there is no viewport height yet (the content decides it), so vh
-  // falls back to the width — a square viewport.
-  let unitMeasurer: Measurer | undefined;
-  const tree = resolveStylesFromCSS(fragment, css, width, {
-    viewport: { width, height: height || width },
-    // ch/ex: measured only when a declaration uses them.
-    fontUnits: (style) => (unitMeasurer ??= new Measurer(measureCtx, new Map())).fontUnits(style),
-  });
-
-  const { root, height: contentHeight, lines } = buildLayoutTree(measureCtx, tree, width, useDomMeasurements, debug);
-  const finalHeight = height || contentHeight;
-
+  // Without a height, vh falls back to the width (a square viewport).
+  const tree = styleTree(html, measureCtx, width, { width, height: height || width });
+  const { root, height: contentHeight, lines } =
+    buildLayoutTree(measureCtx, tree, width, config.accuracy === 'balanced', config.debug);
   let paintBounds: PaintBounds | undefined;
   return {
-    layoutRoot: root, height: finalHeight, lines,
+    layoutRoot: root, height: height || contentHeight, lines,
     get paintBounds() {
       return paintBounds ??= measurePaintBounds(measureCtx, () => getNodePaintBounds(measureCtx, root));
     },
   };
 }
-
-// ─── drawLayout() ────────────────────────────────────────────────────
 
 /**
  * Draw a pre-computed layout onto a canvas or context.
@@ -128,8 +98,6 @@ export function drawLayout(config: DrawConfig): { canvas: AnyCanvas } {
   return { canvas };
 }
 
-// ─── render() ────────────────────────────────────────────────────────
-
 /**
  * Render an HTML string onto a canvas using pure 2D canvas API.
  * Convenience function combining layout() + drawLayout().
@@ -140,26 +108,9 @@ export function render(config: RenderConfig): RenderResult {
     throw new TypeError('render: ctx and canvas are mutually exclusive — provide one or neither');
   }
 
-  // The output ctx doubles as the measurement ctx (same font resolution for
-  // measuring and drawing — required in non-browser environments).
-  const layoutResult = layout({
-    html: config.html,
-    width: config.width,
-    height: config.height,
-    accuracy: config.accuracy,
-    debug: config.debug,
-    ctx: config.ctx,
-  });
-
-  const { canvas } = drawLayout({
-    layout: layoutResult,
-    width: config.width,
-    ctx: config.ctx,
-    canvas: config.canvas,
-    pixelRatio: config.pixelRatio,
-    createCanvas: config.createCanvas,
-    renderShadows: config.renderShadows,
-  });
+  // The output ctx doubles as the measurement ctx.
+  const layoutResult = layout(config);
+  const { canvas } = drawLayout({ ...config, layout: layoutResult });
 
   return Object.assign(layoutResult, { canvas });
 }

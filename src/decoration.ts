@@ -427,6 +427,11 @@ function webkitBand(ps: PaintState, band: Band, color: string | CanvasGradient) 
 
 // ─── Gecko (unmeasured) ─────────────────────────────────────────────────
 
+/** The unmeasured dash pattern of `drawDecorationLine`; undefined = solid. */
+export function legacyDash(style: string, w: number): number[] | undefined {
+  return style === 'dotted' ? [w, w * 2] : style === 'dashed' ? [w * 3, w * 2] : undefined;
+}
+
 /**
  * render-tag's original decoration shapes, centered on `y`: two half-width
  * lines for `double`, an untuned quadratic wave, and fixed dash patterns.
@@ -468,10 +473,7 @@ export function drawDecorationLine(
     ctx.stroke();
   } else {
     // solid, dotted, dashed
-    ps.stroke(color, lineWidth,
-      decoStyle === 'dotted' ? [lineWidth, lineWidth * 2]
-        : decoStyle === 'dashed' ? [lineWidth * 3, lineWidth * 2]
-          : undefined);
+    ps.stroke(color, lineWidth, legacyDash(decoStyle, lineWidth));
     ctx.beginPath();
     ctx.moveTo(x, y);
     ctx.lineTo(x + width, y);

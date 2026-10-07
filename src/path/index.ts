@@ -31,11 +31,10 @@
  */
 
 import type { ShadowOptions, ResolvedStyle, DecorationEntry } from '../types.js';
-import { parseHTML } from '../parse.js';
-import { resolveStylesFromCSS, paintOrderHasStrokeFirst, isTransparent } from '../css-resolver.js';
-import { hasTextClip, paintsBoxBackground, sameDecorationBand, Measurer, layoutFontMetrics, type FontMetricsTable } from '../layout.js';
+import { paintOrderHasStrokeFirst, isTransparent } from '../css-resolver.js';
+import { hasTextClip, paintsBoxBackground, sameDecorationBand, styleTree, layoutFontMetrics, type FontMetricsTable } from '../layout.js';
 import { textFillColor } from '../render.js';
-import { bandWidthFor, drawDecorationLine, explicitUnderlineDelta } from '../decoration.js';
+import { bandWidthFor, drawDecorationLine, explicitUnderlineDelta, legacyDash } from '../decoration.js';
 import { parseLinearGradient } from '../gradient.js';
 import { PaintState, withDraw } from '../paint-state.js';
 import { STROKE_CASTS_TEXT_SHADOW } from '../engine.js';
@@ -45,6 +44,7 @@ import {
   flattenSegments,
   layoutGlyphsOnPath,
   baselineLocalY,
+  rotatedBox,
   type AlignMode,
   type GlyphPlacement,
   type TextBaseline,
@@ -89,17 +89,9 @@ export interface DrawTextOnPathLayoutConfig extends ShadowOptions {
   ctx: CanvasRenderingContext2D;
 }
 
-export interface DrawTextOnPathConfig extends ShadowOptions {
-  /** Rich-text HTML (same dialect as render-tag's main API). */
-  html: string;
-  /** SVG path 'd' attribute string, or a PathLike implementation. */
-  path: string | PathLike;
-  /** Destination 2D context. */
+export interface DrawTextOnPathConfig extends LayoutTextOnPathConfig, ShadowOptions {
+  /** Destination 2D context, also used for measurement. */
   ctx: CanvasRenderingContext2D;
-  /** Alignment of text along the path (default 'left'). */
-  align?: AlignMode;
-  /** Where the path runs relative to the text (default 'alphabetic'). */
-  textBaseline?: TextBaseline;
 }
 
 export type DrawTextOnPathResult = TextOnPathLayout;
@@ -118,20 +110,15 @@ export function layoutTextOnPath(config: LayoutTextOnPathConfig): TextOnPathLayo
   const { html, align = 'left', textBaseline = 'alphabetic' } = config;
   const path = typeof config.path === 'string' ? pathFromString(config.path) : config.path;
 
-  const measureCtx = config.ctx ?? createMeasureCtx();
+  // OffscreenCanvas-first, unlike the block entry: keeps path pixels frozen.
+  const measureCtx = config.ctx ?? createFallbackMeasureCtx(false);
   const ownsCtx = config.ctx === undefined;
-
-  const { fragment, css } = parseHTML(html);
 
   if (!ownsCtx) measureCtx.save();
   try {
-    // No viewport here: a vw/vh declaration is ignored. ch/ex measure with
-    // the ctx, inside the save/restore.
+    // No viewport: a vw/vh declaration is ignored.
+    const tree = styleTree(html, measureCtx, Number.MAX_SAFE_INTEGER);
     const fontMetrics: FontMetricsTable = new Map();
-    let unitMeasurer: Measurer | undefined;
-    const tree = resolveStylesFromCSS(fragment, css, Number.MAX_SAFE_INTEGER, {
-      fontUnits: (style) => (unitMeasurer ??= new Measurer(measureCtx, fontMetrics)).fontUnits(style),
-    });
     const segments = flattenSegments(tree);
     const result = layoutGlyphsOnPath({
       segments, path, ctx: measureCtx, align, textBaseline, fontMetrics,
@@ -145,7 +132,6 @@ export function layoutTextOnPath(config: LayoutTextOnPathConfig): TextOnPathLayo
           () => pathPaintBounds(new PaintState(measureCtx, 1, false, fontMetrics), result));
       },
     };
-    // Paint reads the metrics this call measured (`layoutFontMetrics`).
     layoutFontMetrics.set(layout, fontMetrics);
     return layout;
   } finally {
@@ -254,65 +240,34 @@ export function drawTextOnPathLayout(config: DrawTextOnPathLayoutConfig): void {
   });
 }
 
-/**
- * Convenience: compute layout and draw in a single call.
- */
+/** Compute layout and draw in a single call. */
 export function drawTextOnPath(config: DrawTextOnPathConfig): DrawTextOnPathResult {
-  const layout = layoutTextOnPath({
-    html: config.html,
-    path: config.path,
-    align: config.align,
-    textBaseline: config.textBaseline,
-    ctx: config.ctx,
-  });
-  drawTextOnPathLayout({ layout, ctx: config.ctx, createCanvas: config.createCanvas, renderShadows: config.renderShadows });
+  const layout = layoutTextOnPath(config);
+  drawTextOnPathLayout({ ...config, layout });
   return layout;
 }
 
-function createMeasureCtx(): CanvasRenderingContext2D {
-  // OffscreenCanvas-first, unlike the block-layout entry — this module's
-  // historical source; keeps its pixel baselines frozen.
-  return createFallbackMeasureCtx(false);
-}
-
-// ─── Pass 1: Backgrounds ──────────────────────────────────────────────
-
 /**
- * Round-trip a color through `ctx.fillStyle` to get the browser's
- * canonical form. This makes `red` and `rgb(255, 0, 0)` and `#f00`
- * compare equal so adjacent spans with semantically-identical colors
- * group into one polygon / one stroke (no visible seam, dash phase
- * continuous). Results cached so we don't pay the round-trip per glyph.
+ * A colour's canonical form, read back from `fillStyle`, so `red`, `#f00` and
+ * `rgb(255, 0, 0)` group into one polygon or stroke. Cached per ctx.
  */
-const _colorCanonicalCache = new WeakMap<CanvasRenderingContext2D, Map<string, string>>();
+const colorCanon = new WeakMap<CanvasRenderingContext2D, Map<string, string>>();
 function canonicalColor(ctx: CanvasRenderingContext2D, color: string): string {
   if (!color) return '';
-  let perCtx = _colorCanonicalCache.get(ctx);
-  if (!perCtx) {
-    perCtx = new Map();
-    _colorCanonicalCache.set(ctx, perCtx);
-  }
-  const cached = perCtx.get(color);
-  if (cached !== undefined) return cached;
-  // ctx.fillStyle returns the canonical form when read back.
-  const prev = ctx.fillStyle;
-  try {
+  let perCtx = colorCanon.get(ctx);
+  if (!perCtx) colorCanon.set(ctx, perCtx = new Map());
+  let canon = perCtx.get(color);
+  if (canon === undefined) {
+    const prev = ctx.fillStyle;
     ctx.fillStyle = color;
-    const canon = typeof ctx.fillStyle === 'string' ? ctx.fillStyle : color;
+    canon = typeof ctx.fillStyle === 'string' ? ctx.fillStyle : color;
+    ctx.fillStyle = prev;
     perCtx.set(color, canon);
-    return canon;
-  } catch {
-    perCtx.set(color, color);
-    return color;
-  } finally {
-    ctx.fillStyle = prev as any;
   }
+  return canon;
 }
 
-/**
- * Group consecutive glyphs sharing a visible background color and draw each
- * group as a curve-following polygon (top edge + bottom edge).
- */
+/** Fill each run of glyphs sharing a background colour as one curve-following polygon. */
 function drawBackgrounds(
   ps: PaintState,
   glyphs: GlyphPlacement[],
@@ -335,94 +290,80 @@ function drawBackgrounds(
   }
 }
 
-/**
- * Build the four-corner box of one glyph in world coordinates. Local y=0 is
- * the path point — actual baseline sits at `baselineLocalY(tb, ascent, descent)`.
- * The polygon spans `[baseY - ascent, baseY + descent]` so it hugs the painted
- * glyph extent regardless of which textBaseline anchor was chosen.
- */
+/** A glyph's `[baseY - ascent, baseY + descent]` box in world space: tl, tr, br, bl. */
 function glyphCorners(g: GlyphPlacement, tb: TextBaseline) {
-  const c = Math.cos(g.rotation);
-  const s = Math.sin(g.rotation);
   const baseY = baselineLocalY(tb, g.ascent, g.descent);
-  const top = baseY - g.ascent;
-  const bottom = baseY + g.descent;
-  const w = g.width;
-  return {
-    tl: { x: g.x + (-s) * top, y: g.y + c * top },
-    tr: { x: g.x + c * w + (-s) * top, y: g.y + s * w + c * top },
-    br: { x: g.x + c * w + (-s) * bottom, y: g.y + s * w + c * bottom },
-    bl: { x: g.x + (-s) * bottom, y: g.y + c * bottom },
-  };
+  return rotatedBox(g, baseY - g.ascent, baseY + g.descent);
 }
 
-/** Fill a polygon hugging the path through a sequence of consecutive glyphs. */
 function fillGlyphPolygon(
   ps: PaintState,
   group: GlyphPlacement[],
   fill: string,
   tb: TextBaseline,
 ): void {
-  if (group.length === 0) return;
   const { ctx } = ps;
   ps.fill(fill);
   ctx.beginPath();
-  const first = glyphCorners(group[0], tb);
-  ctx.moveTo(first.tl.x, first.tl.y);
+  const [first] = glyphCorners(group[0], tb);
+  ctx.moveTo(first.x, first.y);
   for (let i = 0; i < group.length; i++) {
-    const c = glyphCorners(group[i], tb);
-    ctx.lineTo(c.tl.x, c.tl.y);
-    ctx.lineTo(c.tr.x, c.tr.y);
+    const [tl, tr] = glyphCorners(group[i], tb);
+    ctx.lineTo(tl.x, tl.y);
+    ctx.lineTo(tr.x, tr.y);
   }
   for (let i = group.length - 1; i >= 0; i--) {
-    const c = glyphCorners(group[i], tb);
-    ctx.lineTo(c.br.x, c.br.y);
-    ctx.lineTo(c.bl.x, c.bl.y);
+    const [, , br, bl] = glyphCorners(group[i], tb);
+    ctx.lineTo(br.x, br.y);
+    ctx.lineTo(bl.x, bl.y);
   }
   ctx.closePath();
   ctx.fill();
 }
 
-// ─── Glyph fill/stroke ─────────────────────────────
-
-/** True when the glyph's own fill paints nothing (both transparency channels). */
+/** True when the glyph's own fill paints nothing: EITHER transparency channel suppresses it. */
 function isFillTransparent(style: ResolvedStyle): boolean {
-  // Mirror the main renderer's transparency check: EITHER -webkit-text-fill-color
-  // or color being 'transparent' suppresses the fill. textFillColor alone
-  // would only catch one of the two by falling back through the precedence.
   return style.webkitTextFillColor === 'transparent' ||
     style.color === 'transparent' ||
     isTransparent(textFillColor(style));
 }
 
-/**
- * The background-clip:text paint for one glyph, in the glyph's local rotated
- * frame: a gradient sliced from the DECLARING element's fragment range (so
- * neighbouring glyphs stitch into one continuous color curve along the path,
- * and a sub-span's gradient spans the sub-span — not the whole text), else the
- * declarer's solid background-color. Null when the glyph has no clip paint.
- */
+/** The clip-paint declarer of a glyph, if any. */
+function clipSourceOf(g: GlyphPlacement): ResolvedStyle | undefined {
+  return g.clipStyle ?? (hasTextClip(g.style) ? g.style : undefined);
+}
+
+/** A gradient sliced from the declarer's fragment range, in the glyph's local frame,
+ * so neighbouring glyphs stitch into one continuous gradient along the path. */
+function sliceGradient(
+  ctx: CanvasRenderingContext2D,
+  image: string,
+  g: GlyphPlacement,
+  range: { start: number; width: number } | undefined,
+  textWidth: number,
+  baseY: number,
+): CanvasGradient | null {
+  const r = range ?? { start: 0, width: textWidth };
+  return parseLinearGradient(ctx, image, r.start - g.pathOffset, r.width, baseY - g.ascent, g.ascent + g.descent);
+}
+
+/** The background-clip:text paint for one glyph: the declarer's gradient, else
+ * its solid background-color; null when there is none. */
 function clipPaintFor(
   ctx: CanvasRenderingContext2D,
   g: GlyphPlacement,
   textWidth: number,
   baseY: number,
 ): string | CanvasGradient | null {
-  const src = g.clipStyle ?? (hasTextClip(g.style) ? g.style : undefined);
+  const src = clipSourceOf(g);
   if (!src) return null;
-  const range = g.clipRange ?? { start: 0, width: textWidth };
   const gradient = src.backgroundImage && src.backgroundImage !== 'none'
-    ? parseLinearGradient(
-        ctx, src.backgroundImage,
-        range.start - g.pathOffset, range.width,
-        baseY - g.ascent, g.ascent + g.descent,
-      )
+    ? sliceGradient(ctx, src.backgroundImage, g, g.clipRange, textWidth, baseY)
     : null;
   return gradient ?? (!isTransparent(src.backgroundColor) ? src.backgroundColor : null);
 }
 
-/** The gradient stroke paint (--rt-text-stroke-image) for one glyph, sliced
- * from the declaring element's fragment range in the glyph's local frame. */
+/** The --rt-text-stroke-image gradient for one glyph. */
 function strokePaintFor(
   ctx: CanvasRenderingContext2D,
   g: GlyphPlacement,
@@ -430,21 +371,13 @@ function strokePaintFor(
   baseY: number,
 ): CanvasGradient | null {
   const src = g.strokeImageStyle;
-  if (!src) return null;
-  const range = g.strokeImageRange ?? { start: 0, width: textWidth };
-  return parseLinearGradient(
-    ctx, src.webkitTextStrokeImage,
-    range.start - g.pathOffset, range.width,
-    baseY - g.ascent, g.ascent + g.descent,
-  );
+  return src ? sliceGradient(ctx, src.webkitTextStrokeImage, g, g.strokeImageRange, textWidth, baseY) : null;
 }
 
 /**
- * What actually fills this glyph, mirroring the main renderer's precedence:
- * the nearest clip declarer's paint when the glyph's own style declares the
- * clip (a text run copies its parent element's style) or when its own fill is
- * transparent (an opaque own color wins over an ancestor's clipped
- * background); else the solid fill; null = nothing fills.
+ * What fills this glyph, with the main renderer's precedence: the clip paint
+ * when its own style declares the clip or its own fill is transparent, else
+ * the solid fill; null = nothing.
  */
 function effectiveFillPaint(
   ctx: CanvasRenderingContext2D,
@@ -460,7 +393,6 @@ function effectiveFillPaint(
   return isFillTransparent(g.style) ? null : textFillColor(g.style);
 }
 
-/** Paint glyph fill and stroke without shadows. */
 function drawGlyphs(
   ps: PaintState,
   glyphs: GlyphPlacement[],
@@ -469,16 +401,8 @@ function drawGlyphs(
 ): void {
   const { ctx } = ps;
   for (const g of glyphs) {
-    // All paint state is set BEFORE the glyph's transform scope, so it
-    // survives the restore and the next glyph in the same style writes
-    // nothing. ctx.textBaseline stays 'alphabetic' and fillText's y is
-    // offset instead, which keeps our bounds / decoration / background math
-    // in agreement with what fillText actually paints, whatever textBaseline
-    // the caller picked. The letter-spacing is the one measured with:
-    // shaped runs (Arabic / Indic / Thai) whose `g.width` was measured WITH
-    // it would otherwise render visibly tighter than the reserved width.
-    // Gradients live in user space at paint time, so a local-frame gradient
-    // may be set before the transform.
+    // Paint state is set before the transform scope so it survives the
+    // restore. textBaseline stays 'alphabetic'; fillText's y is offset instead.
     ps.glyph(g.style);
     const baseY = baselineLocalY(tb, g.ascent, g.descent);
     // A shadow mask fills every glyph: its shadow is the glyph's shape.
@@ -492,58 +416,23 @@ function drawGlyphs(
     ctx.rotate(g.rotation);
     const drawFill = () => { if (fill) ctx.fillText(g.char, 0, baseY); };
     const drawStroke = () => { if (isStroked) ctx.strokeText(g.char, 0, baseY); };
-    // Use the canonical helper instead of an ad-hoc regex — paint-order
-    // tokens are positional ("fill stroke" = fill first), not a flag bag.
     if (paintOrderHasStrokeFirst(g.style.paintOrder || '')) { drawStroke(); drawFill(); }
     else { drawFill(); drawStroke(); }
     ctx.restore();
   }
 }
 
-// ─── Pass 3: Decorations ─────────────────────────────────────────────
-
-/** The effective decoration entry of a glyph's style for one line kind — the
- * LAST matching entry wins (own decorations are appended after ancestors'). */
-function decorationFor(
-  style: GlyphPlacement['style'],
-  lineKind: string,
-): DecorationEntry | null {
+/** A glyph's decoration entry for one line kind: the last match wins. */
+function decorationFor(style: ResolvedStyle, lineKind: string): DecorationEntry | null {
   const entries = style.textDecorations;
-  if (entries && entries.length) {
-    for (let i = entries.length - 1; i >= 0; i--) {
-      if (entries[i].line === lineKind) return entries[i];
-    }
-    return null;
-  }
-  // Legacy fallback (style objects built without entries): the glyph's own
-  // style is the only declarer we know of.
-  if (!style.textDecorationLine || !style.textDecorationLine.includes(lineKind)) {
-    return null;
-  }
-  return {
-    line: lineKind,
-    color: style.textDecorationColor || style.color,
-    style: style.textDecorationStyle || 'solid',
-    declarer: style,
-  };
-}
-
-/** The clip-paint declarer of a glyph (for transparent decorations), if any. */
-function clipSourceOf(g: GlyphPlacement): ResolvedStyle | undefined {
-  return g.clipStyle ?? (hasTextClip(g.style) ? g.style : undefined);
+  for (let i = entries.length - 1; i >= 0; i--) if (entries[i].line === lineKind) return entries[i];
+  return null;
 }
 
 /**
- * Underline / line-through / overline: stroke a curve that follows the path
- * at the appropriate vertical offset. Groups consecutive glyphs sharing
- * decoration-line + style + color. Color/style come from the decoration's
- * ORIGIN element (per-entry), not the glyph's currentColor.
- *
- * A TRANSPARENT decoration over background-clip:text glyphs shows the clipped
- * background through the band (Chrome includes decorations in the clip
- * region), so it paints with the declarer's gradient/color instead of
- * vanishing — matching the main renderer. Transparent with no clip declarer
- * paints nothing.
+ * Stroke each run of glyphs sharing one decoration along the path. A
+ * transparent decoration over background-clip:text glyphs paints with the
+ * clip paint (Chrome clips decorations too); with no clip declarer, nothing.
  */
 function drawDecorations(
   ps: PaintState,
@@ -552,68 +441,37 @@ function drawDecorations(
   tb: TextBaseline,
 ): void {
   const { ctx } = ps;
-  const lines = ['underline', 'line-through', 'overline'] as const;
-  for (const lineKind of lines) {
+  for (const lineKind of ['underline', 'line-through', 'overline'] as const) {
     let i = 0;
     while (i < glyphs.length) {
       const deco = decorationFor(glyphs[i].style, lineKind);
-      if (!deco) {
-        i++;
-        continue;
-      }
-      const { color, style: decoStyle } = deco;
-
-      if (isTransparent(color)) {
-        const src = clipSourceOf(glyphs[i]);
-        if (!src) {
-          i++;
-          continue;
-        }
-        // Group by the same clip declarer so the band spans its fragment.
-        let j = i + 1;
-        while (j < glyphs.length) {
-          const next = decorationFor(glyphs[j].style, lineKind);
-          if (
-            !next || !isTransparent(next.color) ||
-            next.style !== decoStyle ||
-            !sameDecorationBand(next, deco) ||
-            clipSourceOf(glyphs[j]) !== src
-          ) {
-            break;
-          }
-          j++;
-        }
-        drawClipPaintDecoration(ps, glyphs.slice(i, j), lineKind, deco, textWidth, tb);
-        i = j;
-        continue;
-      }
-
-      const colorCanon = canonicalColor(ctx, color);
+      if (!deco) { i++; continue; }
+      const transparent = isTransparent(deco.color);
+      const src = transparent ? clipSourceOf(glyphs[i]) : undefined;
+      if (transparent && !src) { i++; continue; }
+      // canonicalColor writes fillStyle on first sight: keep its call order.
+      const canon = transparent ? '' : canonicalColor(ctx, deco.color);
       let j = i + 1;
       while (j < glyphs.length) {
         const next = decorationFor(glyphs[j].style, lineKind);
         if (
           !next ||
-          canonicalColor(ctx, next.color) !== colorCanon ||
-          next.style !== decoStyle ||
-          !sameDecorationBand(next, deco)
-        ) {
-          break;
-        }
+          (transparent ? !isTransparent(next.color) : canonicalColor(ctx, next.color) !== canon) ||
+          next.style !== deco.style ||
+          !sameDecorationBand(next, deco) ||
+          (transparent && clipSourceOf(glyphs[j]) !== src)
+        ) break;
         j++;
       }
-      strokeDecorationAlongGlyphs(ps, glyphs.slice(i, j), lineKind, deco, color, tb);
+      drawDecorationRun(ps, glyphs.slice(i, j), lineKind, deco, textWidth, tb, transparent ? null : deco.color);
       i = j;
     }
   }
 }
 
 /**
- * Local-frame y of a decoration band for one glyph under a textBaseline.
- * `declarerDescent` is the decorating box's, which only the underline uses —
- * the overline and the line-through hang off the crossed glyph's own ascent
- * (the split `renderText` in ../render.ts documents). Explicit underline
- * geometry comes from the shared `explicitUnderlineDelta`.
+ * Local-frame y of a decoration band for one glyph. Only the underline uses
+ * the declarer's descent; the others hang off the glyph's own ascent.
  */
 function decorationLocalY(
   g: GlyphPlacement,
@@ -633,95 +491,46 @@ function decorationLocalY(
 }
 
 /**
- * Paint a transparent decoration band with the clip declarer's paint. Drawn
- * per glyph in the glyph's local rotated frame: each glyph's gradient slice is
- * anchored to its own pathOffset (same math as the glyph fill), so adjacent
- * bands stitch into one continuous color curve along the path.
+ * One decoration run. A solid, dotted or dashed `color` is one polyline, so
+ * the dash phase stays continuous; double, wavy and the clip paint
+ * (`color` null) draw per glyph in its rotated frame.
  */
-function drawClipPaintDecoration(
+function drawDecorationRun(
   ps: PaintState,
   group: GlyphPlacement[],
   lineKind: 'underline' | 'line-through' | 'overline',
   deco: DecorationEntry,
   textWidth: number,
   tb: TextBaseline,
+  color: string | null,
 ): void {
-  if (group.length === 0) return;
   const decoStyle = deco.style || 'solid';
   const lineWidth = bandWidthFor(deco);
   if (lineWidth <= 0) return;
   const { ctx } = ps;
   const declarerDescent = ps.fontBox(deco.declarer).descent;
+  const localY = (g: GlyphPlacement) => decorationLocalY(g, deco, declarerDescent, lineWidth, lineKind, tb);
+
+  if (color !== null && decoStyle !== 'double' && decoStyle !== 'wavy') {
+    ps.stroke(color, lineWidth, legacyDash(decoStyle, lineWidth));
+    ctx.beginPath();
+    for (let i = 0; i < group.length; i++) {
+      const y = localY(group[i]);
+      const [left, right] = rotatedBox(group[i], y, y);
+      if (i === 0) ctx.moveTo(left.x, left.y);
+      else ctx.lineTo(left.x, left.y);
+      ctx.lineTo(right.x, right.y);
+    }
+    ctx.stroke();
+    return;
+  }
   for (const g of group) {
     // State written inside the transform scope is forgotten when it closes.
     ps.save();
     ctx.translate(g.x, g.y);
     ctx.rotate(g.rotation);
-    const baseY = baselineLocalY(tb, g.ascent, g.descent);
-    const paint = clipPaintFor(ctx, g, textWidth, baseY);
-    if (paint) {
-      drawDecorationLine(ps, 0, decorationLocalY(g, deco, declarerDescent, lineWidth, lineKind, tb), g.width, lineWidth, decoStyle, paint);
-    }
+    const paint = color ?? clipPaintFor(ctx, g, textWidth, baselineLocalY(tb, g.ascent, g.descent));
+    if (paint) drawDecorationLine(ps, 0, localY(g), g.width, lineWidth, decoStyle, paint);
     ps.restore();
   }
 }
-
-function strokeDecorationAlongGlyphs(
-  ps: PaintState,
-  group: GlyphPlacement[],
-  lineKind: 'underline' | 'line-through' | 'overline',
-  deco: DecorationEntry,
-  color: string,
-  tb: TextBaseline,
-): void {
-  if (group.length === 0) return;
-  const decoStyle = deco.style || 'solid';
-  const lineWidth = bandWidthFor(deco);
-  if (lineWidth <= 0) return;
-  const { ctx } = ps;
-  const declarerDescent = ps.fontBox(deco.declarer).descent;
-
-  // Per-glyph local y for this decoration kind. The decoration position is
-  // baseline-relative, so we shift by the baseline's local-y under the
-  // current textBaseline to land in the right spot on the canvas.
-  const localY = (g: GlyphPlacement): number => decorationLocalY(g, deco, declarerDescent, lineWidth, lineKind, tb);
-
-  if (decoStyle === 'double' || decoStyle === 'wavy') {
-    // For double/wavy we draw each glyph segment independently using the
-    // shared helper so the visual matches the main renderer.
-    for (const g of group) {
-      ps.save();
-      ctx.translate(g.x, g.y);
-      ctx.rotate(g.rotation);
-      drawDecorationLine(ps, 0, localY(g), g.width, lineWidth, decoStyle, color);
-      ps.restore();
-    }
-    return;
-  }
-
-  // Solid / dotted / dashed: a single continuous polyline through (left,
-  // right) endpoints of each glyph projected into world space. Stroking
-  // once keeps the dash phase continuous across the whole decoration run.
-  ps.stroke(color, lineWidth,
-    decoStyle === 'dotted' ? [lineWidth, lineWidth * 2]
-      : decoStyle === 'dashed' ? [lineWidth * 3, lineWidth * 2]
-        : undefined);
-  ctx.beginPath();
-  for (let i = 0; i < group.length; i++) {
-    const g = group[i];
-    const yOff = localY(g);
-    const c = Math.cos(g.rotation);
-    const s = Math.sin(g.rotation);
-    const left = { x: g.x + (-s) * yOff, y: g.y + c * yOff };
-    const right = {
-      x: g.x + c * g.width + (-s) * yOff,
-      y: g.y + s * g.width + c * yOff,
-    };
-    if (i === 0) ctx.moveTo(left.x, left.y);
-    else ctx.lineTo(left.x, left.y);
-    ctx.lineTo(right.x, right.y);
-  }
-  ctx.stroke();
-}
-
-// ─── Style helpers ───────────────────────────────────────────────────
