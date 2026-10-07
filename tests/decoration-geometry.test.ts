@@ -1,20 +1,8 @@
 /**
- * Decoration geometry vs real Chromium raster.
- *
- * Renders red underline / line-through on black text through both render-tag
- * and the DOM reference renderer, isolates the red band, and asserts its
- * y-center, thickness, and x-extent match.
- *
- * Tuned invariants (see renderText in src/render.ts):
- * - thickness: max(1, floor(fontSize / 10)) — matches Chrome exactly
- * - underline: Blink hangs the band's top ceil(fontSize / 20) px below the
- *   painted (whole-pixel) baseline — exact (BLINK_UNDERLINE_GAP); other
- *   engines keep the 0.105em approximation
- * - line-through: 0.33em above baseline — Chrome uses the font's OS/2
- *   strikeout metric, which canvas can't read; ±3px is the achievable bound
- *   for a font-agnostic formula (Lobster at 64px is the worst native-raster
- *   case; Playfair vs Open Sans need different strike positions at identical
- *   measured x-height).
+ * Decoration geometry vs the native raster: a red underline / line-through
+ * band's y-center, thickness and x-extent (rules: `decorationBand` in
+ * src/decoration.ts). The line-through keeps a ±3px bound: no font-agnostic
+ * formula reproduces every font's strikeout metric.
  */
 import { describe, it, expect } from 'vitest';
 import { compareNativeRenders as compareRenders } from './helpers/native-compare.ts';

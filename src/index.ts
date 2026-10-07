@@ -9,9 +9,7 @@ import { measurePaintBounds, type PaintBounds } from './shadow.js';
 export type { PaintBounds } from './shadow.js';
 
 export type { RenderConfig, RenderResult, LayoutConfig, LayoutResult, DrawConfig, LayoutLine };
-// The layout tree's node types — the shape of `LayoutResult.layoutRoot`, so
-// external renderers consume a versioned contract instead of reverse-
-// engineering it.
+// The `layoutRoot` node types: a versioned contract for external renderers.
 export type {
   LayoutBox, LayoutLineBox, LayoutText, LayoutNode, ResolvedStyle, DecorationEntry, BorderRadius,
   CanvasFactory, ShadowOptions,

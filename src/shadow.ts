@@ -147,22 +147,11 @@ function context2d(canvas: AnyCanvas): CanvasRenderingContext2D {
 }
 
 /**
- * The scratch canvases of one draw. Two kinds, by where a canvas goes:
- *
- * - A canvas `drawImage`d onto the caller's ctx is `handed()` out fresh and
- *   never touched again: a vector adapter may embed it asynchronously
- *   (README, PDF adapter contract), so reusing or resizing it after the
- *   `drawImage` could change what the adapter reads.
- * - A canvas only ever drawn into ANOTHER scratch canvas (a shadow mask, the
- *   caller-shadow source) is `acquire()`d from the pool, `release()`d as soon
- *   as its image is cast, reused by the next request it can hold, and freed
- *   (0×0) by `dispose()` when the draw ends.
- *
- * A pooled canvas may be larger than the request; it is cleared whole on
- * reuse, and the request's region starts at (0, 0). It is always drawn
- * whole — the rest is transparent and casts nothing — because WebKit drops
- * the shadow of a source-rect `drawImage` whose destination lies entirely
- * off-surface (measured: no shadow at all), and casting is exactly that.
+ * One draw's scratch canvases. A canvas drawn onto the caller's ctx is
+ * `handed()` out fresh and never reused: a vector adapter may embed it
+ * asynchronously. A canvas drawn only into other scratch is `acquire()`d from
+ * the pool and drawn whole (WebKit drops the shadow of a source-rect
+ * `drawImage` whose destination is entirely off-surface).
  */
 export class ScratchPool {
   private readonly owned: AnyCanvas[] = [];
@@ -189,7 +178,6 @@ export class ScratchPool {
     }
     const grown = this.idle.pop();
     if (grown) {
-      // Resizing reallocates, clears and resets the state.
       grown.width = Math.max(grown.width, width);
       grown.height = Math.max(grown.height, height);
       return grown;
@@ -207,8 +195,7 @@ export class ScratchPool {
     return makeCanvas(this.ctx, width, height, this.createCanvas);
   }
 
-  /** Is `ctx` one of this pool's canvases? A drawImage onto it is consumed
-   * synchronously, so its source is scratch, not handed out. */
+  /** A drawImage onto a pooled canvas is consumed synchronously. */
   owns(ctx: CanvasRenderingContext2D): boolean {
     return this.owned.includes(ctx.canvas as AnyCanvas);
   }
@@ -268,17 +255,9 @@ function blurPad(blur: number): number {
 }
 
 /**
- * Cast `source`'s shadow into `target` with the source's origin at (x, y),
- * without the source itself: the source is drawn entirely off-surface and
- * only its shadow lands. Moving the caster away preserves shadow beneath
- * translucent foreground; subtracting the caster would erase it. The image
- * is unscaled, which avoids both WebKit's gradient-shadow corruption and Node
- * canvas backends that drop shadows of scaled off-surface images.
- *
- * Needs x <= the target's width (both callers satisfy it). The displacement
- * is the smallest that keeps the source off any such target: WebKit's blur
- * moves by a few levels with the offset's magnitude (measured: adding the
- * blur pad to it shifted a 16px blur by up to 7/255).
+ * Cast `source`'s shadow at (x, y) without the source, drawn unscaled and
+ * entirely off-surface (keeps shadow under translucent foreground). The
+ * displacement is minimal: WebKit's blur shifts with the offset's magnitude.
  */
 function castShadow(
   target: CanvasRenderingContext2D, source: AnyCanvas, x: number, y: number, blur: number, color: string,
@@ -320,33 +299,18 @@ export function withCanvasShadow(
   withoutCanvasShadow(ctx, paint);
 }
 
-/** A tile's image covers about this many pixels: enough rows that the blur
- * margin each tile repaints stays small, few enough that the pooled mask is
- * a few MB instead of a whole document (50 paragraphs at DPR 2: 1173×6990). */
+/** Pixels per shadow tile: a small blur margin per tile, a few-MB mask. */
 const TILE_PIXELS = 1 << 20;
 
 /** A piece of a shadow group: its ink in layout coordinates. */
 export interface ShadowPiece { bounds: PaintBounds }
 
 /**
- * Paint only the shadows of a text group; its foreground is painted once by
- * the caller, after every shadow group. CSS lengths live in layout coordinates.
- *
- * The group's pieces are rasterized into ONE coverage mask and every shadow
- * value is cast from it, so overlapping glyphs cast one shadow, not two. The
- * shadows of all values land in one image per tile (painted last value
- * first, so the first is on top) and that image is `drawImage`d once.
- *
- * Under a uniform transform the image is cut into horizontal tiles. A tile's
- * pixels depend only on the mask within the blur margin of its rows, so each
- * tile rasterizes just the pieces in that window, into a pooled mask — the
- * same pixels as one whole-group mask, at a fraction of the memory, and a
- * window holding no piece costs nothing. Tiles sit on whole device pixels and
- * are drawn unscaled, so they abut exactly; a nonuniform transform draws its
- * image scaled, where tile seams would filter, so it keeps one tile.
- *
- * `paint` draws the pieces it is given onto the mask, whose transform maps
- * layout coordinates.
+ * Paint a text group's shadows (not its foreground). The pieces form ONE
+ * coverage mask, so overlapping glyphs cast one shadow; values cast last first.
+ * Under a uniform transform the image is cut into horizontal device-pixel
+ * tiles, each masking only the pieces within its blur margin; a nonuniform
+ * transform draws scaled, where seams would filter, so it keeps one tile.
  */
 export function paintTextShadows<T extends ShadowPiece>(
   ctx: CanvasRenderingContext2D, pieces: readonly T[], shadows: TextShadow[],
@@ -367,8 +331,6 @@ export function paintTextShadows<T extends ShadowPiece>(
   // foreground's glyph hinting. Nonuniform transforms need a local-space blur
   // that stretches/shears along with the text.
   const space: Matrix = uniform ? m : { a: scale, b: 0, c: 0, d: scale, e: 0, f: 0 };
-  // Each value in mask space: its offset (scaled and rotated with the text),
-  // its blur and the margin that blur reaches.
   const casts = shadows.map(shadow => ({
     dx: space.a * shadow.offsetX + space.c * shadow.offsetY,
     dy: space.b * shadow.offsetX + space.d * shadow.offsetY,
@@ -392,7 +354,6 @@ export function paintTextShadows<T extends ShadowPiece>(
     if (uniform) ctx.setTransform(1, 0, 0, 1, 0, 0);
     for (let tileTop = imageTop; tileTop < imageBottom; tileTop += rows) {
       const tileBottom = Math.min(imageBottom, tileTop + rows);
-      // Mask rows whose shadow can reach this tile.
       const windowTop = tileTop - bottom, windowBottom = tileBottom - top;
       const inside: T[] = [];
       let ink: PaintBounds | undefined;
@@ -415,8 +376,6 @@ export function paintTextShadows<T extends ShadowPiece>(
       paint(target, inside);
 
       const x0 = area.x + left;
-      // Onto the caller's ctx the image is handed out; onto a pooled canvas
-      // (the caller-shadow source layer) it is scratch like the mask.
       const scratchImage = pool.owns(ctx);
       const image = scratchImage
         ? pool.acquire(area.width + right - left, y1 - y0)
@@ -424,9 +383,7 @@ export function paintTextShadows<T extends ShadowPiece>(
       const out = context2d(image);
       out.imageSmoothingEnabled = ctx.imageSmoothingEnabled;
       if ('imageSmoothingQuality' in ctx) out.imageSmoothingQuality = ctx.imageSmoothingQuality;
-      // Last value first: the first shadow is painted on top. A fractional
-      // offset moves the mask, not the blurred image — both are linear
-      // filters, so resampling before the blur equals resampling after.
+      // A fractional offset moves the mask: blur and resampling commute.
       for (let i = casts.length - 1; i >= 0; i--) {
         const cast = casts[i];
         castShadow(out, mask, area.x - x0 + cast.dx, maskTop - y0 + cast.dy, cast.blur, cast.color);

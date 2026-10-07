@@ -23,27 +23,16 @@ interface LayoutInput {
   width: number;
   /** Height of the rendering area in CSS pixels (auto-sized from content if omitted) */
   height?: number;
-  /**
-   * Measurement accuracy mode (default: 'performance').
-   * - 'performance' — pure canvas API measurements only. Faster, no DOM touches,
-   *   and more consistent canvas output across browsers.
-   * - 'balanced' — uses hidden DOM probes for line heights. Matches each browser's
-   *   native DOM rendering more closely, but produces slightly different canvas
-   *   output in Firefox vs Chrome.
-   */
+  /** 'performance' (default): canvas measurement only, consistent across
+   * browsers. 'balanced': hidden DOM probes for line heights, closer to each
+   * browser's own DOM. */
   accuracy?: 'balanced' | 'performance';
-  /**
-   * Debug callback for layout diagnostics. Receives structured log entries
-   * during text measurement, wrapping decisions, and positioning.
-   */
+  /** Receives layout diagnostics: measurement, wrapping, positioning. */
   debug?: (entry: DebugEntry) => void;
 }
 
 interface DrawTarget {
-  /**
-   * Existing 2D rendering context to draw onto, without resizing or scaling.
-   * Mutually exclusive with `canvas`.
-   */
+  /** Context to draw onto, unresized and unscaled. Exclusive with `canvas`. */
   ctx?: AnyContext;
   /** Target canvas element (created if not provided). Mutually exclusive with `ctx`. */
   canvas?: AnyCanvas;
@@ -69,21 +58,12 @@ export interface LayoutResult {
    * Excludes destination transforms, clipping and canvas effects.
    * Load fonts first; create a new layout after changing content or fonts. */
   readonly paintBounds: PaintBounds;
-  /**
-   * The COMPLETE layout — the rendering surface. This tree is exactly what
-   * `drawLayout` paints: every run keeps its own style, exact position and
-   * baseline. Build renderers (SVG, PDF, hit-testing) from this, never from
-   * `lines`.
-   */
+  /** The complete layout `drawLayout` paints: every run with its own style,
+   * position and baseline. Build renderers from this, never from `lines`. */
   layoutRoot: LayoutBox;
   /** Content height in CSS pixels */
   height: number;
-  /**
-   * A LOSSY per-line summary for wrap inspection and tests: text is
-   * flattened (cross-cell merges invent a separator space), `y` is the
-   * rounded baseline, and bounds are unions. Anything that draws or measures
-   * should read `layoutRoot` instead.
-   */
+  /** A lossy per-line summary for wrap inspection and tests. */
   lines: LayoutLine[];
 }
 
@@ -104,24 +84,12 @@ export interface DebugEntry {
 
 /** A text line extracted from the layout tree */
 export interface LayoutLine {
-  /**
-   * Baseline Y, ROUNDED to a whole px (stable line grouping and recorded
-   * cross-browser references depend on it). The exact baseline lives on the
-   * line's text runs in `layoutRoot`.
-   */
+  /** Baseline y, rounded to a whole px; exact baselines are in `layoutRoot`. */
   y: number;
-  /**
-   * Concatenated text content on this line. Lossy: separate flows that share
-   * a visual row (table cells, list markers) merge in reading order with an
-   * invented separator space.
-   */
+  /** The line's text; flows sharing a row (cells, markers) merge with a space. */
   text: string;
-  /**
-   * Union of line-box geometry in canvas coordinates. Separate flows can be
-   * merged here; use `LayoutBox.lineBoxes` for per-line backgrounds.
-   * `bounds.y` is the top of the line box (not the baseline); `bounds.height`
-   * is the effective line height including any super/sub expansion.
-   */
+  /** Union of the line boxes: `y` is the top, `height` the effective line
+   * height. Use `LayoutBox.lineBoxes` for per-line geometry. */
   bounds: {
     x: number;
     y: number;
@@ -136,11 +104,9 @@ export interface RenderResult extends LayoutResult {
 }
 
 /**
- * One text decoration with the color/style of the element that DECLARED it.
- * CSS text-decoration is not inherited: the declaring element paints the line
- * across its in-flow descendants using its own color/style. Descendants carry
- * ancestors' entries (plus their own) so the painter can reproduce that —
- * e.g. a parent's red underline stays red across a blue child <s>.
+ * One text decoration with its declaring element's color and style. Entries
+ * ride down the tree by reference so descendants paint their ancestors' bands
+ * (CLAUDE.md "Text paint propagation").
  */
 export interface DecorationEntry {
   /** 'underline' | 'line-through' | 'overline' */
@@ -148,15 +114,8 @@ export interface DecorationEntry {
   color: string;
   /** 'solid' | 'double' | 'dotted' | 'dashed' | 'wavy' */
   style: string;
-  /**
-   * The DECORATING box: the style of the element that declared this entry,
-   * stamped by identity, like the clip and stroke declarers (see CLAUDE.md).
-   * The band's thickness is its, and so is the underline's position — its font
-   * size and its baseline, which is the line's unless the declarer is itself
-   * vertical-aligned. `renderText` in render.ts records what Chrome does with
-   * each line kind. Entries ride down the tree by reference, so every run
-   * under one declarer holds the same entry object.
-   */
+  /** The declaring element's style (by identity): it sets the band's thickness
+   * and the underline's position. See `fragmentBands` in render.ts. */
   declarer: ResolvedStyle;
 }
 
@@ -183,37 +142,22 @@ export interface ResolvedStyle {
   textDecorationLine: string;
   textDecorationStyle: string;
   textDecorationColor: string;
-  /** Own + ancestor decorations, each with its ORIGIN's color/style (paint
-   * order: ancestors first). `textDecorationLine` stays the union of entry
-   * lines for cheap "has any decoration" checks and run merging. */
+  /** Own and ancestor decorations, ancestors first. */
   textDecorations: DecorationEntry[];
-  /** text-underline-offset in px; null = `auto` (the UA default position).
-   * Inherited. A percentage re-resolves against each inheriting element's own
-   * font size (Chrome-measured; same split as unitless line-height, via the
-   * private UNDERLINE_OFFSET_PCT shadow), an em value inherits as computed px. Read
-   * off the DECLARER at paint time; underline only. */
+  /** text-underline-offset in px; null = `auto`. Inherited; a percentage
+   * re-resolves against each element's font size. */
   textUnderlineOffset: number | null;
-  /** text-decoration-thickness in px; null = `auto`. `from-font` also maps to
-   * null — it needs the font's post table, which canvas cannot read (a
-   * documented divergence). Not inherited; rides to descendants inside the
-   * DecorationEntry via `declarer`. Applies to all three line kinds. */
+  /** text-decoration-thickness in px; null = `auto` or `from-font`. */
   textDecorationThickness: number | null;
   textShadow: string;
   webkitTextStrokeWidth: number;
   webkitTextStrokeColor: string;
-  /** A gradient to paint the -webkit-text-stroke with (CSS can't put a gradient
-   * on a text stroke). Read from the `--rt-text-stroke-image` custom property (a
-   * browser drops an unknown real property name whenever it re-serializes a
-   * style, e.g. in a contenteditable editor; a custom property survives).
-   * render-tag builds a CanvasGradient for the stroke, spanning the declaring
-   * element like a background-clip:text fill gradient. 'none' = solid stroke via
-   * webkitTextStrokeColor. */
+  /** The `--rt-text-stroke-image` gradient for -webkit-text-stroke over the
+   * declaring element; 'none' = solid `webkitTextStrokeColor`. */
   webkitTextStrokeImage: string;
   webkitTextFillColor: string;
   paintOrder: string;
-  /** Corner join for -webkit-text-stroke: 'round' (default) | 'miter' | 'bevel'.
-   * Not a real CSS property for HTML text-stroke — render-tag reads it so
-   * callers can control stroke corner shape (e.g. varsity/block lettering). */
+  /** -webkit-text-stroke corner join: 'round' (default) | 'miter' | 'bevel'. */
   strokeLinejoin: string;
   webkitBackgroundClip: string;
   backgroundImage: string;
@@ -259,12 +203,7 @@ export interface ResolvedStyle {
   borderLeftWidth: number;
   borderLeftColor: string;
   borderLeftStyle: string;
-  /**
-   * Corner radii: px, or `{ pct }` of the border box's own size, which is
-   * unknown until paint — resolved (and clamped) in the renderer's
-   * `cornerRadii`, horizontal component against the width, vertical against
-   * the height, exactly as the DOM does.
-   */
+  /** Corner radii: px, or `{ pct }` of the border box, resolved at paint. */
   borderTopLeftRadius: BorderRadius;
   borderTopRightRadius: BorderRadius;
   borderBottomRightRadius: BorderRadius;
@@ -281,11 +220,7 @@ export interface ResolvedStyle {
   // List
   listStyleType: string;
 
-  /**
-   * Multi-line ellipsis clamp — positive integer = clamp to N lines and
-   * append an ellipsis to the last visible line, 0 = no clamp.
-   * Recognized via `-webkit-line-clamp` and `line-clamp` (synonyms in spec).
-   */
+  /** `(-webkit-)line-clamp` line count; 0 = none. */
   lineClamp: number;
 }
 
@@ -303,19 +238,9 @@ export interface StyledNode {
   textContent: string | null;
   /** For list items: the marker text (e.g. "•", "1.") */
   listMarker?: string;
-  /**
-   * For list items: explicitly-set properties from `::marker` rules.
-   * Only set keys are present (Partial), so unset keys fall back to the
-   * `<li>` style at the use site. Empty/undefined when no `::marker` rule matched.
-   */
+  /** For list items: properties set by `::marker` rules (unset keys fall back to the `<li>`). */
   markerStyle?: Partial<ResolvedStyle>;
-  /**
-   * For list items: true when `::marker { content: none }` is in effect.
-   * The layout engine skips drawing the marker entirely. This matches how
-   * the DOM treats `content: none` on `::marker`, and lets the recommended
-   * reset (`li::marker { content: none; font-size: 0; line-height: 0 }`)
-   * produce the same hidden-marker behavior on canvas.
-   */
+  /** For list items: `::marker { content: none }` hides the marker. */
   markerHidden?: boolean;
 }
 
@@ -327,24 +252,12 @@ export interface LayoutText {
   y: number; // baseline y
   width: number;
   style: ResolvedStyle;
-  /**
-   * The line's own baseline, present only when `y` was moved off it by
-   * `vertical-align`. An underline declared ABOVE the shifted element hangs
-   * off this, not off `y` — Chrome keeps one flat band across a `super` child.
-   */
+  /** The line's own baseline, present only when `vertical-align` moved `y`. */
   lineBaselineY?: number;
-  /**
-   * background-clip:text background from the nearest declaring INLINE element
-   * (e.g. <span>/<s>) — a gradient `image` and/or solid `color`, with a box
-   * spanning the declaring element's fragment on this line. Threaded here
-   * because those properties don't inherit and inline elements are flattened
-   * into runs, not boxes (block declarers thread through renderBox instead).
-   */
+  /** background-clip:text paint of the nearest INLINE declarer, over its
+   * fragment on this line (block declarers thread down at paint). */
   clip?: { image?: string; color?: string; x: number; y: number; width: number; height: number };
-  /**
-   * --rt-text-stroke-image gradient from the nearest declaring INLINE element,
-   * with the same fragment-box geometry as `clip`.
-   */
+  /** --rt-text-stroke-image of the nearest INLINE declarer, like `clip`. */
   strokeImage?: { image: string; x: number; y: number; width: number; height: number };
 }
 
@@ -368,10 +281,7 @@ export interface LayoutBox {
   height: number;
   tagName: string;
   children: LayoutNode[];
-  /**
-   * This box's own inline lines, including blank lines (width 0).
-   * Other boxes keep their lines separately. Absent or empty if there are no lines.
-   */
+  /** This box's own inline lines, blank ones included (width 0). */
   lineBoxes?: LayoutLineBox[];
   listMarker?: string;
 }

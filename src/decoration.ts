@@ -2,60 +2,34 @@ import type { DecorationEntry } from './types.js';
 import { BLINK_UNDERLINE_GAP, ENGINE } from './engine.js';
 import type { PaintState } from './paint-state.js';
 
-// ─── Text decoration bands ─────────────────────────────────────────────
-//
-// The engine paints a decoration once per TEXT FRAGMENT — one text node's
-// pieces, contiguous on one line (Blink's text fragment item; WebKit's text
-// box) — not once per word, and not once per declaring element: a dash
-// pattern fits, and a wave keeps its phase, across the spaces inside a
-// fragment, and both restart at the next text node even under the same
-// declarer (`<u>aa <b>bb</b> cc</u>` is three bands; measured in both
-// engines, tests/decoration-shape-parity.test.ts). render.ts groups the runs;
-// this file decides where each band sits and what it looks like.
-//
-// Every rule below was measured off the engine's own DOM raster
-// (Chromium and Playwright WebKit, five pinned fonts, 10-64px) and, for
-// Blink, matches its source (decoration_line_painter.cc,
-// text_decoration_info.cc, styled_stroke_data.cc). Gecko is unmeasured — it
-// keeps render-tag's older shapes and positions (`drawDecorationLine`).
+// Text decoration bands. The engine paints a decoration once per text fragment
+// (one text node's pieces on one line): dashes fit and waves keep phase across
+// its spaces, and restart at the next text node (decoration-shape-parity).
 
 type DecorationLine = 'underline' | 'overline' | 'line-through';
 
 /** One decoration band across one text fragment. */
 export interface Band {
   line: DecorationLine;
-  /** solid | double | dotted | dashed | wavy */
   style: string;
-  /** The fragment's left edge and width — the band's extent. */
   x: number;
   width: number;
-  /**
-   * The top edge of the (first) band. For Blink this is its unsnapped rect
-   * origin — it snaps a solid band with floor(y + 0.5) itself, and centers a
-   * dash or a wave off the raw value. Elsewhere it is the painted top.
-   */
+  /** Top edge (Blink: unsnapped). */
   y: number;
-  /** Painted thickness, whole pixels. */
+  /** Painted thickness. */
   rows: number;
-  /** The engine's resolved thickness (a float) that sizes waves and dashes. */
+  /** Resolved float thickness. */
   thickness: number;
-  /** The decorating box's font size (WebKit sizes its wave from it). */
   fontSize: number;
-  /** Device pixels per CSS pixel (`PaintState.deviceScale`). */
   deviceScale: number;
 }
 
-/** Round to the nearest device pixel. */
 const toDevice = (v: number, scale: number) => Math.floor(v * scale + 0.5) / scale;
-/** Round up to whole device pixels, at least one. */
 const deviceCeil = (t: number, scale: number) => Math.max(1, Math.ceil(t * scale)) / scale;
 
 /**
- * The band width for one decoration entry: the declarer's explicit
- * text-decoration-thickness when set (Chrome draws round(T) rows; a declared
- * 0 hides the band — callers skip on 0), else the auto thickness from the
- * declarer's font size. Shared by both renderers. Blink's auto thickness is
- * max(1, floor(fontSize / 10)) rows (measured across 6 fonts x 16-64px).
+ * Band rows for a decoration entry: round(T) for an explicit thickness (0
+ * hides the band), else Blink's auto max(1, floor(fontSize / 10)).
  */
 export function bandWidthFor(deco: DecorationEntry): number {
   const t = deco.declarer.textDecorationThickness;
@@ -64,11 +38,9 @@ export function bandWidthFor(deco: DecorationEntry): number {
 }
 
 /**
- * Band-center delta below the baseline for EXPLICIT underline geometry, or
- * null for auto (each renderer keeps its own auto formula). Chrome-measured:
- * an explicit offset puts the band TOP at baseline + offset; auto offset
- * with an explicit thickness T puts it at baseline + ceil(T/2) — measured
- * exactly for T ∈ {1, 3, 4, 5, 8, 10}.
+ * Band-center delta below the baseline for an explicit underline offset or
+ * thickness, else null. Chrome: an offset puts the band top at baseline +
+ * offset; a thickness T alone puts it at baseline + ceil(T/2).
  */
 export function explicitUnderlineDelta(
   deco: DecorationEntry,
@@ -82,21 +54,10 @@ export function explicitUnderlineDelta(
 }
 
 /**
- * The engine's thickness as [painted rows, resolved float], or null when a
- * declared 0 hides the band.
- *
- * - Blink: auto is fontSize / 10 (at least 1), painted max(1, floor(t))
- *   rows; the float sizes dashes and waves.
- * - WebKit: auto is fontSize / 16, painted ceil(t) DEVICE pixels (570 of
- *   570 bands at DPR 1 and 570 of 570 at DPR 2, five fonts, 10-64px) —
- *   1.5 CSS px for a 20px font at DPR 2.
- * - An explicit thickness T: Blink resolves it to round(T) (at least 1),
- *   which both paints and positions the band — a 1.5px or 6.4px
- *   line-through sits where a 2px or 6px one does. WebKit rounds T UP on
- *   the device grid exactly like its auto thickness (6.4px paints 7 rows at
- *   DPR 1, 13 at DPR 2). Measured: Open Sans, Roboto, Playfair Display at
- *   16/32/48px, T 1-10px, DPR 1 and 2 (decoration-position-parity).
- *   Gecko keeps round(T) rows and the declared float.
+ * [painted rows, resolved float], or null when a declared 0 hides the band.
+ * Blink: auto fontSize / 10, painted floor; explicit T resolves to round(T).
+ * WebKit: auto fontSize / 16; auto and explicit both paint ceil on the DEVICE
+ * grid. Gecko: round(T) rows, the declared float. decoration-position-parity.
  */
 function thicknessOf(deco: DecorationEntry, deviceScale: number): [rows: number, thickness: number] | null {
   const rows = bandWidthFor(deco);
@@ -114,43 +75,24 @@ function thicknessOf(deco: DecorationEntry, deviceScale: number): [rows: number,
 
 /** Where a fragment's decorations hang: what `decorationBand` needs to know. */
 interface FragmentLine {
-  /** The painted baseline of the crossed text. */
   baseline: number;
-  /** The baseline an underline hangs off (the line's own when the run was
-   * shifted by vertical-align and the declarer was not). */
+  /** The line's own baseline when only the run was vertical-aligned. */
   underlineBaseline: number;
-  /** The crossed text's font size and ascent (overline and line-through). */
   fontSize: number;
   ascent: number;
-  /** How far the line was moved to paint (`paintLineSnap`). */
+  /** `paintLineSnap`. */
   snap: number;
 }
 
 /**
- * The band one decoration entry draws over one fragment, or null when it
- * paints nothing.
- *
- * WebKit hangs every band off its baseline snapped to a DEVICE pixel
- * (CLAUDE.md "Paint is not layout"), on the grid the caller's `pixelRatio`
- * declares (`PaintState.deviceScale`).
- *
- * Positions (top edge of the band):
- * - underline, Blink: half the auto thickness, rounded up, below the snapped
- *   baseline (`ceil(fontSize / 20)`, see CLAUDE.md "Paint is not layout").
- *   WebKit: `max(1, ceil(t / 2))` below the baseline, t = fontSize / 16
- *   (190 of 190 bands), an explicit thickness included. An explicit offset
- *   (and, in Blink, an explicit thickness): `explicitUnderlineDelta`.
- * - overline, Blink: its bottom edge on the floored ascent row. WebKit: the
- *   AUTO band's top on the ascent row (190 of 190); a declared thickness
- *   keeps that band's bottom edge and grows up.
- * - line-through, Blink: `baseline - ascent / 3 - t / 2`, snapped with
- *   floor(y + 0.5) — text_decoration_info.cc's `2 * ascent / 3 - t / 2`
- *   below the text top (190 of 190 bands: five fonts, 10-64px, two
- *   line-heights). WebKit reads the font's strikeout metric, which canvas
- *   cannot: `baseline - 0.3025 · ascent - t / 2`, rounded UP to a device
- *   pixel, is a FIT, not its rule — exact for 168 of 190 bands at DPR 1 and
- *   142 of 190 at DPR 2, the rest one device pixel off (the 0.33em formula
- *   Gecko keeps was exact for 34 of 190 at DPR 1 and up to 4px off).
+ * The band one entry draws over one fragment (null: nothing). Top edges:
+ * - underline: Blink ceil(fontSize / 20) below the snapped baseline
+ *   (SNAPS_LINE_PAINT, BLINK_UNDERLINE_GAP); WebKit max(1, ceil(fontSize / 32)) below its
+ *   device-snapped baseline; explicit geometry via `explicitUnderlineDelta`.
+ * - overline: Blink's bottom edge on the floored ascent row; WebKit's auto top.
+ * - line-through: Blink `baseline - ascent / 3 - t / 2` (text_decoration_info.cc).
+ *   WebKit reads a strikeout metric canvas cannot: 0.3025·ascent is a FIT.
+ * Measured in decoration-position-parity; Gecko keeps older approximations.
  */
 export function decorationBand(
   deco: DecorationEntry, at: FragmentLine, x: number, width: number, deviceScale = 1,
@@ -164,8 +106,7 @@ export function decorationBand(
   const engine = ENGINE;
   let y: number;
   if (line === 'underline') {
-    // WebKit keeps its auto position under an explicit THICKNESS (the band
-    // grows down from it); only an explicit offset moves it.
+    // WebKit keeps its auto position under an explicit thickness.
     const explicit = engine === 'webkit' && deco.declarer.textUnderlineOffset === null
       ? null : explicitUnderlineDelta(deco, rows);
     if (explicit !== null) y = Math.round(at.underlineBaseline + explicit - rows / 2);
@@ -173,17 +114,11 @@ export function decorationBand(
       y = toDevice(at.underlineBaseline, deviceScale) + Math.max(1, Math.ceil(fontSize / 16 / 2));
     }
     else if (BLINK_UNDERLINE_GAP) y = Math.round(at.underlineBaseline + Math.ceil(fontSize / 20));
-    // Gecko: a Chrome-tuned approximation from before the line snap.
     else y = Math.round(at.underlineBaseline + fontSize * 0.105 - 0.2 - rows / 2);
-    // Blink computes the underline in the decorating box's layout
-    // coordinates, before the line's paint snap (`OffsetFromDecoratingBox`):
-    // its rect is the snapped band moved back by the snap. That half-pixel
-    // decides a double's gap and a dash's row on a line whose top was at .5
-    // (measured: 25px under a 12.5px padding).
+    // Blink places the underline before the line's paint snap (OffsetFromDecoratingBox).
     if (engine === 'blink') y -= at.snap;
   } else if (line === 'overline') {
-    // WebKit: the AUTO band's top is the ascent row; a thicker or thinner
-    // declared band keeps the auto band's bottom edge and grows up from it.
+    // WebKit: a declared thickness keeps the auto band's bottom edge.
     y = engine === 'webkit'
       ? toDevice(at.baseline, deviceScale) - Math.round(at.ascent) + deviceCeil(fontSize / 16, deviceScale) - rows
       : Math.floor(at.baseline - at.ascent) - rows;
@@ -198,7 +133,6 @@ export function decorationBand(
   return { line, style, x, width, y, rows, thickness: t, fontSize, deviceScale };
 }
 
-/** Paint one band. */
 export const paintBand: (ps: PaintState, band: Band, color: string | CanvasGradient) => void =
   ENGINE === 'blink' ? blinkBand : ENGINE === 'webkit' ? webkitBand
     : (ps, b, c) => drawDecorationLine(ps, b.x, b.y + b.rows / 2, b.width, b.rows, b.style, c);
@@ -227,15 +161,9 @@ function bestDashGap(length: number, dash: number, gap: number): number {
 }
 
 /**
- * The dash Blink strokes a dotted or dashed decoration with, for a path of
- * `length` whole pixels and a dash width of `width` = round(thickness)
- * (`DashEffectFromStrokeStyle`). Null is a solid line.
- * - dashed: dashes of 3w and gaps of 2w below 3px, 2w and w from 3px; the
- *   gap is stretched so the pattern starts and ends on a whole dash.
- * - dotted up to 3px: square dots, w on and w off, NOT fitted (it ends on
- *   whatever part of a dot the length reaches).
- * - dotted above 3px: round dots (zero-length dashes, round caps), fitted.
- * A path too short for the pattern draws one or two scaled dashes, or solid.
+ * Blink's dash for a `length`-px path, w = round(thickness) (decoration_line_painter.cc
+ * `DashEffectFromStrokeStyle`); null is solid. dashed: 3w/2w below 3px, 2w/w
+ * from 3px, gap fitted. dotted: square w/w up to 3px (unfitted), round above.
  */
 function blinkDash(style: string, width: number, length: number): { dash: number[]; cap: CanvasLineCap } | null {
   if (style === 'dashed' || width <= 3) {
@@ -318,18 +246,13 @@ function blinkBand(ps: PaintState, band: Band, color: string | CanvasGradient) {
   const top = Math.floor(y + 0.5);
   if (style === 'double') {
     rule(ps, x, x + width, top, rows, color);
-    // The second band is the first moved t + 1 down (up, for an overline;
-    // floor(t + 1), for a line-through) and snapped on its own — so its gap
-    // depends on the first band's sub-pixel origin (exact on two fonts at
-    // 12-64px and explicit 1-10px; decoration-shape-parity, DPR 1 and 2).
+    // The second band is moved t + 1 and snapped on its own.
     const offset = line === 'line-through' ? Math.floor(t + 1) : line === 'overline' ? -(t + 1) : t + 1;
     rule(ps, x, x + width, Math.floor(y + offset + 0.5), rows, color);
     return;
   }
   if (style === 'dotted' || style === 'dashed') {
-    // `DrawLineAsStroke`: whole-pixel endpoints (truncated), the line on
-    // floor(y + max(t/2, 0.5)), half a pixel lower for an odd dash width,
-    // stroked at the unrounded thickness.
+    // `DrawLineAsStroke`: truncated endpoints, stroked at the unrounded thickness.
     const w = Math.round(t);
     let x0 = Math.trunc(x), x1 = Math.trunc(x + width);
     const mid = Math.floor(y + Math.max(t / 2, 0.5)) + (w % 2 ? 0.5 : 0);
@@ -344,14 +267,7 @@ function blinkBand(ps: PaintState, band: Band, color: string | CanvasGradient) {
     return;
   }
   if (style === 'wavy') {
-    // `MakeWave`: half-pixel wavelength and control-point distance. The wave
-    // sits t + 1 below an underline's rect (above an overline's; on a
-    // line-through's). Blink paints it from a cached tile whose origin lands
-    // on a whole DEVICE pixel: the tile's top is the floored top of the
-    // path's bounds (control points included, plus half the stroke), and the
-    // centerline sits half a CSS pixel into it. The tile starts its cycle on
-    // the rounded fragment left edge and is clipped to the fragment.
-    // Measured: the centerline lands within 0.06px of this in 7 of 7 sizes.
+    // `MakeWave`: painted from a cached tile whose origin lands on a device pixel.
     const k = Math.max(1, t);
     const wavelength = 1 + 2 * Math.round(2 * k + 0.5);
     const cp = 0.5 + Math.round(3 * k + 0.5);
@@ -370,16 +286,9 @@ function blinkBand(ps: PaintState, band: Band, color: string | CanvasGradient) {
 // ─── WebKit ─────────────────────────────────────────────────────────────
 
 /**
- * WebKit (Playwright WebKit DOM raster):
- * - double: a second band of the same thickness one band-width below the
- *   first — below for all three lines, the overline included.
- * - dotted: square dots, `rows` on and `rows` off; dashed: 2·rows on and
- *   2·rows off. Neither is fitted; both start at the fragment's left edge,
- *   on a whole pixel.
- * - wavy: a cubic per 2·step with step = fontSize / 4.5 and control points
- *   fontSize · 1.5 / 16 off the axis, both stretched by the same amount so
- *   whole steps fill the fragment; the axis sits a pixel below the band top
- *   (1.5 for an odd band; two pixels higher for an overline).
+ * WebKit: double adds a band one band-width below (overline too); dotted
+ * rows/rows and dashed 2·rows/2·rows, unfitted; wavy: a cubic per 2·step,
+ * step = fontSize / 4.5, stretched so whole steps fill the fragment.
  */
 function webkitBand(ps: PaintState, band: Band, color: string | CanvasGradient) {
   const { ctx } = ps;
@@ -403,14 +312,11 @@ function webkitBand(ps: PaintState, band: Band, color: string | CanvasGradient) 
     let cp = band.fontSize * 1.5 / 16;
     const steps = Math.floor(width / step);
     if (steps > 0) {
-      // Stretch both so whole steps fill the fragment.
       const adjustment = (width - steps * step) / steps;
       step += adjustment;
       cp += adjustment;
     }
-    // An overline's wave sits two pixels higher than an underline's; a
-    // line-through's 1.5px higher (a FIT over the fitted strike: its rows
-    // land 1-2px off either way, measured at DPR 1 and 2).
+    // Overline 2px higher, line-through 1.5px (a FIT).
     const raise = band.line === 'overline' ? 2 : band.line === 'line-through' ? 1.5 : 0;
     const axis = top + 1 + (rows % 2 ? 0.5 : 0) - raise;
     ps.stroke(color, band.thickness);
@@ -432,12 +338,7 @@ export function legacyDash(style: string, w: number): number[] | undefined {
   return style === 'dotted' ? [w, w * 2] : style === 'dashed' ? [w * 3, w * 2] : undefined;
 }
 
-/**
- * render-tag's original decoration shapes, centered on `y`: two half-width
- * lines for `double`, an untuned quadratic wave, and fixed dash patterns.
- * The text-on-path renderer (per glyph) and the Gecko branch still draw
- * these; neither has been measured against its engine.
- */
+/** Unmeasured decoration shapes centered on `y`, for Gecko and text-on-path. */
 export function drawDecorationLine(
   ps: PaintState,
   x: number,
@@ -447,7 +348,6 @@ export function drawDecorationLine(
   decoStyle: string,
   color: string | CanvasGradient,
 ): void {
-  // Snap the stroke center so the band edges land on the pixel grid.
   y = Math.round(y - lineWidth / 2) + lineWidth / 2;
   const { ctx } = ps;
 
@@ -472,7 +372,6 @@ export function drawDecorationLine(
     }
     ctx.stroke();
   } else {
-    // solid, dotted, dashed
     ps.stroke(color, lineWidth, legacyDash(decoStyle, lineWidth));
     ctx.beginPath();
     ctx.moveTo(x, y);

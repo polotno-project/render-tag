@@ -1,8 +1,5 @@
-/**
- * Pure layout: lays each grapheme of styled segments along a path, without
- * drawing. Joining scripts (Arabic, Indic, Thai, …) are grouped into one
- * "shaped run" placement so fillText can shape the run as a unit.
- */
+/** Lays each grapheme of styled segments along a path; joining scripts form
+ * one "shaped run" placement so fillText shapes them as a unit. */
 
 import type { ResolvedStyle, StyledNode } from '../types.js';
 import { Measurer, type FontMetricsTable, type MeasureState, graphemes as splitGraphemes, hasStrokeImage, hasTextClip, transformTextRuns } from '../layout.js';
@@ -17,113 +14,71 @@ export interface Segment {
   style: ResolvedStyle;
   /** An atomic or block element starts a new CSS word for capitalize. */
   wordBoundaryBefore?: boolean;
-  /**
-   * Innermost `unicode-bidi` context around this text (an isolate, embedding
-   * or override); null/absent = the path's own paragraph. Visual order comes
-   * from UAX #9 over ALL segments together (src/bidi.ts), not per segment.
-   */
+  /** Innermost `unicode-bidi` context; null = the path's paragraph. */
   bidi?: BidiContext | null;
-  /** Nearest ancestor-or-self element declaring background-clip:text + background.
-   * Threaded because background-image/clip don't inherit, so text in a nested
-   * inline child wouldn't carry them (mirrors the main renderer). */
+  /** Nearest background-clip:text declarer (CLAUDE.md paint propagation). */
   clipStyle?: ResolvedStyle;
-  /** Nearest ancestor-or-self element declaring --rt-text-stroke-image. */
+  /** Nearest --rt-text-stroke-image declarer. */
   strokeImageStyle?: ResolvedStyle;
 }
 
 export interface GlyphPlacement {
-  /**
-   * Renderable text unit — usually a single grapheme cluster, but joining
-   * scripts (Arabic, Indic, Thai, Khmer, Myanmar, …) emit multi-grapheme runs
-   * here so the browser can shape them correctly during fillText.
-   */
+  /** One grapheme, or a multi-grapheme shaped run for joining scripts. */
   char: string;
-  /** Origin of the glyph on the path (translate target before fillText). */
+  /** Glyph origin on the path. */
   x: number;
   y: number;
-  /** Tangent angle at the glyph origin, in radians. */
+  /** Tangent angle, radians. */
   rotation: number;
-  /** Advance width of the glyph or shaped run. */
   width: number;
-  /** Resolved style to apply when drawing this glyph. */
   style: ResolvedStyle;
-  /** Font ascent above the baseline (px) — used for visual extent. */
   ascent: number;
-  /** Font descent below the baseline (px). */
   descent: number;
-  /** Distance from the start of the text along the path (px). */
+  /** Natural offset from the start of the text. */
   pathOffset: number;
-  /** True when this placement is a shaped run, not a single grapheme. */
   shaped: boolean;
-  /** Nearest declaring element for background-clip:text (see Segment). */
   clipStyle?: ResolvedStyle;
-  /** Nearest declaring element for --rt-text-stroke-image (see Segment). */
   strokeImageStyle?: ResolvedStyle;
-  /** Natural-offset range [start, start+width) of the clip declarer's glyphs —
-   * the fragment the clip gradient spans (mirrors the main renderer's
-   * fragment box; a whole-text declarer spans the whole text). */
+  /** The clip declarer's fragment range, which its gradient spans. */
   clipRange?: { start: number; width: number };
-  /** Same fragment range for the stroke-image declarer. */
+  /** The stroke-image declarer's fragment range. */
   strokeImageRange?: { start: number; width: number };
 }
 
 export type AlignMode = 'left' | 'center' | 'right' | 'justify';
 
-/**
- * Where the path runs relative to the rendered text.
- *  - `alphabetic` (default) — path = text baseline; descenders drop below.
- *  - `middle` — path runs through the vertical center of the text.
- *  - `top` — path runs along the top of the text.
- *  - `bottom` — path runs along the bottom (including descenders).
- *  - `hanging` / `ideographic` — approximations of the matching CSS values.
- */
+/** Where the path runs relative to the text (`alphabetic` = baseline);
+ * `hanging` and `ideographic` approximate the CSS values. */
 export type TextBaseline =
   | 'alphabetic' | 'middle' | 'top' | 'bottom' | 'hanging' | 'ideographic';
 
 interface LayoutInput {
   segments: Segment[];
-  /** The paragraph direction (UAX #9 paragraph level); default `ltr`. */
+  /** Paragraph direction; default `ltr`. */
   direction?: 'ltr' | 'rtl';
   path: PathLike;
   ctx: CanvasRenderingContext2D;
   align: AlignMode;
   textBaseline: TextBaseline;
-  /** Where the call's font metrics are recorded, for paint (`layoutFontMetrics`). */
+  /** Records the call's font metrics for paint (`layoutFontMetrics`). */
   fontMetrics?: FontMetricsTable;
 }
 
 export interface LayoutOutput {
   glyphs: GlyphPlacement[];
-  /**
-   * Natural width of the rendered text: the sum of the measured placement
-   * widths (each already carrying its letter-spacing) less the trailing
-   * letter-space of the last one, which must not hang off the end.
-   */
+  /** Natural width, less the last placement's trailing letter-space. */
   textWidth: number;
   pathLength: number;
-  /**
-   * Max line height across all segments. Resolved CSS line-height in px when
-   * set; otherwise the segment's font size. Useful as the ribbon thickness
-   * when drawing a background polygon around curved text.
-   */
+  /** Max CSS line-height in px (else font size) across segments. */
   lineHeight: number;
-  /**
-   * Union of each glyph's rotated `width x line-height` cell (CSS line-height
-   * in px when set, else font size), split above/below the baseline by the
-   * font's ascent/descent ratio. For callers; render-tag does not read it.
-   */
+  /** Union of each glyph's rotated `width x line-height` cell, split at the
+   * baseline by the font's ascent/descent ratio. For callers; render-tag
+   * does not read it. */
   bounds: { x: number; y: number; width: number; height: number };
-  /** The textBaseline mode used for this layout (echoes the input). */
   textBaseline: TextBaseline;
 }
 
-/**
- * Returns the local-y of the alphabetic baseline given a textBaseline
- * choice and a glyph's ascent/descent. All baseline-relative computations
- * (decoration positions, background polygons, bounds cells) ADD this offset
- * to their local-y so the path line through (0,0) corresponds to the
- * requested baseline anchor.
- */
+/** Local y of the alphabetic baseline when the path runs at `tb`. */
 export function baselineLocalY(
   tb: TextBaseline, ascent: number, descent: number,
 ): number {
@@ -137,11 +92,7 @@ export function baselineLocalY(
   }
 }
 
-/**
- * Flatten a styled tree into a flat sequence of styled text segments.
- * Walks in document order; text transforms keep word context across elements.
- * Each `#text` node contributes one segment with its resolved style.
- */
+/** A styled tree as text segments in document order, one per `#text`. */
 export function flattenSegments(root: StyledNode): Segment[] {
   const out: Segment[] = [];
   let wordBoundaryBefore = false;
@@ -164,15 +115,9 @@ export function flattenSegments(root: StyledNode): Segment[] {
     if (block) {
       wordBoundaryBefore = true;
     }
-    // A path is ONE line, so a nested block cannot start a paragraph of its
-    // own; it isolates its content in its own direction instead (HTML gives
-    // blocks `unicode-bidi: isolate`). An inline element opens what its
-    // `unicode-bidi` says.
+    // One line: a nested block isolates its content (HTML's `unicode-bidi: isolate`).
     const ownBidi = node === root ? bidi
       : bidiContextFor(block ? 'isolate' : node.style.unicodeBidi, node.style.direction, bidi);
-    // Track the nearest element declaring a background-clip:text background or
-    // a --rt-text-stroke-image — those paints propagate to descendant glyphs
-    // even though the properties don't inherit.
     const newClip = hasTextClip(node.style) ? node.style : clipStyle;
     const newStroke = hasStrokeImage(node.style) ? node.style : strokeImageStyle;
     for (const child of node.children) walk(child, ownBidi, newClip, newStroke);
@@ -181,48 +126,31 @@ export function flattenSegments(root: StyledNode): Segment[] {
   return transformTextRuns(out);
 }
 
-// Scripts fillText must shape as whole runs: Hebrew, Arabic, Syriac, Thaana,
-// NKo, Samaritan, Mandaic, Indic, Thai, Lao, Tibetan, Myanmar, Khmer, Mongolian
-// and the Hebrew/Arabic presentation forms. `\u` escapes only: a literal RTL
-// code point can silently corrupt the class (it once matched CJK).
+// Scripts fillText must shape as whole runs. `\u` escapes only: a literal RTL
+// code point can silently corrupt the class.
 const SHAPING_RE = /[\u0590-\u086F\u08A0-\u109F\u1780-\u18AF\uFB1D-\uFDFF\uFE70-\uFEFF]/;
 
 interface PreGlyph {
-  /** Renderable text — one grapheme or one shaped run. */
   text: string;
-  /** Advance width as measured by ctx.measureText AFTER applying the style. */
   width: number;
   style: ResolvedStyle;
-  /** True when this is purely an ASCII U+0020 space (justify-eligible). */
+  /** U+0020 (justify-eligible). */
   isSpace: boolean;
   ascent: number;
   descent: number;
   shaped: boolean;
   clipStyle?: ResolvedStyle;
   strokeImageStyle?: ResolvedStyle;
-  /** UAX #9 level (uniform over the placement). */
+  /** UAX #9 level. */
   level: number;
 }
 
-/**
- * Classes a shaped run may hold: strong letters, marks and digits. A neutral
- * (Arabic comma, ؟) or a level change ends it, so every shaped run is
- * level-uniform AND free of neutrals — then fillText's own bidi pass, under any
- * base direction, orders its inside exactly as UAX #9 does, and L2 orders the
- * placements.
- */
+/** Classes a shaped run may hold. Without neutrals and at one level, fillText's
+ * own bidi pass orders the run's inside exactly as UAX #9 does. */
 const SHAPED_RUN_CLASSES = new Set(['L', 'R', 'AL', 'NSM', 'EN', 'AN']);
 
-/**
- * Split a single styled segment into PreGlyphs, in LOGICAL order.
- *
- * Non-joining graphemes (Latin, CJK, …) emit one PreGlyph per grapheme so the
- * curve can drive per-glyph rotation. Joining-script graphemes are grouped
- * into runs (split at whitespace, style, level and neutral boundaries) so the
- * browser can shape them correctly when we later call fillText on the run as
- * a whole. `levels` are the segment's UAX #9 levels per UTF-16 unit; the
- * caller reorders the placements (L2) across ALL segments.
- */
+/** A segment's PreGlyphs in logical order: one per grapheme, joining-script
+ * graphemes grouped into shaped runs. The caller reorders all segments (L2). */
 function preGlyphsForSegment(
   m: Measurer,
   state: MeasureState,
@@ -276,15 +204,11 @@ function preGlyphsForSegment(
   return out;
 }
 
-/**
- * Lay out graphemes along a path: measure each placement, align the natural
- * width on the path, then rotate each placement to the tangent between its
- * ends. A placement past the path's end is dropped beyond the kerning slack.
- */
+/** Measure placements, align them on the path, and rotate each to the tangent
+ * between its ends; one past the path's end beyond the kerning slack is dropped. */
 export function layoutGlyphsOnPath(input: LayoutInput): LayoutOutput {
   const { segments, path, ctx, align, textBaseline } = input;
 
-  // Mutates the ctx's font state; layoutTextOnPath saves/restores a caller's ctx.
   const m = new Measurer(ctx, input.fontMetrics ?? new Map());
   // Bidi levels over the whole text: the path is one line of one paragraph.
   const builder = new BidiTextBuilder();
@@ -300,33 +224,28 @@ export function layoutGlyphsOnPath(input: LayoutInput): LayoutOutput {
     const lh = cellHeight(seg.style);
     if (lh > maxLineHeight) maxLineHeight = lh;
     const state = m.stateOf(seg.style);
-    // Paint reads the decoration declarers' metrics from this call's table.
     for (const deco of seg.style.textDecorations) m.metrics(deco.declarer);
     const segGlyphs = preGlyphsForSegment(
       m, state, seg, levels.subarray(starts[i], starts[i] + seg.text.length));
     if (segGlyphs.length === 0) return;
     logical.push(...segGlyphs);
-    // Whole-segment width — kerning makes this < sum of per-glyph widths.
     measuredWholeWidth += m.measureText(state, seg.text).width;
   });
   // UAX #9 L2: placements in visual order, across segments.
   const preGlyphs = visualOrder(logical.map((g) => g.level)).map((i) => logical[i]);
 
-  // measureText widths already carry one letter-space per grapheme, the
-  // trailing one included (Chrome: 'ABC' at 40px spacing = 3 advances + 3 spaces).
   let textWidth = 0;
   for (const g of preGlyphs) {
     textWidth += g.width;
   }
-  // Drop the trailing letter-space: curved text centres its INK, like straight
-  // text in Polotno, so a near-flat curve prints where straight text does.
-  // Do not "fix" this to the browser's advance-box centring.
+  // Drop the trailing letter-space so curved text centres its INK like Polotno's
+  // straight text. Do not "fix" this: `ABC`, 1em spacing, 600px box, straight /
+  // near-flat / arc prints at 299/299/299 with the trim, 299/279/279 without.
   if (preGlyphs.length > 0) {
     textWidth -= preGlyphs[preGlyphs.length - 1].style.letterSpacing || 0;
   }
 
-  // How far the per-glyph sum exceeds the kerned whole-string width: the
-  // overshoot allowed at the path's end.
+  // Kerning makes the whole string narrower than the per-glyph sum.
   const kerningSlack = Math.max(0, textWidth - measuredWholeWidth);
 
   const pathLength = path.length;
@@ -350,8 +269,7 @@ export function layoutGlyphsOnPath(input: LayoutInput): LayoutOutput {
   let naturalOffset = 0;
   for (let i = 0; i < preGlyphs.length; i++) {
     const g = preGlyphs[i];
-    // The last placement drops its trailing letter-space, like `textWidth`, so a
-    // path sized to `textWidth` keeps its final glyph (and its decoration/bounds cell).
+    // Trimmed like `textWidth`, so a path of that length keeps the last glyph.
     const trailing =
       i === preGlyphs.length - 1 ? g.style.letterSpacing || 0 : 0;
     const effectiveWidth =
@@ -406,10 +324,7 @@ export function layoutGlyphsOnPath(input: LayoutInput): LayoutOutput {
   };
 }
 
-/**
- * Give each contiguous run of glyphs under one paint declarer the
- * natural-offset range the run spans: the path's fragment box.
- */
+/** Each run of glyphs under one declarer gets its natural-offset range. */
 function assignFragmentRanges(
   glyphs: GlyphPlacement[],
   keyOf: (g: GlyphPlacement) => ResolvedStyle | undefined,
@@ -446,10 +361,9 @@ export function rotatedBox(g: GlyphPlacement, top: number, bottom: number): Poin
   ];
 }
 
-/**
- * Union of each glyph's `width x cellHeight` cell, rotated by its tangent. The
- * cell splits above/below the baseline by the font's ascent/descent ratio.
- */
+/** Union of each glyph's `width x cellHeight` cell rotated by its tangent,
+ * split above and below the baseline by the font's ascent/descent ratio.
+ * See `LayoutOutput.bounds`. */
 function computeBounds(
   glyphs: GlyphPlacement[],
   textBaseline: TextBaseline,

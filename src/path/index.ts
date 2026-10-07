@@ -1,33 +1,9 @@
 /**
- * render-tag/path — draw rich text along an SVG path on a 2D canvas.
+ * render-tag/path — draw rich text along an SVG path on a 2D canvas, in the
+ * same HTML/CSS dialect as the main renderer (see README).
  *
- * Reuses render-tag's HTML+CSS pipeline (parseHTML, resolveStylesFromCSS) and
- * font primitives (the `Measurer`) so styled spans, fonts, and colors come straight
- * from the input HTML — no separate option surface.
- *
- *   import { drawTextOnPath } from 'render-tag/path';
- *   drawTextOnPath({
- *     html: '<b>Hello</b> <span style="color:red">world</span>',
- *     path: 'M0,50 Q200,0 400,50',
- *     ctx,
- *     align: 'center',
- *   });
- *
- * For finer control:
- *   const result = layoutTextOnPath({ html, path, align });
- *   drawTextOnPathLayout({ layout: result, ctx });
- *
- * Supported styles (matches the main renderer):
- *   font-family / size / weight / style / kerning
- *   color, -webkit-text-fill-color, -webkit-text-stroke (width + color), paint-order
- *   background-color (span backgrounds drawn as curve-following polygons)
- *   text-shadow (in path coordinates; multi-shadow supported)
- *   text-decoration: underline / line-through / overline (solid/dotted/dashed/double/wavy)
- *   text-decoration-color, text-decoration-style
- *   background-clip:text + background-image:linear-gradient (gradient flows along the path)
- *   letter-spacing, text-transform, direction: rtl, dir="rtl"
- *   Arabic / Hebrew / Indic / Thai / Khmer / Myanmar — shaped runs are
- *   rendered as a unit so cursive joining and reordering work correctly.
+ *   drawTextOnPath({ html: '<b>Hello</b> world', path: 'M0,50 Q200,0 400,50', ctx });
+ *   // or: drawTextOnPathLayout({ layout: layoutTextOnPath({ html, path }), ctx });
  */
 
 import type { ShadowOptions, ResolvedStyle, DecorationEntry } from '../types.js';
@@ -62,17 +38,10 @@ export interface LayoutTextOnPathConfig {
   path: string | PathLike;
   /** Alignment of text along the path (default 'left'). */
   align?: AlignMode;
-  /**
-   * Where the path runs relative to the rendered text. Default
-   * `'alphabetic'` (path = baseline, descenders drop below). Use `'middle'`
-   * for design-tool style "text centered on path" rendering. The choice
-   * also affects `bounds`.
-   */
+  /** Where the path runs relative to the text (default `'alphabetic'`;
+   * `'middle'` centers text on the path). Also affects `bounds`. */
   textBaseline?: TextBaseline;
-  /**
-   * Optional measurement context. If omitted, an offscreen canvas is created.
-   * Pass one to share font measurement caches with other render-tag calls.
-   */
+  /** Measurement context; an offscreen canvas when omitted. */
   ctx?: CanvasRenderingContext2D;
 }
 
@@ -97,14 +66,8 @@ export interface DrawTextOnPathConfig extends LayoutTextOnPathConfig, ShadowOpti
 export type DrawTextOnPathResult = TextOnPathLayout;
 
 /**
- * Compute glyph placements for rich text along a path, without drawing.
- * Useful for inspection, hit-testing, or rendering the same layout multiple times.
- * The HTML's CSS resolves against an infinite-width container, so wrapping
- * does not happen — all text flows along the path as one logical line.
- *
- * The caller's ctx (when passed) has its `font`, `fontKerning`, and
- * `letterSpacing` state saved+restored around the measurement work; nothing
- * leaks to the caller.
+ * Glyph placements for rich text along a path, without drawing. Text never
+ * wraps: it flows along the path as one line. The caller's ctx is restored.
  */
 export function layoutTextOnPath(config: LayoutTextOnPathConfig): TextOnPathLayout {
   const { html, align = 'left', textBaseline = 'alphabetic' } = config;
@@ -189,23 +152,12 @@ function pathPaintBounds(
   return bounds;
 }
 
-/** A shadow group's foreground ink, measured once per draw: the caller-shadow
- * bounds and the group's own shadow layer both need it. */
+/** A shadow group's foreground ink, measured once per draw. */
 function groupInk(ps: PaintState, group: PathShadowGroup, tb: TextBaseline): PaintBounds {
   return group.bounds ??= pathForegroundBounds(ps, group.glyphs.flat(), tb);
 }
 
-/**
- * Draw a pre-computed layout onto a canvas context.
- *
- * Rendering passes (matching CSS painting order):
- *   1. Span backgrounds (background-color, curve-following polygons)
- *   2. Text shadows (combined glyphs and decorations, in path coordinates)
- *   3. Glyph fill + stroke (paint-order aware; gradient text via slicing)
- *   4. Text decoration (underline / line-through / overline)
- *
- * ctx state is saved+restored around the entire batch — nothing leaks.
- */
+/** Draw a layout: backgrounds, text shadows, glyphs, decorations; ctx is restored. */
 export function drawTextOnPathLayout(config: DrawTextOnPathLayoutConfig): void {
   const { layout, ctx } = config;
   if (layout.glyphs.length === 0) return;
@@ -247,10 +199,7 @@ export function drawTextOnPath(config: DrawTextOnPathConfig): DrawTextOnPathResu
   return layout;
 }
 
-/**
- * A colour's canonical form, read back from `fillStyle`, so `red`, `#f00` and
- * `rgb(255, 0, 0)` group into one polygon or stroke. Cached per ctx.
- */
+/** A colour's canonical `fillStyle` form, so `red` and `#f00` group together. */
 const colorCanon = new WeakMap<CanvasRenderingContext2D, Map<string, string>>();
 function canonicalColor(ctx: CanvasRenderingContext2D, color: string): string {
   if (!color) return '';
@@ -321,7 +270,7 @@ function fillGlyphPolygon(
   ctx.fill();
 }
 
-/** True when the glyph's own fill paints nothing: EITHER transparency channel suppresses it. */
+/** The glyph's own fill paints nothing. */
 function isFillTransparent(style: ResolvedStyle): boolean {
   return style.webkitTextFillColor === 'transparent' ||
     style.color === 'transparent' ||
@@ -374,11 +323,7 @@ function strokePaintFor(
   return src ? sliceGradient(ctx, src.webkitTextStrokeImage, g, g.strokeImageRange, textWidth, baseY) : null;
 }
 
-/**
- * What fills this glyph, with the main renderer's precedence: the clip paint
- * when its own style declares the clip or its own fill is transparent, else
- * the solid fill; null = nothing.
- */
+/** What fills this glyph (the main renderer's precedence); null = nothing. */
 function effectiveFillPaint(
   ctx: CanvasRenderingContext2D,
   g: GlyphPlacement,
@@ -401,8 +346,7 @@ function drawGlyphs(
 ): void {
   const { ctx } = ps;
   for (const g of glyphs) {
-    // Paint state is set before the transform scope so it survives the
-    // restore. textBaseline stays 'alphabetic'; fillText's y is offset instead.
+    // Set before the transform scope so it survives the restore.
     ps.glyph(g.style);
     const baseY = baselineLocalY(tb, g.ascent, g.descent);
     // A shadow mask fills every glyph: its shadow is the glyph's shape.
@@ -429,11 +373,7 @@ function decorationFor(style: ResolvedStyle, lineKind: string): DecorationEntry 
   return null;
 }
 
-/**
- * Stroke each run of glyphs sharing one decoration along the path. A
- * transparent decoration over background-clip:text glyphs paints with the
- * clip paint (Chrome clips decorations too); with no clip declarer, nothing.
- */
+/** Stroke each run sharing one decoration; a transparent one uses the clip paint. */
 function drawDecorations(
   ps: PaintState,
   glyphs: GlyphPlacement[],
@@ -469,10 +409,7 @@ function drawDecorations(
   }
 }
 
-/**
- * Local-frame y of a decoration band for one glyph. Only the underline uses
- * the declarer's descent; the others hang off the glyph's own ascent.
- */
+/** A band's local y: underline off the declarer's descent, others the glyph's ascent. */
 function decorationLocalY(
   g: GlyphPlacement,
   deco: DecorationEntry,

@@ -15,9 +15,6 @@ import { PaintState, withDraw } from './paint-state.js';
 import { decorationBand, paintBand, type Band } from './decoration.js';
 import { BLINK_TEXT_RUN_SHAPING, STROKE_CASTS_TEXT_SHADOW } from './engine.js';
 
-/**
- * Check if a border is visible.
- */
 function hasBorder(style: ResolvedStyle, side: 'Top' | 'Right' | 'Bottom' | 'Left'): boolean {
   const width = style[`border${side}Width` as keyof ResolvedStyle] as number;
   const borderStyle = style[`border${side}Style` as keyof ResolvedStyle] as string;
@@ -25,13 +22,9 @@ function hasBorder(style: ResolvedStyle, side: 'Top' | 'Right' | 'Bottom' | 'Lef
 }
 
 /**
- * Corner radii [TL, TR, BR, BL] as ellipse radii for `roundRect`, or null
- * when every corner is square. Percentages resolve here: the horizontal
- * component against the box width, the vertical against its height — a bare
- * `border-radius: 50%` on a non-square box is an ellipse per corner, as in
- * the DOM. Overlapping radii shrink UNIFORMLY by the largest factor that
- * fits (css-backgrounds §4.5, per axis): scaling all corners together is
- * what keeps a pill (`border-radius: 999px`) a pill instead of a lens.
+ * Corner radii [TL, TR, BR, BL] for `roundRect`, or null when all square.
+ * Percentages resolve per axis; overlapping radii shrink uniformly
+ * (css-backgrounds §4.5), which keeps a pill a pill.
  */
 function cornerRadii(
   style: ResolvedStyle, width: number, height: number,
@@ -40,8 +33,7 @@ function cornerRadii(
     borderTopLeftRadius: tl, borderTopRightRadius: tr,
     borderBottomRightRadius: br, borderBottomLeftRadius: bl,
   } = style;
-  // Nearly every box is square on every corner, and this runs once per
-  // rendered box — bail before allocating anything.
+  // Hot path: bail before allocating.
   if (tl === 0 && tr === 0 && br === 0 && bl === 0) return null;
   const corners = [tl, tr, br, bl].map((r) => {
     if (typeof r === 'number') return { x: r, y: r };
@@ -71,19 +63,15 @@ function fillIsTransparent(style: ResolvedStyle): boolean {
 
 /** What fills and strokes a fragment's glyphs and clip-painted bands. */
 interface TextPaints {
-  /** Fill with the clip paint (a gradient or the declarer's color). */
+  /** Fill with the clip paint. */
   clipped: boolean;
-  /** The nearest declarer's clip paint, if any. */
   clip: CanvasGradient | string | null;
   stroke: CanvasGradient | null;
 }
 
 /**
- * Resolve a fragment's clip and stroke paints once — every run of a text
- * fragment shares its style and its declarer's fragment box, so one gradient
- * object serves them all (`PaintState.linearGradient`).
- * @param gradientFill — the clip paint threaded down from a declaring BLOCK
- * @param strokeGradient — the stroke gradient threaded down the same way
+ * Resolve a fragment's clip and stroke paints once; `gradientFill` and
+ * `strokeGradient` are threaded down from declaring blocks.
  */
 function textPaints(
   ps: PaintState,
@@ -93,31 +81,19 @@ function textPaints(
 ): TextPaints {
   const { style } = node;
 
-  // The background-clip:text paint from a declaring INLINE ancestor (e.g.
-  // <span>/<s>) whose non-inheriting background this run's own style doesn't
-  // carry: a gradient and/or solid color. Layout resolves the geometry — a box
-  // spanning the declaring element's fragment on this line (see
-  // assignInlineFragmentBoxes) — and this paint wins over any ancestor block
-  // `gradientFill`, because Chrome clips the NEAREST declaring element's
-  // background to the glyphs.
+  // An inline declarer's clip paint (layout's fragment box) beats a block's.
   const { clip: box, strokeImage } = node;
   const inlineClipPaint: CanvasGradient | string | null = box
     ? (box.image ? ps.linearGradient(box.image, box.x, box.width, box.y, box.height) : null) ??
       box.color ?? null
     : null;
 
-  // What actually fills this run's glyphs (and any clipped decoration band):
-  // the nearest inline declarer's paint if present, else the ancestor block's.
   const clip = inlineClipPaint ?? gradientFill ?? null;
 
-  // An ancestor's clip paint only shows when this run's own fill is
-  // transparent — an opaque own color paints over the clipped background and
-  // wins.
+  // An ancestor's clip paint shows only through a transparent own fill.
   const clipped = hasTextClip(style) ||
     ((gradientFill != null || inlineClipPaint != null) && fillIsTransparent(style));
 
-  // Same for the stroke gradient: an inline --rt-text-stroke-image declarer's
-  // fragment gradient wins over an ancestor block's threaded one.
   const inlineStroke = strokeImage
     ? ps.linearGradient(strokeImage.image, strokeImage.x, strokeImage.width, strokeImage.y, strokeImage.height)
     : null;
@@ -136,9 +112,7 @@ function drawGlyphs(ps: PaintState, node: LayoutText, y: number, paints: TextPai
       ps.fill(paints.clip || style.color);
       ctx.fillText(node.text, node.x, y);
     } else if (!isFillTransparent || ps.coverage) {
-      // Normal text fill. A transparent fill paints NOTHING, stroked or not —
-      // Chrome hides the glyphs entirely for `-webkit-text-fill-color:
-      // transparent` (or `color: transparent`) even without a stroke.
+      // Chrome paints nothing for a transparent fill, even without a stroke.
       ps.fill(textFillColor(style));
       ctx.fillText(node.text, node.x, y);
     }
@@ -159,12 +133,7 @@ function drawGlyphs(ps: PaintState, node: LayoutText, y: number, paints: TextPai
   }
 }
 
-/**
- * Do `a` and `b` belong to one text fragment — the unit the engine paints a
- * decoration across? One text node's pieces on one line: the same style
- * object, no measured-run seam between them (`Hello<!---->World` is two text
- * nodes of one style), the same baseline, touching edges.
- */
+/** One text fragment: same style, no measured-run seam, same baseline, touching. */
 function sameTextFragment(a: LayoutText, b: LayoutText): boolean {
   if (b.style !== a.style || startsMeasuredRun(b) || b.y !== a.y || b.lineBaselineY !== a.lineBaselineY) return false;
   const [al, ar] = textEdges(a), [bl, br] = textEdges(b);
@@ -172,26 +141,11 @@ function sameTextFragment(a: LayoutText, b: LayoutText): boolean {
 }
 
 /**
- * The decoration bands over one text fragment, ancestors' entries first (so
- * a child's own decoration lands on top), each in its ORIGIN element's color
- * and style, matching Chrome's non-inherited decoration propagation.
- *
- * Geometry splits, measured against Chrome for `30px ABC + 80px Tale` under
- * one declaration (see tests/decorating-box-geometry.test.ts):
- *  - THICKNESS is the decorating box's for all three lines — the band over
- *    the 80px child stays 3px, the 30px declarer's.
- *  - The UNDERLINE also takes its position from the decorating box: one flat
- *    band at rows 225-227 across both runs. It hangs off the alphabetic
- *    baseline, which every fragment on the line shares.
- *  - The OVERLINE and the LINE-THROUGH do NOT: Chrome steps them per
- *    fragment (193-195 vs 148-150, and 213-215 vs 168-170), because each
- *    hangs off the crossed fragment's own ascent, not a shared line.
- *
- * `vertical-align` splits the same way: an underline declared ABOVE a
- * `super` child stays flat across it (measured: one band, x 0-228), while
- * the overline and the strike step up with the child. So the underline
- * hangs off the DECLARER's baseline — the line's own, unless the declarer
- * is the shifted element itself, which then carries the band up with it.
+ * A fragment's decoration bands, ancestors' first, each in its declarer's
+ * color and style. Thickness and the underline's baseline come from the
+ * declarer (one flat band, even over a `super` child it does not own); the
+ * overline and line-through follow each fragment's own ascent.
+ * tests/decorating-box-geometry.test.ts.
  */
 function fragmentBands(
   ps: PaintState, runs: LayoutText[], snap: number, paints: TextPaints,
@@ -209,23 +163,15 @@ function fragmentBands(
   let ascent: number | undefined;
   const bands: { band: Band; color: string | CanvasGradient }[] = [];
   for (const deco of style.textDecorations) {
-    // A transparent decoration inside a background-clip:text element shows
-    // the clipped background through the band (Chrome includes decorations
-    // in the clip region), so paint it with that paint — REGARDLESS of this
-    // run's own glyph fill: a solid-colored span inside a gradient element
-    // still gets the gradient band across it. Transparent with no clip paint
-    // paints nothing.
+    // A transparent band shows the clip paint, whatever this run's own fill.
     let color: string | CanvasGradient = deco.color;
     if (isTransparent(deco.color)) {
       if (!paints.clip) continue;
       color = paints.clip;
     }
-    // The line's own baseline when this run was moved off it by
-    // vertical-align and the DECLARER stayed behind (`lineBaselineY` is set
-    // only on a shifted run).
+    // `lineBaselineY` is set only on a vertical-align-shifted run.
     const underlineBaseline =
       lineBaseline !== undefined && !isShiftedVAlign(deco.declarer.verticalAlign) ? lineBaseline : baseline;
-    // The overline and the line-through hang off the crossed run's ascent.
     if (deco.line !== 'underline') ascent ??= ps.fontBox(style).ascent;
     const band = decorationBand(deco, {
       baseline, underlineBaseline, fontSize: style.fontSize, ascent: ascent ?? 0, snap,
@@ -235,11 +181,8 @@ function fragmentBands(
   return bands;
 }
 
-/**
- * Paint one text fragment: its underlines and overlines, its glyphs, then
- * its line-throughs — the order the engine paints a text fragment in.
- * `originals` are the layout nodes behind `runs` (a batched run is a copy).
- */
+/** Paint a fragment in engine order: under/overlines, glyphs, line-throughs.
+ * `originals` are the layout nodes behind `runs` (a batched run is a copy). */
 function paintFragment(
   ps: PaintState,
   runs: LayoutText[],
@@ -275,8 +218,7 @@ function canShapeAsRun(node: LayoutText): boolean {
 /** Called before each text fragment's paint, with each of its runs. */
 type BeforeText = (ctx: CanvasRenderingContext2D, node: LayoutText) => void;
 
-/** The children of `box` when Blink would paint them as shaped runs:
- * every child plain, LTR, undecorated text (`canShapeAsRun`). */
+/** `box`'s children when Blink paints them as shaped runs. */
 function batchedRuns(box: LayoutBox): LayoutText[] | null {
   return BLINK_TEXT_RUN_SHAPING &&
     box.children.every(child => child.type === 'text' && canShapeAsRun(child))
@@ -288,7 +230,6 @@ function forEachBatch(runs: LayoutText[], visit: (run: LayoutText, head: LayoutT
   for (let i = 0; i < runs.length; i++) {
     const head = runs[i];
     let text = head.text, width = head.width;
-    // One fillText only for pieces measured as one run (`startsMeasuredRun`).
     while (i + 1 < runs.length && runs[i + 1].style === head.style && !startsMeasuredRun(runs[i + 1]) &&
       runs[i + 1].y === head.y && Math.abs(runs[i + 1].x - (head.x + width)) <= 0.01) {
       text += runs[i + 1].text;
@@ -332,7 +273,7 @@ function forEachFragment(
   }
 }
 
-/** Render a layout box and its children to canvas. */
+/** Paint a box and its children; clip and stroke paints thread down from declaring blocks. */
 function renderBox(
   ps: PaintState,
   box: LayoutBox,
@@ -345,8 +286,6 @@ function renderBox(
 
   const radii = cornerRadii(style, box.width, box.height);
 
-  // Background. With background-clip:text the background is NOT painted as a
-  // box — it's clipped to descendant glyphs (threaded below as the text fill).
   if (paintsBoxBackground(style)) {
     ps.fill(style.backgroundColor);
     if (radii) {
@@ -358,13 +297,9 @@ function renderBox(
     }
   }
 
-  // Borders. A rounded box with the same border on all four sides — the only
-  // shape browsers give clean corner joins to, and the one authors write —
-  // strokes the rounded path once, on the stroke's centerline (radius shrinks
-  // by half the width there, matching the border-box outer curve). Rounded
-  // corners with per-side borders keep the straight-line paint below: the
-  // browser's per-corner color transitions aren't reproducible with strokes,
-  // and the combination is vanishingly rare.
+  // A uniform rounded border strokes the rounded path once on its centerline;
+  // per-side borders on rounded corners stay straight lines (rare, and per-corner
+  // color joins are not reproducible with strokes).
   const uniformRoundedBorder = radii !== null && hasBorder(style, 'Top') &&
     (['Right', 'Bottom', 'Left'] as const).every((side) =>
       style[`border${side}Width`] === style.borderTopWidth &&
@@ -399,26 +334,12 @@ function renderBox(
     }
   }
 
-  // Pre-compute the paint for background-clip: text elements — a gradient
-  // (background-image) or a solid color (background-color). It spans the
-  // declaring box and threads through descendant boxes (browsers clip the
-  // ancestor's background to ALL descendant glyphs, so text inside block
-  // children like <p>/<li> keeps it — the background properties themselves
-  // don't inherit); a box declaring its own clipping background overrides it.
-  // (Inline declarers are resolved in layout via node.clip, not here.)
-  // An unparseable image with no solid color keeps the ancestor's paint.
+  // background-clip:text paints ALL descendant glyphs (CSS painting, not inheritance).
   if (hasTextClip(style)) gradientFill = blockClipPaint(ps, box) ?? gradientFill;
 
-  // Pre-compute the stroke gradient the same way: it spans the declaring box
-  // and threads through descendants (a box declaring its own overrides it).
-  // -webkit-text-stroke-image isn't inherited as a value; the computed gradient
-  // is threaded down instead — exactly like the background-clip:text fill.
   if (hasStrokeImage(style)) strokeGradient = blockStrokePaint(ps, box);
 
-  // Paint plain LTR words from one source run together. Layout stays
-  // word-based (and remains public); only fillText gets the browser's full
-  // shaping context across spaces. A box is eligible only when every child is
-  // plain text, so a complex fragment cannot change neighboring paint.
+  // Batched paint: one fillText per source run keeps shaping across spaces.
   const runs = batchedRuns(box);
   if (runs) {
     forEachBatch(runs, (run, head) => paintFragment(ps, [run], [head], gradientFill, strokeGradient, beforeText));
@@ -430,26 +351,17 @@ function renderBox(
   });
 }
 
-/**
- * Render any layout node.
- */
 function paintNode(ps: PaintState, node: LayoutNode, beforeText?: BeforeText): void {
   if (node.type === 'text') paintFragment(ps, [node], [node], null, null, beforeText);
   else renderBox(ps, node, null, null, beforeText);
 }
 
-/**
- * A text fragment with a text-shadow, as the shadow mask repaints it: its
- * runs, and the declaring blocks whose clip and stroke paints thread down to
- * it (`renderBox`), so the mask resolves the same paints on its own ctx.
- */
+/** A shadowed fragment and the declaring blocks whose paints its mask re-resolves. */
 interface ShadowFragment {
   runs: LayoutText[];
-  /** background-clip:text blocks, outermost first. */
+  /** Outermost first. */
   clips: readonly LayoutBox[];
-  /** The nearest --rt-text-stroke-image block. */
   stroke: LayoutBox | null;
-  /** Its foreground ink, measured once per draw (`shadowPieces`). */
   bounds?: PaintBounds;
 }
 
@@ -461,11 +373,7 @@ type ShadowGroup = {
 /** Each run's shadow groups, keyed by the run they paint before. */
 type ShadowPasses = Map<LayoutText, Map<string, ShadowGroup>>;
 
-/**
- * Collect every shadow group in ONE walk of the tree, recording each
- * shadowed fragment with what its mask needs — the mask then repaints just
- * those fragments, instead of replaying the tree from the root per group.
- */
+/** Every shadow group in one walk, so a mask repaints only its fragments. */
 function collectShadowPasses(root: LayoutNode): ShadowPasses {
   const passes: ShadowPasses = new Map();
   const parsed = new Map<ResolvedStyle, { shadows: TextShadow[]; key: string }>();
@@ -483,8 +391,7 @@ function collectShadowPasses(root: LayoutNode): ShadowPasses {
   };
   const box = (node: LayoutBox, clips: readonly LayoutBox[], stroke: LayoutBox | null) => {
     const { style } = node;
-    // A later box paint may cover earlier overflowing text. Keep that order;
-    // runs without an intervening background/border share a shadow pass.
+    // A box paint may cover earlier text: it starts a new shadow pass.
     if (paintsBoxBackground(style) ||
       (['Top', 'Right', 'Bottom', 'Left'] as const).some(side => hasBorder(style, side))) first = undefined;
     if (hasTextClip(style)) clips = [...clips, node];
@@ -504,8 +411,7 @@ function collectShadowPasses(root: LayoutNode): ShadowPasses {
   return passes;
 }
 
-/** Repaint one shadowed fragment onto a mask, with its threaded paints
- * resolved on the mask's own ctx. */
+/** Repaint a shadowed fragment onto a mask with paints resolved on its ctx. */
 function paintShadowFragment(ps: PaintState, fragment: ShadowFragment): void {
   let fill: CanvasGradient | string | null = null;
   for (const block of fragment.clips) fill = blockClipPaint(ps, block) ?? fill;
@@ -513,8 +419,7 @@ function paintShadowFragment(ps: PaintState, fragment: ShadowFragment): void {
   paintFragment(ps, fragment.runs, fragment.runs, fill, stroke, undefined);
 }
 
-/** Measured on `ps.ctx` with the text state paint uses; `ps` keeps the ctx's
- * state consistent for the paint that may share it. */
+/** Measured through `ps`, which keeps the ctx state the paint may share. */
 function foregroundBounds(
   ps: PaintState, node: LayoutNode, original: LayoutNode = node,
 ): PaintBounds {
@@ -534,8 +439,7 @@ function foregroundBounds(
   return bounds;
 }
 
-/** A shadow group's fragments with their foreground ink: the caller-shadow
- * bounds and the group's own shadow both need it, so it is measured once. */
+/** A group's fragments with their foreground ink, measured once. */
 function shadowPieces(ps: PaintState, group: ShadowGroup): (ShadowFragment & ShadowPiece)[] {
   for (const fragment of group.fragments) {
     fragment.bounds ??= fragment.runs.map(run => foregroundBounds(ps, run)).reduce(unionBounds);
@@ -571,10 +475,8 @@ export function renderNode(
       paintNode(stateOf(target), node, (destination, run) => {
         const groups = passes.get(run);
         if (!groups) return;
-        // A mask copies the destination's dash and cap (`prepareLayer`) but
-        // its fresh tracker assumes solid and butt: put the destination back
-        // on that assumption first, or a dotted band painted just before
-        // dashes the mask's solid strokes.
+        // The mask copies the destination's dash (`prepareLayer`) but its fresh
+        // tracker assumes solid: reset the destination first.
         stateOf(destination).finish();
         for (const group of groups.values()) {
           paintTextShadows(destination, shadowPieces(measure, group), group.shadows, (mask, pieces) => {

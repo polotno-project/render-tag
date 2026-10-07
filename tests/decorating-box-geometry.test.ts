@@ -1,16 +1,8 @@
 /**
- * What the DECORATING box owns, and what it does not.
- *
- * The rule, and the Chrome rows it was measured from, live beside the code
- * that implements it — `renderText` in src/render.ts. In short: the box that
- * DECLARES a decoration owns the thickness of all three lines and the position
- * of the underline only; the overline and the line-through hang off whichever
- * fragment they cross.
- *
- * The bug this locks down: the painter took thickness AND position from each
- * RUN's own font, so a parent-declared underline over mixed sizes came out as
- * steps of different thickness. The fix must not overshoot in the other
- * direction and flatten the overline or the line-through.
+ * What the DECORATING box owns (`fragmentBands` in src/render.ts): the
+ * thickness of all three lines and the underline's position. The overline and
+ * the line-through hang off whichever fragment they cross, so they must not
+ * be flattened either.
  *
  * Positions are compared as PROFILES — the band's center per pixel column,
  * canvas against the live DOM — so no fixed sampling window has to be kept in

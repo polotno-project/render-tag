@@ -824,11 +824,9 @@ describe('drawTextOnPath (integration)', () => {
 });
 
 describe('decoration geometry on a path follows the DECORATING box', () => {
-  // The path renderer has to make the same call as the block renderer
-  // (`renderText` in src/render.ts): a parent-declared underline keeps the
-  // declarer's thickness and offset across a bigger child instead of stepping
-  // down to it. Red band on black glyphs, on a straight horizontal path, so
-  // the band's rows can be read straight off the raster.
+  // Same rule as `fragmentBands` in src/render.ts: a parent-declared underline
+  // keeps the declarer's thickness and offset across a bigger child. Red band
+  // on black glyphs along a straight path, read straight off the raster.
   const band = (ctx: CanvasRenderingContext2D, w: number, h: number, x0: number, x1: number) => {
     const d = ctx.getImageData(0, 0, w, h).data;
     const rows: number[] = [];

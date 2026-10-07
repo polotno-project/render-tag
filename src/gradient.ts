@@ -1,17 +1,13 @@
 import { splitTopLevel, splitTopLevelWhitespace } from './css-validate.js';
 
-// ─── CSS linear-gradient → CanvasGradient ────────────────────────────────
-
 const ANGLE = /^([+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)(deg|grad|rad|turn)$/i;
 const DEGREES_PER: Record<string, number> = { deg: 1, grad: 0.9, rad: 180 / Math.PI, turn: 360 };
 const STOP_LENGTH = /^([+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)(%|px)?$/i;
 
 /**
- * The CSS angle of a `linear-gradient` direction, or null when `part` is not
- * one (it is then the first color stop). A corner keyword depends on the
- * box: the gradient line is perpendicular to the diagonal joining the two
- * NEIGHBOURING corners (CSS Images 3, §3.1.1), so `to top right` on a
- * 200×100 box is 26.57deg, not 45deg.
+ * The CSS angle of a direction, or null when `part` is a color stop. A corner
+ * is perpendicular to the diagonal of the neighbouring corners (CSS Images 3
+ * §3.1.1): `to top right` on 200×100 is 26.57deg.
  */
 function gradientAngle(part: string, width: number, height: number): number | null {
   const angle = ANGLE.exec(part);
@@ -30,23 +26,10 @@ function gradientAngle(part: string, width: number, height: number): number | nu
 }
 
 /**
- * Parse a CSS linear-gradient into a canvas CanvasGradient spanning the box
- * (x, y, width, height), the gradient's painting area.
- *
- * Color stops follow CSS Images 3 §3.4.3: a stop with no position sits
- * evenly between its positioned neighbours (the first defaults to 0%, the
- * last to 100%); a position before an earlier one is raised to it; a stop
- * with two positions is two stops. Positions are % or px of the gradient
- * line. Canvas only takes offsets in [0, 1], so stops outside 0-100% stretch
- * the canvas gradient line over their whole range instead of being dropped
- * (the canvas pads past either end exactly like CSS does). A color hint is
- * IGNORED: the transition stays linear between its neighbouring stops, with
- * its midpoint halfway, wherever the hint puts it (canvas cannot reproduce
- * the hint's curve without parsing colors to mix them).
- *
- * `repeating-linear-gradient` tiles its stop list along the gradient line,
- * one period = last position - first position, unrolled into plain stops
- * over the painted span (CSS Images 3 §3.5).
+ * A CSS (repeating-)linear-gradient as a CanvasGradient over the box. Stops
+ * follow CSS Images 3 §3.4.3; out-of-range stops stretch the canvas line.
+ * Deviations: a color hint is ignored (linear transition), and a repeating
+ * gradient is unrolled into plain stops.
  */
 export function parseLinearGradient(
   ctx: CanvasRenderingContext2D,
@@ -56,7 +39,6 @@ export function parseLinearGradient(
   y: number,
   height: number,
 ): CanvasGradient | null {
-  // Extract content inside linear-gradient(...) handling nested parens
   const startIdx = bgImage.indexOf('linear-gradient(');
   if (startIdx === -1) return null;
   let depth = 0;
@@ -84,7 +66,6 @@ export function parseLinearGradient(
   for (const entry of parts.slice(direction === null ? 0 : 1)) {
     const tokens = splitTopLevelWhitespace(entry);
     const positions: number[] = [];
-    // Trailing lengths are positions (a unitless one only as `0`).
     while (tokens.length > 1) {
       const m = STOP_LENGTH.exec(tokens[tokens.length - 1]);
       if (!m || (!m[2] && parseFloat(m[1]) !== 0)) break;
@@ -92,7 +73,7 @@ export function parseLinearGradient(
       positions.unshift(m[2] === '%' ? value / 100 : length > 0 ? value / length : 0);
       tokens.pop();
     }
-    // A lone length is a color hint: ignored (see above).
+    // A color hint.
     if (tokens.length === 1 && STOP_LENGTH.test(tokens[0])) continue;
     if (tokens.length === 0 || positions.length > 2) continue;
     const color = tokens.join(' ');
@@ -101,7 +82,6 @@ export function parseLinearGradient(
   }
   if (stops.length === 0) return null;
 
-  // Fix up the positions: first/last default, monotonic, then even spacing.
   if (stops[0][1] === null) stops[0][1] = 0;
   if (stops[stops.length - 1][1] === null) stops[stops.length - 1][1] = 1;
   let max = -Infinity;
@@ -137,24 +117,17 @@ export function parseLinearGradient(
     try {
       gradient.addColorStop(Math.min(1, Math.max(0, (offset! - first) / span)), color);
     } catch {
-      // An invalid color: the browser drops the whole declaration; we keep
-      // the stops we can paint.
+      // Invalid color: keep the paintable stops.
     }
   }
   return gradient;
 }
 
-/** At most this many stops after unrolling: a sub-pixel period would
- * otherwise ask for one stop per pixel of a long line, and the browser
- * paints such a gradient as its average color anyway. */
+/** Unrolled-stop cap: a sub-pixel period would need a stop per pixel. */
 const MAX_REPEATED_STOPS = 4096;
 
-/**
- * A repeating gradient's stops tiled over the gradient line [0, 1], or null
- * when the period is too small to unroll. A zero period paints the last
- * stop's color everywhere (CSS Images 3 §3.5: the average color, which for
- * coincident stops is the last one painted).
- */
+/** Stops tiled over [0, 1], or null when the period is too small. A zero
+ * period paints the last stop's color (CSS Images 3 §3.5). */
 function repeatStops(stops: [string, number][]): [string, number][] | null {
   const start = stops[0][1], period = stops[stops.length - 1][1] - start;
   if (!(period > 0)) {
@@ -166,8 +139,7 @@ function repeatStops(stops: [string, number][]): [string, number][] | null {
   const tiled: [string, number][] = [];
   let previous = -Infinity;
   for (let k = from; k < to; k++) {
-    // Monotonic: a tile's first stop must not round below the previous
-    // tile's last, or the canvas sorts it in front and the seam inverts.
+    // Monotonic, or rounding inverts a tile seam.
     for (const [color, offset] of stops) tiled.push([color, previous = Math.max(previous, offset + k * period)]);
   }
   return tiled;

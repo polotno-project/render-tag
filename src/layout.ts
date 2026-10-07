@@ -2946,7 +2946,7 @@ function emitLineText(
       registerTextNode(out, {
         type: 'text',
         text: word.text,
-        // An RTL run is anchored at its right edge (renderText's textAlign).
+        // An RTL run is anchored at its right edge (`PaintState.text` sets textAlign).
         x: word.refs.style.direction === 'rtl' ? textX + textWidth : textX,
         y: lineBaselineY,
         width: textWidth,
@@ -2960,7 +2960,7 @@ function emitLineText(
     if (isShiftedVAlign(word.refs.style.verticalAlign)) baselineY += wordBaselineShift(out, word);
     const effectiveWidth = word.width + (word.isSpace ? justifyExtraPerSpace : 0);
     // A bidi piece paints in its level's direction; an RTL one is anchored
-    // at its right edge (renderText's textAlign).
+    // at its right edge (`PaintState.text` sets textAlign).
     const rtlPiece = levels !== null && levels[wordIndex] % 2 === 1;
 
     registerTextNode(out, {
