@@ -91,9 +91,9 @@ interface LayoutLineBox {
 These rectangles use canvas coordinates and the line heights used during layout.
 Each box owns its lines; table cells and inline-blocks keep separate arrays.
 An absent or empty array means the box has no lines of its own.
-The metadata reflects the current layout, including its existing limitations:
-RTL inline-block content is flattened, and inline-blocks containing only `<br>`
-elements are dropped. Neither case has separate inner line boxes.
+The metadata reflects the current layout, including one existing limitation:
+an inline-block containing only `<br>` elements is dropped and has no inner
+line boxes.
 
 `endedByHardBreak` is true for `<br>` and preserved newlines. It is false for
 soft wraps, the end of content, and lines cut by an ellipsis. Soft-hyphen

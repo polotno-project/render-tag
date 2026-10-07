@@ -103,6 +103,18 @@ describe('layout line metadata', () => {
     expect(boxes(result.layoutRoot, 'p')[0].lineBoxes).toHaveLength(1);
   });
 
+  it('keeps an RTL inline-block box and its lines; drops a <br>-only one', () => {
+    const rtl = layout({
+      html: `<p dir="rtl" style="${STYLE};width:300px">שלום <span style="display:inline-block;width:60px">אבג דהו זחט</span> עולם</p>`,
+      width: 400,
+    });
+    expect(boxes(rtl.layoutRoot, 'span')[0].lineBoxes).toHaveLength(3);
+    const brOnly = layout({
+      html: `<p style="${STYLE}">a <span style="display:inline-block"><br><br></span> b</p>`, width: 400,
+    });
+    expect(boxes(brOnly.layoutRoot, 'span')).toEqual([]);
+  });
+
   it('keeps simultaneous table-cell lines separate', () => {
     const result = layout({
       html: `<table style="${STYLE}"><tr><td>a<br><br>b</td><td>a b</td></tr></table>`,

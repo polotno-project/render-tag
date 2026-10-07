@@ -1073,6 +1073,19 @@ describe('Layout logic (mocked measureText)', () => {
       ])).toEqual([80, 120]);
     });
 
+    it('a declared width is the base size; the box takes the used width', () => {
+      const items = (width: number) => {
+        const root = doLayout(block('div', [block('div', [
+          block('div', [textNode('A')], { width, flexGrow: 1 }),
+          block('div', [textNode('B')], { width, flexGrow: 1 }),
+        ], { display: 'flex', flexDirection: 'row', gap: 20 })]), 200);
+        return ((root.children[0] as LayoutBox).children as LayoutBox[]).map(({ x, width }) => ({ x, width }));
+      };
+      // Grows 50 → 90, shrinks 150 → 90: the box spans exactly its advance.
+      expect(items(50)).toEqual([{ x: 0, width: 90 }, { x: 110, width: 90 }]);
+      expect(items(150)).toEqual([{ x: 0, width: 90 }, { x: 110, width: 90 }]);
+    });
+
     it('gap comes off the space the items share', () => {
       expect(flexRow([
         block('div', [textNode('A')], { flexGrow: 1, flexBasis: 0 }),

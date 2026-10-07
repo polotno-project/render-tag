@@ -3226,6 +3226,8 @@ function leadingStrut(node: StyledNode, strut: MarginStrut = NO_MARGIN): MarginS
  * Lay out a block and its children. `y` is the border-box top (the caller resolved the
  * margins above, `leadingStrut`); margins leaving the bottom return as `marginBottomOut`.
  * `bfcRoot`: a BFC root by position (the root, a flex item, a table cell).
+ * `usedWidth`: `availableWidth` is the margin box the caller already sized (a flex-row
+ * item, a table cell), so a declared width does not override it.
  */
 function layoutBlock(
   session: LayoutSession,
@@ -3235,6 +3237,7 @@ function layoutBlock(
   availableWidth: number,
   clamp?: LineClampState,
   bfcRoot = false,
+  usedWidth = false,
 ): { box: LayoutBox; height: number; marginBottomOut: MarginStrut } {
   const style = node.style;
 
@@ -3252,7 +3255,7 @@ function layoutBlock(
   // An explicit width sizes the box `box-sizing` names; otherwise the box fills the width.
   let boxWidth: number;
   let contentWidth: number;
-  if (style.width > 0) {
+  if (style.width > 0 && !usedWidth) {
     const frame = horizontalFrame(style);
     boxWidth = borderBoxSize(style, style.width, frame);
     contentWidth = contentBoxSize(style, style.width, frame);
@@ -3459,7 +3462,7 @@ function layoutTable(
       const cell = cells[i];
       const cellX = contentX + i * colWidth;
 
-      const { box: cellBox, height: cellHeight } = layoutBlock(session, cell, cellX, curY, colWidth, undefined, true);
+      const { box: cellBox, height: cellHeight } = layoutBlock(session, cell, cellX, curY, colWidth, undefined, true, true);
       cellBoxes.push(cellBox);
       maxCellHeight = Math.max(maxCellHeight, cellHeight);
     }
@@ -3725,7 +3728,7 @@ function layoutFlex(
       const child = flexChildren[index];
       const childWidth = widths[index];
 
-      const { box, height } = layoutBlock(session, child, curX, contentY, childWidth, undefined, true);
+      const { box, height } = layoutBlock(session, child, curX, contentY, childWidth, undefined, true, true);
       children.push(box);
       maxHeight = Math.max(maxHeight, height);
       curX += childWidth + gap;

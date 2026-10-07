@@ -1989,6 +1989,32 @@ export async function loadFlexCases(): Promise<BenchmarkCase[]> {
         `<section class="c">epsilon</section></div>`,
     },
     {
+      // A declared width is the item's flex base size, not its used size: the
+      // row still grows or shrinks it. (Widths are inline, see above.)
+      name: 'Flex declared width grows',
+      css: `${row} section { flex-grow: 1; }`,
+      html: `<div class="row"><section style="width:100px">Latency numbers every programmer should know</section>` +
+        `<section style="width:100px">alpha beta gamma delta epsilon</section></div>`,
+    },
+    {
+      name: 'Flex declared width beside flex 1',
+      css: `${row} section { flex: 1; }`,
+      html: `<div class="row"><section style="width:100px">Latency numbers every programmer should know</section>` +
+        `<section style="width:100px">alpha beta gamma delta epsilon</section></div>`,
+    },
+    {
+      name: 'Flex declared widths overflow',
+      css: row,
+      html: `<div class="row"><section style="width:300px">Latency numbers</section>` +
+        `<section style="width:300px">alpha beta gamma</section></div>`,
+    },
+    {
+      name: 'Flex percent widths with gap',
+      css: row,
+      html: `<div class="row"><section style="width:50%">Latency numbers every programmer should know</section>` +
+        `<section style="width:50%">alpha beta gamma delta epsilon</section></div>`,
+    },
+    {
       name: 'Flex column direction',
       css: `.row { display: flex; flex-direction: column; gap: 8px; } section { flex: 1; }`,
       html: `<div class="row">${columns}</div>`,
@@ -2067,6 +2093,12 @@ export async function loadBoxModelCases(): Promise<BoxModelCase[]> {
       // against its width and pushes "ef" to a second line.
       name: 'inline-block with percent padding inside',
       html: `<span style="${m(1)}${ib}">ab <span style="background:#fde68a;padding-left:20%">cd</span> ef</span>`,
+    },
+    {
+      // Cells take the column width the table decided, not their declared one.
+      name: 'table cell declared width',
+      html: `<table style="width:300px;border-collapse:collapse"><tr>` +
+        `<td style="${m(1)}width:50px;padding:0">a</td><td style="${m(2)}width:50px;padding:0">b</td></tr></table>`,
     },
     {
       name: 'percent width inside a flex item',
