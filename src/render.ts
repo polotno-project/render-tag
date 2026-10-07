@@ -7,33 +7,10 @@ import {
   startsMeasuredRun,
 } from './layout.js';
 import { isTransparent, paintOrderHasStrokeFirst } from './css-resolver.js';
-import { paintTextShadows, ScratchPool, shadowBounds, textPaintBounds, unionBounds, withCanvasShadow, withoutCanvasShadow, type PaintBounds, type ShadowPiece } from './shadow.js';
+import { paintTextShadows, ScratchPool, shadowBounds, shadowsOf, textPaintBounds, unionBounds, withCanvasShadow, withoutCanvasShadow, type PaintBounds, type ShadowPiece, type TextShadow } from './shadow.js';
 import { PaintState } from './paint-state.js';
 import { decorationBand, paintBand, type Band } from './decoration.js';
 import { BLINK_TEXT_RUN_SHAPING, STROKE_CASTS_TEXT_SHADOW } from './engine.js';
-
-/**
- * Parse a CSS text-shadow string into individual shadow values.
- * Format: "2px 2px 4px rgba(0,0,0,0.3), ..."
- */
-export function parseTextShadows(shadow: string, currentColor: string): Array<{
-  offsetX: number; offsetY: number; blur: number; color: string;
-}> {
-  if (!shadow || shadow === 'none') return [];
-  const shadows: Array<{ offsetX: number; offsetY: number; blur: number; color: string }> = [];
-  for (const part of shadow.split(/,(?![^(]*\))/)) {
-    const tokens = part.trim().match(/[^\s(]+\([^)]*\)|[^\s]+/g) ?? [];
-    const lengths: number[] = [];
-    let color = currentColor;
-    for (const token of tokens) {
-      if (/^[+-]?(?:\d*\.)?\d+(?:px)?$/.test(token)) lengths.push(parseFloat(token));
-      else color = token.toLowerCase() === 'currentcolor' ? currentColor : token;
-    }
-    if (lengths.length < 2 || lengths.length > 3 || (lengths[2] ?? 0) < 0) continue;
-    shadows.push({ offsetX: lengths[0], offsetY: lengths[1], blur: lengths[2] ?? 0, color });
-  }
-  return shadows;
-}
 
 /**
  * Check if a border is visible.
@@ -493,7 +470,7 @@ interface ShadowFragment {
 
 type ShadowGroup = {
   fragments: ShadowFragment[];
-  shadows: ReturnType<typeof parseTextShadows>;
+  shadows: TextShadow[];
 };
 
 /** Each run's shadow groups, keyed by the run they paint before. */
@@ -506,16 +483,12 @@ type ShadowPasses = Map<LayoutText, Map<string, ShadowGroup>>;
  */
 function collectShadowPasses(root: LayoutNode): ShadowPasses {
   const passes: ShadowPasses = new Map();
-  const parsed = new Map<ResolvedStyle, { shadows: ReturnType<typeof parseTextShadows>; key: string }>();
+  const parsed = new Map<ResolvedStyle, { shadows: TextShadow[]; key: string }>();
   let first: LayoutText | undefined;
   const fragment = (runs: LayoutText[], clips: readonly LayoutBox[], stroke: LayoutBox | null) => {
     for (const run of runs) first ??= run;
     const { style } = runs[0];
-    let entry = parsed.get(style);
-    if (!entry) {
-      const shadows = parseTextShadows(style.textShadow, style.color);
-      parsed.set(style, entry = { shadows, key: JSON.stringify(shadows) });
-    }
+    const entry = shadowsOf(parsed, style);
     if (!entry.shadows.length) return;
     let groups = passes.get(first!);
     if (!groups) passes.set(first!, groups = new Map());

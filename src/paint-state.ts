@@ -7,24 +7,18 @@ import { parseLinearGradient } from './gradient.js';
 
 // ─── Paint state ──────────────────────────────────────────────────────
 //
-// Paint used to wrap every text run in `save` → font, baseline, kerning,
-// spacing → `restore`: 3,675 pairs for a large document, and on a PDF proxy
-// each pair is a q/Q in the content stream. `PaintState` instead writes each
-// property only when the value changes, and never relies on `restore` to put
-// one back — some drawing-command proxies do not snapshot every property
-// (shadow.ts), so every value an operation reads is written for it.
+// Writes each ctx property only when its value changes, instead of a
+// save/restore per run (each pair is a q/Q on a PDF proxy). Never relies on
+// `restore` to put a value back: some drawing-command proxies do not
+// snapshot every property (shadow.ts).
 //
-// A tracker starts knowing nothing about its ctx (the caller's, or a reused
-// one, holds whatever it holds), so its first write of each property always
-// happens. Anything else that writes a tracked property on the same ctx
-// during a draw must either go through the tracker or put the value back,
-// as `getFontMetrics` does — or claim the ctx (`claimCtx`), as a `Measurer`
-// does: a nested `layout()` run from inside the caller's `measureText` moves
-// the measuring state under the tracker, which then writes it again.
+// A tracker starts knowing nothing about its ctx. Any other writer of a
+// tracked property during a draw must go through the tracker, put the value
+// back (`getFontMetrics`), or claim the ctx (`claimCtx`, as `Measurer` does
+// for a nested `layout()` run from the caller's `measureText`).
 //
-// `save()`/`restore()` are for a transform or clip scope that genuinely needs
-// them. A value written inside the scope is forgotten when it closes: the ctx
-// may or may not have rolled it back, so the next use writes it again.
+// `save()`/`restore()` are for transform or clip scopes; a value written
+// inside a scope is forgotten when it closes and written again on next use.
 
 type Key =
   | 'font' | 'fontKerning' | 'letterSpacing' | 'wordSpacing'
@@ -77,14 +71,23 @@ export class PaintState {
 
   /** A style's font ascent and descent, as layout measured them (`fontMetrics`). */
   fontBox(style: ResolvedStyle): { ascent: number; descent: number } {
+    return this.fontMetrics?.get(this.fontOf(style)) ?? getFontMetrics(this.ctx, style);
+  }
+
+  private fontOf(style: ResolvedStyle): string {
     let font = this.fonts.get(style);
     if (font === undefined) this.fonts.set(style, font = buildCanvasFont(style));
-    return this.fontMetrics?.get(font) ?? getFontMetrics(this.ctx, style);
+    return font;
   }
 
   private set(key: Key, value: unknown): void {
     if (this.known[key] === value) return;
     (this.ctx as unknown as Record<string, unknown>)[key] = value;
+    this.remember(key, value);
+  }
+
+  /** Record a write; a write inside a save() scope is forgotten at restore(). */
+  private remember(key: Key, value: unknown): void {
     this.known[key] = value;
     if (this.scopes.length) this.scopes[this.scopes.length - 1].push(key);
   }
@@ -101,9 +104,7 @@ export class PaintState {
       const known = this.known;
       known.font = known.fontKerning = known.letterSpacing = known.wordSpacing = undefined;
     }
-    let font = this.fonts.get(style);
-    if (font === undefined) this.fonts.set(style, font = buildCanvasFont(style));
-    this.set('font', font);
+    this.set('font', this.fontOf(style));
     this.set('fontKerning', canvasKerning(style));
     this.set('letterSpacing', formatLetterSpacing(style.letterSpacing));
   }
@@ -134,15 +135,15 @@ export class PaintState {
     this.set('fillStyle', this.coverage ? COVERAGE : paint);
   }
 
-  /** A box border or decoration band: mitered, butt-capped, solid unless
-   * `dash` says so. */
+  /** A border, decoration band or text stroke: mitered, butt-capped and
+   * solid unless the arguments say otherwise. */
   stroke(
     paint: Paint, lineWidth: number, dash: readonly number[] = NO_DASH,
-    cap: CanvasLineCap = 'butt',
+    cap: CanvasLineCap = 'butt', join: CanvasLineJoin = 'miter',
   ): void {
     this.set('strokeStyle', this.coverage ? COVERAGE : paint);
     this.set('lineWidth', lineWidth);
-    this.set('lineJoin', 'miter');
+    this.set('lineJoin', join);
     this.set('lineCap', cap);
     this.dash(dash);
   }
@@ -168,20 +169,16 @@ export class PaintState {
    * background-clip:text gradient wins over `color` for the fill.
    */
   textStroke(style: ResolvedStyle, strokeGradient?: CanvasGradient | null): void {
-    this.set('strokeStyle', this.coverage ? COVERAGE : strokeGradient || style.webkitTextStrokeColor || style.color);
-    this.set('lineWidth', style.webkitTextStrokeWidth);
     const join = style.strokeLinejoin;
-    this.set('lineJoin', join === 'miter' || join === 'bevel' ? join : 'round');
-    this.set('lineCap', 'butt');
-    this.dash(NO_DASH);
+    this.stroke(strokeGradient || style.webkitTextStrokeColor || style.color, style.webkitTextStrokeWidth,
+      NO_DASH, 'butt', join === 'miter' || join === 'bevel' ? join : 'round');
   }
 
   private dash(segments: readonly number[]): void {
     const key = segments.join(',');
     if (this.known.lineDash === key) return;
     this.ctx.setLineDash(segments as number[]);
-    this.known.lineDash = key;
-    if (this.scopes.length) this.scopes[this.scopes.length - 1].push('lineDash');
+    this.remember('lineDash', key);
   }
 
   save(): void {

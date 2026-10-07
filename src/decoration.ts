@@ -47,6 +47,8 @@ export interface Band {
 
 /** Round to the nearest device pixel. */
 const toDevice = (v: number, scale: number) => Math.floor(v * scale + 0.5) / scale;
+/** Round up to whole device pixels, at least one. */
+const deviceCeil = (t: number, scale: number) => Math.max(1, Math.ceil(t * scale)) / scale;
 
 /**
  * The band width for one decoration entry: the declarer's explicit
@@ -100,22 +102,14 @@ function thicknessOf(deco: DecorationEntry, deviceScale: number): [rows: number,
   const rows = bandWidthFor(deco);
   if (rows <= 0) return null;
   const declared = deco.declarer.textDecorationThickness;
-  const webkit = (t: number) => Math.max(1, Math.ceil(t * deviceScale)) / deviceScale;
   if (declared !== null) {
     if (ENGINE === 'blink') return [rows, rows];
-    if (ENGINE === 'webkit') return [webkit(declared), declared];
+    if (ENGINE === 'webkit') return [deviceCeil(declared, deviceScale), declared];
     return [rows, Math.max(1, declared)];
   }
   const size = deco.declarer.fontSize;
-  if (ENGINE === 'webkit') return [webkit(size / 16), size / 16];
+  if (ENGINE === 'webkit') return [deviceCeil(size / 16, deviceScale), size / 16];
   return [rows, Math.max(1, size / 10)];
-}
-
-/** WebKit's AUTO thickness on the device grid: its overline and its
- * auto-offset underline keep the auto band's geometry whatever the declared
- * thickness. */
-function webkitAutoRows(fontSize: number, deviceScale: number): number {
-  return Math.max(1, Math.ceil(fontSize / 16 * deviceScale)) / deviceScale;
 }
 
 /** Where a fragment's decorations hang: what `decorationBand` needs to know. */
@@ -191,7 +185,7 @@ export function decorationBand(
     // WebKit: the AUTO band's top is the ascent row; a thicker or thinner
     // declared band keeps the auto band's bottom edge and grows up from it.
     y = engine === 'webkit'
-      ? toDevice(at.baseline, deviceScale) - Math.round(at.ascent) + webkitAutoRows(fontSize, deviceScale) - rows
+      ? toDevice(at.baseline, deviceScale) - Math.round(at.ascent) + deviceCeil(fontSize / 16, deviceScale) - rows
       : Math.floor(at.baseline - at.ascent) - rows;
   } else if (line === 'line-through') {
     y = engine === 'blink' ? at.baseline - at.ascent / 3 - t / 2

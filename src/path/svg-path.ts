@@ -107,8 +107,8 @@ export function parsePathData(d: string): Seg[] {
       case 'M': {
         // M arglist: first pair = moveto, subsequent pairs = lineto
         for (let i = 0; i < a.length; i += 2) {
-          const x = rel && i > 0 ? cx + a[i] : ax(a[i]);
-          const y = rel && i > 0 ? cy + a[i + 1] : ay(a[i + 1]);
+          const x = ax(a[i]);
+          const y = ay(a[i + 1]);
           if (i === 0) {
             cx = x; cy = y;
             sx = x; sy = y;
@@ -268,10 +268,7 @@ function evalQuadratic(s: Extract<Seg, { type: 'Q' }>, t: number): Point {
   };
 }
 
-/**
- * Endpoint-to-center arc conversion (SVG spec).
- * Returns { cx, cy, theta1, deltaTheta } in the rotated frame.
- */
+/** Endpoint-to-center arc conversion (SVG spec), computed once per arc. */
 function arcToCenter(s: Extract<Seg, { type: 'A' }>) {
   let rx = Math.abs(s.rx);
   let ry = Math.abs(s.ry);
@@ -321,11 +318,12 @@ function arcToCenter(s: Extract<Seg, { type: 'A' }>) {
   if (!s.sweep && deltaTheta > 0) deltaTheta -= 2 * Math.PI;
   else if (s.sweep && deltaTheta < 0) deltaTheta += 2 * Math.PI;
 
-  return { cx, cy, rx, ry, phi, theta1, deltaTheta, cosPhi, sinPhi };
+  return { cx, cy, rx, ry, theta1, deltaTheta, cosPhi, sinPhi };
 }
 
-function evalArc(s: Extract<Seg, { type: 'A' }>, t: number): Point {
-  const { cx, cy, rx, ry, cosPhi, sinPhi, theta1, deltaTheta } = arcToCenter(s);
+type Arc = ReturnType<typeof arcToCenter>;
+
+function evalArc({ cx, cy, rx, ry, cosPhi, sinPhi, theta1, deltaTheta }: Arc, t: number): Point {
   const theta = theta1 + t * deltaTheta;
   const px = rx * Math.cos(theta);
   const py = ry * Math.sin(theta);
@@ -343,6 +341,7 @@ interface SegEntry {
   /** Total length of this segment. */
   length: number;
   seg: Seg;
+  arc?: Arc;
   /** Sampled (t, length) pairs for non-line segments. t in [0, 1]. */
   samples?: { t: number; len: number }[];
 }
@@ -363,24 +362,22 @@ export function buildPathLike(segs: Seg[]): PathLike {
       continue;
     }
     // Sample CURVE_SAMPLES + 1 points and accumulate cumulative arc length.
+    const arc = seg.type === 'A' ? arcToCenter(seg) : undefined;
     const samples: { t: number; len: number }[] = [];
     let cumLen = 0;
-    let prev: Point;
-    if (seg.type === 'C') prev = { x: seg.x0, y: seg.y0 };
-    else if (seg.type === 'Q') prev = { x: seg.x0, y: seg.y0 };
-    else prev = evalArc(seg, 0);
+    let prev = arc ? evalArc(arc, 0) : { x: seg.x0, y: seg.y0 };
     samples.push({ t: 0, len: 0 });
     for (let i = 1; i <= CURVE_SAMPLES; i++) {
       const t = i / CURVE_SAMPLES;
       let p: Point;
       if (seg.type === 'C') p = evalCubic(seg, t);
       else if (seg.type === 'Q') p = evalQuadratic(seg, t);
-      else p = evalArc(seg, t);
+      else p = evalArc(arc!, t);
       cumLen += Math.hypot(p.x - prev.x, p.y - prev.y);
       samples.push({ t, len: cumLen });
       prev = p;
     }
-    entries.push({ startLen: totalLen, length: cumLen, seg, samples });
+    entries.push({ startLen: totalLen, length: cumLen, seg, arc, samples });
     totalLen += cumLen;
   }
 
@@ -388,15 +385,13 @@ export function buildPathLike(segs: Seg[]): PathLike {
     // Reject NaN / Infinity — `t < 0` etc. silently pass NaN through.
     if (!Number.isFinite(t)) return null;
     if (t < 0 || t > totalLen + 1e-6) return null;
+    // Exact start point: the general path can differ by a -0, or in a
+    // degenerate curve whose leading samples have zero length.
     if (t === 0 && entries.length > 0) {
-      const first = entries[0].seg;
-      if (first.type === 'L' || first.type === 'C' || first.type === 'Q') {
-        return { x: first.x0, y: first.y0 };
-      }
-      return evalArc(first, 0);
+      const { seg, arc } = entries[0];
+      return arc ? evalArc(arc, 0) : { x: seg.x0, y: seg.y0 };
     }
-    // Find the segment via linear scan (segment count is usually small).
-    // Could binary-search for very large paths.
+    // Linear scan: segment counts are small.
     for (let i = 0; i < entries.length; i++) {
       const e = entries[i];
       if (t > e.startLen + e.length + 1e-6) continue;
@@ -425,7 +420,7 @@ export function buildPathLike(segs: Seg[]): PathLike {
       const tt = Math.max(0, Math.min(1, a.t + (b.t - a.t) * frac));
       if (e.seg.type === 'C') return evalCubic(e.seg, tt);
       if (e.seg.type === 'Q') return evalQuadratic(e.seg, tt);
-      return evalArc(e.seg, tt);
+      return evalArc(e.arc!, tt);
     }
     return null;
   }

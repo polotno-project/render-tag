@@ -1,10 +1,41 @@
 import type { AnyCanvas, CanvasFactory, ResolvedStyle } from './types.js';
 
-interface TextShadow {
+export interface TextShadow {
   offsetX: number;
   offsetY: number;
   blur: number;
   color: string;
+}
+
+/** A CSS text-shadow list ("2px 2px 4px rgba(0,0,0,0.3), ...") as values. */
+function parseTextShadows(shadow: string, currentColor: string): TextShadow[] {
+  if (!shadow || shadow === 'none') return [];
+  const shadows: TextShadow[] = [];
+  for (const part of shadow.split(/,(?![^(]*\))/)) {
+    const tokens = part.trim().match(/[^\s(]+\([^)]*\)|[^\s]+/g) ?? [];
+    const lengths: number[] = [];
+    let color = currentColor;
+    for (const token of tokens) {
+      if (/^[+-]?(?:\d*\.)?\d+(?:px)?$/.test(token)) lengths.push(parseFloat(token));
+      else color = token.toLowerCase() === 'currentcolor' ? currentColor : token;
+    }
+    if (lengths.length < 2 || lengths.length > 3 || (lengths[2] ?? 0) < 0) continue;
+    shadows.push({ offsetX: lengths[0], offsetY: lengths[1], blur: lengths[2] ?? 0, color });
+  }
+  return shadows;
+}
+
+/** A style's parsed shadows and their grouping key, cached in the caller's
+ * per-draw map (styles may change between draws). */
+export function shadowsOf(
+  cache: Map<ResolvedStyle, { shadows: TextShadow[]; key: string }>, style: ResolvedStyle,
+): { shadows: TextShadow[]; key: string } {
+  let entry = cache.get(style);
+  if (!entry) {
+    const shadows = parseTextShadows(style.textShadow, style.color);
+    cache.set(style, entry = { shadows, key: JSON.stringify(shadows) });
+  }
+  return entry;
 }
 
 export interface PaintBounds { x: number; y: number; width: number; height: number }
@@ -88,8 +119,7 @@ export function textPaintBounds(
 export function shadowBounds(bounds: PaintBounds, shadows: TextShadow[]): PaintBounds {
   let result = bounds;
   for (const shadow of shadows) {
-    // Canvas shadowBlur is twice sigma. Four sigma plus antialiasing room.
-    const pad = Math.ceil(shadow.blur * 2) + 2;
+    const pad = blurPad(shadow.blur);
     result = unionBounds(result, {
       x: bounds.x + shadow.offsetX - pad, y: bounds.y + shadow.offsetY - pad,
       width: bounds.width + pad * 2, height: bounds.height + pad * 2,

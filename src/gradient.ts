@@ -1,22 +1,6 @@
-// ─── CSS linear-gradient → CanvasGradient ────────────────────────────────
+import { splitTopLevel, splitTopLevelWhitespace } from './css-validate.js';
 
-/** Split on commas (or whitespace) that are not inside parentheses. */
-function splitTopLevel(text: string, separator: RegExp): string[] {
-  const parts: string[] = [];
-  let depth = 0;
-  let start = 0;
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    if (ch === '(') depth++;
-    else if (ch === ')') depth--;
-    else if (depth === 0 && separator.test(ch)) {
-      if (i > start) parts.push(text.slice(start, i));
-      start = i + 1;
-    }
-  }
-  if (text.length > start) parts.push(text.slice(start));
-  return parts.map((p) => p.trim()).filter(Boolean);
-}
+// ─── CSS linear-gradient → CanvasGradient ────────────────────────────────
 
 const ANGLE = /^([+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)(deg|grad|rad|turn)$/i;
 const DEGREES_PER: Record<string, number> = { deg: 1, grad: 0.9, rad: 180 / Math.PI, turn: 360 };
@@ -86,7 +70,7 @@ export function parseLinearGradient(
   }
   if (endIdx === -1) return null;
   const repeating = bgImage.slice(Math.max(0, startIdx - 10), startIdx) === 'repeating-';
-  const parts = splitTopLevel(bgImage.slice(startIdx + 16, endIdx), /,/);
+  const parts = splitTopLevel(bgImage.slice(startIdx + 16, endIdx), ',').map((p) => p.trim()).filter(Boolean);
   if (parts.length === 0) return null;
 
   const direction = gradientAngle(parts[0], width, height);
@@ -98,7 +82,7 @@ export function parseLinearGradient(
   // Stops as [color, offset | null], offsets as fractions of the line.
   const stops: [string, number | null][] = [];
   for (const entry of parts.slice(direction === null ? 0 : 1)) {
-    const tokens = splitTopLevel(entry, /\s/);
+    const tokens = splitTopLevelWhitespace(entry);
     const positions: number[] = [];
     // Trailing lengths are positions (a unitless one only as `0`).
     while (tokens.length > 1) {

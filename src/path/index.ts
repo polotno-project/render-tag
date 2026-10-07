@@ -34,12 +34,12 @@ import type { ShadowOptions, ResolvedStyle, DecorationEntry } from '../types.js'
 import { parseHTML } from '../parse.js';
 import { resolveStylesFromCSS, paintOrderHasStrokeFirst, isTransparent } from '../css-resolver.js';
 import { hasTextClip, sameDecorationBand, Measurer, layoutFontMetrics, type FontMetricsTable } from '../layout.js';
-import { parseTextShadows, textFillColor } from '../render.js';
+import { textFillColor } from '../render.js';
 import { bandWidthFor, drawDecorationLine, explicitUnderlineDelta } from '../decoration.js';
 import { parseLinearGradient } from '../gradient.js';
 import { PaintState } from '../paint-state.js';
 import { STROKE_CASTS_TEXT_SHADOW } from '../engine.js';
-import { paintTextShadows, ScratchPool, shadowBounds, textPaintBounds, transformBounds, unionBounds, withCanvasShadow, withoutCanvasShadow, measurePaintBounds, type PaintBounds } from '../shadow.js';
+import { paintTextShadows, ScratchPool, shadowBounds, shadowsOf, textPaintBounds, transformBounds, unionBounds, withCanvasShadow, withoutCanvasShadow, measurePaintBounds, type PaintBounds, type TextShadow } from '../shadow.js';
 import { pathFromString, type PathLike } from './svg-path.js';
 import {
   flattenSegments,
@@ -153,16 +153,19 @@ export function layoutTextOnPath(config: LayoutTextOnPathConfig): TextOnPathLayo
   }
 }
 
-function collectPathShadowGroups(glyphs: GlyphPlacement[]) {
-  const groups = new Map<string, {
-    glyphs: GlyphPlacement[][];
-    shadows: ReturnType<typeof parseTextShadows>;
-    bounds?: PaintBounds;
-  }>();
+interface PathShadowGroup {
+  glyphs: GlyphPlacement[][];
+  shadows: TextShadow[];
+  bounds?: PaintBounds;
+}
+
+function collectPathShadowGroups(glyphs: GlyphPlacement[]): Map<string, PathShadowGroup> {
+  const groups = new Map<string, PathShadowGroup>();
+  const parsed = new Map<ResolvedStyle, { shadows: TextShadow[]; key: string }>();
   let previousKey = '';
   for (const glyph of glyphs) {
-    const shadows = parseTextShadows(glyph.style.textShadow, glyph.style.color);
-    const key = shadows.length ? JSON.stringify(shadows) : '';
+    const { shadows, key: json } = shadowsOf(parsed, glyph.style);
+    const key = shadows.length ? json : '';
     if (key) {
       let group = groups.get(key);
       if (!group) { group = { glyphs: [], shadows }; groups.set(key, group); }
@@ -199,8 +202,6 @@ function pathPaintBounds(
   }
   return bounds;
 }
-
-type PathShadowGroup = ReturnType<typeof collectPathShadowGroups> extends Map<string, infer G> ? G : never;
 
 /** A shadow group's foreground ink, measured once per draw: the caller-shadow
  * bounds and the group's own shadow layer both need it. */
