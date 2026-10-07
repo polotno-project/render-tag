@@ -341,7 +341,8 @@ li::marker { content: none; font-size: 0; line-height: 0; }
 
 - **Chrome-first.** When a rendering choice must favor one browser over another, Chrome wins.
 - **Cross-browser consistency over per-browser DOM fidelity.** Same canvas output in every browser, not pixel-matching each browser's quirks. `accuracy: 'balanced'` probes browser line heights where that improves geometry, but it cannot reconcile browser-specific line-break policies or Canvas/DOM metric differences.
-- **The line-box baseline follows the engine's own rounding.** Blink floors half-leading + ascent onto a whole CSS pixel (`FontHeight::AddLeading`); Gecko and WebKit keep the exact value. render-tag does what the engine it runs in does, so canvas text lands on the baseline that browser's own DOM would use — which is what keeps a canvas render and a contenteditable overlay of the same text on one line. Safari is the closest fit rather than a match: its canvas metrics disagree with its own layout metrics, so no canvas-side rule reaches its DOM exactly. This is the one place per-browser fidelity wins over identical output.
+- **Line boxes follow the engine's own rounding** (Blink and WebKit floor the baseline; Blink lays line-heights on its 1/64px grid; WebKit truncates line-heights; Gecko is exact), so canvas text lands where that browser's DOM puts it and a contenteditable overlay of the same text stays on one line.
+  Here per-browser fidelity wins over identical output.
 
 ## License
 
