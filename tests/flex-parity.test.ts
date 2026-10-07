@@ -9,6 +9,7 @@ import {
   warmNativeLayout,
 } from './helpers/compare.ts';
 import { loadFlexCases } from './helpers/test-cases.ts';
+import { browserName } from './helpers/browser-name.ts';
 
 // Every flex item in the fixtures is a <section>; both sides collect them in
 // document order, so the two trees pair without needing class names in the
@@ -18,6 +19,11 @@ const ITEM_TAG = 'section';
 // Chrome resolves flex lengths in 1/64px LayoutUnits and we do not round at
 // all, so a matching distribution still differs in the last fraction.
 const WIDTH_TOLERANCE = 0.05;
+
+// WebKit never shrinks a `flex-basis: max-content` item below its max-content
+// width (measured 120-480px), so the row overflows at
+// every width; Chrome shrinks it like `auto`. Chrome-first: Chromium gates it.
+const SKIP = new Set(browserName === 'webkit' ? ['Flex max-content basis'] : []);
 
 const MIN_WIDTH = 120;
 const STEP = 20;
@@ -46,6 +52,7 @@ describe('Flex sizing parity with the DOM', () => {
     const failures: string[] = [];
 
     for (const testCase of cases) {
+      if (SKIP.has(testCase.name)) continue;
       await prepareComparisonFonts(testCase.html, testCase.css);
       warmNativeLayout(testCase.html, testCase.css, testCase.width);
 
@@ -83,6 +90,7 @@ describe('Flex sizing parity with the DOM', () => {
       // Nested rows put two independent flows on overlapping bands, which the
       // line oracle cannot pair; their geometry is gated by the test above.
       if (testCase.name === 'Flex nested rows') continue;
+      if (SKIP.has(testCase.name)) continue;
       await prepareComparisonFonts(testCase.html, testCase.css);
       warmNativeLayout(testCase.html, testCase.css, testCase.width);
 

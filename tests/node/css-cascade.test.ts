@@ -743,3 +743,43 @@ describe('text-shadow lengths', () => {
     expect(offsets(html, 'span')).toEqual([[2, 2, 8]]);
   });
 });
+
+describe('shorthands keep math functions whole', () => {
+  // Split on top-level whitespace only: `calc(1px + 2px)` is one value, not three.
+  const style = (decls: string) => el(`<div style="display:flex"><p style="${decls}">x</p></div>`, 'p').style;
+  const sheet = (decls: string) => el(`<style>p { ${decls} }</style><div style="display:flex"><p>x</p></div>`, 'p').style;
+
+  it('flex with a calc() basis', () => {
+    for (const s of [style('flex: 1 1 calc(33.333% - 20px)'), sheet('flex: 1 1 calc(33.333% - 20px)')]) {
+      expect(s).toMatchObject({ flexGrow: 1, flexShrink: 1 });
+      expect(s.flexBasis).toBeCloseTo(400 * 0.33333 - 20, 3);
+    }
+    expect(style('flex: 0 0 calc(50% - 8px)')).toMatchObject({ flexGrow: 0, flexShrink: 0, flexBasis: 192 });
+  });
+
+  it('flex with an intrinsic basis keyword is an auto basis', () => {
+    for (const kw of ['max-content', 'min-content', 'fit-content']) {
+      expect(style(`flex: 2 3 10px; flex: 1 1 ${kw}`), kw).toMatchObject({ flexGrow: 1, flexShrink: 1, flexBasis: null });
+      expect(style(`flex-basis: 10px; flex-basis: ${kw}`), kw).toMatchObject({ flexBasis: null });
+    }
+  });
+
+  it('margin and padding with math functions', () => {
+    for (const s of [style('padding: calc(1px + 2px) 4px; margin: min(10px, 5%) 2px'),
+      sheet('padding: calc(1px + 2px) 4px; margin: min(10px, 5%) 2px')]) {
+      expect(s).toMatchObject({ paddingTop: 3, paddingRight: 4, paddingBottom: 3, paddingLeft: 4, marginTop: 10, marginRight: 2 });
+    }
+    expect(style('padding: max(1px, 2px) clamp(1px, 3px, 5px) calc(2px * 2)'))
+      .toMatchObject({ paddingTop: 2, paddingRight: 3, paddingBottom: 4, paddingLeft: 3 });
+  });
+
+  it('border-radius and its corners with math functions', () => {
+    expect(style('border-radius: calc(2px + 3px) 6px')).toMatchObject({ borderTopLeftRadius: 5, borderTopRightRadius: 6 });
+    expect(style('border-radius: calc(10px / 2) 6px / 1px')).toMatchObject({ borderTopLeftRadius: 5, borderTopRightRadius: 6 });
+    expect(style('border-top-left-radius: calc(2px + 3px) 1px')).toMatchObject({ borderTopLeftRadius: 5 });
+  });
+
+  it('gap with a math function', () => {
+    expect(style('gap: calc(4px + 4px) 2px')).toMatchObject({ gap: 8 });
+  });
+});

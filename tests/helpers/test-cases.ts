@@ -2015,6 +2015,24 @@ export async function loadFlexCases(): Promise<BenchmarkCase[]> {
         `<section style="width:50%">alpha beta gamma delta epsilon</section></div>`,
     },
     {
+      // Math functions in the `flex` shorthand stay whole (no whitespace split).
+      name: 'Flex calc basis',
+      css: `${row} section { flex: 1 1 calc(33.333% - 20px); }`,
+      html: `<div class="row"><section>Latency numbers</section>` +
+        `<section>alpha beta</section><section>gamma delta epsilon</section></div>`,
+    },
+    {
+      name: 'Flex fixed calc basis',
+      css: `${row} .a { flex: 0 0 calc(50% - 8px); } .b { flex: 1; }`,
+      html: `<div class="row"><section class="a">Latency numbers every programmer should know</section>` +
+        `<section class="b">alpha beta gamma delta epsilon</section></div>`,
+    },
+    {
+      name: 'Flex max-content basis',
+      css: `${row} section { flex: 1 1 max-content; }`,
+      html: `<div class="row">${columns}</div>`,
+    },
+    {
       name: 'Flex column direction',
       css: `.row { display: flex; flex-direction: column; gap: 8px; } section { flex: 1; }`,
       html: `<div class="row">${columns}</div>`,
@@ -2095,10 +2113,32 @@ export async function loadBoxModelCases(): Promise<BoxModelCase[]> {
       html: `<span style="${m(1)}${ib}">ab <span style="background:#fde68a;padding-left:20%">cd</span> ef</span>`,
     },
     {
-      // Cells take the column width the table decided, not their declared one.
+      // Declared cell widths size their columns; when every column is declared
+      // and they fall short, the table's spare width is shared in proportion.
       name: 'table cell declared width',
       html: `<table style="width:300px;border-collapse:collapse"><tr>` +
         `<td style="${m(1)}width:50px;padding:0">a</td><td style="${m(2)}width:50px;padding:0">b</td></tr></table>`,
+    },
+    {
+      name: 'table cells with unequal declared widths',
+      html: `<table style="width:400px;border-collapse:collapse"><tr>` +
+        `<td style="${m(1)}width:100px;padding:0">a</td><td style="${m(2)}width:300px;padding:0">b</td></tr></table>`,
+    },
+    {
+      name: 'table percent cell beside an auto cell',
+      html: `<table style="width:400px;border-collapse:collapse"><tr>` +
+        `<td style="${m(1)}width:25%;padding:0">a</td><td style="${m(2)}padding:0">b</td></tr></table>`,
+    },
+    {
+      // An auto table shrinks to its content; only the declared cell is compared.
+      name: 'auto table declared cell beside an auto cell',
+      html: `<table style="border-collapse:collapse"><tr>` +
+        `<td style="${m(1)}width:100px;padding:0">alpha beta gamma</td><td style="padding:0">b</td></tr></table>`,
+    },
+    {
+      name: 'table equal auto cells',
+      html: `<table style="width:400px;border-collapse:collapse"><tr>` +
+        `<td style="${m(1)}padding:0">x</td><td style="${m(2)}padding:0">x</td></tr></table>`,
     },
     {
       name: 'percent width inside a flex item',

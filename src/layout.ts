@@ -3449,8 +3449,23 @@ function layoutTable(
   const colCount = Math.max(...rowCells.map(cells => cells.length));
   if (colCount === 0) return { children, height: 0 };
 
-  // Equal column widths (simple approach)
-  const colWidth = contentWidth / colCount;
+  // A column is as wide as its widest declared cell (border box); auto columns share
+  // what is left equally. All declared and short of the table: they grow in proportion.
+  const declared: number[] = new Array(colCount).fill(0);
+  for (const cells of rowCells) {
+    cells.forEach((cell, i) => {
+      resolvePercentages(cell.style, contentWidth);
+      const s = cell.style;
+      if (s.width > 0) declared[i] = Math.max(declared[i], borderBoxSize(s, s.width, horizontalFrame(s)));
+    });
+  }
+  const autoCount = declared.filter(w => w === 0).length;
+  const fixedTotal = declared.reduce((sum, w) => sum + w, 0);
+  const autoWidth = Math.max(0, contentWidth - fixedTotal) / autoCount;
+  const scale = autoCount === 0 && fixedTotal < contentWidth ? contentWidth / fixedTotal : 1;
+  const colWidths = declared.map(w => (w === 0 ? autoWidth : w * scale));
+  const colX: number[] = [];
+  for (let i = 0, x = contentX; i < colCount; x += colWidths[i++]) colX.push(x);
 
   let curY = contentY;
 
@@ -3460,9 +3475,8 @@ function layoutTable(
 
     for (let i = 0; i < cells.length; i++) {
       const cell = cells[i];
-      const cellX = contentX + i * colWidth;
 
-      const { box: cellBox, height: cellHeight } = layoutBlock(session, cell, cellX, curY, colWidth, undefined, true, true);
+      const { box: cellBox, height: cellHeight } = layoutBlock(session, cell, colX[i], curY, colWidths[i], undefined, true, true);
       cellBoxes.push(cellBox);
       maxCellHeight = Math.max(maxCellHeight, cellHeight);
     }

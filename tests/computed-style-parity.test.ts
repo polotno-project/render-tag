@@ -26,7 +26,7 @@
  * - `lineHeight: 0` is `normal` (a real zero is carried by the private
  *   LINE_HEIGHT_MULTIPLIER === 0); otherwise px, as the browser resolves it.
  * - `width: 0` is `auto`; `minWidth: null` is `auto`; `minHeight: 0` is
- *   `auto`/none; `flexBasis: null` is `auto`/`content`. These four are read
+ *   `auto`/none; `flexBasis: null` is `auto`/`content`/an intrinsic keyword. These four are read
  *   from the browser's COMPUTED value (a final `* { display: none !important }`
  *   pass turns resolved values into computed ones), and a percentage there is
  *   resolved against the element's containing block as laid out.
@@ -136,6 +136,9 @@ function px(value: string): number | string {
 function lengthOrPercent(value: string, basis: number): number | string {
   const v = value.trim();
   if (/^-?[\d.]+%$/.test(v)) return (parseFloat(v) / 100) * basis;
+  // The computed form of a mixed calc(): `calc(P% - Npx)`.
+  const mixed = /^calc\((-?[\d.]+)% ([+-]) ([\d.]+)px\)$/.exec(v);
+  if (mixed) return (parseFloat(mixed[1]) / 100) * basis + (mixed[2] === '-' ? -1 : 1) * parseFloat(mixed[3]);
   return px(v);
 }
 
@@ -387,7 +390,7 @@ const FIELDS: Field[] = [
     computedPass: true,
     dom: (f) => {
       const v = f.computed['flex-basis'];
-      return v === 'auto' || v === 'content' ? 'auto' : lengthOrPercent(v, f.containingWidth);
+      return /^(?:auto|content|max-content|min-content|fit-content)$/.test(v) ? 'auto' : lengthOrPercent(v, f.containingWidth);
     },
     rt: (s) => s.flexBasis === null ? 'auto' : s.flexBasis,
   },

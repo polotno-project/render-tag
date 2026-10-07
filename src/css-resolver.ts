@@ -350,7 +350,7 @@ export function expandShorthand(property: string, value: string): Longhand[] {
     return [{ property: 'font-variant-caps', value: caps }];
   }
   if (property === 'margin' || property === 'padding') {
-    return (fourSides(value.trim().split(/\s+/)) ?? []).map((v, i) => ({ property: `${property}-${SIDES[i]}`, value: v }));
+    return (fourSides(splitTopLevelWhitespace(value.trim())) ?? []).map((v, i) => ({ property: `${property}-${SIDES[i]}`, value: v }));
   }
 
   if (property === 'border' || property === 'border-top' || property === 'border-right' ||
@@ -390,7 +390,7 @@ export function expandShorthand(property: string, value: string): Longhand[] {
 
   if (property === 'border-radius') {
     // TL, TR, BR, BL; of `4px / 2px` only the horizontal radii are kept (one per corner).
-    return (fourSides(value.split('/')[0].trim().split(/\s+/)) ?? [])
+    return (fourSides(splitTopLevelWhitespace(splitTopLevel(value, '/')[0].trim())) ?? [])
       .map((v, i) => ({ property: `border-${CORNERS[i]}-radius`, value: v }));
   }
 
@@ -467,7 +467,7 @@ export function expandShorthand(property: string, value: string): Longhand[] {
     if (keyword === 'initial') return flexLonghands('0', '1', 'auto');
     const numbers: string[] = [];
     let basis = '';
-    for (const part of value.trim().split(/\s+/)) {
+    for (const part of splitTopLevelWhitespace(value.trim())) {
       if (!basis && numbers.length < 2 && /^\d*\.?\d+$/.test(part)) numbers.push(part);
       else basis = part;
     }
@@ -992,7 +992,7 @@ const PARSERS: Record<string, Parser> = {
   gap: (value, env) => {
     // `gap: <row> <column>`: flex rows use the row gap, the first.
     const v = value.trim();
-    const first = MATH.test(v) ? v : v.split(/\s+/)[0];
+    const first = splitTopLevelWhitespace(v)[0] ?? '';
     return first.toLowerCase() === 'normal' ? 0 : cbLengthOf(first, env);
   },
   'flex-grow': flexFactor, 'flex-shrink': flexFactor,
@@ -1015,7 +1015,7 @@ for (const side of SIDES) {
 // Percentages (of the border box) stay symbolic until paint; a second component is ignored.
 for (const corner of CORNERS) {
   PARSERS[`border-${corner}-radius`] = (value, env) => {
-    const v = MATH.test(value.trim()) ? value.trim() : value.trim().split(/\s+/)[0];
+    const v = splitTopLevelWhitespace(value.trim())[0] ?? '';
     if (/^[+-]?(?:\d+\.?\d*|\.\d+)%$/.test(v)) {
       const pct = parseFloat(v);
       return pct > 0 ? { pct } : 0;
@@ -1097,7 +1097,9 @@ function applyDeclaration(style: ResolvedStyle, property: string, value: string,
       const v = value.trim();
       const lower = v.toLowerCase();
       const field = property === 'min-width' ? 'minWidth' : 'flexBasis';
-      if (lower === 'auto' || (lower === 'content' && field === 'flexBasis')) {
+      // An intrinsic flex-basis sizes like `auto` (max-content). Approximate: a declared
+      // width still wins here, and min-/fit-content are not sized on their own terms.
+      if (lower === 'auto' || (field === 'flexBasis' && /^(?:content|max-content|min-content|fit-content)$/.test(lower))) {
         style[field] = null;
         return true;
       }

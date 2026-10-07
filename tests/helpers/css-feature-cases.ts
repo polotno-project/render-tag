@@ -646,6 +646,22 @@ function malformedCases(): CssFeatureCase[] {
       html: `<p class="a">a</p><p class="b">b</p><p class="c">c</p><div style="display:flex"><p class="d">d</p></div>`,
     },
     {
+      // Shorthands split at top-level whitespace only, so math functions stay whole.
+      name: 'shorthand math functions inline',
+      html:
+        `<div style="display:flex;gap:calc(10px + 10px)"><p style="flex:1 1 calc(33.333% - 20px);padding:calc(1px + 2px) 4px">a</p>` +
+        `<p style="flex:0 0 calc(50% - 8px);margin:min(10px, 5%) 2px;border-radius:calc(2px + 3px) 6px">b</p>` +
+        `<p style="flex:1 1 max-content;border-radius:calc(10px / 2) 6px">c</p></div>`,
+    },
+    {
+      name: 'shorthand math functions in a sheet',
+      css:
+        `.r { display: flex; gap: calc(10px + 10px) } .a { flex: 1 1 calc(33.333% - 20px); padding: calc(1px + 2px) 4px } ` +
+        `.b { flex: 0 0 calc(50% - 8px); margin: min(10px, 5%) 2px; border-radius: calc(2px + 3px) 6px } ` +
+        `.c { flex: 1 1 max-content; flex-basis: min-content } .d { flex: 1 1 10px; flex-basis: fit-content }`,
+      html: `<div class="r"><p class="a">a</p><p class="b">b</p><p class="c">c</p><p class="d">d</p></div>`,
+    },
+    {
       name: 'malformed general sibling and complex :is',
       css: `.x ~ p { color: red } :is(section p) { padding-left: 3px } p:not(:hover) { letter-spacing: 1px }`,
       html: `<section><p>a</p><p class="x">b</p><p>c</p></section>`,
