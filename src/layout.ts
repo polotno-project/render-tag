@@ -27,7 +27,7 @@ interface LayoutSession {
   readonly debug: ((entry: import('./types.ts').DebugEntry) => void) | undefined;
   /** One entry per committed line (inline content and list markers), unsorted. */
   readonly lines: LayoutLine[];
-  /** Content-box intrinsic widths by node identity (`contentMinimum`/`contentMaximum`). */
+  /** Content-box intrinsic widths by node identity (`contentSize`). */
   readonly minContent: Map<StyledNode, number>;
   readonly maxContent: Map<StyledNode, number>;
   /** The block wrapper of each bare text node in a flex container (`anonymousFlexItem`). */
@@ -37,6 +37,8 @@ interface LayoutSession {
    * reads them (`preparedInline`, `takePreparedInline`).
    */
   readonly prepared: Map<StyledNode, PreparedInline>;
+  /** The opposite-direction copy of a style a bidi piece paints with (`withDirection`). */
+  readonly flippedDirection: Map<ResolvedStyle, ResolvedStyle>;
   /** Work counts for `tests/node/perf-counters.test.ts`; undefined outside it. */
   readonly stats: LayoutStats | undefined;
 }
@@ -776,39 +778,6 @@ export function sameDecorationBand(a: DecorationEntry, b: DecorationEntry): bool
   );
 }
 
-/** Same decoration set: entries must match pairwise, so runs whose decorations
- * would paint differently don't merge and take the first one's band. */
-function sameDecorations(a: ResolvedStyle, b: ResolvedStyle): boolean {
-  const da = a.textDecorations, db = b.textDecorations;
-  if (da === db) return true;
-  if (!da || !db || da.length !== db.length) return false;
-  for (let i = 0; i < da.length; i++) {
-    if (
-      da[i].line !== db[i].line ||
-      da[i].color !== db[i].color ||
-      da[i].style !== db[i].style ||
-      !sameDecorationBand(da[i], db[i])
-    ) {
-      return false;
-    }
-  }
-  return true;
-}
-
-/**
- * Check if two styles have the same text rendering properties.
- */
-function sameTextStyle(a: ResolvedStyle, b: ResolvedStyle): boolean {
-  return a.fontFamily === b.fontFamily &&
-    a.fontSize === b.fontSize &&
-    a.fontWeight === b.fontWeight &&
-    a.fontStyle === b.fontStyle &&
-    a.color === b.color &&
-    a.textDecorationLine === b.textDecorationLine &&
-    sameDecorations(a, b) &&
-    a.backgroundColor === b.backgroundColor;
-}
-
 function hasVisibleBoxStyles(style: ResolvedStyle): boolean {
   if (!isTransparent(style.backgroundColor)) return true;
   if (style.borderTopWidth > 0 && style.borderTopStyle !== 'none') return true;
@@ -915,88 +884,33 @@ function isAtomicInlineBlock(w: Word): boolean {
 }
 
 /**
- * Truncate a PositionedLine's trailing words and append "…" so the line
- * fits within maxWidth. Used by `-webkit-line-clamp` to mark the visible
- * cut-off on the Nth line.
- *
- * Trim strategy:
- *  1. Pick the style of the last NON-empty, NON-atomic-inline-block word
- *     — so the ellipsis font matches the surrounding text, not the button
- *     or pill it was sitting next to.
- *  2. Drop trailing isSpace words (genuine spaces only — box markers carry
- *     padding/border that we must keep).
- *  3. Back-trim: pop trailing non-space words until ellipsis fits. If we
- *     end up with a single text word that STILL doesn't fit, pop it too —
- *     the ellipsis stands alone rather than overflowing the container.
- *     Box-open markers earlier on the line stay; they preserve inline-box
- *     padding/border that the emit loop needs.
- *  4. Inherit boxStyle from the trailing context so inline `<span>`
- *     backgrounds/borders extend across the ellipsis.
+ * `-webkit-line-clamp`'s cut-off: trim the line's trailing spaces and text
+ * (atomic inline-blocks included; empty box-edge markers stay) until "…" fits,
+ * then append it in the last text word's style and inline box.
  */
 function applyEllipsisToLine(
   session: LayoutSession,
   line: PositionedLine,
   maxWidth: number,
 ): void {
-  // 1. Find the last word whose style should drive the ellipsis.
-  //    Skip empty-text markers AND atomic inline-blocks (their style is
-  //    the inline-block element's, not the surrounding text).
-  let styleIdx = line.words.length - 1;
-  while (
-    styleIdx >= 0 &&
-    (line.words[styleIdx].text === '' || isAtomicInlineBlock(line.words[styleIdx]))
-  ) styleIdx--;
+  const words = line.words;
+  let styleIdx = words.length - 1;
+  while (styleIdx >= 0 && (words[styleIdx].text === '' || isAtomicInlineBlock(words[styleIdx]))) styleIdx--;
   if (styleIdx < 0) return;
-  const lastStyle = line.words[styleIdx].refs.style;
-  const boxStyle = line.words[styleIdx].refs.boxStyle;
-  // The ellipsis takes the trimmed run's style, so it has to take the parent
-  // that style's vertical-align measures against too.
-  const parentStyle = line.words[styleIdx].refs.parentStyle;
+  const { style, parentStyle, boxStyle } = words[styleIdx].refs;
   const m = session.measurer;
-  const ellipsisWidth = m.width(m.stateOf(lastStyle), '…');
-
-  // Helper: pop trailing isSpace words. Box markers (text === '' with
-  // boxOpen/boxClose) are NOT popped — they carry inline-box padding the
-  // emit loop relies on.
-  const popTrailingSpaces = () => {
-    while (
-      line.words.length > 0 &&
-      line.words[line.words.length - 1].isSpace
-    ) {
-      const r = line.words.pop()!;
-      line.totalWidth -= r.width;
-    }
-  };
-
-  // 2. Strip purely trailing whitespace.
-  popTrailingSpaces();
-
-  // 3. Back-trim non-space text words until the ellipsis fits.
-  //    Atomic inline-blocks are non-space too; they pop along with words.
-  const isTrimmableText = (w: Word) =>
-    !w.isSpace && w.text !== '' && !w.refs.boxOpen && !w.refs.boxClose;
-  while (
-    line.totalWidth + ellipsisWidth > maxWidth &&
-    line.words.length > 0
-  ) {
-    const last = line.words[line.words.length - 1];
-    if (!isTrimmableText(last) && !isAtomicInlineBlock(last)) break;
-    line.totalWidth -= last.width;
-    line.words.pop();
-    popTrailingSpaces();
+  const width = m.width(m.stateOf(style), '…');
+  const pop = () => { line.totalWidth -= words.pop()!.width; };
+  const popSpaces = () => { while (words.length && words[words.length - 1].isSpace) pop(); };
+  popSpaces();
+  // Only text runs and atomic inline-blocks carry text; box-edge markers are ''.
+  while (line.totalWidth + width > maxWidth && words.length && words[words.length - 1].text) {
+    pop();
+    popSpaces();
   }
-
-  // 4. Append the ellipsis. Inherit boxStyle so inline-span backgrounds /
-  //    borders extend over the ellipsis.
-  const ellipsisWord: Word = {
-    text: '…',
-    width: ellipsisWidth,
-    refs: { style: lastStyle, parentStyle, boxStyle },
-    isSpace: false,
-  };
-  line.words.push(ellipsisWord);
+  words.push({ text: '…', width, refs: { style, parentStyle, boxStyle }, isSpace: false });
   if (session.stats) session.stats.wordObjects++;
-  line.totalWidth += ellipsisWidth;
+  line.totalWidth += width;
 }
 
 // ─── Inline layout ─────────────────────────────────────────────────────
@@ -2165,7 +2079,7 @@ class LineFlow {
    * (leading and trailing); the others collapse it.
    */
   readonly preservesWhitespace: boolean;
-  private readonly isPreWrap: boolean;
+  private readonly keepsSpaceOnlyLines: boolean;
 
   constructor(
     readonly session: LayoutSession,
@@ -2174,13 +2088,13 @@ class LineFlow {
     private readonly whiteSpace: string,
     readonly useBulletProbe: boolean,
     private readonly textIndent: number,
-    private readonly tabMetrics: TabStops | undefined,
-    private readonly strutLineHeight: number,
+    private readonly tabMetrics?: TabStops,
+    private readonly strutLineHeight = 0,
   ) {
     this.m = session.measurer;
     this.line = this.newLine();
     this.noWrap = whiteSpace === 'nowrap' || whiteSpace === 'pre';
-    this.isPreWrap = whiteSpace === 'pre-wrap' || whiteSpace === 'pre' || whiteSpace === 'pre-line';
+    this.keepsSpaceOnlyLines = whiteSpace === 'pre-wrap' || whiteSpace === 'pre' || whiteSpace === 'pre-line';
     this.preservesWhitespace =
       whiteSpace === 'pre' || whiteSpace === 'pre-wrap' || whiteSpace === 'break-spaces';
   }
@@ -2285,7 +2199,7 @@ class LineFlow {
       }
     }
     // In pre-wrap mode, space-only lines still need height (they are content)
-    if (line.length > 0 || (hadWords && this.isPreWrap)) {
+    if (line.length > 0 || (hadWords && this.keepsSpaceOnlyLines)) {
       if (this.session.debug) {
         const text = this.text();
         this.session.debug({
@@ -2358,18 +2272,8 @@ function itemLineHeight(flow: LineFlow, i: number): number {
  * (`breakGluedChain`), the fit decision (`placePiece`, `knifeEdgeOverflows`) and
  * line commit (`LineFlow`).
  */
-function flowLines(
-  session: LayoutSession,
-  items: FlowItems,
-  contentWidth: number,
-  whiteSpace: string,
-  useBulletProbe = false,
-  textIndent = 0,
-  tabMetrics?: TabStops,
-  strutLineHeight = 0,
-): FlowLine[] {
-  const flow = new LineFlow(
-    session, items, contentWidth, whiteSpace, useBulletProbe, textIndent, tabMetrics, strutLineHeight);
+function flowLines(flow: LineFlow): FlowLine[] {
+  const items = flow.items;
   const count = items.prepared.count;
   for (let i = 0; i < count; i++) {
     const lineHeight = itemLineHeight(flow, i);
@@ -2717,6 +2621,13 @@ interface LineClampState {
   exhausted: boolean;
 }
 
+/** True (and marks it exhausted) once a clamp has no lines left. */
+function clampSpent(clamp: LineClampState | undefined): boolean {
+  if (!clamp || !(clamp.exhausted || clamp.remaining <= 0)) return false;
+  clamp.exhausted = true;
+  return true;
+}
+
 /**
  * The final flow's widths for the segments preparing could not size
  * (`PreparedInline.inlineBlocks`, `.percentEdges`), at `containingWidth`,
@@ -2848,17 +2759,10 @@ function resolveLineBidi(
 }
 
 /** `style` with `direction` set; one shared copy per style, so pieces of a run batch by identity. */
-const directionCopies = {
-  ltr: new WeakMap<ResolvedStyle, ResolvedStyle>(),
-  rtl: new WeakMap<ResolvedStyle, ResolvedStyle>(),
-};
-function withDirection(style: ResolvedStyle, direction: 'ltr' | 'rtl'): ResolvedStyle {
+function withDirection(session: LayoutSession, style: ResolvedStyle, direction: 'ltr' | 'rtl'): ResolvedStyle {
   if (style.direction === direction) return style;
-  let copy = directionCopies[direction].get(style);
-  if (!copy) {
-    copy = { ...style, direction };
-    directionCopies[direction].set(style, copy);
-  }
+  let copy = session.flippedDirection.get(style);
+  if (!copy) session.flippedDirection.set(style, copy = { ...style, direction });
   return copy;
 }
 
@@ -2868,11 +2772,23 @@ function sameBidiRun(a: Word, b: Word): boolean {
     a.refs.strokeImageStyle !== b.refs.strokeImageStyle || a.refs.parentStyle !== b.refs.parentStyle) return false;
   const p = a.refs.style;
   const q = b.refs.style;
-  return p === q || (sameTextStyle(p, q) &&
+  if (p === q) return true;
+  if (p.fontFamily !== q.fontFamily || p.fontSize !== q.fontSize || p.fontWeight !== q.fontWeight ||
+    p.fontStyle !== q.fontStyle || p.color !== q.color || p.textDecorationLine !== q.textDecorationLine) return false;
+  // Decorations that would paint differently must not merge into one band.
+  const da = p.textDecorations, db = q.textDecorations;
+  if (da !== db) {
+    if (!da || !db || da.length !== db.length) return false;
+    for (let i = 0; i < da.length; i++) {
+      if (da[i].line !== db[i].line || da[i].color !== db[i].color || da[i].style !== db[i].style ||
+        !sameDecorationBand(da[i], db[i])) return false;
+    }
+  }
+  return p.backgroundColor === q.backgroundColor &&
     p.letterSpacing === q.letterSpacing && p.wordSpacing === q.wordSpacing &&
     p.verticalAlign === q.verticalAlign && p.textShadow === q.textShadow &&
     p.webkitTextStrokeWidth === q.webkitTextStrokeWidth &&
-    p.webkitTextStrokeColor === q.webkitTextStrokeColor);
+    p.webkitTextStrokeColor === q.webkitTextStrokeColor;
 }
 
 /**
@@ -3079,7 +2995,6 @@ function bidiLineItems(
  */
 interface InlineEmit {
   readonly session: LayoutSession;
-  readonly m: Measurer;
   readonly useBulletProbe: boolean;
   /**
    * The block's style. The block strut also participates in the line's
@@ -3130,9 +3045,8 @@ function layoutInlineContent(
   useBulletProbe = false,
   clamp?: LineClampState,
 ): { nodes: LayoutNode[]; height: number; lines: LayoutLine[]; lineBoxes: LayoutLineBox[] } {
-  if (clamp && (clamp.exhausted || clamp.remaining <= 0)) {
-    // An ancestor's clamp already used its line budget — drop this content.
-    clamp.exhausted = true;
+  // An ancestor's clamp already used its line budget — drop this content.
+  if (clampSpent(clamp)) {
     return { nodes: [], height: 0, lines: [], lineBoxes: [] };
   }
   const prepared = takePreparedInline(session, node);
@@ -3161,7 +3075,6 @@ function layoutInlineContent(
   }
   const out: InlineEmit = {
     session,
-    m: session.measurer,
     useBulletProbe,
     blockStyle: style,
     x,
@@ -3220,9 +3133,9 @@ function flowInlineLines(
   const strutLineHeight = m.lineHeight(node.style, useBulletProbe);
   const items = new FlowItems(prepared, prepared.refs, used?.widths, used?.layouts);
   // The emit pass reads each placed item as a `Word`.
-  const lines: PositionedLine[] = flowLines(
+  const lines: PositionedLine[] = flowLines(new LineFlow(
     session, items, contentWidth, node.style.whiteSpace, useBulletProbe, textIndent, tabMetrics, strutLineHeight,
-  ).map((line) => ({
+  )).map((line) => ({
     words: line.items.map((i) => items.word(i)),
     totalWidth: line.totalWidth,
     lineHeight: line.lineHeight,
@@ -3365,7 +3278,7 @@ function emitLine(
   let emitKeys: number[] | null = null;
   if (wordLevels) {
     ({ words: emitWords, levels: emitLevels, keys: emitKeys } = bidiLineItems(
-      out.m, line.words, wordLevels, out.isRTL ? 1 : 0, justifyExtraPerSpace > 0));
+      out.session.measurer, line.words, wordLevels, out.isRTL ? 1 : 0, justifyExtraPerSpace > 0));
     if (out.isRTL) {
       // An RTL line is anchored at its right edge (curX + totalWidth); its
       // pieces may measure a little differently from the words they came from.
@@ -3421,7 +3334,8 @@ function emitLine(
  * half-leading every single-style line already had.
  */
 function lineBoxExtent(out: InlineEmit, words: readonly Word[]): { ascent: number; descent: number } {
-  const { m, session, useBulletProbe, blockStyle } = out;
+  const { session, useBulletProbe, blockStyle } = out;
+  const m = session.measurer;
   const strutBox = m.leadedBox(blockStyle, useBulletProbe);
   let lineAscent = strutBox.ascent;
   let lineDescent = strutBox.descent;
@@ -3491,8 +3405,8 @@ function emitInlineBox(
   // y=6 h=29 where the DOM has y=4 h=33.2.
   const { ascent: boxAscent, descent: boxDescent } =
     style.display === 'inline-block'
-      ? out.m.leadedBox(style, out.useBulletProbe)
-      : out.m.metrics(style);
+      ? out.session.measurer.leadedBox(style, out.useBulletProbe)
+      : out.session.measurer.metrics(style);
   const padTop = style.paddingTop + style.borderTopWidth;
   const padBottom = style.paddingBottom + style.borderBottomWidth;
   const boxHeight = boxAscent + boxDescent + padTop + padBottom;
@@ -3641,7 +3555,8 @@ function emitLineText(
         curX += word.width;
         continue;
       }
-      const textWidth = out.m.width(out.m.stateOf(word.refs.style), word.text);
+      const m = out.session.measurer;
+      const textWidth = m.width(m.stateOf(word.refs.style), word.text);
       registerTextNode(out, {
         type: 'text',
         text: word.text,
@@ -3673,7 +3588,7 @@ function emitLineText(
       // `direction`: `<span style="direction:rtl">` (unicode-bidi: normal)
       // over LTR words reorders nothing, and painting them right-anchored
       // at their left edge drew them a run-width too far left.
-      style: withDirection(word.refs.style, rtlPiece ? 'rtl' : 'ltr'),
+      style: withDirection(out.session, word.refs.style, rtlPiece ? 'rtl' : 'ltr'),
       // Only when vertical-align moved this run off the line — an
       // underline from an unshifted declarer still hangs off the line.
       ...(baselineY !== lineBaselineY ? { lineBaselineY } : {}),
@@ -3951,19 +3866,11 @@ function layoutBlock(
     clamp = { remaining: style.lineClamp, exhausted: false };
   }
 
-  // Box model
-  const marginLeft = style.marginLeft;
-  const marginRight = style.marginRight;
-  const borderLeft = style.borderLeftWidth;
-  const borderRight = style.borderRightWidth;
   const borderTop = style.borderTopWidth;
   const borderBottom = style.borderBottomWidth;
-  const padLeft = style.paddingLeft;
-  const padRight = style.paddingRight;
   const padTop = style.paddingTop;
   const padBottom = style.paddingBottom;
-
-  const boxX = x + marginLeft;
+  const boxX = x + style.marginLeft;
   // An explicit width sizes the box `box-sizing` names (content-box, the
   // initial value, unless the style says border-box); otherwise the box
   // fills the available width.
@@ -3974,10 +3881,10 @@ function layoutBlock(
     boxWidth = borderBoxSize(style, style.width, frame);
     contentWidth = contentBoxSize(style, style.width, frame);
   } else {
-    boxWidth = availableWidth - marginLeft - marginRight;
-    contentWidth = Math.max(0, boxWidth - borderLeft - borderRight - padLeft - padRight);
+    boxWidth = availableWidth - style.marginLeft - style.marginRight;
+    contentWidth = Math.max(0, boxWidth - style.borderLeftWidth - style.borderRightWidth - style.paddingLeft - style.paddingRight);
   }
-  const contentX = boxX + borderLeft + padLeft;
+  const contentX = boxX + style.borderLeftWidth + style.paddingLeft;
   // Its own text-indent/gap and its children's percentages, against the
   // width just settled.
   resolvePercentages(style, contentWidth, true);
@@ -3986,14 +3893,15 @@ function layoutBlock(
     ? borderBoxSize(style, style.minHeight, borderTop + padTop + padBottom + borderBottom)
     : 0;
 
-  const boxY = y;
-  const contentStartY = boxY + borderTop + padTop;
+  const contentStartY = y + borderTop + padTop;
+  const ownMarginOut = withMargin(NO_MARGIN, style.marginBottom);
+  const bulletProbe = BULLET_MARKERS.has(style.listStyleType);
 
   const box: LayoutBox = {
     type: 'box',
     style,
     x: boxX,
-    y: boxY,
+    y,
     width: boxWidth,
     height: 0, // computed below
     tagName: node.tagName,
@@ -4001,20 +3909,11 @@ function layoutBlock(
     listMarker: node.listMarker,
   };
 
-  // Flex layout
-  if (style.display === 'flex') {
-    const result = layoutFlex(session, node, contentX, contentStartY, contentWidth);
+  if (style.display === 'flex' || style.display === 'table') {
+    const result = (style.display === 'flex' ? layoutFlex : layoutTable)(session, node, contentX, contentStartY, contentWidth);
     box.children = result.children;
     box.height = borderTop + padTop + result.height + padBottom + borderBottom;
-    return { box, height: box.height, marginBottomOut: withMargin(NO_MARGIN, style.marginBottom) };
-  }
-
-  // Table layout
-  if (style.display === 'table') {
-    const result = layoutTable(session, node, contentX, contentStartY, contentWidth);
-    box.children = result.children;
-    box.height = borderTop + padTop + result.height + padBottom + borderBottom;
-    return { box, height: box.height, marginBottomOut: withMargin(NO_MARGIN, style.marginBottom) };
+    return { box, height: box.height, marginBottomOut: ownMarginOut };
   }
 
   // Empty block elements: zero content height (CSS spec — no line boxes created).
@@ -4022,18 +3921,17 @@ function layoutBlock(
   // item's outside marker, which makes a line box of its own (Chrome, WebKit).
   if (node.children.length === 0) {
     const markerLine = hasMarkerLine(node)
-      ? session.measurer.lineHeight(style, BULLET_MARKERS.has(style.listStyleType))
+      ? session.measurer.lineHeight(style, bulletProbe)
       : 0;
     box.height = borderTop + padTop + markerLine + padBottom + borderBottom;
     if (minHeight > 0) box.height = Math.max(box.height, minHeight);
-    return { box, height: box.height, marginBottomOut: withMargin(NO_MARGIN, style.marginBottom) };
+    return { box, height: box.height, marginBottomOut: ownMarginOut };
   }
 
   // Layout children
   if (hasOnlyInlineChildren(node)) {
-    // Inline formatting context
-    const bulletProbe = node.tagName === 'li' && BULLET_MARKERS.has(style.listStyleType);
-    const { nodes, height, lines, lineBoxes } = layoutInlineContent(session, node, contentX, contentStartY, contentWidth, bulletProbe, clamp);
+    const { nodes, height, lines, lineBoxes } = layoutInlineContent(
+      session, node, contentX, contentStartY, contentWidth, node.tagName === 'li' && bulletProbe, clamp);
     session.lines.push(...lines);
     box.children = nodes;
     box.lineBoxes = lineBoxes;
@@ -4058,24 +3956,14 @@ function layoutBlock(
 
       // Line-clamp budget exhausted — everything below the cut is dropped,
       // including the margin trailing the cut line.
-      if (clamp && (clamp.exhausted || clamp.remaining <= 0)) {
-        clamp.exhausted = true;
+      if (clampSpent(clamp)) {
         pending = NO_MARGIN;
         break;
       }
 
-      if (child.tagName === '#text' || isInline(child)) {
-        // Collect ALL consecutive inline/text children into one group
+      if (isInline(child)) {
         const inlineChildren: StyledNode[] = [child];
-        while (ci + 1 < node.children.length) {
-          const next = node.children[ci + 1];
-          if (next.tagName === '#text' || isInline(next)) {
-            inlineChildren.push(next);
-            ci++;
-          } else {
-            break;
-          }
-        }
+        while (ci + 1 < node.children.length && isInline(node.children[ci + 1])) inlineChildren.push(node.children[++ci]);
         // Content that makes no line box (collapsible whitespace, an empty
         // inline), so margins keep collapsing across it.
         if (!inlineChildren.some(createsLineBox)) continue;
@@ -4092,8 +3980,8 @@ function layoutBlock(
           children: inlineChildren,
           textContent: null,
         };
-        const bulletProbe2 = node.tagName === 'li' && BULLET_MARKERS.has(style.listStyleType);
-        const { nodes, height, lines, lineBoxes } = layoutInlineContent(session, inlineGroup, contentX, curY, contentWidth, bulletProbe2, clamp);
+        const { nodes, height, lines, lineBoxes } = layoutInlineContent(
+          session, inlineGroup, contentX, curY, contentWidth, node.tagName === 'li' && bulletProbe, clamp);
         session.lines.push(...lines);
         box.children.push(...nodes);
         (box.lineBoxes ??= []).push(...lineBoxes);
@@ -4130,14 +4018,14 @@ function layoutBlock(
     // unless padding, border or a BFC holds them inside (the layout root
     // holds them: it defines the content height). What a min-height does
     // here is an engine rule: MIN_HEIGHT_END_MARGINS.
-    let marginBottomOut = withMargin(NO_MARGIN, style.marginBottom);
+    let marginBottomOut = ownMarginOut;
     let contentEnd = curY - contentStartY;
     // A list item with nothing in flow but its marker (MARKER_LINE_WITHOUT_CONTENT).
     if (atTop && hasVisibleMarker(node)) {
       if (!bfcRoot && bottomAdjoinsChildren(style)) pending = throughStrut;
       if (MARKER_LINE_WITHOUT_CONTENT) {
         contentEnd = Math.max(contentEnd,
-          session.measurer.lineHeight(style, BULLET_MARKERS.has(style.listStyleType)));
+          session.measurer.lineHeight(style, bulletProbe));
       }
     }
     const raisesBox = style.minHeight > 0 &&
@@ -4157,7 +4045,7 @@ function layoutBlock(
   }
 
   if (minHeight > 0) box.height = Math.max(box.height, minHeight);
-  return { box, height: box.height, marginBottomOut: withMargin(NO_MARGIN, style.marginBottom) };
+  return { box, height: box.height, marginBottomOut: ownMarginOut };
 }
 
 // ─── Table layout ──────────────────────────────────────────────────────
@@ -4185,8 +4073,8 @@ function layoutTable(
 
   if (rows.length === 0) return { children, height: 0 };
 
-  // Determine column count from first row
-  const colCount = Math.max(...rows.map(r => r.children.filter(c => c.tagName === 'td' || c.tagName === 'th').length));
+  const rowCells = rows.map(r => r.children.filter(c => c.tagName === 'td' || c.tagName === 'th'));
+  const colCount = Math.max(...rowCells.map(cells => cells.length));
   if (colCount === 0) return { children, height: 0 };
 
   // Equal column widths (simple approach)
@@ -4194,8 +4082,7 @@ function layoutTable(
 
   let curY = contentY;
 
-  for (const row of rows) {
-    const cells = row.children.filter(c => c.tagName === 'td' || c.tagName === 'th');
+  for (const cells of rowCells) {
     let maxCellHeight = 0;
     const cellBoxes: LayoutBox[] = [];
 
@@ -4274,76 +4161,65 @@ function horizontalMargins(style: ResolvedStyle): number {
 }
 
 /**
- * Minimum width of one inline formatting context. This is the longest unit
- * between normal soft-wrap opportunities: the actual line flow, over the
- * same prepared segments, at a width nothing fits in. An inline-block
- * there is at ITS min-content width (`inlineBlockContentWidth` at 0) — what
- * the final flow gives it at that width.
+ * Min- or max-content width of one inline formatting context: the real line
+ * flow at a width nothing fits in (every soft-wrap opportunity taken, so each
+ * line is one unbreakable unit) or nothing can exceed (only forced breaks).
  */
-function minimumInlineContentWidth(
-  session: LayoutSession,
-  node: StyledNode,
-): number {
-  // `overflow-wrap:break-word` is deliberately ignored for min-content sizing
-  // by CSS. CJK/emoji and `word-break:break-all` still contribute their
-  // smallest legal pieces, so run the real line flow with only that
-  // last-resort mode disabled — at a width nothing fits in, every soft-wrap
-  // opportunity is taken and each line IS one unbreakable unit.
-  // One copy per source style, not per segment: font state is cached by
-  // style identity, and runs of one style must stay one style to glue.
+function inlineContentSize(session: LayoutSession, node: StyledNode, max: boolean): number {
   const prepared = preparedInline(session, node);
-  const breaksWords = (refs: SegmentRefs) =>
-    refs.style.overflowWrap === 'break-word' && refs.style.wordBreak !== 'break-all';
   let refs = prepared.refs;
-  if (refs.some(breaksWords)) {
-    const neutralized = new Map<ResolvedStyle, ResolvedStyle>();
-    refs = refs.map((r) => {
-      if (!breaksWords(r)) return r;
-      let style = neutralized.get(r.style);
-      if (!style) neutralized.set(r.style, style = { ...r.style, overflowWrap: 'normal' });
-      return { ...r, style };
-    });
-  }
   let widths: number[] | undefined;
-  for (const i of prepared.inlineBlocks) {
-    const source = prepared.refs[prepared.ref[i]].inlineBlock!;
-    widths ??= prepared.width.slice();
-    widths[i] = inlineBlockOuterWidth(session, source, intrinsicStyle(source.style), 0);
+  if (!max) {
+    // CSS ignores `overflow-wrap:break-word` for min-content. One copy per
+    // source style: font state is keyed by style identity, and runs must glue.
+    const breaksWords = (r: SegmentRefs) =>
+      r.style.overflowWrap === 'break-word' && r.style.wordBreak !== 'break-all';
+    if (refs.some(breaksWords)) {
+      const neutralized = new Map<ResolvedStyle, ResolvedStyle>();
+      refs = refs.map((r) => {
+        if (!breaksWords(r)) return r;
+        let style = neutralized.get(r.style);
+        if (!style) neutralized.set(r.style, style = { ...r.style, overflowWrap: 'normal' });
+        return { ...r, style };
+      });
+    }
+    // Prepared inline-blocks stand at max-content.
+    for (const i of prepared.inlineBlocks) {
+      const source = prepared.refs[prepared.ref[i]].inlineBlock!;
+      widths ??= prepared.width.slice();
+      widths[i] = inlineBlockOuterWidth(session, source, intrinsicStyle(source.style), 0);
+    }
   }
   const textIndent = intrinsicStyle(node.style).textIndent;
-  return widestLine(flowLines(
-    session, new FlowItems(prepared, refs, widths), 0, node.style.whiteSpace, false, textIndent), textIndent);
+  return widestLine(flowLines(new LineFlow(
+    session, new FlowItems(prepared, refs, widths), max ? Infinity : 0, node.style.whiteSpace, false, textIndent)), textIndent);
 }
 
 /**
- * Min-content width of `node`'s CONTENT box. Inside a size being computed,
- * every percentage of it is cyclic, so descendants are read through
- * `intrinsicStyle`.
- *
- * Memoized for the call (`session.minContent`): a nested flex row asks for
- * the minimum of its whole subtree, and so does every flex row above it,
- * which otherwise costs O(depth x nodes). The answer depends only on the
- * subtree and the font state, and the session ends with the call.
+ * Min- or max-content width of `node`'s CONTENT box. Percentages inside are
+ * cyclic, so descendants are read through `intrinsicStyle`. Memoized for the
+ * call: nested flex rows otherwise cost O(depth x nodes).
  */
-function contentMinimum(session: LayoutSession, node: StyledNode): number {
-  const memoized = session.minContent.get(node);
+function contentSize(session: LayoutSession, node: StyledNode, max: boolean): number {
+  const memo = max ? session.maxContent : session.minContent;
+  const memoized = memo.get(node);
   if (memoized !== undefined) return memoized;
+  const contribution = max ? maximumContribution : minimumContribution;
   let content = 0;
   if (hasOnlyInlineChildren(node)) {
-    content = minimumInlineContentWidth(session, node);
+    content = inlineContentSize(session, node, max);
   } else if (node.style.display === 'flex' && isFlexRow(node.style)) {
     const children = flexItems(session, node);
-    content = children.reduce(
-      (sum, child) => sum + minimumContribution(session, child, intrinsicStyle(child.style)), 0) +
-      intrinsicStyle(node.style).gap * Math.max(0, children.length - 1);
+    for (const child of children) content += contribution(session, child, intrinsicStyle(child.style));
+    content += intrinsicStyle(node.style).gap * Math.max(0, children.length - 1);
   } else {
     for (const child of node.children) {
       if (child.tagName !== '#text') {
-        content = Math.max(content, minimumContribution(session, child, intrinsicStyle(child.style)));
+        content = Math.max(content, contribution(session, child, intrinsicStyle(child.style)));
       }
     }
   }
-  session.minContent.set(node, content);
+  memo.set(node, content);
   return content;
 }
 
@@ -4362,71 +4238,18 @@ function minimumContribution(session: LayoutSession, node: StyledNode, style: Re
     return margins + borderBoxSize(style, style.minWidth, frame);
   }
 
-  let borderBox = frame + contentMinimum(session, node);
+  let borderBox = frame + contentSize(session, node, false);
   // A definite width caps the automatic minimum size in the flex algorithm.
   if (style.width > 0) borderBox = Math.min(borderBox, borderBoxSize(style, style.width, frame));
   return margins + borderBox;
 }
 
-/** Min-content contribution of a flex item, including its horizontal frame and margins. */
-function minimumContentWidth(session: LayoutSession, node: StyledNode): number {
-  return minimumContribution(session, node, node.style);
-}
-
-/**
- * Maximum width of one inline formatting context: the widest stretch between
- * FORCED breaks. That is the same line flow every other caller uses, run at a
- * width nothing can exceed — max-content does not get its own break rules.
- * Prepared inline-blocks already stand at their max-content width.
- */
-function maximumInlineContentWidth(
-  session: LayoutSession,
-  node: StyledNode,
-): number {
-  const prepared = preparedInline(session, node);
-  const textIndent = intrinsicStyle(node.style).textIndent;
-  return widestLine(flowLines(
-    session, new FlowItems(prepared), Infinity, node.style.whiteSpace, false, textIndent), textIndent);
-}
-
-/** Max-content width of `node`'s CONTENT box; memoized like `contentMinimum`. */
-function contentMaximum(session: LayoutSession, node: StyledNode): number {
-  const memoized = session.maxContent.get(node);
-  if (memoized !== undefined) return memoized;
-  let content = 0;
-  if (hasOnlyInlineChildren(node)) {
-    content = maximumInlineContentWidth(session, node);
-  } else if (node.style.display === 'flex' && isFlexRow(node.style)) {
-    const children = flexItems(session, node);
-    content = children.reduce(
-      (sum, child) => sum + maximumContribution(session, child, intrinsicStyle(child.style)), 0) +
-      intrinsicStyle(node.style).gap * Math.max(0, children.length - 1);
-  } else {
-    for (const child of node.children) {
-      if (child.tagName !== '#text') {
-        content = Math.max(content, maximumContribution(session, child, intrinsicStyle(child.style)));
-      }
-    }
-  }
-  session.maxContent.set(node, content);
-  return content;
-}
-
-/**
- * Max-content contribution of `node` — the same outer currency
- * `minimumContribution` reports and `layoutBlock` takes as its available
- * width — its own box read from `style` (see there).
- */
+/** Max-content contribution of `node`, in the same outer currency (see `minimumContribution`). */
 function maximumContribution(session: LayoutSession, node: StyledNode, style: ResolvedStyle): number {
   const margins = horizontalMargins(style);
   // A definite width IS the max-content size.
   if (style.width > 0) return margins + borderBoxSize(style, style.width, horizontalFrame(style));
-  return margins + horizontalFrame(style) + contentMaximum(session, node);
-}
-
-/** Max-content contribution of a flex item. */
-function maximumContentWidth(session: LayoutSession, node: StyledNode): number {
-  return maximumContribution(session, node, node.style);
+  return margins + horizontalFrame(style) + contentSize(session, node, true);
 }
 
 /**
@@ -4448,8 +4271,8 @@ function inlineBlockContentWidth(
   let width = style.width > 0
     ? contentBoxSize(style, style.width, frame)
     : Math.min(
-      inlineOnly ? contentMaximum(session, node) : maximumInlineContentWidth(session, node),
-      Math.max(inlineOnly ? contentMinimum(session, node) : minimumInlineContentWidth(session, node), available),
+      inlineOnly ? contentSize(session, node, true) : inlineContentSize(session, node, true),
+      Math.max(inlineOnly ? contentSize(session, node, false) : inlineContentSize(session, node, false), available),
     );
   if (style.minWidth !== null) width = Math.max(width, contentBoxSize(style, style.minWidth, frame));
   return width;
@@ -4475,7 +4298,7 @@ function inlineBlockOuterWidth(
 function flexBaseSize(session: LayoutSession, node: StyledNode): number {
   return node.style.flexBasis !== null
     ? horizontalMargins(node.style) + borderBoxSize(node.style, node.style.flexBasis, horizontalFrame(node.style))
-    : maximumContentWidth(session, node);
+    : maximumContribution(session, node, node.style);
 }
 
 /**
@@ -4550,7 +4373,7 @@ function layoutFlex(
     const widths = resolveFlexibleLengths(
       flexChildren.map((child) => child.style),
       flexChildren.map((child) => flexBaseSize(session, child)),
-      flexChildren.map((child) => minimumContentWidth(session, child)),
+      flexChildren.map((child) => minimumContribution(session, child, child.style)),
       available,
     );
 
@@ -4755,6 +4578,7 @@ export function buildLayoutTree(
     maxContent: new Map(),
     anonymousFlexItems: new Map(),
     prepared: new Map(),
+    flippedDirection: new Map(),
     stats,
   };
   // The styledTree root is our container div — layout its children as a block flow
@@ -4814,7 +4638,7 @@ function addListMarkersRecursive(
   // so we correlate by walking both in parallel
   let boxChildIdx = 0;
   for (const styledChild of node.children) {
-    if (styledChild.tagName === '#text' || isInline(styledChild)) {
+    if (isInline(styledChild)) {
       continue;
     }
     // Find the matching LayoutBox

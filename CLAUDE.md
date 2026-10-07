@@ -778,9 +778,9 @@ those bases, not on the container width:
 | `flex: 0 0 140px` | 140 + padding + border | fixed (`flex-basis` sizes the `box-sizing` box) |
 
 Both intrinsic sizes are the SAME line flow at a different width, not their own
-break rules: `minimumInlineContentWidth` is `flowLines(..., 0, ...)`
+break rules: `inlineContentSize` runs `flowLines` at width 0 for min-content
 (every soft-wrap opportunity taken, so each line is one unbreakable unit) and
-`maximumInlineContentWidth` is the same call at `Infinity` (only forced breaks).
+at `Infinity` for max-content (only forced breaks).
 Both take the widest resulting line. They each used to re-derive "can a line
 break here?" privately, and drifted from the wrapper and from each
 other — the number that freezes a flex item is computed by the very rules the
@@ -792,8 +792,7 @@ because CSS ignores that last resort when sizing. The first line carries
 the block's `text-indent` in both, as it does in the final flow (a
 percentage `text-indent` at 0 there: it is of the width being computed).
 
-The memo (`session.minContent`/`maxContent`, `contentMinimum`/
-`contentMaximum`) holds CONTENT-box widths; a node's own margins, frame and
+The memo (`session.minContent`/`maxContent`, `contentSize`) holds CONTENT-box widths; a node's own margins, frame and
 width are added per question (`minimumContribution`/`maximumContribution`),
 because they are read two ways: a flex item's own box resolves against the
 container (`node.style`), every descendant inside a size being computed
@@ -811,8 +810,8 @@ that flow (known gap: Stage 5).
 
 Shrinking is weighted by `flex-shrink x base`, growing by `flex-grow` alone.
 Both run through `resolveFlexibleLengths` (CSS Flexbox §9.7) over OUTER
-(margin-box) widths — the same currency `minimumContentWidth`,
-`maximumContentWidth` and `layoutBlock`'s `availableWidth` all use. Each pass
+(margin-box) widths — the same currency `minimumContribution`,
+`maximumContribution` and `layoutBlock`'s `availableWidth` all use. Each pass
 freezes the items that landed under their automatic minimum (`min-width: auto`
 = min-content) and repeats, because freeing one item changes every other item's
 share. Minima that do not fit overflow the container, exactly as they do
