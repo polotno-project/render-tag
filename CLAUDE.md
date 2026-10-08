@@ -257,6 +257,7 @@ npx vitest run tests/wrapping-parity.test.ts  # focused Chrome DOM-wrap regressi
 npx vitest run tests/flex-parity.test.ts      # flex item geometry vs the DOM (all 3 lanes)
 npx vitest run tests/computed-style-parity.test.ts  # ResolvedStyle vs getComputedStyle (all 3 lanes)
 npx vitest run tests/margin-collapse-parity.test.ts  # block margins vs the DOM (all 3 lanes, ratcheted)
+npm run probe:engines[:chromium|:firefox|:webkit]   # engine-probe matrix (measurement, not a gate)
 npx vitest run tests/geometry-oracle.test.ts  # line/token geometry vs the DOM, report-only (Chromium + WebKit)
 npx vitest run tests/render.test.ts           # render quality tests
 npm run test:stress                           # native-DOM layout width sweep (7 cases, 10px)
@@ -364,6 +365,24 @@ entries by hand from a Firefox CI failure's messages.
 Still engine-gated on purpose: `decoration-position-parity` and
 `decoration-shape-parity` (Gecko decoration geometry is unmeasured; the
 Firefox lane does not run them) and `wrap-fuzz`'s per-browser signature sets.
+
+### Engine-probe matrix (`tests/engine-probe.test.ts`) — measurement, not a gate
+
+`npm run probe:engines` (or `probe:engines:{chromium,firefox,webkit}`) runs
+parameterized DOM probes in each engine and writes the git-ignored
+`tests/engine-probe.<browser>.json`: per row the inputs, the engine's DOM
+numbers, render-tag's `layout()` prediction in that same browser, and the
+signed delta per field; then a per-family summary (rows within `tol` — 1/64px
+Blink/WebKit, 1/60px Gecko, 0 device px for raster families — and the worst
+rows). Each family names the `src/engine.ts` flag it validates: used, percent
+and em line-heights, first baseline, line pitch, vertical-align shifts,
+min-height end margins, empty blocks, list markers, nested inline-blocks,
+decoration bands. Pinned fonts by default; `:system` families are separate.
+A probe is one table entry. Not in any lane: run it on the Mac when changing
+an engine rule. Firefox cannot launch there (`probe:engines` reports that,
+runs the other two and exits nonzero), so Gecko rules are fitted from the
+`Engine probe` workflow (`workflow_dispatch`, ubuntu, all three engines),
+which uploads the JSON files as artifacts and gates nothing.
 
 ### Unit tests for layout logic (`tests/node/layout-logic.test.ts`)
 Unit tests cover deterministic layout algorithms directly — no browser, no fonts, no pixels. They mock `ctx.measureText` to return predictable widths (e.g., 10px per character), then assert the output of layout functions.
@@ -686,8 +705,9 @@ probe): Gecko is the one that sends a real `Gecko/<date>` token, Blink the one
 that says `Chrome/` — matched with NO word boundary, because headless Chrome
 says `HeadlessChrome/`. Safari sends neither. Firefox cannot launch here, so
 Gecko is verified only in Firefox CI: the parity suites gate there, with
-Gecko's known divergences in `tests/engine-divergences.json`. Branded Safari
-has not been re-measured.
+Gecko's known divergences in `tests/engine-divergences.json`, and its rules
+are fitted from the engine-probe workflow's output. Branded Safari has not
+been re-measured.
 
 `vertical-align: text-top` / `text-bottom` align the box's LEADED edge with the
 parent's CONTENT-area edge (bare ascent/descent, no leading). Mixing those two

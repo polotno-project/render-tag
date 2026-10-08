@@ -31,6 +31,8 @@ tests/wrap-sweep-progress.*.log
 tests/geometry-report.*.json
 # Computed-style oracle triage reports (generated)
 tests/computed-style-report.*.json
+# Engine-probe matrix outputs (generated)
+tests/engine-probe.*.json
 # List-marker parity harness reports (generated)
 tests/list-marker-report.*.html
 tests/list-marker-table.*.txt

@@ -1,0 +1,41 @@
+name: Engine probe
+
+# Report-only measurement (tests/engine-probe.test.ts): each engine's DOM
+# numbers beside render-tag's prediction, uploaded as JSON for fitting engine
+# rules — chiefly Gecko, which cannot launch on the maintainer's machine.
+# Never gates anything. See CLAUDE.md "Engine-probe matrix".
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Cache Playwright browsers
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ matrix.browser }}-${{ hashFiles('package-lock.json') }}
+      - run: npx playwright install --with-deps ${{ matrix.browser }}
+      - run: npm run probe:engines:${{ matrix.browser }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: engine-probe-${{ matrix.browser }}
+          path: tests/engine-probe.*.json
+          if-no-files-found: error
