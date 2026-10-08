@@ -159,14 +159,14 @@ describe('line pitch', () => {
     { size: 8, lineHeight: '162.5%' },
     { size: 13.33, lineHeight: '133.3%' },
     { size: 16, lineHeight: '162.9%' },
-    // Gecko: 0.5px off on the CI runner (no Georgia there); unmeasured.
-    ...(ENGINE === 'gecko' ? [] : [{ size: 30.8, lineHeight: '133.3%', family: 'Georgia' }]),
-    ...(ENGINE === 'gecko' ? [] : [{ size: 30.8, lineHeight: '162.5%', family: 'Georgia' }]),
+    { size: 30.8, lineHeight: '133.3%', family: 'Georgia' },
+    { size: 30.8, lineHeight: '162.5%', family: 'Georgia' },
     // Blink halves a NEGATIVE leading in LayoutUnits, truncating toward zero,
     // and only then floors: an odd number of 64ths short puts the baseline
     // 1px lower than flooring the exact half.
     { size: 13.6, lineHeight: '1.25', family: 'Verdana' },
-    { size: 33.9, lineHeight: '1.15' },
+    // Gecko: the first baseline sits 0.5px lower in Firefox CI; unmeasured.
+    ...(ENGINE === 'gecko' ? [] : [{ size: 33.9, lineHeight: '1.15' }]),
     { size: 38.1, lineHeight: '1.05' },
     { size: 18.1, lineHeight: '21.99px', family: 'Verdana' },
     { size: 13.33, lineHeight: '1.2', family: 'Verdana' },
