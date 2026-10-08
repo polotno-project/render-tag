@@ -623,7 +623,7 @@ user agent):
 
 | | Blink | WebKit | Gecko |
 | --- | --- | --- | --- |
-| used line-height | 1/64px grid: a number floors, a length rounds | `floor(float32 value)`; a number floors the font-size to 1/64px first | exact |
+| used line-height | 1/64px grid: a number floors, a length rounds | `floor(float32 value)`; a number floors the font-size to 1/64px first | rounded to 1/60px (Firefox CI) |
 | percentage line-height | integer percentage (162.9% is 162%) | integer percentage | exact (unverified) |
 | half-leading + ascent | half truncated to 1/64px toward zero, then floored | floored to a whole px | exact |
 | `vertical-align: super` | `fontSize / 3 + 1` | `fontSize / 3 + 1` | `0.34 × fontSize` |
@@ -631,7 +631,7 @@ user agent):
 
 Each question has its own flag in `src/engine.ts` (with UA detection,
 `ENGINE`): `TRUNCATES_LINE_HEIGHT` (WebKit), `LAYOUT_UNIT_LINE_HEIGHT`
-(Blink: the grid AND the LayoutUnit half-leading), `INTEGER_PERCENT_LINE_HEIGHT`
+(Blink: the grid AND the LayoutUnit half-leading), `APP_UNIT_LINE_HEIGHT` (Gecko), `INTEGER_PERCENT_LINE_HEIGHT`
 (Blink and WebKit), `FLOORS_LINE_BASELINE` (Blink and WebKit),
 `BLINK_SUPER_SUB` (Blink and WebKit). **Never gate one flag on another**: a
 test that did asserted Gecko's shift against Blink's in every engine except

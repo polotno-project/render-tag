@@ -65,6 +65,10 @@ export const MIN_HEIGHT_END_MARGINS: 'drop' | 'collapse' | 'contain' =
   ENGINE === 'gecko' ? 'contain' : ENGINE === 'webkit' ? 'collapse' : 'drop';
 
 /** Blink lays line-heights on its 1/64px LayoutUnit grid: a number floors the
- * product, a length rounds to nearest, the half-leading truncates. Gecko's
- * 1/60px grid is not modelled. line-baseline-parity. */
+ * product, a length rounds to nearest, the half-leading truncates.
+ * line-baseline-parity. */
 export const LAYOUT_UNIT_LINE_HEIGHT = ENGINE === 'blink';
+
+/** Gecko rounds a line-height to its 1/60px app units (17.3px x 1.85 = 32.005
+ * lays out as 32), measured in Firefox CI. line-baseline-parity. */
+export const APP_UNIT_LINE_HEIGHT = ENGINE === 'gecko';

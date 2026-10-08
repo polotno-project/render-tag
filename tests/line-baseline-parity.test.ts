@@ -7,8 +7,8 @@
  * pixel, so Chrome's DOM text sits up to 1px HIGHER than the exact value.
  * WebKit floors it too, and lays the line out at a whole-pixel line-height
  * besides (`TRUNCATES_LINE_HEIGHT`): 16px x 1.6 is a 25px line there, so the
- * exact value drifts 0.6px further off with every line. Gecko keeps both the
- * exact half-leading and the exact line-height.
+ * exact value drifts 0.6px further off with every line. Gecko keeps the exact
+ * half-leading over a line-height rounded to 1/60px app units.
  *
  * render-tag kept the exact value everywhere, so canvas text stood up to 1px
  * BELOW the same HTML in Chrome — a fraction of a pixel per line, plainly
@@ -159,9 +159,9 @@ describe('line pitch', () => {
     { size: 8, lineHeight: '162.5%' },
     { size: 13.33, lineHeight: '133.3%' },
     { size: 16, lineHeight: '162.9%' },
-    // Gecko: 0.5px off on the CI runner (Georgia falls back there); unmeasured.
+    // Gecko: 0.5px off on the CI runner (no Georgia there); unmeasured.
     ...(ENGINE === 'gecko' ? [] : [{ size: 30.8, lineHeight: '133.3%', family: 'Georgia' }]),
-    { size: 30.8, lineHeight: '162.5%', family: 'Georgia' },
+    ...(ENGINE === 'gecko' ? [] : [{ size: 30.8, lineHeight: '162.5%', family: 'Georgia' }]),
     // Blink halves a NEGATIVE leading in LayoutUnits, truncating toward zero,
     // and only then floors: an odd number of 64ths short puts the baseline
     // 1px lower than flooring the exact half.

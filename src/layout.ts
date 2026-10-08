@@ -5,7 +5,7 @@ import {
 } from './css-resolver.js';
 import { parseHTML } from './parse.js';
 import {
-  BLINK_SUPER_SUB, CANVAS_BIDI_LINE, FLOORS_LINE_BASELINE, LAYOUT_UNIT_LINE_HEIGHT, MARKER_LINE_WITHOUT_CONTENT,
+  APP_UNIT_LINE_HEIGHT, BLINK_SUPER_SUB, CANVAS_BIDI_LINE, FLOORS_LINE_BASELINE, LAYOUT_UNIT_LINE_HEIGHT, MARKER_LINE_WITHOUT_CONTENT,
   MIN_HEIGHT_END_MARGINS, SNAPS_LINE_PAINT, TRUNCATES_LINE_HEIGHT,
 } from './engine.js';
 import {
@@ -423,16 +423,18 @@ function multipliedLineHeight(fontSize: number, multiplier: number): number {
   if (TRUNCATES_LINE_HEIGHT) {
     return Math.floor(Math.fround((Math.floor(fontSize * 64) / 64) * multiplier));
   }
+  if (APP_UNIT_LINE_HEIGHT) return Math.round(fontSize * multiplier * 60) / 60;
   return fontSize * multiplier;
 }
 
 /**
  * The used height of a computed line-height LENGTH: WebKit truncates it to whole px, Blink
- * rounds it to 1/64px, Gecko keeps it. Idempotent.
+ * rounds it to 1/64px, Gecko to 1/60px. Idempotent.
  */
 function usedLineHeight(lineHeight: number): number {
   if (TRUNCATES_LINE_HEIGHT) return Math.floor(Math.fround(lineHeight));
   if (LAYOUT_UNIT_LINE_HEIGHT) return Math.round(lineHeight * 64) / 64;
+  if (APP_UNIT_LINE_HEIGHT) return Math.round(lineHeight * 60) / 60;
   return lineHeight;
 }
 

@@ -166,10 +166,10 @@ describe('engine branch', () => {
   // before the floor: a line one 64th short of its 17px content area keeps
   // the ascent (Verdana 13.6px x 1.25 = 16.984375 over 14 + 3), where the
   // exact half (-1/128) would floor a whole pixel higher. WebKit's line is
-  // whole pixels, Gecko's exact.
+  // whole pixels, Gecko's on 1/60px (1019/60) with an exact half.
   it.each([
     ['Chrome', CHROME, 14],
-    ['Firefox', FIREFOX, 14 - 1 / 128],
+    ['Firefox', FIREFOX, 14 + (1019 / 60 - 17) / 2],
     ['Safari', SAFARI, 13],
   ] as const)('%s lineBaselineOffset(16.984375, 14, 3) -> %s', async (_name, ua, expected) => {
     expect((await layoutUnder(ua)).lineBaselineOffset(16.984375, 14, 3)).toBeCloseTo(expected, 9);
