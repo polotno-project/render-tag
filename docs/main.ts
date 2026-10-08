@@ -1,6 +1,8 @@
 import { render } from 'render-tag';
-
-declare const Quill: any;
+import { initShowcase, renderPathExample, pathExampleSource } from './showcase.ts';
+import { initLayoutDemo } from './layout-demo.ts';
+import { initBenchmark } from './performance.ts';
+import { loadSiteFonts, initCopyButtons, initCodeTabs, highlightCode } from './site-utils.ts';
 
 // ── Feature demos ──
 
@@ -59,12 +61,16 @@ const FEATURES: Record<string, { html: string; css?: string }> = {
   },
   'gradient-text': {
     html: `<div style="line-height: 1.4;">
-  <p style="font-size: 28px; font-weight: 700; font-family: 'IBM Plex Sans', sans-serif; -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-image: linear-gradient(90deg, #ff0844, #ffb199); margin: 0 0 6px 0;">Gradient headline</p>
+  <p style="font-size: 28px; font-weight: 700; font-family: Roboto, sans-serif; -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-image: linear-gradient(90deg, #ff0844, #ffb199); margin: 0 0 6px 0;">Gradient headline</p>
   <p style="font-size: 22px; font-weight: 600; font-family: 'Playfair Display', serif; -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-image: linear-gradient(90deg, #0061ff, #60efff); margin: 0 0 6px 0;">Blue to cyan sweep</p>
   <p style="font-size: 20px; font-weight: 700; -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-image: linear-gradient(90deg, #f5af19, #f12711); margin: 0;">Orange to crimson</p>
 </div>`,
 
   },
+  'gradient-stroke': {
+    html: `<p style="font-family:Roboto;font-size:60px;font-weight:900;line-height:1.1;margin:0;color:#e5eeff;-webkit-text-stroke:2px #0057ff;paint-order:stroke fill">STAND</p><p style="font-family:Roboto;font-size:60px;font-weight:900;line-height:1.1;margin:0;background-image:linear-gradient(90deg,#0057ff,#a84bff);background-clip:text;color:transparent">OUT.</p>`,
+  },
+  'text-on-path': { html: '<span style="font-family:Playfair Display;font-size:30px">Words take <i style="color:#0057ff">shape.</i></span>' },
   'text-shadows': {
     html: `<div style="line-height: 1.5;">
   <p style="font-size: 26px; font-weight: 700; color: #2c3e50; text-shadow: 2px 2px 0 #bdc3c7; margin: 0 0 6px 0;">Hard drop shadow</p>
@@ -94,7 +100,7 @@ const FEATURES: Record<string, { html: string; css?: string }> = {
   },
 };
 
-const DEMO_BASE_CSS = `body { font-family: 'IBM Plex Sans', system-ui, -apple-system, sans-serif; font-size: 14px; line-height: 1.5; color: #161616; }`;
+const DEMO_BASE_CSS = `body { font-family: Roboto, system-ui, sans-serif; font-size: 16px; line-height: 1.6; color: #101113; } p { margin: 0 0 12px; } h1 { font-family: 'Playfair Display', serif; font-weight: 700; font-size: 40px; line-height: 1.2; margin: 0 0 14px; } h2 { font-family: 'Playfair Display', serif; font-weight: 400; font-size: 32px; line-height: 1.2; margin: 0 0 14px; } ul, ol { padding-left: 24px; }`;
 
 function wrapCSS(html: string, css?: string): string {
   return css ? `<style>${css}</style>${html}` : html;
@@ -102,706 +108,118 @@ function wrapCSS(html: string, css?: string): string {
 
 // ── Init ──
 
-document.addEventListener('DOMContentLoaded', async () => {
-  await Promise.all([
-    document.fonts.load('400 16px "IBM Plex Sans"'),
-    document.fonts.load('500 16px "IBM Plex Sans"'),
-    document.fonts.load('600 16px "IBM Plex Sans"'),
-    document.fonts.load('italic 400 16px "IBM Plex Sans"'),
-    document.fonts.load('400 16px "IBM Plex Mono"'),
-    document.fonts.load('500 16px "IBM Plex Mono"'),
-    document.fonts.load('400 20px "Instrument Serif"'),
-    document.fonts.load('italic 400 20px "Instrument Serif"'),
-    document.fonts.load('400 16px "Playfair Display"'),
-    document.fonts.load('700 16px "Playfair Display"'),
-    document.fonts.load('italic 400 16px "Playfair Display"'),
-    document.fonts.load('400 16px "Roboto"'),
-    document.fonts.load('700 16px "Roboto"'),
-    document.fonts.load('italic 400 16px "Roboto"'),
-    document.fonts.load('400 16px "Merriweather"'),
-    document.fonts.load('700 16px "Merriweather"'),
-    document.fonts.load('italic 400 16px "Merriweather"'),
-    document.fonts.load('400 16px "Lobster"'),
-    document.fonts.load('700 16px "Caveat"'),
-  ]);
-
-  initScrollReveal();
-  initHeroAnimation();
+async function init(): Promise<void> {
+  for (const code of document.querySelectorAll<HTMLElement>('.api-code-panels code')) highlightCode(code, code.textContent ?? '');
+  initCopyButtons();
+  initCodeTabs();
+  initFeatureToggles();
+  try {
+    await loadSiteFonts();
+  } catch (error) {
+    console.warn('Showcase fonts could not load; using fallback fonts.', error);
+  }
+  initShowcase();
+  initLayoutDemo();
   initDemo();
   renderFeatureGallery();
   initBenchmark();
-  initCopyButtons();
-  initFeatureToggles();
-});
-
-// ── Scroll Reveal ──
-
-function initScrollReveal() {
-  const observer = new IntersectionObserver(
-    (entries) => {
-      for (const entry of entries) {
-        if (entry.isIntersecting) {
-          entry.target.classList.add('visible');
-          observer.unobserve(entry.target);
-        }
-      }
-    },
-    { threshold: 0.05, rootMargin: '0px 0px -60px 0px' },
-  );
-  document.querySelectorAll('.section').forEach(s => observer.observe(s));
 }
-
-// ── Hero Animation: Typewriter + Live Canvas ──
-
-interface ShowcaseExample {
-  /** Human-readable code shown in the left panel (syntax highlighted) */
-  code: string;
-  /** Actual HTML passed to render() — can differ from display code */
-  html: string;
-  /** Hold time after typing completes (ms) */
-  hold: number;
-}
-
-const SHOWCASE_EXAMPLES: ShowcaseExample[] = [
-  {
-    code: `import { render } from 'render-tag';
-
-render({
-  width: 340,
-  html: \`<p style="font-size:28px;
-    font-weight:700;
-    font-family:Playfair Display">
-    The Art of <em>Typography</em>
-  </p>
-  <p style="color:#555">
-    <b>Bold</b>, <em>italic</em>,
-    <span style="color:#e74c3c">color</span>
-  </p>\`,
-});`,
-    html: `<p style="font-size: 28px; font-weight: 700; font-family: 'Playfair Display', serif;">The Art of <em>Typography</em></p><p style="font-size: 14px; color: #555; line-height: 1.7;"><strong>Bold</strong>, <em>italic</em>, and <span style="color: #e74c3c;">color</span> — all on canvas.</p>`,
-    hold: 3000,
-  },
-  {
-    code: `import { render } from 'render-tag';
-
-render({
-  width: 340,
-  html: \`<p style="font-size:32px;
-    font-weight:700;
-    background-clip:text;
-    text-fill-color:transparent;
-    background-image:linear-gradient(
-      90deg,#ff0844,#ffb199)">
-    Gradient headline
-  </p>
-  <p style="color:#888">
-    Canvas draws gradients natively.
-  </p>\`,
-});`,
-    html: `<p style="font-size: 32px; font-weight: 700; -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-image: linear-gradient(90deg, #ff0844, #ffb199);">Gradient headline</p><p style="font-size: 14px; color: #888;">Canvas draws gradients natively.</p>`,
-    hold: 3000,
-  },
-  {
-    code: `import { render } from 'render-tag';
-
-render({
-  width: 340,
-  html: \`<ul style="font-size:15px;
-    padding-left:20px">
-    <li>Bullet lists</li>
-    <li><span style="text-decoration:
-      underline wavy #e74c3c">
-      Wavy</span> underlines</li>
-    <li><b>Bold</b> +
-      <em style="color:#0f62fe">
-      colored</em> mix</li>
-  </ul>\`,
-});`,
-    html: `<ul style="font-size: 15px; padding-left: 20px; line-height: 1.8;"><li>Bullet lists</li><li><span style="text-decoration: underline wavy #e74c3c;">Wavy</span> underlines</li><li><strong>Bold</strong> + <em style="color: #0f62fe;">colored</em> mix</li></ul>`,
-    hold: 3000,
-  },
-  {
-    code: `import { render } from 'render-tag';
-
-render({
-  width: 340,
-  html: \`<h2 style="font-family:Lobster;
-    font-size:26px; color:#6a0dad">
-    Script Fonts
-  </h2>
-  <p style="font-family:Merriweather;
-    font-style:italic; color:#555">
-    Multiple typefaces, one call.
-    Zero dependencies.
-  </p>\`,
-});`,
-    html: `<h2 style="font-family: 'Lobster'; font-size: 26px; color: #6a0dad;">Script Fonts</h2><p style="font-family: 'Merriweather', serif; font-style: italic; font-size: 14px; color: #555; line-height: 1.7;">Multiple typefaces, one canvas call. Zero dependencies, fully synchronous.</p>`,
-    hold: 3000,
-  },
-];
-
-/** Single-pass syntax highlighting for JS + embedded HTML */
-function highlightCode(escaped: string): string {
-  // Single-pass regex: match tokens in priority order, replace in one go
-  // This avoids chained .replace() where later passes corrupt earlier spans
-  const TOKEN = /(&lt;\/?)[a-zA-Z][a-zA-Z0-9]*|'[^']*'|\b(?:import|from|const|let|var)\b|\b\d+\b|(?:[a-zA-Z-]+)="[^"]*"/g;
-
-  return escaped.replace(TOKEN, (match) => {
-    // HTML tag: &lt;p, &lt;/div, etc.
-    if (match.startsWith('&lt;')) {
-      const prefix = match.startsWith('&lt;/') ? '&lt;/' : '&lt;';
-      const tag = match.slice(prefix.length);
-      return `${prefix}<span class="sh-tag">${tag}</span>`;
-    }
-    // Single-quoted string: 'render-tag'
-    if (match.startsWith("'")) {
-      return `'<span class="sh-str">${match.slice(1, -1)}</span>'`;
-    }
-    // JS keyword
-    if (/^(?:import|from|const|let|var)$/.test(match)) {
-      return `<span class="sh-kw">${match}</span>`;
-    }
-    // attr="value" pair
-    if (match.includes('="')) {
-      const eq = match.indexOf('="');
-      const attr = match.slice(0, eq);
-      const val = match.slice(eq + 2, -1);
-      return `<span class="sh-attr">${attr}</span>="<span class="sh-val">${val}</span>"`;
-    }
-    // Number
-    if (/^\d+$/.test(match)) {
-      return `<span class="sh-num">${match}</span>`;
-    }
-    return match;
-  });
-}
-
-function initHeroAnimation() {
-  const sourceEl = document.getElementById('showcase-source');
-  const renderEl = document.getElementById('showcase-render');
-  if (!sourceEl || !renderEl) return;
-
-  let currentExample = 0;
-  let charIndex = 0;
-  let phase: 'typing' | 'holding' | 'fading-out' | 'fading-in' = 'typing';
-  let holdTimer = 0;
-  let fadeOpacity = 1;
-  let lastTime = performance.now();
-  let lastRenderLen = -1;
-
-  const CHARS_PER_FRAME = 3; // typing speed: chars per rAF tick
-  const FADE_MS = 300;
-  const RENDER_INTERVAL = 6; // re-render canvas every N chars
-
-  function escapeHTML(s: string): string {
-    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  }
-
-  function renderCanvas(opacity = 1) {
-    const example = SHOWCASE_EXAMPLES[currentExample];
-    const width = renderEl.clientWidth - 32; // minus padding
-    if (width <= 0) return;
-
-    try {
-      const { canvas } = render({
-        html: `<style>body { font-family: 'IBM Plex Sans', system-ui, sans-serif; }</style>${example.html}`,
-        width,
-      });
-      renderEl!.innerHTML = '';
-      if (opacity < 1) (canvas as HTMLCanvasElement).style.opacity = String(opacity);
-      renderEl!.appendChild(canvas as HTMLCanvasElement);
-    } catch {
-      // ignore render errors during typing
-    }
-  }
-
-  function updateSource() {
-    const example = SHOWCASE_EXAMPLES[currentExample];
-    const visible = example.code.slice(0, charIndex);
-    const escaped = escapeHTML(visible);
-    const highlighted = highlightCode(escaped);
-    sourceEl!.innerHTML = highlighted + '<span class="showcase-cursor">\u200B</span>';
-  }
-
-  function animate(now: number) {
-    const dt = now - lastTime;
-    lastTime = now;
-
-    if (phase === 'typing') {
-      const example = SHOWCASE_EXAMPLES[currentExample];
-      charIndex = Math.min(charIndex + CHARS_PER_FRAME, example.code.length);
-      updateSource();
-
-      // Render canvas periodically during typing + at the end
-      if (charIndex >= example.code.length || charIndex - lastRenderLen >= RENDER_INTERVAL) {
-        renderCanvas();
-        lastRenderLen = charIndex;
-      }
-
-      if (charIndex >= example.code.length) {
-        phase = 'holding';
-        holdTimer = 0;
-        renderCanvas(); // final render
-      }
-    } else if (phase === 'holding') {
-      holdTimer += dt;
-      if (holdTimer >= SHOWCASE_EXAMPLES[currentExample].hold) {
-        phase = 'fading-out';
-        fadeOpacity = 1;
-      }
-    } else if (phase === 'fading-out') {
-      fadeOpacity = Math.max(0, fadeOpacity - dt / FADE_MS);
-      sourceEl!.style.opacity = String(fadeOpacity);
-      renderCanvas(fadeOpacity);
-
-      if (fadeOpacity <= 0) {
-        currentExample = (currentExample + 1) % SHOWCASE_EXAMPLES.length;
-        charIndex = 0;
-        lastRenderLen = -1;
-        sourceEl!.innerHTML = '<span class="showcase-cursor">\u200B</span>';
-        renderEl!.innerHTML = '';
-        phase = 'fading-in';
-        fadeOpacity = 0;
-      }
-    } else if (phase === 'fading-in') {
-      fadeOpacity = Math.min(1, fadeOpacity + dt / FADE_MS);
-      sourceEl!.style.opacity = String(fadeOpacity);
-
-      if (fadeOpacity >= 1) {
-        phase = 'typing';
-      }
-    }
-
-    requestAnimationFrame(animate);
-  }
-
-  // Kick off
-  updateSource();
-  requestAnimationFrame(animate);
-
-  // Re-render on resize
-  window.addEventListener('resize', () => {
-    if (phase === 'holding' || phase === 'typing') {
-      renderCanvas();
-    }
-  });
-}
+void init();
 
 // ── Interactive Demo ──
 
-function initDemo() {
+function initDemo(): void {
   const widthSlider = document.getElementById('width-slider') as HTMLInputElement;
   const widthValue = document.getElementById('width-value')!;
+  const editor = document.getElementById('editor')!;
+  const editorFrame = document.getElementById('editor-frame')!;
   const canvasFrame = document.getElementById('canvas-frame')!;
   const toolbar = document.getElementById('demo-toolbar')!;
-  const panels = document.querySelectorAll<HTMLElement>('.demo-panel');
 
-  const quill = new Quill('#editor', { modules: { toolbar: false } });
+  editor.innerHTML = `<h2>Make something <em>worth reading.</em></h2>
+<p>A little <strong>bold</strong>. A little <em>italic</em>. A whole lot of <span style="color:#0057ff">possibility.</span></p>
+<p><span style="background:#fff0a6;padding:1px 4px">A thought worth highlighting.</span> <u>A point worth making.</u></p>
+<ul><li>Mix fonts, colors and styles.</li><li>Give every word its place.</li></ul>`;
 
-  quill.root.innerHTML = `<h2 style="font-family: 'Playfair Display', serif;">The Art of Typography</h2>
-<p style="font-family: 'Roboto', sans-serif; font-size: 14px; line-height: 1.7;"><strong>Bold</strong> and <em>italic</em> and <strong><em>both</em></strong>. <span style="color: #da1e28;">Red text</span>, <span style="color: #0f62fe;">blue text</span>, <span style="background: #ffeaa7; padding: 1px 4px;">yellow highlight</span>, <span style="background: #d4efdf; padding: 1px 4px;">green highlight</span>. <u>Underlined</u>, <s>strikethrough</s>, <span style="text-decoration: underline wavy #e74c3c;">wavy underline</span>, <span style="text-decoration: underline dotted #0f62fe;">dotted underline</span>. Sizes: <span style="font-size: 10px;">10px tiny</span>, <span style="font-size: 18px;">18px</span>, <span style="font-size: 24px; font-weight: 700; color: #1a1a2e;">24px bold</span>. Fonts: <span style="font-family: 'Merriweather', serif; font-style: italic;">Merriweather italic</span>, <span style="font-family: 'Lobster', cursive; font-size: 18px; color: #6a0dad;">Lobster</span>, <span style="font-weight: 300;">light 300</span>, <span style="font-weight: 900;">black 900</span>.</p>
-<ul style="font-size: 13px;">
-  <li><strong>Bold item</strong> with <span style="background: #fadbd8; padding: 1px 4px;">pink bg</span></li>
-  <li style="color: #8e44ad;"><span style="font-family: 'Playfair Display', serif;">Playfair</span> in purple</li>
-</ul>
-<p style="font-size: 13px;"><span dir="rtl">مرحبا</span> · 你好世界 · 한국어 · 🎨🚀✨</p>`;
-
-  toolbar.addEventListener('click', (e) => {
-    const btn = (e.target as HTMLElement).closest('button');
-    if (!btn) return;
-    const fmt = btn.dataset.fmt;
-    if (!fmt) return;
-
-    if (fmt === 'header' || fmt === 'list') {
-      const val = btn.dataset.val!;
-      const current = quill.getFormat()[fmt];
-      quill.format(fmt, current === val || current === Number(val) ? false : val === '1' || val === '2' ? Number(val) : val);
-    } else {
-      const current = quill.getFormat()[fmt];
-      quill.format(fmt, !current);
-    }
-    quill.focus();
+  toolbar.addEventListener('mousedown', event => {
+    if ((event.target as HTMLElement).closest('button')) event.preventDefault();
+  });
+  toolbar.addEventListener('click', event => {
+    const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-fmt]');
+    if (!button) return;
+    editor.focus();
+    document.execCommand(button.dataset.fmt!, false, button.dataset.val);
+    updateCanvas();
     updateToolbarState();
   });
-
-  const colorInput = toolbar.querySelector('input[type="color"]') as HTMLInputElement;
-  colorInput.addEventListener('input', () => {
-    quill.format('color', colorInput.value);
-    quill.focus();
+  const color = toolbar.querySelector<HTMLInputElement>('input[type="color"]')!;
+  let savedSelection: Range | undefined;
+  color.addEventListener('pointerdown', () => {
+    const selection = window.getSelection();
+    if (selection?.rangeCount && editor.contains(selection.anchorNode)) savedSelection = selection.getRangeAt(0).cloneRange();
   });
-
-  function updateToolbarState() {
-    const fmt = quill.getFormat();
-    toolbar.querySelectorAll<HTMLButtonElement>('button[data-fmt]').forEach(btn => {
-      const f = btn.dataset.fmt!;
-      const v = btn.dataset.val;
-      if (v) {
-        btn.classList.toggle('active', fmt[f] === v || fmt[f] === Number(v));
-      } else {
-        btn.classList.toggle('active', !!fmt[f]);
-      }
-    });
+  color.addEventListener('input', () => {
+    editor.focus();
+    if (savedSelection) {
+      window.getSelection()?.removeAllRanges();
+      window.getSelection()?.addRange(savedSelection);
+    }
+    document.execCommand('foreColor', false, color.value);
+    updateCanvas();
+  });
+  function updateToolbarState(): void {
+    for (const button of toolbar.querySelectorAll<HTMLButtonElement>('button[data-fmt]')) {
+      const active = document.queryCommandState(button.dataset.fmt!);
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-pressed', String(active));
+    }
   }
-  quill.on('selection-change', updateToolbarState);
-
-  function updateCanvas() {
-    const html = quill.root.innerHTML;
-    const width = parseInt(widthSlider.value);
+  document.addEventListener('selectionchange', () => {
+    const selection = window.getSelection();
+    if (selection?.rangeCount && editor.contains(selection.anchorNode)) {
+      savedSelection = selection.getRangeAt(0).cloneRange();
+      updateToolbarState();
+    }
+  });
+  function updateCanvas(): void {
+    const width = Number(widthSlider.value);
     widthValue.textContent = String(width);
-
-    const cardWidth = width + 34;
-    panels.forEach(c => c.style.width = cardWidth + 'px');
-
+    editor.style.width = `${width}px`;
     try {
-      const debugLogs: { type: string; message: string }[] = [];
-      const t0 = performance.now();
-      const { canvas } = render({
-        html: wrapCSS(html, DEMO_BASE_CSS),
-        width,
-        debug: (entry) => { debugLogs.push(entry); },
-      });
-      const elapsed = performance.now() - t0;
-      console.groupCollapsed(`[render-tag] width=${width}, ${debugLogs.length} entries`);
-      for (const log of debugLogs) {
-        if (log.type === 'line-commit' || log.type === 'line-wrap') {
-          console.log(log.type, log.message);
-        }
-      }
-      console.groupEnd();
-      canvasFrame.innerHTML = '';
-      canvasFrame.appendChild(canvas);
-
-      const ticker = document.getElementById('render-speed');
-      if (ticker) ticker.textContent = elapsed.toFixed(1);
-    } catch (e) {
-      canvasFrame.innerHTML = `<p style="color: #ef4444; font-size: 13px;">${(e as Error).message}</p>`;
+      const start = performance.now();
+      const { canvas } = render({ html: wrapCSS(editor.innerHTML, DEMO_BASE_CSS), width });
+      document.getElementById('render-speed')!.textContent = (performance.now() - start).toFixed(1);
+      canvasFrame.replaceChildren(canvas as HTMLCanvasElement);
+    } catch (error) {
+      const message = document.createElement('p');
+      message.className = 'demo-error';
+      message.textContent = error instanceof Error ? error.message : String(error);
+      canvasFrame.replaceChildren(message);
     }
   }
-
-  function updateSliderMax() {
-    const section = canvasFrame.closest('.container') as HTMLElement;
-    const available = section ? section.clientWidth - 34 : 800; // 34 = panel border + padding
-    const max = Math.max(200, Math.min(800, available));
-    widthSlider.max = String(max);
-    if (parseInt(widthSlider.value) > max) {
-      widthSlider.value = String(max);
-    }
-  }
-
-  updateSliderMax();
-  window.addEventListener('resize', () => { updateSliderMax(); updateCanvas(); });
-
-  quill.on('text-change', updateCanvas);
+  const resize = () => {
+    const maximum = Math.max(200, Math.min(800, editorFrame.clientWidth - 48));
+    widthSlider.max = String(maximum);
+    if (Number(widthSlider.value) > maximum) widthSlider.value = String(maximum);
+    updateCanvas();
+  };
+  let previousWidth = editorFrame.clientWidth;
+  new ResizeObserver(() => {
+    if (editorFrame.clientWidth === previousWidth) return;
+    previousWidth = editorFrame.clientWidth;
+    resize();
+  }).observe(editorFrame);
+  editor.addEventListener('input', updateCanvas);
+  editor.addEventListener('paste', event => {
+    // Keep pasted demo content as text rather than accepting external markup.
+    const text = event.clipboardData?.getData('text/plain');
+    if (text === undefined) return;
+    event.preventDefault();
+    document.execCommand('insertText', false, text);
+    updateCanvas();
+  });
   widthSlider.addEventListener('input', updateCanvas);
-  updateCanvas();
-}
-
-// ── Benchmark ──
-
-const BENCH_HTML = `
-<h2 style="font-family: 'Playfair Display', serif; color: #1a1a2e; margin: 0 0 12px 0;">
-  The Future of Digital Typography
-</h2>
-<p style="font-family: 'Roboto', sans-serif; font-size: 15px; line-height: 1.7; color: #333; margin: 0 0 10px 0;">
-  In the evolving landscape of web design, <strong>rich text rendering</strong> remains
-  a fundamental challenge. From <em>ancient calligraphy</em> to modern screens,
-  the art of displaying <span style="color: #e74c3c;">beautifully formatted text</span>
-  has always pushed technology forward.
-</p>
-<ul style="font-family: 'Roboto', sans-serif; font-size: 14px; padding-left: 24px; margin: 0 0 10px 0; color: #555;">
-  <li><strong>Performance</strong> — sub-5ms rendering</li>
-  <li><em>Accuracy</em> — pixel-perfect layout</li>
-  <li><span style="text-decoration: underline;">Compatibility</span> — works everywhere</li>
-</ul>
-<p style="font-family: 'Playfair Display', serif; font-size: 13px; text-align: center; color: #888; margin: 0;">
-  Typography is the craft of endowing human language with a durable visual form.
-</p>`;
-
-function median(arr: number[]): number {
-  const sorted = [...arr].sort((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
-}
-
-function tick(): Promise<void> {
-  return new Promise(r => setTimeout(r, 50));
-}
-
-function cloneCanvas(src: HTMLCanvasElement): HTMLCanvasElement {
-  const c = document.createElement('canvas');
-  c.width = src.width;
-  c.height = src.height;
-  c.getContext('2d')!.drawImage(src, 0, 0);
-  return c;
-}
-
-function createBenchContainer(): HTMLDivElement {
-  const el = document.createElement('div');
-  el.style.cssText = 'position:fixed;left:-9999px;top:0;width:400px;font-family:system-ui,sans-serif;';
-  el.innerHTML = BENCH_HTML;
-  document.body.appendChild(el);
-  return el;
-}
-
-interface BenchRunner {
-  name: string;
-  load: () => Promise<(container: HTMLDivElement) => Promise<HTMLCanvasElement | null>>;
-}
-
-const BENCH_RUNNERS: BenchRunner[] = [
-  {
-    name: 'render-tag',
-    load: async () => {
-      return async () => {
-        const { canvas } = render({ html: BENCH_HTML, width: 400 });
-        return canvas;
-      };
-    },
-  },
-  {
-    name: 'snapdom',
-    load: async () => {
-      const mod = await import(/* @vite-ignore */ 'https://esm.sh/@zumer/snapdom@latest');
-      const snapdom = mod.snapdom || mod.default;
-      return async (container) => {
-        const result = await snapdom(container, { embedFonts: true, scale: 1 });
-        return await result.toCanvas() as HTMLCanvasElement;
-      };
-    },
-  },
-  {
-    name: 'modern-screenshot',
-    load: async () => {
-      const mod = await import(/* @vite-ignore */ 'https://esm.sh/modern-screenshot@4.5.5');
-      return async (container) => {
-        return await mod.domToCanvas(container, {
-          scale: 1,
-          backgroundColor: '#ffffff',
-          // Fix cloned node visibility/position so capture isn't blank
-          onCloneNode: (cloned: any) => {
-            if (cloned instanceof HTMLElement) {
-              cloned.style.position = 'static';
-              cloned.style.left = 'auto';
-              cloned.style.visibility = 'visible';
-            }
-          },
-        }) as HTMLCanvasElement;
-      };
-    },
-  },
-  {
-    name: 'html2canvas',
-    load: async () => {
-      const mod = await import(/* @vite-ignore */ 'https://esm.sh/html2canvas@1.4.1');
-      const html2canvas = mod.default;
-      return async (container) => {
-        return await html2canvas(container, { scale: 1, logging: false }) as HTMLCanvasElement;
-      };
-    },
-  },
-  {
-    name: 'dom-to-image-more',
-    load: async () => {
-      const mod = await import(/* @vite-ignore */ 'https://esm.sh/dom-to-image-more@3.7.2');
-      const domToImage = mod.default || mod;
-      let fontCSS: string | undefined;
-      if (domToImage.getFontEmbedCSS) {
-        fontCSS = await domToImage.getFontEmbedCSS(document.body);
-      }
-      return async (container) => {
-        return await domToImage.toCanvas(container, {
-          preferredFontFormat: 'woff2',
-          ...(fontCSS ? { fontEmbedCSS: fontCSS } : {}),
-        }) as HTMLCanvasElement;
-      };
-    },
-  },
-  {
-    name: 'carota',
-    load: async () => {
-      const mod = await import(/* @vite-ignore */ 'https://esm.sh/carota@0.1.5');
-      const carota = mod.default || mod;
-      if (!carota?.editor?.create) throw new Error('carota API not found');
-      return async () => {
-        const el = document.createElement('div');
-        el.style.cssText = 'position:fixed;left:-9999px;top:0;width:400px;height:400px;';
-        document.body.appendChild(el);
-        const editor = carota.editor.create(el);
-        const runs = carota.html.parse(BENCH_HTML, {});
-        editor.load(runs);
-        // grab the canvas carota created inside the element
-        const cv = el.querySelector('canvas');
-        const result = cv ? cloneCanvas(cv) : null;
-        el.remove();
-        return result;
-      };
-    },
-  },
-];
-
-interface BenchResult {
-  name: string;
-  ms: number;
-  preview?: HTMLCanvasElement | null;
-}
-
-const PRELOADED_RESULTS: BenchResult[] = [
-  { name: 'render-tag', ms: 0.9 },
-  { name: 'snapdom', ms: 4.3 },
-  { name: 'modern-screenshot', ms: 31.3 },
-  { name: 'html2canvas', ms: 306.9 },
-  { name: 'dom-to-image-more', ms: 8.3 },
-  { name: 'carota', ms: 1.9 },
-];
-
-function initBenchmark() {
-  const btn = document.getElementById('run-benchmark') as HTMLButtonElement;
-  const chart = document.getElementById('perf-chart')!;
-  const deviceNote = document.querySelector('.perf-device-note')!;
-  const outputsContainer = document.getElementById('perf-outputs')!;
-
-  // Show pre-loaded results immediately
-  renderChart(chart, PRELOADED_RESULTS);
-
-  btn.addEventListener('click', async () => {
-    btn.disabled = true;
-    chart.innerHTML = '';
-    deviceNote.innerHTML = '<span class="perf-status" id="perf-status"></span>';
-
-    const container = createBenchContainer();
-    const ROUNDS = 3;
-    const results: BenchResult[] = [];
-
-    const status = document.getElementById('perf-status')!;
-
-    for (const runner of BENCH_RUNNERS) {
-      status.textContent = `Loading ${runner.name}...`;
-      await tick();
-
-      try {
-        const fn = await runner.load();
-        const roundMedians: number[] = [];
-        let preview: HTMLCanvasElement | null = null;
-
-        for (let round = 0; round < ROUNDS; round++) {
-          status.textContent = `Benchmarking ${runner.name} (round ${round + 1}/${ROUNDS})...`;
-          await tick();
-
-          const isSync = runner.name === 'render-tag';
-          const iterations = isSync ? 50 : 20;
-
-          for (let i = 0; i < 3; i++) await fn(container);
-
-          const times: number[] = [];
-          for (let i = 0; i < iterations; i++) {
-            const t0 = performance.now();
-            const result = await fn(container);
-            times.push(performance.now() - t0);
-            // Capture preview from the last iteration of the last round
-            if (round === ROUNDS - 1 && i === iterations - 1 && result) {
-              preview = cloneCanvas(result);
-            }
-          }
-          roundMedians.push(median(times));
-        }
-        results.push({ name: runner.name, ms: median(roundMedians), preview });
-      } catch (e) {
-        console.warn(`${runner.name} failed:`, e);
-        results.push({ name: runner.name, ms: -1 });
-      }
-    }
-
-    container.remove();
-    deviceNote.innerHTML = 'Results from your browser.';
-    renderChart(chart, results);
-    renderOutputs(outputsContainer, results);
-  });
-}
-
-function renderChart(container: HTMLElement, results: BenchResult[]) {
-  const valid = results.filter(r => r.ms > 0);
-  const maxLog = Math.log10(Math.max(...valid.map(r => r.ms)));
-  const minLog = Math.log10(Math.max(Math.min(...valid.map(r => r.ms)), 0.1));
-  const range = maxLog - minLog || 1;
-
-  for (const r of results) {
-    const row = document.createElement('div');
-    row.className = 'perf-row';
-
-    const name = document.createElement('span');
-    name.className = 'perf-name';
-    name.textContent = r.name;
-
-    const track = document.createElement('div');
-    track.className = 'perf-track';
-
-    const bar = document.createElement('div');
-    const logPct = r.ms <= 0 ? 0 : ((Math.log10(r.ms) - minLog) / range) * 92 + 8;
-    const fastest = valid.length > 0 && r.ms === Math.min(...valid.map(v => v.ms));
-    const colorClass = r.ms < 0 ? 'perf-slow' : fastest ? 'perf-fast' : r.ms < 50 ? 'perf-mid' : 'perf-slow';
-    bar.className = `perf-bar ${colorClass}`;
-
-    const ms = document.createElement('span');
-    ms.className = 'perf-ms';
-    ms.textContent = r.ms < 0 ? 'failed' : `${r.ms.toFixed(1)} ms`;
-
-    bar.appendChild(ms);
-    track.appendChild(bar);
-    row.appendChild(name);
-    row.appendChild(track);
-    container.appendChild(row);
-
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        bar.style.width = r.ms < 0 ? '100%' : logPct + '%';
-      });
-    });
-  }
-}
-
-function renderOutputs(container: HTMLElement, results: BenchResult[]) {
-  container.innerHTML = '';
-  const withPreview = results.filter(r => r.preview);
-  if (withPreview.length === 0) {
-    container.hidden = true;
-    return;
-  }
-  container.hidden = false;
-
-  // Input HTML column
-  const inputCol = document.createElement('div');
-  inputCol.className = 'perf-output-col';
-  const inputLabel = document.createElement('div');
-  inputLabel.className = 'perf-output-label';
-  inputLabel.textContent = 'Input HTML';
-  const inputBox = document.createElement('div');
-  inputBox.className = 'perf-output-render';
-  inputBox.innerHTML = BENCH_HTML;
-  inputBox.style.cssText = 'width:400px;font-family:system-ui,sans-serif;';
-  inputCol.appendChild(inputLabel);
-  inputCol.appendChild(inputBox);
-  container.appendChild(inputCol);
-
-  // One column per library with preview, sorted by speed
-  withPreview.sort((a, b) => {
-    if (a.ms <= 0) return 1;
-    if (b.ms <= 0) return -1;
-    return a.ms - b.ms;
-  });
-  for (const r of withPreview) {
-    const col = document.createElement('div');
-    col.className = 'perf-output-col';
-    const label = document.createElement('div');
-    label.className = 'perf-output-label';
-    label.textContent = `${r.name} (${r.ms > 0 ? r.ms.toFixed(1) + ' ms' : 'failed'})`;
-    const box = document.createElement('div');
-    box.className = 'perf-output-render';
-    r.preview!.style.cssText = 'display:block;width:100%;height:auto;';
-    box.appendChild(r.preview!);
-    col.appendChild(label);
-    col.appendChild(box);
-    container.appendChild(col);
-  }
+  resize();
 }
 
 // ── Feature Gallery ──
@@ -815,13 +233,15 @@ function renderFeatureCard(card: HTMLElement) {
   if (!el) return;
 
   try {
-    const width = el.clientWidth || 280;
+    const inset = parseFloat(getComputedStyle(el).paddingLeft) + parseFloat(getComputedStyle(el).paddingRight);
+    const width = Math.max(1, (el.clientWidth || 320) - inset);
     const fullCss = DEMO_BASE_CSS + (css ? '\n' + css : '');
-    const { canvas } = render({ html: wrapCSS(html, fullCss), width });
+    const canvas = key === 'text-on-path' ? renderPathExample(width) : render({ html: wrapCSS(html, fullCss), width }).canvas;
     el.innerHTML = '';
-    el.appendChild(canvas);
-  } catch {
-    el.textContent = 'Render error';
+    el.appendChild(canvas as HTMLCanvasElement);
+  } catch (error) {
+    el.textContent = 'Preview unavailable.';
+    console.warn(`Could not render ${key}`, error);
   }
 }
 
@@ -830,11 +250,11 @@ function renderFeatureGallery() {
     renderFeatureCard(card);
     const source = card.querySelector<HTMLElement>('.feature-source');
     const key = card.dataset.feature;
-    if (source && key && FEATURES[key]) source.textContent = FEATURES[key].html.trim();
+    if (source && key && FEATURES[key]) source.textContent = key === 'text-on-path' ? pathExampleSource() : wrapCSS(FEATURES[key].html.trim(), DEMO_BASE_CSS + (FEATURES[key].css ?? ''));
   }
 
   // Re-render on resize if card widths change
-  let prevWidths = new Map<HTMLElement, number>();
+  const prevWidths = new Map<HTMLElement, number>();
   for (const card of document.querySelectorAll<HTMLElement>('.feature-card')) {
     const el = card.querySelector<HTMLElement>('.feature-canvas');
     if (el) prevWidths.set(card, el.clientWidth);
@@ -861,23 +281,8 @@ function initFeatureToggles() {
       const src = btn.nextElementSibling as HTMLElement;
       if (!src) return;
       src.hidden = !src.hidden;
-      btn.textContent = src.hidden ? 'Source' : 'Hide';
-    });
-  }
-}
-
-// ── Copy buttons ──
-
-function initCopyButtons() {
-  for (const btn of document.querySelectorAll<HTMLButtonElement>('[data-copy]')) {
-    btn.addEventListener('click', async () => {
-      const text = btn.dataset.copy!;
-      try {
-        await navigator.clipboard.writeText(text);
-        const saved = btn.innerHTML;
-        btn.textContent = 'Copied';
-        setTimeout(() => { btn.innerHTML = saved; }, 1200);
-      } catch { /* ignore */ }
+      btn.textContent = src.hidden ? 'View source ↗' : 'Hide source ↑';
+      btn.setAttribute('aria-expanded', String(!src.hidden));
     });
   }
 }

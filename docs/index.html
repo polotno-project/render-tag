@@ -4,283 +4,235 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
-  <title>render-tag — HTML rich text on canvas</title>
-  <meta name="description" content="Render HTML rich text onto canvas with the 2D API. No SVG, no foreignObject. 10-60x faster. Synchronous, zero dependencies.">
-
-  <!-- OpenGraph -->
+  <title>render-tag — HTML rich text, drawn on canvas.</title>
+  <meta name="description" content="Render HTML and CSS rich text with native Canvas 2D commands. Live examples, reusable layout, text on a path and headless workflows. Synchronous. Zero runtime dependencies.">
+  <link rel="canonical" href="https://polotno.com/render-tag/">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://polotno.com/render-tag/">
-  <meta property="og:title" content="render-tag — HTML rich text, drawn on canvas">
-  <meta property="og:description" content="Render HTML + CSS onto canvas with the 2D API. No SVG, no foreignObject. 10-60x faster than SVG-based approaches. Synchronous, zero dependencies.">
+  <meta property="og:title" content="render-tag — HTML rich text, drawn on canvas.">
+  <meta property="og:description" content="Native Canvas 2D. Synchronous. Zero dependencies. A rich text library for design editors, graphics and headless workflows.">
   <meta property="og:image" content="https://polotno.com/render-tag/og-image.png">
-
-  <!-- Twitter Card -->
+  <meta property="og:image:type" content="image/png">
+  <meta property="og:image:alt" content="render-tag: rich text drawn on canvas, with mixed fonts, colors, highlighting, and underlines.">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="render-tag — HTML rich text, drawn on canvas">
-  <meta name="twitter:description" content="Render HTML + CSS onto canvas with the 2D API. 10-60x faster than SVG foreignObject. Synchronous, zero dependencies.">
+  <meta name="twitter:title" content="render-tag — HTML rich text, drawn on canvas.">
+  <meta name="twitter:description" content="A rich text library for native Canvas 2D and reusable layout.">
   <meta name="twitter:image" content="https://polotno.com/render-tag/og-image.png">
-
-  <link rel="stylesheet" href="style.css">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&family=Caveat:wght@700&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Roboto:ital,wght@0,400;0,700;1,400&family=Merriweather:ital,wght@0,400;0,700;1,400&family=Lobster&display=swap" rel="stylesheet">
+  <meta name="twitter:image:alt" content="render-tag: rich text drawn on canvas, with mixed fonts, colors, highlighting, and underlines.">
+  <meta name="theme-color" content="#ffffff">
+  <link rel="stylesheet" href="site.css">
 </head>
 <body>
-
-  <nav class="nav">
-    <a href="index.html" class="nav-logo">render-tag</a>
-    <div class="nav-links">
-      <a href="compare.html">Compare</a>
-      <a href="benchmark.html">Benchmark</a>
-      <a href="https://github.com/polotno-project/render-tag" target="_blank" rel="noopener">GitHub</a>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-nav shell">
+    <a href="index.html" class="brand" aria-label="render-tag home">render-tag</a>
+    <span class="brand-caption">HTML RICH TEXT, DRAWN ON CANVAS.</span>
+    <nav aria-label="Main navigation">
+      <a href="#features">Examples</a>
+      <a href="#api">Docs</a>
+      <a class="github-link" href="https://github.com/polotno-project/render-tag" target="_blank" rel="noopener noreferrer">GitHub ↗</a>
+      <a href="#playground" class="button button-blue">Try the playground <span aria-hidden="true">→</span></a>
+    </nav>
+  </header>
+  <main id="main">
+    <section class="hero shell">
+      <div class="hero-copy">
+        <p class="eyebrow">A JAVASCRIPT LIBRARY</p>
+        <h1>Rich text,<br>drawn on canvas.</h1>
+        <p class="hero-description">Rich text for canvas editors, charts, and image exports. Use HTML and CSS for styles; draw with native Canvas 2D commands.</p>
+        <div class="hero-actions">
+          <a href="#playground" class="button button-blue">Try the playground <span aria-hidden="true">→</span></a>
+          <a href="#api" class="button button-outline">Read the docs</a>
+        </div>
+        <div class="install-command"><span aria-hidden="true">$</span><code id="install-source">npm i render-tag</code><button data-copy-source="install-source" aria-label="Copy install command">Copy</button></div>
+      </div>
+      <figure class="hero-specimen">
+        <figcaption class="panel-label"><span>RICH TEXT ON CANVAS</span><span>400 × 300</span></figcaption>
+        <div id="specimen-stage" role="img" aria-label="Rich text on canvas with mixed fonts, bold and italic text, colors, highlighting, and underlines."><p class="canvas-fallback">Rich <strong>text.</strong><br><em>Canvas 2D.</em></p></div>
+      </figure>
+    </section>
+    <div class="benefits shell">
+      <div><h2>NATIVE CANVAS 2D</h2><p>Uses standard Canvas 2D drawing commands.</p></div>
+      <div><h2>SYNCHRONOUS</h2><p>Returns in the same call. Load fonts first.</p></div>
+      <div><h2>ZERO DEPENDENCIES</h2><p>No third-party runtime packages.</p></div>
     </div>
-  </nav>
+    <section class="section shell" id="live-example">
+      <div class="section-head"><div><p class="eyebrow">LIVE EXAMPLE</p><h2>HTML → canvas.</h2></div><p class="section-description">Write familiar tags and styles.<br>render-tag lays out the text and draws it to a canvas.</p></div>
+      <div class="example-tabs" role="group" aria-label="Choose a live code example"><button data-example="hello" aria-pressed="true">Rich text</button><button data-example="gradient" aria-pressed="false">Gradient</button><button data-example="path" aria-pressed="false">On a path</button></div>
+      <div class="code-to-canvas">
+        <div class="code-panel"><div class="panel-label"><span>JAVASCRIPT</span><button data-copy-source="showcase-source" aria-label="Copy live example">Copy ↗</button></div><pre><code id="showcase-source">import { render } from 'render-tag';
 
-  <section class="hero">
-    <div class="hero-grid"></div>
-    <div class="hero-glow"></div>
-    <div class="hero-content">
-      <h1 class="hero-title">HTML rich text,<br>drawn on canvas.</h1>
-      <p class="hero-desc">render-tag takes HTML + CSS and draws it onto a canvas element with the 2D API. No SVG. No <code>foreignObject</code>. Synchronous. Zero dependencies.</p>
-
-      <p class="hero-for-line">For developers building</p>
-      <div class="hero-use-cases">
-        <span class="use-pill">Design editor</span>
-        <span class="use-pill">Image generator</span>
-        <span class="use-pill">2D game</span>
-        <span class="use-pill">Presentation tool</span>
-        <span class="use-pill">Diagram builder</span>
-        <span class="use-pill">WebGL app</span>
+const { canvas } = render({
+  html: '&lt;p&gt;Hello &lt;strong&gt;world&lt;/strong&gt;&lt;/p&gt;',
+  width: 400,
+});</code></pre></div>
+        <figure class="example-output"><figcaption class="panel-label"><span>CANVAS OUTPUT</span><span id="example-dimensions">400 × 140</span></figcaption><div id="showcase-render" role="img" aria-label="Canvas output of the selected JavaScript example"></div></figure>
       </div>
-      <p class="hero-pitch">Your users will want bold, italic, lists, and colors.<br>Don't build a text engine&nbsp;&mdash;&nbsp;use&nbsp;one.</p>
-
-      <!-- ── Showcase: code → canvas ── -->
-      <div class="showcase" id="showcase">
-        <div class="showcase-panel showcase-code">
-          <div class="showcase-chrome">
-            <span class="showcase-dot"></span><span class="showcase-dot"></span><span class="showcase-dot"></span>
-            <span class="showcase-label">HTML input</span>
-          </div>
-          <pre class="showcase-pre"><code id="showcase-source"></code></pre>
-        </div>
-        <div class="showcase-arrow">
-          <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
-            <path d="M8 20h24M24 12l8 8-8 8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </div>
-        <div class="showcase-panel showcase-canvas">
-          <div class="showcase-chrome">
-            <span class="showcase-dot"></span><span class="showcase-dot"></span><span class="showcase-dot"></span>
-            <span class="showcase-label">Canvas output</span>
-          </div>
-          <div class="showcase-render" id="showcase-render"></div>
-        </div>
-      </div>
-
-      <p class="hero-note">Paragraphs, headings, lists, inline formatting &mdash; rendered fast and consistent across browsers.</p>
-      <div class="hero-actions">
-        <a href="#demo" class="btn">Try it live</a>
-        <div class="hero-install">
-          <code>npm i render-tag</code>
-          <button class="btn-copy" data-copy="npm install render-tag" aria-label="Copy">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
-          </button>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <section class="section" id="demo">
-    <div class="container">
-      <div class="section-head">
-        <div>
-          <h2>Interactive demo</h2>
-          <p class="section-desc">Edit the rich text below. The canvas renders identical content at the same width.</p>
-        </div>
-        <div class="demo-meta">
-          <label class="width-ctrl">
-            <span>Width</span>
-            <input type="range" id="width-slider" min="200" max="800" value="480">
-            <output id="width-value">480</output><span class="dim">px</span>
-          </label>
-          <span class="render-time">Render <strong><span id="render-speed">&mdash;</span> ms</strong></span>
-        </div>
-      </div>
+      <p class="example-note">These previews run the code shown above. The page loads the fonts before drawing.</p>
+    </section>
+    <section class="layout-section shell" id="layout">
+      <div class="layout-copy"><p class="eyebrow">LAYOUT WITHOUT PAINTING</p><h2>Text measurements.</h2><p>Get content height, line boxes, and positioned runs. Use them to fit text into a space, draw backgrounds, or build hit areas.</p><a class="text-link" href="#api">Layout &amp; headless examples →</a></div>
+      <figure class="layout-inspector"><figcaption class="panel-label"><span>LINE BOXES</span><span id="layout-dimensions">Measuring…</span></figcaption><div id="layout-preview" role="img" aria-label="Measured line boxes, used to draw backgrounds behind rich text"></div><label class="geometry-controls" for="layout-width"><span>Layout width</span><input type="range" id="layout-width" min="180" max="340" value="280"><output id="layout-width-value" for="layout-width">280</output><span>px</span></label><p class="geometry-note">Blue shapes come from the measured line boxes.</p></figure>
+      <aside class="docs-links" aria-label="Documentation on GitHub"><p class="eyebrow">DOCUMENTATION</p><a href="https://github.com/polotno-project/render-tag#usage" target="_blank" rel="noopener noreferrer">Getting started <span>↗</span></a><a href="https://github.com/polotno-project/render-tag#api" target="_blank" rel="noopener noreferrer">Rendering <span>↗</span></a><a href="https://github.com/polotno-project/render-tag#layout--headless-workflows" target="_blank" rel="noopener noreferrer">Layout &amp; headless <span>↗</span></a><a href="path.html">Text on a path <span>→</span></a><a href="https://github.com/polotno-project/render-tag#what-it-renders" target="_blank" rel="noopener noreferrer">Supported HTML &amp; CSS <span>↗</span></a></aside>
+    </section>
+    <section class="section shell" id="playground">
+      <div class="section-head"><div><p class="eyebrow">LIVE EDITOR</p><h2>Interactive rich text.</h2></div><p class="section-description">Edit text and formatting.<br>Change the width to see reflow.</p></div>
+      <div class="playground-controls"><label class="width-ctrl" for="width-slider"><span>Content width</span><input type="range" id="width-slider" min="200" max="800" value="480"><output id="width-value" for="width-slider">480</output><span>px</span></label><span class="render-time">Render <strong><span id="render-speed">—</span> ms</strong></span></div>
       <div class="demo-stack">
-        <div class="demo-panel">
-          <div class="demo-chrome">
-            <span class="demo-dot"></span><span class="demo-dot"></span><span class="demo-dot"></span>
-            <span class="demo-chrome-label">Editor</span>
-          </div>
-          <div class="demo-bar" id="demo-toolbar">
-            <button data-fmt="bold" title="Bold"><b>B</b></button>
-            <button data-fmt="italic" title="Italic"><i>I</i></button>
-            <button data-fmt="underline" title="Underline"><u>U</u></button>
-            <button data-fmt="strike" title="Strikethrough"><s>S</s></button>
-            <span class="sep"></span>
-            <button data-fmt="header" data-val="1" title="H1">H1</button>
-            <button data-fmt="header" data-val="2" title="H2">H2</button>
-            <span class="sep"></span>
-            <button data-fmt="list" data-val="bullet" title="Bullets">&#8226;</button>
-            <button data-fmt="list" data-val="ordered" title="Numbers">1.</button>
-            <span class="sep"></span>
-            <input type="color" data-fmt="color" value="#da1e28" title="Text color">
-          </div>
-          <div class="demo-body" id="editor-frame">
-            <div id="editor"></div>
-          </div>
-        </div>
-        <div class="demo-panel">
-          <div class="demo-chrome">
-            <span class="demo-dot"></span><span class="demo-dot"></span><span class="demo-dot"></span>
-            <span class="demo-chrome-label">Canvas</span>
-          </div>
-          <div class="demo-body" id="canvas-frame"></div>
-        </div>
+        <div class="demo-panel"><div class="panel-label"><span>RICH TEXT INPUT</span><span>Editable</span></div><div class="demo-bar" id="demo-toolbar" role="toolbar" aria-label="Text formatting"><button data-fmt="bold" aria-label="Bold" aria-pressed="false"><b>B</b></button><button data-fmt="italic" aria-label="Italic" aria-pressed="false"><i>I</i></button><button data-fmt="underline" aria-label="Underline" aria-pressed="false"><u>U</u></button><button data-fmt="strikeThrough" aria-label="Strikethrough" aria-pressed="false"><s>S</s></button><span class="sep"></span><button data-fmt="formatBlock" data-val="h1" aria-label="Heading 1">H1</button><button data-fmt="formatBlock" data-val="h2" aria-label="Heading 2">H2</button><span class="sep"></span><button data-fmt="insertUnorderedList" aria-label="Bullet list">•</button><button data-fmt="insertOrderedList" aria-label="Numbered list">1.</button><label class="color-control"><span class="sr-only">Text color</span><input type="color" value="#0057ff" title="Text color"></label></div><div class="demo-body" id="editor-frame"><div id="editor" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Rich text input" spellcheck="false"><h2>Make something <em>worth reading.</em></h2><p>A little <strong>bold</strong>. A little <em>italic</em>. A whole lot of possibility.</p></div></div></div>
+        <div class="demo-panel"><div class="panel-label"><span>CANVAS OUTPUT</span><span>Canvas 2D</span></div><div class="demo-body" id="canvas-frame" role="img" aria-label="Rendered rich text preview"></div></div>
       </div>
-    </div>
-  </section>
-
-  <section class="section" id="features">
-    <div class="container">
-      <h2>What it renders</h2>
-      <p class="section-sub">Every example below is drawn live onto a canvas element.</p>
-      <div class="feature-grid" id="feature-grid">
-        <div class="feature-card" data-feature="rich-text">
-          <span class="feature-tag">Rich text</span>
-          <div class="feature-canvas"></div>
-          <button class="feature-toggle">Source</button>
-          <pre class="feature-source" hidden></pre>
-        </div>
-        <div class="feature-card" data-feature="text-decorations">
-          <span class="feature-tag">Decorations</span>
-          <div class="feature-canvas"></div>
-          <button class="feature-toggle">Source</button>
-          <pre class="feature-source" hidden></pre>
-        </div>
-        <div class="feature-card" data-feature="lists">
-          <span class="feature-tag">Nested lists</span>
-          <div class="feature-canvas"></div>
-          <button class="feature-toggle">Source</button>
-          <pre class="feature-source" hidden></pre>
-        </div>
-        <div class="feature-card" data-feature="mixed-fonts">
-          <span class="feature-tag">Mixed fonts</span>
-          <div class="feature-canvas"></div>
-          <button class="feature-toggle">Source</button>
-          <pre class="feature-source" hidden></pre>
-        </div>
-        <div class="feature-card" data-feature="rtl">
-          <span class="feature-tag">RTL &amp; bidi</span>
-          <div class="feature-canvas"></div>
-          <button class="feature-toggle">Source</button>
-          <pre class="feature-source" hidden></pre>
-        </div>
-        <div class="feature-card" data-feature="text-alignment">
-          <span class="feature-tag">Text alignment</span>
-          <div class="feature-canvas"></div>
-          <button class="feature-toggle">Source</button>
-          <pre class="feature-source" hidden></pre>
-        </div>
-        <div class="feature-card" data-feature="gradient-text">
-          <span class="feature-tag">Gradient text</span>
-          <div class="feature-canvas"></div>
-          <button class="feature-toggle">Source</button>
-          <pre class="feature-source" hidden></pre>
-        </div>
-        <div class="feature-card" data-feature="text-shadows">
-          <span class="feature-tag">Text shadows</span>
-          <div class="feature-canvas"></div>
-          <button class="feature-toggle">Source</button>
-          <pre class="feature-source" hidden></pre>
-        </div>
-        <div class="feature-card" data-feature="spacing">
-          <span class="feature-tag">Letter &amp; word spacing</span>
-          <div class="feature-canvas"></div>
-          <button class="feature-toggle">Source</button>
-          <pre class="feature-source" hidden></pre>
-        </div>
-        <div class="feature-card" data-feature="headings">
-          <span class="feature-tag">Headings &amp; hierarchy</span>
-          <div class="feature-canvas"></div>
-          <button class="feature-toggle">Source</button>
-          <pre class="feature-source" hidden></pre>
-        </div>
+      <div class="section-footnote"><span>Both panels use the selected content width.</span><a href="compare.html">Deep compare: canvas vs. browser →</a></div>
+    </section>
+    <section class="section shell" id="features">
+      <div class="section-head"><div><p class="eyebrow">EXAMPLES</p><h2>Rendering examples.</h2></div><p class="section-description">Gradients, outlines, decorations and curves.<br>Every example below is a real canvas. Open its source.</p></div>
+      <div class="feature-grid">
+        <article class="feature-card" data-feature="rich-text">
+          <div class="feature-top"><h3>Rich inline styles</h3><span>01</span></div>
+          <div class="feature-canvas" role="img" aria-label="Canvas example: Rich inline styles"></div>
+          <button class="feature-toggle" aria-expanded="false" aria-controls="source-rich-text">View source ↗</button>
+          <pre id="source-rich-text" class="feature-source" hidden></pre>
+        </article>
+        <article class="feature-card" data-feature="gradient-text">
+          <div class="feature-top"><h3>Gradient fills</h3><span>02</span></div>
+          <div class="feature-canvas" role="img" aria-label="Canvas example: Gradient fills"></div>
+          <button class="feature-toggle" aria-expanded="false" aria-controls="source-gradient-text">View source ↗</button>
+          <pre id="source-gradient-text" class="feature-source" hidden></pre>
+        </article>
+        <article class="feature-card" data-feature="gradient-stroke">
+          <div class="feature-top"><h3>Outlined type</h3><span>03</span></div>
+          <div class="feature-canvas" role="img" aria-label="Canvas example: Outlined type"></div>
+          <button class="feature-toggle" aria-expanded="false" aria-controls="source-gradient-stroke">View source ↗</button>
+          <pre id="source-gradient-stroke" class="feature-source" hidden></pre>
+        </article>
+        <article class="feature-card" data-feature="text-decorations">
+          <div class="feature-top"><h3>Decorations</h3><span>04</span></div>
+          <div class="feature-canvas" role="img" aria-label="Canvas example: Decorations"></div>
+          <button class="feature-toggle" aria-expanded="false" aria-controls="source-text-decorations">View source ↗</button>
+          <pre id="source-text-decorations" class="feature-source" hidden></pre>
+        </article>
+        <article class="feature-card" data-feature="mixed-fonts">
+          <div class="feature-top"><h3>Mixed fonts</h3><span>05</span></div>
+          <div class="feature-canvas" role="img" aria-label="Canvas example: Mixed fonts"></div>
+          <button class="feature-toggle" aria-expanded="false" aria-controls="source-mixed-fonts">View source ↗</button>
+          <pre id="source-mixed-fonts" class="feature-source" hidden></pre>
+        </article>
+        <article class="feature-card" data-feature="text-shadows">
+          <div class="feature-top"><h3>Shadows & glow</h3><span>06</span></div>
+          <div class="feature-canvas" role="img" aria-label="Canvas example: Shadows & glow"></div>
+          <button class="feature-toggle" aria-expanded="false" aria-controls="source-text-shadows">View source ↗</button>
+          <pre id="source-text-shadows" class="feature-source" hidden></pre>
+        </article>
+        <article class="feature-card" data-feature="text-on-path">
+          <div class="feature-top"><h3>Text on a path</h3><span>07</span></div>
+          <div class="feature-canvas" role="img" aria-label="Canvas example: Text on a path"></div>
+          <button class="feature-toggle" aria-expanded="false" aria-controls="source-text-on-path">View source ↗</button>
+          <pre id="source-text-on-path" class="feature-source" hidden></pre>
+        </article>
+        <article class="feature-card" data-feature="lists">
+          <div class="feature-top"><h3>Nested lists</h3><span>08</span></div>
+          <div class="feature-canvas" role="img" aria-label="Canvas example: Nested lists"></div>
+          <button class="feature-toggle" aria-expanded="false" aria-controls="source-lists">View source ↗</button>
+          <pre id="source-lists" class="feature-source" hidden></pre>
+        </article>
+        <article class="feature-card" data-feature="rtl">
+          <div class="feature-top"><h3>RTL & mixed directions</h3><span>09</span></div>
+          <div class="feature-canvas" role="img" aria-label="Canvas example: RTL & mixed directions"></div>
+          <button class="feature-toggle" aria-expanded="false" aria-controls="source-rtl">View source ↗</button>
+          <pre id="source-rtl" class="feature-source" hidden></pre>
+        </article>
+        <article class="feature-card" data-feature="text-alignment">
+          <div class="feature-top"><h3>Alignment & justification</h3><span>10</span></div>
+          <div class="feature-canvas" role="img" aria-label="Canvas example: Alignment & justification"></div>
+          <button class="feature-toggle" aria-expanded="false" aria-controls="source-text-alignment">View source ↗</button>
+          <pre id="source-text-alignment" class="feature-source" hidden></pre>
+        </article>
+        <article class="feature-card" data-feature="spacing">
+          <div class="feature-top"><h3>Spacing & transforms</h3><span>11</span></div>
+          <div class="feature-canvas" role="img" aria-label="Canvas example: Spacing & transforms"></div>
+          <button class="feature-toggle" aria-expanded="false" aria-controls="source-spacing">View source ↗</button>
+          <pre id="source-spacing" class="feature-source" hidden></pre>
+        </article>
+        <article class="feature-card" data-feature="headings">
+          <div class="feature-top"><h3>Typographic hierarchy</h3><span>12</span></div>
+          <div class="feature-canvas" role="img" aria-label="Canvas example: Typographic hierarchy"></div>
+          <button class="feature-toggle" aria-expanded="false" aria-controls="source-headings">View source ↗</button>
+          <pre id="source-headings" class="feature-source" hidden></pre>
+        </article>
       </div>
-    </div>
-  </section>
+      <div class="section-footnote"><a href="path.html">Try the text-on-path playground →</a><a href="compare.html">Inspect more examples against the browser →</a></div>
+    </section>
+    <section class="section shell" id="performance">
+      <div class="section-head"><div><p class="eyebrow">PERFORMANCE</p><h2>Render time comparison.</h2></div><div class="section-description"><p>Compare fresh HTML → canvas rendering of the same rich text, on your device.</p><button class="button button-blue" id="run-benchmark">Run comparison <span aria-hidden="true">→</span></button></div></div>
+      <p class="benchmark-cache-note">No cached render results or layouts. Each sample renders from fresh HTML. Fonts are preloaded; browser resource caches may still apply.</p>
+      <div class="benchmark-table-wrap"><table class="benchmark-table"><caption class="sr-only">Render time comparison. Lower is faster.</caption><thead><tr><th scope="col">Library</th><th scope="col" class="bench-bar-cell">Time · lower is faster</th><th scope="col">Fresh render · median</th><th scope="col">Status</th></tr></thead><tbody>
+<tr data-bench="render-tag"><th scope="row">render-tag <small>this build</small></th><td class="bench-bar-cell"><div class="bench-bar"></div></td><td class="bench-time">—</td><td class="bench-status">Not run</td></tr>
+<tr data-bench="snapdom"><th scope="row">snapdom <small>3.3.0</small></th><td class="bench-bar-cell"><div class="bench-bar"></div></td><td class="bench-time">—</td><td class="bench-status">Not run</td></tr>
+<tr data-bench="modern-screenshot"><th scope="row">modern-screenshot <small>4.7.0</small></th><td class="bench-bar-cell"><div class="bench-bar"></div></td><td class="bench-time">—</td><td class="bench-status">Not run</td></tr>
+<tr data-bench="html2canvas"><th scope="row">html2canvas <small>1.4.1</small></th><td class="bench-bar-cell"><div class="bench-bar"></div></td><td class="bench-time">—</td><td class="bench-status">Not run</td></tr>
+<tr data-bench="dom-to-image-more"><th scope="row">dom-to-image-more <small>3.11.0</small></th><td class="bench-bar-cell"><div class="bench-bar"></div></td><td class="bench-time">—</td><td class="bench-status">Not run</td></tr>
+      </tbody></table></div>
+      <p class="benchmark-note" id="benchmark-note" role="status">No prerecorded scores. Run to load the comparison libraries and measure in this browser.</p>
+      <details class="benchmark-details"><summary>Method &amp; rendered outputs</summary><p>Rich text mixing Roboto, Playfair Display, Merriweather, and Lobster (self-hosted Google Fonts). 400px width, 1× resolution, two warm-ups, median of seven fresh renders per library. Each timed DOM capture uses a new root element and fresh content parsed from HTML; render-tag parses that same HTML internally. SnapDOM uses <code>invalidate: true</code> and <code>cache: false</code> to disable capture memoization and persistent library caches. Modern-screenshot and html2canvas use new contexts; dom-to-image-more resets per-render resource state and disables cached default-style copying. Font and module loading are excluded. Browser font, glyph, and HTTP caches are not disabled; work may be cached within a single call. Each render includes a pixel readback, and any font embedding inside the call is timed. Libraries have different goals: rich text drawing versus DOM capture. Compare output quality as well as speed.</p><div id="perf-outputs" class="perf-outputs"></div></details>
+      <div class="section-footnote"><span>Comparison libraries load from esm.sh only when you run this benchmark.</span><a href="compare.html">Explore the deep rendering comparison →</a></div>
+    </section>
+    <section class="section shell" id="api">
+      <div class="section-head"><div><p class="eyebrow">USAGE</p><h2>Core API.</h2></div><p class="section-description">Render directly, use measurements in your design,<br>or measure text in a headless workflow.</p></div>
+      <div class="api-tabs" role="tablist" aria-label="Code examples"><button id="tab-render" role="tab" aria-selected="true" aria-controls="code-render" data-code-tab="render">Render</button><button id="tab-layout" role="tab" aria-selected="false" aria-controls="code-layout" data-code-tab="layout" tabindex="-1">Layout + draw</button><button id="tab-node" role="tab" aria-selected="false" aria-controls="code-node" data-code-tab="node" tabindex="-1">Headless / Node</button><button class="code-copy" data-copy-source="api-active-code" aria-label="Copy current code example">Copy code</button></div>
+      <div class="api-code-panels">
+        <pre id="code-render" role="tabpanel" aria-labelledby="tab-render"><code>import { render } from 'render-tag';
 
-  <section class="section section--raised" id="performance">
-    <div class="container">
-      <h2>Performance</h2>
-      <p class="section-sub">Live benchmark in your browser. Median of 3 runs. Each run takes the median of multiple iterations.</p>
-      <div class="perf-chart" id="perf-chart"></div>
-      <p class="perf-device-note">Results from MacBook Pro, Chrome. <button class="btn-text" id="run-benchmark">Run in your browser</button></p>
-      <p class="muted-note">Log scale. Other libraries use SVG <code>foreignObject</code> or DOM cloning &mdash; they render all HTML via the browser's own engine. render-tag is a pure Canvas 2D renderer (no SVG, no DOM snapshot) that only handles rich text. <a href="https://github.com/danielearwicker/carota" target="_blank" rel="noopener">Carota</a> is the closest canvas-based alternative.</p>
-      <div id="perf-outputs" class="perf-outputs" hidden></div>
-    </div>
-  </section>
+// Load the fonts your content uses before rendering.
+await Promise.all([
+  document.fonts.load('400 24px "Roboto"'),
+  document.fonts.load('700 24px "Roboto"'),
+]);
 
-  <section class="section" id="api">
-    <div class="container">
-      <h2>API</h2>
-      <div class="api-sig"><code>render(config) &rarr; { canvas, height, layoutRoot, lines }</code></div>
-      <div class="api-table-wrap">
-        <table class="api-table">
-          <thead>
-            <tr><th>Option</th><th>Type</th><th>Default</th><th>Description</th></tr>
-          </thead>
-          <tbody>
-            <tr><td><code>html</code></td><td>string</td><td>&mdash;</td><td>HTML string to render</td></tr>
-            <tr><td><code>width</code></td><td>number</td><td>&mdash;</td><td>Layout width in CSS pixels</td></tr>
-            <tr><td><code>height</code></td><td>number</td><td>auto</td><td>Fixed height, or auto-sized from content</td></tr>
-            <tr><td><code>ctx</code></td><td>Context2D</td><td>&mdash;</td><td>Existing canvas context to draw onto</td></tr>
-            <tr><td><code>canvas</code></td><td>Canvas</td><td>created</td><td>Target canvas element</td></tr>
-            <tr><td><code>pixelRatio</code></td><td>number</td><td>devicePixelRatio</td><td>HiDPI scaling factor</td></tr>
-            <tr><td><code>accuracy</code></td><td>'balanced' | 'performance'</td><td>'balanced'</td><td>DOM probes for line height accuracy</td></tr>
-          </tbody>
-        </table>
-      </div>
-      <p class="api-sync-note">Synchronous. Fonts must be loaded before calling &mdash; use <code>document.fonts.load()</code> or <code>document.fonts.ready</code>. Re-render when fonts load if needed.</p>
-      <div class="api-quickstart">
-        <h3>Quick start</h3>
-        <pre><code><span class="t-kw">import</span> { render } <span class="t-kw">from</span> <span class="t-str">'render-tag'</span>;
-
-<span class="t-kw">const</span> { canvas, height } = render({
-  html: <span class="t-str">'&lt;p&gt;Hello &lt;strong&gt;world&lt;/strong&gt;&lt;/p&gt;'</span>,
-  width: <span class="t-num">400</span>,
+const { canvas, height } = render({
+  html: '&lt;p style="font-family:Roboto;font-size:24px"&gt;Hello &lt;b&gt;world&lt;/b&gt;&lt;/p&gt;',
+  width: 400,
 });
 
 document.body.appendChild(canvas);</code></pre>
-      </div>
-      <div class="api-quickstart">
-        <h3>Layout once, draw many</h3>
-        <p class="api-advanced-desc">Split layout and rendering to draw the same content onto multiple targets:</p>
-        <pre><code><span class="t-kw">import</span> { layout, drawLayout } <span class="t-kw">from</span> <span class="t-str">'render-tag'</span>;
+        <pre id="code-layout" role="tabpanel" aria-labelledby="tab-layout" hidden><code>import { layout, drawLayout } from 'render-tag';
 
-<span class="t-cm">// Layout once</span>
-<span class="t-kw">const</span> { layoutRoot, height, lines } = layout({
-  html: <span class="t-str">'&lt;p&gt;Hello &lt;strong&gt;world&lt;/strong&gt;&lt;/p&gt;'</span>,
-  width: <span class="t-num">400</span>,
+const result = layout({
+  html: '&lt;p&gt;Hello &lt;b&gt;world&lt;/b&gt;&lt;/p&gt;',
+  width: 280,
 });
 
-<span class="t-cm">// Draw to multiple canvases</span>
-<span class="t-kw">const</span> { canvas: canvas1 } = drawLayout({ layoutRoot, width: <span class="t-num">400</span>, height });
-<span class="t-kw">const</span> { canvas: canvas2 } = drawLayout({ layoutRoot, width: <span class="t-num">400</span>, height });</code></pre>
+// Use measurements to check whether text fits your design.
+const fits = result.height &lt;= 200;
+
+// Boxes expose lineBoxes; text runs carry positions and styles.
+console.log(result.layoutRoot);
+
+// Paint the measured text when you need a preview.
+const { canvas } = drawLayout({ layout: result, width: 280 });</code></pre>
+        <pre id="code-node" role="tabpanel" aria-labelledby="tab-node" hidden><code>import { layout, setDOMParser } from 'render-tag';
+import { DOMParser } from 'linkedom';
+import { createCanvas } from '@napi-rs/canvas';
+
+// Your application supplies these two adapters.
+setDOMParser(new DOMParser());
+const ctx = createCanvas(1, 1).getContext('2d');
+
+// Register your fonts before measuring. No drawing or DOM layout.
+const result = layout({ html: '&lt;p&gt;Measure this text.&lt;/p&gt;', width: 400, ctx });
+console.log(result.height);
+console.log(result.layoutRoot);</code></pre>
       </div>
-    </div>
-  </section>
+      <p class="api-note">Load fonts first. These functions are synchronous. Recompute layout when content, styles, width or fonts change.</p>
+      <div class="api-summary"><p><code>render()</code> measures and draws.</p><p><code>layout()</code> returns geometry without painting.</p><p><code>drawLayout()</code> paints an existing layout.</p></div>
+      <div class="section-footnote"><a href="https://github.com/polotno-project/render-tag#layout--headless-workflows" target="_blank" rel="noopener noreferrer">Headless workflows &amp; vector adapters ↗</a><a href="https://github.com/polotno-project/render-tag#api" target="_blank" rel="noopener noreferrer">Full documentation on GitHub ↗</a></div>
+    </section>
 
-  <footer class="footer">
-    <span>render-tag</span>
-    <span class="dim">/</span>
-    <span>MIT</span>
-    <span class="dim">/</span>
-    <a href="https://github.com/polotno-project/render-tag" target="_blank" rel="noopener">GitHub</a>
-  </footer>
-
+  </main>
+  <footer class="site-footer shell"><a class="brand" href="index.html">render-tag</a><a href="https://github.com/polotno-project/render-tag/blob/master/LICENSE" target="_blank" rel="noopener noreferrer">MIT license</a><nav aria-label="Footer navigation"><a href="compare.html">Deep compare</a><a href="path.html">Text on a path</a><a href="https://github.com/polotno-project/render-tag" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></footer>
+  <noscript><p class="shell">Live canvas examples need JavaScript. Read the code examples or the <a href="https://github.com/polotno-project/render-tag#api">full API on GitHub</a>.</p></noscript>
   <script defer data-domain="polotno.com" src="https://plausible.io/js/script.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/quill@2/dist/quill.js"></script>
   <script type="module" src="main.ts"></script>
 </body>
 </html>

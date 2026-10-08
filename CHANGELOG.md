@@ -2,6 +2,15 @@
 
 Only the interesting, user-visible changes. Full detail lives in the git history.
 
+## 0.2.2 — 2026-10-08
+
+- Speed up text layout by reusing measurements and preparing inline content once per layout call; reduce temporary layout allocations.
+- Resolve CSS selectors, shorthands, inheritance and invalid values more like browsers; add relative units, CSS math functions and `box-sizing` support.
+- Improve mixed-direction text across inline styles with Unicode bidirectional ordering, including text on a path.
+- Match browser line heights, baselines, text decorations, gradients and text shadows more closely while preserving foreground drawing commands for vector adapters.
+- Fix width constraints and percentage sizing in inline blocks, flex items and table cells.
+- Update the website with editable rich text, rendering examples, layout measurements, and a fresh-render performance comparison.
+
 ## 0.2.1 — 2026-09-28
 
 - Text on a path now applies CSS `text-transform`.

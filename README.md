@@ -4,6 +4,8 @@ Render HTML rich text onto canvas with the 2D API. No SVG, no `foreignObject` â€
 
 **Website & demos:** [https://polotno.com/render-tag/](https://polotno.com/render-tag/)
 
+**Live API examples:** [Rendering, reusable layout and headless measurement](https://polotno.com/render-tag/#api).
+
 By design, render-tag focuses on **rich text only** â€” paragraphs, headings, lists, tables, inline formatting. Not interactive elements or arbitrary HTML layouts.
 
 ## Install
@@ -51,6 +53,26 @@ function drawLayout(config: DrawConfig): { canvas };
 | `accuracy` | `'performance'` | `'balanced'` uses DOM probes for per-browser line-height accuracy; `'performance'` is pure canvas and consistent cross-browser. |
 
 Use `layout()` + `drawLayout()` when you need to measure content, render the same layout onto multiple targets, or render onto an `OffscreenCanvas`.
+
+### Layout & headless workflows
+
+Use `layout()` to measure text without painting. Use the content height, line
+boxes, and positioned runs for fit calculations, backgrounds, and hit areas.
+Pass the complete result to `drawLayout()` when you need to paint the text.
+
+```ts
+const result = layout({ html: '<p>Hello <b>world</b></p>', width: 400 });
+console.log(result.height);
+
+const fits = result.height <= 200;
+const preview = drawLayout({ layout: result, width: 400 });
+```
+
+Load fonts before measuring. Recompute the layout when text, styles, width or
+fonts change. `drawLayout()` changes output resolution; it does not reflow text.
+For headless measurement, supply a parser and a canvas measurement context as
+shown in [Node.js / server-side](#nodejs--server-side). For vector drawing, see
+[PDF and other vector adapters](#pdf-and-other-vector-adapters).
 
 ### Painted bounds
 
