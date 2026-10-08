@@ -7,9 +7,9 @@ export default browserConfig('firefox', 60_000, [
   'tests/flex-parity.test.ts',
   'tests/computed-style-parity.test.ts',
   'tests/parse-style-extraction.test.ts',
-  // Stage 1.5 parity tests. Never run in Firefox yet (it cannot launch on the
-  // machine they were written on): the Gecko branches they cover are
-  // UNVERIFIED until these pass here.
+  // Stage 1.5 parity tests. Gated in Firefox CI only (Firefox cannot launch
+  // on the maintainer's machine); Gecko's known divergences are recorded in
+  // tests/engine-divergences.json.
   'tests/line-box-parity.test.ts',
   'tests/line-baseline-parity.test.ts',
   'tests/margin-collapse-parity.test.ts',

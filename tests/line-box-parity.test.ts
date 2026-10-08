@@ -17,7 +17,7 @@
 import { describe, it, expect } from 'vitest';
 import { layout } from '../src/index.ts';
 import { collectInlineBoxes, collectTexts } from './helpers/layout-tree.ts';
-import { isWebKit } from './helpers/browser-name.ts';
+import { divergenceRatchet } from './helpers/engine-divergences.ts';
 
 const FONT_A = 'sans-serif';
 const FONT_B = 'serif';
@@ -44,8 +44,6 @@ function canvasHeight(inner: string, blockStyle: string, width: number): number 
 const WIDTH = 600;
 const CASES: {
   name: string; inner: string; blockStyle: string; tolerance?: number; width?: number;
-  /** Why WebKit cannot gate this case yet — a known residual of ANOTHER rule. */
-  webkitResidual?: string;
 }[] = [
   {
     name: 'one font, one line-height (the collapsed case)',
@@ -116,8 +114,8 @@ const CASES: {
     blockStyle: `font-size:56px;font-family:${FONT_B};line-height:2`,
     // The UA sheet's `font-size: smaller` is 56/1.2 = 46.67px in Chrome and
     // WebKit; render-tag resolves 0.83em = 46.48px. Its 2x line-height then
-    // truncates to 92 where WebKit has 93: 0.99px short. Not the line rule.
-    webkitResidual: 'sub/sup font-size: render-tag 0.83em vs engine smaller (/1.2)',
+    // truncates to 92 where WebKit has 93: 0.99px short. Not the line rule;
+    // a recorded WebKit divergence.
   },
   {
     // Falling back to no shift sized this box as if the sup sat on the
@@ -269,16 +267,19 @@ const CASES: {
   },
 ];
 
+const ratchet = divergenceRatchet('line-box');
+
 describe('line box height vs the DOM', () => {
-  it.for(CASES)('$name', ({ inner, blockStyle, tolerance, width, webkitResidual }, ctx) => {
-    if (isWebKit && webkitResidual) ctx.skip(webkitResidual);
+  it.for(CASES)('$name', ({ name, inner, blockStyle, tolerance, width }) => {
     const dom = domHeight(inner, blockStyle, width ?? WIDTH);
     const canvas = canvasHeight(inner, blockStyle, width ?? WIDTH);
     // 0.5px covers the engines' own sub-pixel line-box rounding. The bugs this
     // pins cost 9px on a line whose run inherited a length line-height, 5.6px
     // on a sup/sub line, and 25px on a line holding text-top and text-bottom.
-    expect(Math.abs(canvas - dom)).toBeLessThanOrEqual(tolerance ?? 0.5);
+    const within = Math.abs(canvas - dom) <= (tolerance ?? 0.5);
+    ratchet.check(name, within ? null : `height: canvas ${canvas}, DOM ${dom}, tolerance ${tolerance ?? 0.5}`);
   });
+  ratchet.itRecords();
 });
 
 /** Every text run laid out for `inner`, with the line box each one belongs to. */

@@ -9,7 +9,7 @@ import {
   warmNativeLayout,
 } from './helpers/compare.ts';
 import { loadFlexCases } from './helpers/test-cases.ts';
-import { browserName } from './helpers/browser-name.ts';
+import { divergenceRatchet } from './helpers/engine-divergences.ts';
 
 // Every flex item in the fixtures is a <section>; both sides collect them in
 // document order, so the two trees pair without needing class names in the
@@ -21,9 +21,10 @@ const ITEM_TAG = 'section';
 const WIDTH_TOLERANCE = 0.05;
 
 // WebKit never shrinks a `flex-basis: max-content` item below its max-content
-// width (measured 120-480px), so the row overflows at
-// every width; Chrome shrinks it like `auto`. Chrome-first: Chromium gates it.
-const SKIP = new Set(browserName === 'webkit' ? ['Flex max-content basis'] : []);
+// width (measured 120-480px), so the row overflows at every width; Chrome
+// shrinks it like `auto`. Chrome-first: a recorded WebKit divergence.
+const geometry = divergenceRatchet('flex-geometry');
+const wrapping = divergenceRatchet('flex-wrapping');
 
 const MIN_WIDTH = 120;
 const STEP = 20;
@@ -52,30 +53,32 @@ describe('Flex sizing parity with the DOM', () => {
     const failures: string[] = [];
 
     for (const testCase of cases) {
-      if (SKIP.has(testCase.name)) continue;
       await prepareComparisonFonts(testCase.html, testCase.css);
       warmNativeLayout(testCase.html, testCase.css, testCase.width);
 
+      const off: string[] = [];
       for (let width = MIN_WIDTH; width <= testCase.width; width += STEP) {
         const expected = extractDomBoxes(testCase.html, testCase.css, width, ITEM_TAG);
         const actual = canvasItemBoxes(testCase.html, testCase.css, width, testCase.height);
-        expect(
-          actual.length,
-          `${testCase.name}@w=${width}: flex item count`,
-        ).toBe(expected.length);
-
+        if (actual.length !== expected.length) {
+          off.push(`w=${width}: ${actual.length} items vs ${expected.length}`);
+          continue;
+        }
         for (let index = 0; index < expected.length; index++) {
           const dx = Math.abs(actual[index].x - expected[index].x);
           const dw = Math.abs(actual[index].width - expected[index].width);
           if (dx > WIDTH_TOLERANCE || dw > WIDTH_TOLERANCE) {
-            failures.push(
-              `${testCase.name}@w=${width} item ${index}: ` +
+            off.push(
+              `w=${width} item ${index}: ` +
               `x ${actual[index].x.toFixed(2)} vs ${expected[index].x.toFixed(2)}, ` +
               `w ${actual[index].width.toFixed(2)} vs ${expected[index].width.toFixed(2)}`,
             );
           }
         }
       }
+      const summary = off.slice(0, 4).join('; ') + (off.length > 4 ? `; (+${off.length - 4} more)` : '');
+      const failure = geometry.verdict(testCase.name, off.length ? summary : null);
+      if (failure) failures.push(failure);
     }
 
     expect(failures, `Flex item geometry diverged from the DOM:\n${failures.join('\n')}`)
@@ -90,19 +93,24 @@ describe('Flex sizing parity with the DOM', () => {
       // Nested rows put two independent flows on overlapping bands, which the
       // line oracle cannot pair; their geometry is gated by the test above.
       if (testCase.name === 'Flex nested rows') continue;
-      if (SKIP.has(testCase.name)) continue;
       await prepareComparisonFonts(testCase.html, testCase.css);
       warmNativeLayout(testCase.html, testCase.css, testCase.width);
 
+      const off: number[] = [];
       for (let width = MIN_WIDTH; width <= testCase.width; width += STEP) {
         const { wrappingMatch } = compareWrapping(
           testCase.html, testCase.css, width, testCase.height,
         );
-        if (!wrappingMatch) failures.push(`${testCase.name}@w=${width}`);
+        if (!wrappingMatch) off.push(width);
       }
+      const failure = wrapping.verdict(testCase.name, off.length ? `line membership differs at w=${off.join(',')}` : null);
+      if (failure) failures.push(failure);
     }
 
     expect(failures, `Flex text wrapping diverged from the DOM:\n${failures.join('\n')}`)
       .toEqual([]);
   }, 300000);
+
+  geometry.itRecords();
+  wrapping.itRecords();
 });

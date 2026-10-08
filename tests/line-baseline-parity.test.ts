@@ -21,11 +21,13 @@ import { describe, it, expect } from 'vitest';
 import { layout } from '../src/index.ts';
 import { ENGINE, FLOORS_LINE_BASELINE, TRUNCATES_LINE_HEIGHT } from '../src/engine.ts';
 import { collectTexts } from './helpers/layout-tree.ts';
+import { divergenceRatchet } from './helpers/engine-divergences.ts';
 
 const FONT = 'sans-serif';
 // Gecko snaps layout to 1/60px app units, which render-tag does not model:
 // allow one app unit there, exact elsewhere.
 const DOM_TOLERANCE = ENGINE === 'gecko' ? 1 / 60 : 0.001;
+const ratchet = divergenceRatchet('line-baseline');
 // Sizes and ratios chosen so the exact baseline lands on whole, half and
 // arbitrary fractions of a pixel — a rule that only floors integers proves
 // nothing.
@@ -101,9 +103,12 @@ describe('line-box baseline', () => {
     ({ size, lineHeight }) => {
       const font = `${size}px ${FONT}`;
       const lineHeightPx = size * lineHeight;
-
-      expect(Math.abs(canvasBaseline(size, lineHeightPx) - domBaseline(font, lineHeightPx)))
-        .toBeLessThanOrEqual(Math.max(DOM_TOLERANCE, 0.005));
+      const canvas = canvasBaseline(size, lineHeightPx);
+      const dom = domBaseline(font, lineHeightPx);
+      ratchet.check(
+        `first baseline ${size}px/${lineHeight}`,
+        Math.abs(canvas - dom) <= Math.max(DOM_TOLERANCE, 0.005) ? null : `canvas ${canvas}, DOM ${dom}`,
+      );
     },
   );
 });
@@ -165,8 +170,9 @@ describe('line pitch', () => {
     // and only then floors: an odd number of 64ths short puts the baseline
     // 1px lower than flooring the exact half.
     { size: 13.6, lineHeight: '1.25', family: 'Verdana' },
-    // Gecko: the first baseline sits 0.5px lower in Firefox CI; unmeasured.
-    ...(ENGINE === 'gecko' ? [] : [{ size: 33.9, lineHeight: '1.15' }]),
+    // Gecko puts the first baseline 0.5px lower (Firefox CI); unmeasured, a
+    // recorded divergence.
+    { size: 33.9, lineHeight: '1.15' },
     { size: 38.1, lineHeight: '1.05' },
     { size: 18.1, lineHeight: '21.99px', family: 'Verdana' },
     { size: 13.33, lineHeight: '1.2', family: 'Verdana' },
@@ -179,10 +185,9 @@ describe('line pitch', () => {
       .map((t) => t.y);
     const dom = domBaselines(size, lineHeight, LINES, family);
     expect(canvas).toHaveLength(LINES);
-    canvas.forEach((y, i) => {
-      expect(Math.abs(y - dom[i]), `line ${i}: canvas ${y}, DOM ${dom[i]}`)
-        .toBeLessThanOrEqual(DOM_TOLERANCE);
-    });
+    const off = canvas.flatMap((y, i) =>
+      Math.abs(y - dom[i]) <= DOM_TOLERANCE ? [] : [`line ${i}: canvas ${y}, DOM ${dom[i]}`]);
+    ratchet.check(`pitch ${size}px/${lineHeight} ${family}`, off.length ? off.join('; ') : null);
   });
 });
 
@@ -193,9 +198,9 @@ describe('vertical-align: middle', () => {
   // up to 0.5px off the leaded one: 34.0 against a DOM 34.70 here, in both.
   // The 0.25 left is the x-height, approximated as 0.5em.
   it.each([
-    { block: 'font-size:18px;line-height:2', inner: 'Icon <span style="vertical-align:middle;font-size:30px">M</span> mid' },
-    { block: 'font-size:16px;line-height:1.6', inner: 'a <span style="vertical-align:middle;font-size:25px">M</span>' },
-  ])('lands the line baseline on the DOM\'s ($inner)', ({ block, inner }) => {
+    { name: '30px in 18px/2', block: 'font-size:18px;line-height:2', inner: 'Icon <span style="vertical-align:middle;font-size:30px">M</span> mid' },
+    { name: '25px in 16px/1.6', block: 'font-size:16px;line-height:1.6', inner: 'a <span style="vertical-align:middle;font-size:25px">M</span>' },
+  ])('lands the line baseline on the DOM\'s ($name)', ({ name, block, inner }) => {
     const style = `margin:0;padding:0;font-family:${FONT};${block}`;
     const wrap = document.createElement('div');
     wrap.style.cssText = 'position:absolute;left:-9999px;top:0;width:600px';
@@ -206,9 +211,11 @@ describe('vertical-align: middle', () => {
       wrap.getBoundingClientRect().top;
     wrap.remove();
     const texts = collectTexts(layout({ html: `<div style="${style}">${inner}</div>`, width: 600 }).layoutRoot);
-    expect(Math.abs(texts[0].y - dom)).toBeLessThanOrEqual(0.25);
+    ratchet.check(`middle ${name}`, Math.abs(texts[0].y - dom) <= 0.25 ? null : `canvas ${texts[0].y}, DOM ${dom}`);
   });
 });
+
+ratchet.itRecords();
 
 describe('block strut baseline', () => {
   // The strut is a BASELINE participant, not only a height floor: a smaller

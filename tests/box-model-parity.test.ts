@@ -11,10 +11,10 @@
  */
 import { describe, it, expect } from 'vitest';
 import { layout } from '../src/index.ts';
-import { ENGINE } from '../src/engine.ts';
 import type { LayoutBox, LayoutNode } from '../src/types.ts';
 import { canvasFixtureHtml, mountFixture, prepareComparisonFonts, warmNativeLayout } from './helpers/compare.ts';
 import { loadBoxModelCases } from './helpers/test-cases.ts';
+import { divergenceRatchet } from './helpers/engine-divergences.ts';
 
 // Blink and WebKit lay text out in 1/64px LayoutUnits; canvas measures in
 // floats. A shrink-to-fit width inherits that last fraction.
@@ -55,28 +55,33 @@ function canvasBoxes(html: string, css: string, width: number): Map<number, Box>
   return boxes;
 }
 
+const ratchet = divergenceRatchet('box-model');
+
 describe('Box model parity with the DOM', () => {
   it('places and sizes every marked box like the browser', async () => {
     const cases = await loadBoxModelCases();
     const failures: string[] = [];
     for (const testCase of cases) {
-      // Gecko sizes the nested inline-block 0.5px shorter (seen in CI); unmeasured.
-      if (ENGINE === 'gecko' && testCase.name === 'inline-block inside an inline-block') continue;
       await prepareComparisonFonts(testCase.html, testCase.css);
       warmNativeLayout(testCase.html, testCase.css, testCase.width);
       const expected = domBoxes(testCase.html, testCase.css, testCase.width);
       const actual = canvasBoxes(testCase.html, testCase.css, testCase.width);
-      expect([...actual.keys()].sort(), `${testCase.name}: marked boxes`).toEqual([...expected.keys()].sort());
+      const off: string[] = [];
+      const ids = (m: Map<number, Box>) => [...m.keys()].sort().join(',');
+      if (ids(actual) !== ids(expected)) off.push(`marked boxes ${ids(actual)} vs ${ids(expected)}`);
       for (const [id, dom] of expected) {
-        const rt = actual.get(id)!;
+        const rt = actual.get(id);
+        if (!rt) continue;
         const keys: (keyof Box)[] = testCase.noHeight?.includes(id) ? ['x', 'y', 'width'] : ['x', 'y', 'width', 'height'];
-        const off = keys.filter((key) => Math.abs(rt[key] - dom[key]) > TOLERANCE);
-        if (off.length > 0) {
-          failures.push(`${testCase.name} #${id}: ` +
-            off.map((key) => `${key} ${rt[key].toFixed(2)} vs ${dom[key].toFixed(2)}`).join(', '));
+        const bad = keys.filter((key) => Math.abs(rt[key] - dom[key]) > TOLERANCE);
+        if (bad.length > 0) {
+          off.push(`#${id} ` + bad.map((key) => `${key} ${rt[key].toFixed(2)} vs ${dom[key].toFixed(2)}`).join(', '));
         }
       }
+      const failure = ratchet.verdict(testCase.name, off.length ? off.join('; ') : null);
+      if (failure) failures.push(failure);
     }
     expect(failures, `Box geometry diverged from the DOM:\n${failures.join('\n')}`).toEqual([]);
   }, 120000);
+  ratchet.itRecords();
 });

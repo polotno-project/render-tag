@@ -256,7 +256,7 @@ npx vitest run -c vitest.node.config.ts tests/node/layout-logic.test.ts  # layou
 npx vitest run tests/wrapping-parity.test.ts  # focused Chrome DOM-wrap regressions
 npx vitest run tests/flex-parity.test.ts      # flex item geometry vs the DOM (all 3 lanes)
 npx vitest run tests/computed-style-parity.test.ts  # ResolvedStyle vs getComputedStyle (all 3 lanes)
-npx vitest run tests/margin-collapse-parity.test.ts  # block margins vs the DOM (Chromium + WebKit)
+npx vitest run tests/margin-collapse-parity.test.ts  # block margins vs the DOM (all 3 lanes, ratcheted)
 npx vitest run tests/geometry-oracle.test.ts  # line/token geometry vs the DOM, report-only (Chromium + WebKit)
 npx vitest run tests/render.test.ts           # render quality tests
 npm run test:stress                           # native-DOM layout width sweep (7 cases, 10px)
@@ -277,8 +277,8 @@ missed 3 shadow keys). So GitHub Actions runs every lane with
 read via `tests/helpers/portable-mode.ts`.
 
 Portable mode gates everything that self-compares inside the current
-environment (layout unit tests, flex/line-baseline/line-box/wrapping parity,
-the fuzz zero-overflow gate, full-corpus crash coverage, node tests, build) at
+environment (layout unit tests, flex/line-baseline/line-box/wrapping parity
+and their per-engine divergence ratchet, the fuzz zero-overflow gate, full-corpus crash coverage, node tests, build) at
 FULL strictness, and skips only the environment-pinned contracts:
 
 - `render.test.ts` — the baseline score/wrap contract and key-set coverage
@@ -325,6 +325,7 @@ image update flakes them, move that gate behind the flag too.
   - `npm run test:update-stress-baseline[:firefox|:webkit]` — width-sweep residuals
   - `npm run test:update-wrap-sweep-baseline[:firefox|:webkit]` — full-corpus 1px sweep bands
   - `npm run test:update-computed-style-failures[:firefox|:webkit]` — computed-style known failures
+  - `npm run test:update-engine-divergences[:firefox|:webkit]` — per-engine DOM-parity divergences
   - `npm run test:update-perf-counters` — Node work-counter bounds (`tests/perf-counters-baseline.json`)
 
 ### Computed-style oracle (`tests/computed-style-parity.test.ts`)
@@ -342,6 +343,27 @@ browser — a ratchet: a new divergence fails, and so does a listed key that
 now passes (the list only shrinks). The git-ignored
 `tests/computed-style-report.<browser>.json` holds every divergence. Firefox
 is `null` (never recorded): that lane runs the cases but does not gate the set.
+
+### Engine divergence ratchet (`tests/engine-divergences.json`)
+
+The DOM-parity suites (margin-collapse, line-baseline, line-box, box-model,
+flex) run EVERY case in every engine — no per-engine skips. A case that
+diverges from that engine's own DOM is listed under the engine as
+`<suite> › <case>`; an unlisted divergence fails as new, and a listed case
+that now matches fails until it is removed. Failures carry the measured
+numbers. Tolerances stay in the suites, in engine layout units (Gecko's
+1/60px `DOM_TOLERANCE`); only skips become entries. Self-parity, so it gates
+in portable CI too. Shared code: `tests/helpers/engine-divergences.ts` over
+`gateResidualBaseline`; a new parity suite calls `divergenceRatchet(suite)`,
+reports each case through `check`/`verdict`, and ends with `itRecords()` (it
+also fails on a listed key no case produced). Add the file to the update
+scripts, which run `--no-file-parallelism` because every file merges its keys
+into the one JSON. Firefox cannot launch on the maintainer's Mac: edit its
+entries by hand from a Firefox CI failure's messages.
+
+Still engine-gated on purpose: `decoration-position-parity` and
+`decoration-shape-parity` (Gecko decoration geometry is unmeasured; the
+Firefox lane does not run them) and `wrap-fuzz`'s per-browser signature sets.
 
 ### Unit tests for layout logic (`tests/node/layout-logic.test.ts`)
 Unit tests cover deterministic layout algorithms directly — no browser, no fonts, no pixels. They mock `ctx.measureText` to return predictable widths (e.g., 10px per character), then assert the output of layout functions.
@@ -662,10 +684,10 @@ WebKit floors the font-size to 1/64px first). The paint snap is not public.
 Detecting the engine is UA-only (`accuracy: 'performance'` promises no DOM
 probe): Gecko is the one that sends a real `Gecko/<date>` token, Blink the one
 that says `Chrome/` — matched with NO word boundary, because headless Chrome
-says `HeadlessChrome/`. Safari sends neither. Gecko's rules are unverified
-(Firefox cannot launch here); the line-box, line-baseline, margin-collapse
-and bidi-order parity tests are in `vitest.firefox.config.ts` so they gate
-once it runs. Branded Safari has not been re-measured.
+says `HeadlessChrome/`. Safari sends neither. Firefox cannot launch here, so
+Gecko is verified only in Firefox CI: the parity suites gate there, with
+Gecko's known divergences in `tests/engine-divergences.json`. Branded Safari
+has not been re-measured.
 
 `vertical-align: text-top` / `text-bottom` align the box's LEADED edge with the
 parent's CONTENT-area edge (bare ascent/descent, no leading). Mixing those two
@@ -676,7 +698,8 @@ Parity tests: `tests/line-baseline-parity.test.ts` (every line's baseline,
 exact, and `middle`) and `tests/line-box-parity.test.ts` (line box height),
 both in `npm test` and the WebKit lane; `tests/line-paint-snap-parity.test.ts`
 (the paint snap vs Chromium's raster). All assert against the browser's own
-numbers. One line-box case is skipped in WebKit (`webkitResidual`).
+numbers. Engine-specific misses are ratchet entries in
+`tests/engine-divergences.json`, not skips.
 
 ### Bidi (`src/bidi.ts`, `resolveLineBidi`, `bidiLineItems`)
 Canvas reorders only INSIDE one `fillText`; ordering a line's runs is layout's
