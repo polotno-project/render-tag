@@ -76,6 +76,8 @@ export const UNDERLINE_OFFSET_PCT: unique symbol = Symbol('underlineOffsetPct');
 /** `overflow-x`/`-y`, read only to find BFC roots (`establishesBfc`). */
 export const OVERFLOW_X: unique symbol = Symbol('overflowX');
 export const OVERFLOW_Y: unique symbol = Symbol('overflowY');
+/** `flex-basis: min-content | fit-content`, sized by `flexBaseSize`; flexBasis is then null. */
+export const FLEX_BASIS_KEYWORD: unique symbol = Symbol('flexBasisKeyword');
 /** `box-sizing`: 'border-box', or undefined for the initial `content-box` (`borderBoxSize`). */
 const BOX_SIZING: unique symbol = Symbol('boxSizing');
 /** The containing-block percentages behind this style's lengths (`resolvePercentages`). */
@@ -86,6 +88,7 @@ interface PrivateStyleFields {
   [UNDERLINE_OFFSET_PCT]: number | undefined;
   [OVERFLOW_X]: string | undefined;
   [OVERFLOW_Y]: string | undefined;
+  [FLEX_BASIS_KEYWORD]: 'min-content' | 'fit-content' | undefined;
   [BOX_SIZING]: string | undefined;
   [PERCENT_LENGTHS]: PercentLengths | undefined;
 }
@@ -206,6 +209,7 @@ function defaultStyle(): ResolvedStyle {
   style[UNDERLINE_OFFSET_PCT] = undefined;
   style[OVERFLOW_X] = undefined;
   style[OVERFLOW_Y] = undefined;
+  style[FLEX_BASIS_KEYWORD] = undefined;
   style[BOX_SIZING] = undefined;
   style[PERCENT_LENGTHS] = undefined;
   return style;
@@ -707,7 +711,7 @@ const PROPERTY_FIELDS: Record<string, readonly (keyof InternalStyle)[]> = {
   'border-top-left-radius': ['borderTopLeftRadius'], 'border-top-right-radius': ['borderTopRightRadius'],
   'border-bottom-right-radius': ['borderBottomRightRadius'], 'border-bottom-left-radius': ['borderBottomLeftRadius'],
   'flex-direction': ['flexDirection'], gap: ['gap'], 'flex-grow': ['flexGrow'], 'flex-shrink': ['flexShrink'],
-  'flex-basis': ['flexBasis'], 'box-sizing': [BOX_SIZING],
+  'flex-basis': ['flexBasis', FLEX_BASIS_KEYWORD], 'box-sizing': [BOX_SIZING],
 };
 
 /** The properties render-tag inherits (see `inheritFont` and `inheritFrom`). */
@@ -1115,15 +1119,17 @@ function applyDeclaration(style: ResolvedStyle, property: string, value: string,
       const v = value.trim();
       const lower = v.toLowerCase();
       const field = property === 'min-width' ? 'minWidth' : 'flexBasis';
-      // An intrinsic flex-basis sizes like `auto` (max-content). Approximate: a declared
-      // width still wins here, and min-/fit-content are not sized on their own terms.
-      if (lower === 'auto' || (field === 'flexBasis' && /^(?:content|max-content|min-content|fit-content)$/.test(lower))) {
+      // `content`/`max-content` size like `auto` (a declared width still wins there).
+      const keyword = field === 'flexBasis' && /^(?:min|fit)-content$/.test(lower) ? lower as 'min-content' | 'fit-content' : undefined;
+      if (keyword || lower === 'auto' || (field === 'flexBasis' && /^(?:max-)?content$/.test(lower))) {
         style[field] = null;
+        if (field === 'flexBasis') internal[FLEX_BASIS_KEYWORD] = keyword;
         return true;
       }
       const px = cbLengthOf(v, env);
       if (!(px >= 0)) return false;
       style[field] = px;
+      if (field === 'flexBasis') internal[FLEX_BASIS_KEYWORD] = undefined;
       return true;
     }
     // Only read to find BFC roots (`establishesBfc`); render-tag does not clip.

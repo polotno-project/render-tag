@@ -1,7 +1,7 @@
 import type { StyledNode, LayoutNode, LayoutBox, LayoutText, ResolvedStyle, LayoutLine, LayoutLineBox, DecorationEntry } from './types.js';
 import {
-  anonymousBlockStyle, borderBoxSize, contentBoxSize, intrinsicStyle, isTransparent, LINE_HEIGHT_MULTIPLIER,
-  OVERFLOW_X, OVERFLOW_Y, resolvePercentages, resolveStylesFromCSS,
+  anonymousBlockStyle, borderBoxSize, contentBoxSize, FLEX_BASIS_KEYWORD, intrinsicStyle, isTransparent,
+  LINE_HEIGHT_MULTIPLIER, OVERFLOW_X, OVERFLOW_Y, resolvePercentages, resolveStylesFromCSS,
 } from './css-resolver.js';
 import { parseHTML } from './parse.js';
 import {
@@ -3449,21 +3449,46 @@ function layoutTable(
   const colCount = Math.max(...rowCells.map(cells => cells.length));
   if (colCount === 0) return { children, height: 0 };
 
-  // A column is as wide as its widest declared cell (border box); auto columns share
-  // what is left equally. All declared and short of the table: they grow in proportion.
+  // A column is as wide as its widest declared cell (border box), never under its widest
+  // min-content; auto columns share what is left equally. Too wide: declared columns give
+  // way toward min-content in proportion to their slack. All declared and short of the
+  // table: px columns grow in proportion (percent ones only when there are no px ones).
   const declared: number[] = new Array(colCount).fill(0);
+  const minimum: number[] = new Array(colCount).fill(0);
+  const percent: boolean[] = new Array(colCount).fill(false);
   for (const cells of rowCells) {
     cells.forEach((cell, i) => {
       resolvePercentages(cell.style, contentWidth);
       const s = cell.style;
-      if (s.width > 0) declared[i] = Math.max(declared[i], borderBoxSize(s, s.width, horizontalFrame(s)));
+      const frame = horizontalFrame(s);
+      minimum[i] = Math.max(minimum[i], frame + contentSize(session, cell, false));
+      if (s.width > 0) {
+        declared[i] = Math.max(declared[i], borderBoxSize(s, s.width, frame));
+        // A percentage width is 0 in the intrinsic style.
+        percent[i] ||= intrinsicStyle(s).width === 0;
+      }
     });
   }
-  const autoCount = declared.filter(w => w === 0).length;
-  const fixedTotal = declared.reduce((sum, w) => sum + w, 0);
-  const autoWidth = Math.max(0, contentWidth - fixedTotal) / autoCount;
-  const scale = autoCount === 0 && fixedTotal < contentWidth ? contentWidth / fixedTotal : 1;
-  const colWidths = declared.map(w => (w === 0 ? autoWidth : w * scale));
+  const sum = (ws: number[]) => ws.reduce((total, w) => total + w, 0);
+  const isAuto = declared.map(w => w === 0);
+  const colWidths = declared.map((w, i) => Math.max(w, minimum[i]));
+  const autoCount = isAuto.filter(Boolean).length;
+  const excess = sum(colWidths) - contentWidth;
+  if (excess > 0) {
+    const slack = colWidths.map((w, i) => w - minimum[i]);
+    const slackTotal = sum(slack);
+    if (slackTotal > 0) {
+      const give = Math.min(excess, slackTotal);
+      colWidths.forEach((w, i) => { colWidths[i] = w - give * slack[i] / slackTotal; });
+    }
+  } else if (autoCount > 0) {
+    const autoWidth = (contentWidth - sum(colWidths.filter((_, i) => !isAuto[i]))) / autoCount;
+    colWidths.forEach((w, i) => { if (isAuto[i]) colWidths[i] = Math.max(w, autoWidth); });
+  } else if (excess < 0) {
+    const grows = percent.every(Boolean) ? percent : percent.map(p => !p);
+    const growTotal = sum(colWidths.filter((_, i) => grows[i]));
+    colWidths.forEach((w, i) => { if (grows[i]) colWidths[i] = w - excess * w / growTotal; });
+  }
   const colX: number[] = [];
   for (let i = 0, x = contentX; i < colCount; x += colWidths[i++]) colX.push(x);
 
@@ -3657,11 +3682,22 @@ function inlineBlockOuterWidth(
 /**
  * Flex base size as an outer width: `flex-basis` (sizing the `box-sizing` box), or for
  * `auto` the item's max-content. `flex: 1` makes it 0, so grow factors alone split the row.
+ * `min-content` is the min-content size; `fit-content` is max-content clamped to the
+ * container's `inner` width, but not under min-content.
  */
-function flexBaseSize(session: LayoutSession, node: StyledNode): number {
-  return node.style.flexBasis !== null
-    ? horizontalMargins(node.style) + borderBoxSize(node.style, node.style.flexBasis, horizontalFrame(node.style))
-    : maximumContribution(session, node, node.style);
+function flexBaseSize(session: LayoutSession, node: StyledNode, inner: number): number {
+  const style = node.style;
+  const keyword = (style as { [FLEX_BASIS_KEYWORD]?: string })[FLEX_BASIS_KEYWORD];
+  if (keyword) {
+    const outer = horizontalMargins(style) + horizontalFrame(style);
+    const min = contentSize(session, node, false);
+    return outer + (keyword === 'min-content'
+      ? min
+      : Math.min(contentSize(session, node, true), Math.max(min, inner - outer)));
+  }
+  return style.flexBasis !== null
+    ? horizontalMargins(style) + borderBoxSize(style, style.flexBasis, horizontalFrame(style))
+    : maximumContribution(session, node, style);
 }
 
 /**
@@ -3730,7 +3766,7 @@ function layoutFlex(
     // as native flex items with min-width:auto do.
     const widths = resolveFlexibleLengths(
       flexChildren.map((child) => child.style),
-      flexChildren.map((child) => flexBaseSize(session, child)),
+      flexChildren.map((child) => flexBaseSize(session, child, contentWidth)),
       flexChildren.map((child) => minimumContribution(session, child, child.style)),
       available,
     );

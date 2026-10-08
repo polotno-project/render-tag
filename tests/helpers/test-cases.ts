@@ -2033,6 +2033,17 @@ export async function loadFlexCases(): Promise<BenchmarkCase[]> {
       html: `<div class="row">${columns}</div>`,
     },
     {
+      name: 'Flex min-content basis',
+      css: `${row} section { flex: 0 0 min-content; }`,
+      html: `<div class="row">${columns}</div>`,
+    },
+    {
+      // fit-content: max-content, clamped to the container but not under min-content.
+      name: 'Flex fit-content basis',
+      css: `${row} section { flex: 0 1 fit-content; }`,
+      html: `<div class="row">${columns}</div>`,
+    },
+    {
       name: 'Flex column direction',
       css: `.row { display: flex; flex-direction: column; gap: 8px; } section { flex: 1; }`,
       html: `<div class="row">${columns}</div>`,
@@ -2134,6 +2145,23 @@ export async function loadBoxModelCases(): Promise<BoxModelCase[]> {
       name: 'auto table declared cell beside an auto cell',
       html: `<table style="border-collapse:collapse"><tr>` +
         `<td style="${m(1)}width:100px;padding:0">alpha beta gamma</td><td style="padding:0">b</td></tr></table>`,
+    },
+    {
+      // A column never narrows below its widest cell's min-content.
+      name: 'table declared cell narrower than its content',
+      html: `<table style="width:400px;border-collapse:collapse"><tr>` +
+        `<td style="${m(1)}width:10px;padding:0">Supercalifragilistic</td><td style="${m(2)}padding:0">b</td></tr></table>`,
+    },
+    {
+      // Declared columns wider than the table shrink toward their min-content.
+      name: 'table declared cells wider than the table',
+      html: `<table style="width:300px;border-collapse:collapse"><tr>` +
+        `<td style="${m(1)}width:200px;padding:0">a</td><td style="${m(2)}width:200px;padding:0">b</td></tr></table>`,
+    },
+    {
+      name: 'table percent and px cells short of the table',
+      html: `<table style="width:400px;border-collapse:collapse"><tr>` +
+        `<td style="${m(1)}width:25%;padding:0">a</td><td style="${m(2)}width:100px;padding:0">b</td></tr></table>`,
     },
     {
       name: 'table equal auto cells',
