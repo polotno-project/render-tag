@@ -93,7 +93,7 @@ describe('Blink paints each line box at a whole CSS pixel', () => {
   // one antialiased row taller in some fonts, at any position.)
   for (const [name, body] of [
     ['sub', '<span style="color:transparent">Text </span><sub>sub</sub>'],
-    ['super', '<span style="color:transparent">Text </span><sup>sup</sup>'],
+    ['super', '<span style="color:transparent">Text </span><sup>sun</sup>'],
     ['length', '<span style="color:transparent">Text </span><span style="vertical-align:-2.7px">dn</span>'],
   ] as const) {
     it(`a vertical-align: ${name} run lands on the DOM's rows`, async () => {

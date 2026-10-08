@@ -59,6 +59,7 @@ export const MARKER_LINE_WITHOUT_CONTENT = ENGINE === 'blink';
  * - `'drop'` (Blink): a min-height that raises the box loses those margins.
  * - `'collapse'` (WebKit): CSS 2.1 §8.3.1 — they always pass out.
  * - `'contain'` (Gecko, unmeasured): any nonzero min-height keeps them inside.
+ *   Firefox CI disagrees for min-heights at or near the content height.
  */
 export const MIN_HEIGHT_END_MARGINS: 'drop' | 'collapse' | 'contain' =
   ENGINE === 'gecko' ? 'contain' : ENGINE === 'webkit' ? 'collapse' : 'drop';

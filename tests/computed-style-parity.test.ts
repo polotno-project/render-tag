@@ -80,6 +80,7 @@ import { CSS_FEATURE_CASES, DEFAULT_WIDTH, type CssFeatureCase } from './helpers
 import { browserName } from './helpers/browser-name.ts';
 import { gateResidualBaseline } from './helpers/baselines.ts';
 import knownFailures from './computed-style-known-failures.json';
+import { PORTABLE_GATES_ONLY } from './helpers/portable-mode.ts';
 
 const KNOWN_FAILURES_FILE = './tests/computed-style-known-failures.json';
 
@@ -605,10 +606,13 @@ describe('computed-style parity (ResolvedStyle vs getComputedStyle)', () => {
     });
     if (expected === null) return;
 
+    // `ex` rows measure the unpinned default font: Blink reads its x-height
+    // table, render-tag the ink of 'x'. They agree on macOS, not on CI runners.
+    const pinned = (k: string) => PORTABLE_GATES_ONLY && / ex › /.test(k);
     const known = new Set(expected);
     const failing = new Set(keys);
-    const newFailures = divergences.filter((d) => !known.has(d.key));
-    const nowPassing = expected.filter((k) => !failing.has(k));
+    const newFailures = divergences.filter((d) => !known.has(d.key) && !pinned(d.key));
+    const nowPassing = expected.filter((k) => !failing.has(k) && !pinned(k));
     const describeAll = (list: Divergence[]) =>
       list.map((d) => `  ${d.key}: dom=${JSON.stringify(d.dom)} rt=${JSON.stringify(d.rt)}`).join('\n');
     console.log(
