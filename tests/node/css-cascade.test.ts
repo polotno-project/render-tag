@@ -10,7 +10,7 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { DOMParser as LinkedomDOMParser } from 'linkedom';
 import { parseHTML } from '../../src/parse.ts';
-import { resolveStylesFromCSS, type ResolveOptions } from '../../src/css-resolver.ts';
+import { isTransparent, resolveStylesFromCSS, type ResolveOptions } from '../../src/css-resolver.ts';
 import { setDOMParser } from '../../src/dom.ts';
 import { shadowsOf } from '../../src/shadow.ts';
 import type { StyledNode } from '../../src/types.ts';
@@ -781,5 +781,22 @@ describe('shorthands keep math functions whole', () => {
 
   it('gap with a math function', () => {
     expect(style('gap: calc(4px + 4px) 2px')).toMatchObject({ gap: 8 });
+  });
+});
+
+describe('isTransparent', () => {
+  // Paint asks this per painted fragment, so answers are memoized by text:
+  // asking twice, in any order, must give the same answer.
+  it('reads literal zero alpha in any case and spacing, nothing else', () => {
+    const cases: [string, boolean][] = [
+      ['', true], ['  ', true], ['transparent', true], [' TRANSPARENT ', true],
+      ['#0000', true], ['#FFFFFF00', true], ['rgba(0, 0, 0, 0)', true], ['RGBA(1,2,3,0%)', true],
+      ['hsl(0 0% 0% / 0)', true], ['rgb(0 0 0 / 0.0)', true],
+      ['black', false], ['#000', false], ['#000000', false], ['#00000001', false], ['rgb(226, 15, 15)', false],
+      ['rgba(0, 0, 0, 0.5)', false], ['rgb(0 0 0 / 50%)', false], ['color-mix(in srgb, red, transparent)', false],
+    ];
+    for (let pass = 0; pass < 2; pass++) {
+      for (const [color, expected] of cases) expect(isTransparent(color), JSON.stringify(color)).toBe(expected);
+    }
   });
 });

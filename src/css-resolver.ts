@@ -17,7 +17,25 @@ import {
 const ELEMENT_NODE = 1;
 const TEXT_NODE = 3;
 
+/**
+ * Answers of `isTransparent` by exact text, like `isColor`'s: paint asks once
+ * per painted fragment and shadow pass, over a handful of distinct colors.
+ * Bounded: cleared when full.
+ */
+const transparentAnswers = new Map<string, boolean>();
+const TRANSPARENT_ANSWERS_MAX = 512;
+
 export function isTransparent(color: string): boolean {
+  let answer = transparentAnswers.get(color);
+  if (answer === undefined) {
+    answer = checkTransparent(color);
+    if (transparentAnswers.size >= TRANSPARENT_ANSWERS_MAX) transparentAnswers.clear();
+    transparentAnswers.set(color, answer);
+  }
+  return answer;
+}
+
+function checkTransparent(color: string): boolean {
   if (!color) return true;
   const value = color.trim().toLowerCase();
   if (!value || value === 'transparent' || /^#(?:[\da-f]{3}0|[\da-f]{6}00)$/.test(value)) return true;
