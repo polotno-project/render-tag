@@ -39,14 +39,13 @@ export function buildLayoutTree(
   ctx: CanvasRenderingContext2D,
   styledTree: StyledNode,
   containerWidth: number,
-  useDomMeasurements: boolean,
   debug?: (entry: import('./types.ts').DebugEntry) => void,
   stats?: LayoutStats,
 ): { root: LayoutBox; height: number; lines: LayoutLine[] } {
   // Everything starts empty with the call: fonts may have loaded since the last one.
   const fontMetrics: FontMetricsTable = new Map();
   const session: LayoutSession = {
-    measurer: new Measurer(ctx, fontMetrics, useDomMeasurements),
+    measurer: new Measurer(ctx, fontMetrics),
     debug,
     lines: [],
     minContent: new Map(),

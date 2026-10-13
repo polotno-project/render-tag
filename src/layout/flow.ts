@@ -384,7 +384,6 @@ export class LineFlow {
     readonly items: FlowItems,
     readonly contentWidth: number,
     private readonly whiteSpace: string,
-    readonly useBulletProbe: boolean,
     private readonly textIndent: number,
     private readonly tabMetrics?: TabStops,
     private readonly strutLineHeight = 0,
@@ -530,7 +529,7 @@ function softHyphenAdvance(m: Measurer, style: ResolvedStyle): number {
 /** Item `i`'s demand on its line's height. */
 function itemLineHeight(flow: LineFlow, i: number): number {
   const refs = flow.items.refs(i);
-  let lineHeight = flow.m.lineHeight(refs.style, flow.useBulletProbe);
+  let lineHeight = flow.m.lineHeight(refs.style);
   // Inline-block elements expand line height with their vertical padding+margin
   const inlineBlockLayout = flow.items.inlineBlockLayout(i);
   if (inlineBlockLayout) {
@@ -633,7 +632,7 @@ function breakGluedChain(flow: LineFlow, start: number, end: number): boolean {
       const refs = cs[i].refs;
       const st = refs.style;
       const state = m.stateOf(st);
-      const lh = m.lineHeight(st, flow.useBulletProbe);
+      const lh = m.lineHeight(st);
       let cur = '';
       let curW = 0;
       while (i < cs.length && cs[i].refs.style === st) {

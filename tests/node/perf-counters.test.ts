@@ -182,7 +182,7 @@ function layoutStats(fixture: Fixture): LayoutStats {
     viewport: { width: fixture.width, height: fixture.width },
   });
   const stats: LayoutStats = { tokenizePasses: 0, segments: 0, wordObjects: 0 };
-  buildLayoutTree(rec.ctx, tree, fixture.width, false, undefined, stats);
+  buildLayoutTree(rec.ctx, tree, fixture.width, undefined, stats);
   return stats;
 }
 

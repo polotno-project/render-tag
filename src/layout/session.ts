@@ -1,5 +1,5 @@
 // One `buildLayoutTree` call's state and its measuring primitive. The deliberate module
-// state lives here: `layoutFontMetrics`, the `claimCtx` token, the DOM probes, the symbols.
+// state lives here: `layoutFontMetrics`, the `claimCtx` token, the symbols.
 import type { StyledNode, LayoutText, ResolvedStyle, LayoutLine } from '../types.js';
 import { LINE_HEIGHT_MULTIPLIER } from '../css-resolver.js';
 import {
@@ -67,62 +67,7 @@ export function buildCanvasFont(style: ResolvedStyle): string {
   return parts.join(' ');
 }
 
-// Probes: a <div>, and a <ul><li> for bullet items, which Firefox's ::marker makes 1.5px
-// taller (<ol> items are unaffected).
-let _blockProbe: HTMLDivElement | null = null;
-let _ulProbeContainer: HTMLUListElement | null = null;
-let _ulProbeLi: HTMLLIElement | null = null;
-
 export const BULLET_MARKERS = new Set(['disc', 'circle', 'square']);
-
-/**
- * DOM-probed line height (`accuracy: 'balanced'`), cached in `cache` per font, line-height
- * and probe. The probe elements are reused across calls; they hold no answer.
- */
-function measureDomLineHeight(
-  cache: Map<string, number>, font: string, lineHeight: string, useBulletProbe = false,
-): number {
-  const key = `${font}|${lineHeight}|${useBulletProbe ? 'ul-li' : 'block'}`;
-  const cached = cache.get(key);
-  if (cached !== undefined) return cached;
-
-  if (typeof document === 'undefined' || !document.body) {
-    throw new Error(
-      "render-tag: accuracy 'balanced' requires a browser DOM for line-height probes; use the default 'performance' mode in non-browser environments."
-    );
-  }
-
-  let probe: HTMLElement;
-  if (useBulletProbe) {
-    if (!_ulProbeContainer) {
-      _ulProbeContainer = document.createElement('ul');
-      _ulProbeContainer.style.cssText =
-        'position:absolute;top:-9999px;left:-9999px;visibility:hidden;padding:0;margin:0;border:0;list-style:disc;';
-      _ulProbeLi = document.createElement('li');
-      _ulProbeLi.style.cssText = 'white-space:nowrap;padding:0;margin:0;border:0;';
-      _ulProbeLi.textContent = 'Mg';
-      _ulProbeContainer.appendChild(_ulProbeLi);
-      document.body.appendChild(_ulProbeContainer);
-    }
-    probe = _ulProbeLi!;
-  } else {
-    if (!_blockProbe) {
-      _blockProbe = document.createElement('div');
-      _blockProbe.style.cssText =
-        'position:absolute;top:-9999px;left:-9999px;visibility:hidden;white-space:nowrap;padding:0;margin:0;border:0;';
-      _blockProbe.textContent = 'Mg';
-      document.body.appendChild(_blockProbe);
-    }
-    probe = _blockProbe;
-  }
-
-  probe.style.font = font;
-  probe.style.lineHeight = lineHeight;
-  const height = probe.getBoundingClientRect().height;
-
-  cache.set(key, height);
-  return height;
-}
 
 // ── Measurement ──
 // `Measurer` is the only layout code that writes measuring state, and it writes all of it.
@@ -171,13 +116,13 @@ export type TabStops = Readonly<{ interval: number; halfSpace: number }>;
 
 /**
  * What one style's text needs from the canvas, derived once per call and keyed by style
- * identity. Line heights and leaded boxes are indexed by `useBulletProbe`.
+ * identity.
  */
 interface FontState {
   readonly measure: MeasureState;
   metrics: FontBox | undefined;
-  readonly lineHeights: [number | undefined, number | undefined];
-  readonly boxes: [FontBox | undefined, FontBox | undefined];
+  lineHeight: number | undefined;
+  box: FontBox | undefined;
   tabStops: TabStops | undefined;
 }
 
@@ -186,20 +131,16 @@ export class Measurer {
   private current: MeasureState | null = null;
   private readonly states = new Map<string, MeasureState>();
   private readonly fonts = new Map<ResolvedStyle, FontState>();
-  /** DOM-probed line heights (`accuracy: 'balanced'`), by font|line-height|probe. */
-  private readonly domLineHeights = new Map<string, number>();
   /** This measurer's `claimCtx` id. */
   private readonly writerId = nextCtxWriterId();
 
   /**
    * Clears the ctx's word-spacing: spaces carry it in their own measured width.
-   * `fontMetrics` is the call's table (`layoutFontMetrics`); `useDomMeasurements` makes line
-   * heights DOM probes (`accuracy: 'balanced'`).
+   * `fontMetrics` is the call's table (`layoutFontMetrics`).
    */
   constructor(
     readonly ctx: CanvasRenderingContext2D,
     private readonly fontMetrics: FontMetricsTable,
-    private readonly useDomMeasurements = false,
   ) {
     const spacing = ctx as CanvasRenderingContext2D & { wordSpacing?: string };
     if (spacing.wordSpacing && spacing.wordSpacing !== '0px') spacing.wordSpacing = '0px';
@@ -243,36 +184,32 @@ export class Measurer {
 
   /**
    * The used height of a line box from this style: `multipliedLineHeight` for a number,
-   * `usedLineHeight` for a length. A DOM probe already answers with the used value.
+   * `usedLineHeight` for a length.
    */
-  lineHeight(style: ResolvedStyle, useBulletProbe = false): number {
-    const computed = this.computedLineHeight(style, useBulletProbe);
+  lineHeight(style: ResolvedStyle): number {
+    const computed = this.computedLineHeight(style);
     const multiplier = lineHeightMultiplier(style);
-    if (multiplier !== undefined && !this.useDomMeasurements) {
+    if (multiplier !== undefined) {
       return multipliedLineHeight(style.fontSize, multiplier);
     }
     return usedLineHeight(computed);
   }
 
   /**
-   * The computed line height: DOM-probed under `accuracy: 'balanced'`, else the CSS value, or
-   * for `normal` the font bounding box. A percentage `vertical-align` resolves against this.
+   * The computed line height: the CSS value, or for `normal` the font bounding box. A
+   * percentage `vertical-align` resolves against this.
    */
-  computedLineHeight(style: ResolvedStyle, useBulletProbe = false): number {
+  computedLineHeight(style: ResolvedStyle): number {
     const fs = this.font(style);
-    const slot = useBulletProbe && this.useDomMeasurements ? 1 : 0;
-    let lineHeight = fs.lineHeights[slot];
+    let lineHeight = fs.lineHeight;
     if (lineHeight === undefined) {
-      if (this.useDomMeasurements) {
-        lineHeight = measureDomLineHeight(this.domLineHeights,
-          fs.measure.font, hasLineHeight(style) ? `${style.lineHeight}px` : 'normal', slot === 1);
-      } else if (hasLineHeight(style)) {
+      if (hasLineHeight(style)) {
         lineHeight = style.lineHeight;
       } else {
         const { ascent, descent } = this.metrics(style);
         lineHeight = ascent + descent;
       }
-      fs.lineHeights[slot] = lineHeight;
+      fs.lineHeight = lineHeight;
     }
     return lineHeight;
   }
@@ -281,15 +218,14 @@ export class Measurer {
    * One box's half of a line over its OWN line-height: content area plus half-leading (CSS 2.1
    * §10.8). `text-top`/`text-bottom` align these edges. Shared: do not mutate.
    */
-  leadedBox(style: ResolvedStyle, useBulletProbe = false): FontBox {
+  leadedBox(style: ResolvedStyle): FontBox {
     const fs = this.font(style);
-    const slot = useBulletProbe && this.useDomMeasurements ? 1 : 0;
-    let box = fs.boxes[slot];
+    let box = fs.box;
     if (!box) {
       const { ascent, descent } = this.metrics(style);
-      const lineHeight = this.lineHeight(style, useBulletProbe);
+      const lineHeight = this.lineHeight(style);
       const boxAscent = lineBaselineOffset(lineHeight, ascent, descent);
-      box = fs.boxes[slot] = { ascent: boxAscent, descent: lineHeight - boxAscent };
+      box = fs.box = { ascent: boxAscent, descent: lineHeight - boxAscent };
     }
     return box;
   }
@@ -328,8 +264,8 @@ export class Measurer {
         measure: this.intern(
           buildCanvasFont(style), canvasKerning(style), formatLetterSpacing(style.letterSpacing)),
         metrics: undefined,
-        lineHeights: [undefined, undefined],
-        boxes: [undefined, undefined],
+        lineHeight: undefined,
+        box: undefined,
         tabStops: undefined,
       };
       this.fonts.set(style, fs);
@@ -498,7 +434,6 @@ export function getFontMetrics(ctx: CanvasRenderingContext2D, style: ResolvedSty
 export function verticalAlignShift(
   va: string,
   session: LayoutSession, style: ResolvedStyle, parentStyle: ResolvedStyle,
-  useBulletProbe: boolean,
 ): number {
   switch (va) {
     // Blink/WebKit: fontSize/3 + 1 (super), /5 + 1 (sub) of the PARENT size; Gecko 0.34em/0.2em.
@@ -512,16 +447,16 @@ export function verticalAlignShift(
     // Against the PARENT's content area (CSS 2.1 §10.8.1), not the line's tallest box.
     case 'text-top': {
       const m = session.measurer;
-      return m.leadedBox(style, useBulletProbe).ascent - m.metrics(parentStyle).ascent;
+      return m.leadedBox(style).ascent - m.metrics(parentStyle).ascent;
     }
     case 'text-bottom': {
       const m = session.measurer;
-      return m.metrics(parentStyle).descent - m.leadedBox(style, useBulletProbe).descent;
+      return m.metrics(parentStyle).descent - m.leadedBox(style).descent;
     }
     // The LEADED box's midpoint (CSS 2.1 §10.8.1); with a floored half-leading that is up to
     // 0.5px off the content area's (measured in Chrome and WebKit). x-height ~ 0.5em.
     case 'middle': {
-      const { ascent, descent } = session.measurer.leadedBox(style, useBulletProbe);
+      const { ascent, descent } = session.measurer.leadedBox(style);
       return -(parentStyle.fontSize * 0.25) - (descent - ascent) / 2;
     }
     default: {
@@ -530,7 +465,7 @@ export function verticalAlignShift(
       if (!Number.isFinite(n)) return 0;
       // A percentage resolves against the ELEMENT's own line-height (CSS 2.1 §10.8.1).
       return va.endsWith('%')
-        ? -(n / 100) * session.measurer.computedLineHeight(style, useBulletProbe)
+        ? -(n / 100) * session.measurer.computedLineHeight(style)
         : -n;
     }
   }

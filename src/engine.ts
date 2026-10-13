@@ -1,6 +1,6 @@
 /**
- * The engine whose rules to follow, from the UA alone (`accuracy: 'performance'`
- * never touches the DOM). Blink is the default, so a server-side render matches
+ * The engine whose rules to follow, from the UA alone (layout never touches the
+ * DOM). Blink is the default, so a server-side render matches
  * headless Chrome. Gecko is the only engine with a real `Gecko/<date>` token.
  * Safari is AppleWebKit without `Chrome/` and without `jsdom/` (jsdom borrows
  * WebKit's UA); `Chrome/` has no word boundary because of `HeadlessChrome/`.

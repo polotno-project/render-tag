@@ -260,7 +260,7 @@ const marginEmptyBlock: Family = {
 
 const listMarker: Family = {
   name: 'list-marker',
-  rule: '::marker line height (Firefox ul taller; accuracy:balanced probe)',
+  rule: '::marker line height (Firefox ul taller; not modelled)',
   fields: ['liHeight', 'listHeight'], tol: UNIT,
   get inputs() {
     return cross(PINNED, cross([13.33, 16, 18.5, 24], cross(['normal', '1.2', '1.5'], cross(['ul', 'ol'], ['marker', 'none', 'marker-content-none'])))).map(

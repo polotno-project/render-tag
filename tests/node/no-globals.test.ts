@@ -46,11 +46,13 @@ describe('render-tag in Node without DOM globals', () => {
     expect(result.lines.map((l) => l.text).join('\n')).toContain('Hello');
   });
 
-  it("accuracy 'balanced' throws (needs a browser DOM)", () => {
+  it("accuracy 'balanced' (deprecated) is accepted and identical to 'performance'", () => {
     setDOMParser(new LinkedomDOMParser());
-    expect(() =>
-      layout({ html: '<p>hi</p>', width: 100, ctx: mockMeasureCtx(), accuracy: 'balanced' })
-    ).toThrowError(/'balanced' requires a browser DOM/);
+    const balanced = layout({ html: PARITY_HTML, width: PARITY_WIDTH, ctx: mockMeasureCtx(), accuracy: 'balanced' });
+    const performance = layout({ html: PARITY_HTML, width: PARITY_WIDTH, ctx: mockMeasureCtx(), accuracy: 'performance' });
+    expect(JSON.stringify(balanced.layoutRoot)).toBe(JSON.stringify(performance.layoutRoot));
+    expect(balanced.height).toBe(performance.height);
+    assertNoDomGlobals();
   });
 
   it('drawLayout() without ctx/canvas throws (cannot create a canvas)', () => {

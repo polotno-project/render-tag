@@ -410,7 +410,7 @@ function inlineContentSize(session: LayoutSession, node: StyledNode, max: boolea
   }
   const textIndent = intrinsicStyle(node.style).textIndent;
   return widestLine(flowLines(new LineFlow(
-    session, new FlowItems(prepared, refs, widths), max ? Infinity : 0, node.style.whiteSpace, false, textIndent)), textIndent);
+    session, new FlowItems(prepared, refs, widths), max ? Infinity : 0, node.style.whiteSpace, textIndent)), textIndent);
 }
 
 /**

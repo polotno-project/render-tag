@@ -11,7 +11,6 @@ HTML string + CSS → parseHTML (DOMParser) → resolveStylesFromCSS (pure CSS p
 → buildLayoutTree (canvas measureText) → renderNode (canvas fillText/fillRect)
 ```
 
-- **`accuracy` option** (default: `'performance'`) — `'balanced'` enables hidden DOM probes for line heights. `'performance'` uses pure canvas API only.
 - **`render()` is synchronous** — no async, no font loading. Caller must load fonts first.
 - **`src/layout.ts` is the layout entry (public surface, `buildLayoutTree`);
   the phases are `src/layout/`**: `session.ts` (the call's state,
@@ -30,8 +29,8 @@ HTML string + CSS → parseHTML (DOMParser) → resolveStylesFromCSS (pure CSS p
   session (`tests/node/reentrancy.test.ts`). The deliberate module state:
   `layoutFontMetrics` (a WeakMap keyed by results; a run's line top is a
   symbol property, `LINE_TOP`, like `RUN_SEAM`), the
-  `claimCtx` writer token (a number, holds no reference), the DOM probe
-  elements, and the stateless `Intl.Segmenter`s. `paintBounds` and
+  `claimCtx` writer token (a number, holds no reference), and the stateless
+  `Intl.Segmenter`s. Layout never touches the DOM. `paintBounds` and
   `drawLayout` are reentrant too, and a result paints the same after a later
   `layout()` on a ctx with other font metrics.
 - **Inline content: prepare once per call, flow per pass, then emit.**
@@ -751,8 +750,8 @@ It cannot see a unitless multiplier: for a NUMBER line-height the caller
 passes the used value (Blink: `floor(round64(fontSize) × n × 64) / 64`;
 WebKit floors the font-size to 1/64px first). The paint snap is not public.
 
-Detecting the engine is UA-only (`accuracy: 'performance'` promises no DOM
-probe): Gecko is the one that sends a real `Gecko/<date>` token, Blink the one
+Detecting the engine is UA-only (layout never touches the DOM): Gecko is the
+one that sends a real `Gecko/<date>` token, Blink the one
 that says `Chrome/` — matched with NO word boundary, because headless Chrome
 says `HeadlessChrome/`. Safari sends neither. Gecko is verified in Firefox
 CI: the parity suites gate there, with Gecko's known divergences in
@@ -863,10 +862,6 @@ oracle's visual-order count (0 in both lanes).
 Firefox renders `<ul><li>` elements ~1.5px taller than Chrome due to the
 `::marker` pseudo-element (disc/circle/square markers). This accumulates
 in long lists (1.5px × N items). `<ol><li>` items are NOT affected.
-
-**Library fix:** When `accuracy: 'balanced'`, the layout engine uses a
-hidden `<ul><li>` DOM probe to measure actual line heights for bullet-type
-list items, matching Firefox's rendering.
 
 **CSS fix (recommended for users):** Adding this CSS to input HTML eliminates
 the difference at the source:

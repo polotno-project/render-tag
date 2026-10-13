@@ -161,7 +161,6 @@ export function layoutBlock(
 
   const contentStartY = y + borderTop + padTop;
   const ownMarginOut = withMargin(NO_MARGIN, style.marginBottom);
-  const bulletProbe = BULLET_MARKERS.has(style.listStyleType);
 
   const box: LayoutBox = {
     type: 'box',
@@ -185,7 +184,7 @@ export function layoutBlock(
   // An empty block has no line boxes, except a list item's outside marker (Chrome, WebKit).
   if (node.children.length === 0) {
     const markerLine = hasMarkerLine(node)
-      ? session.measurer.lineHeight(style, bulletProbe)
+      ? session.measurer.lineHeight(style)
       : 0;
     box.height = borderTop + padTop + markerLine + padBottom + borderBottom;
     if (minHeight > 0) box.height = Math.max(box.height, minHeight);
@@ -194,7 +193,7 @@ export function layoutBlock(
 
   if (hasOnlyInlineChildren(node)) {
     const { nodes, height, lines, lineBoxes } = layoutInlineContent(
-      session, node, contentX, contentStartY, contentWidth, node.tagName === 'li' && bulletProbe, clamp);
+      session, node, contentX, contentStartY, contentWidth, clamp);
     appendAll(session.lines, lines);
     box.children = nodes;
     box.lineBoxes = lineBoxes;
@@ -241,7 +240,7 @@ export function layoutBlock(
           textContent: null,
         };
         const { nodes, height, lines, lineBoxes } = layoutInlineContent(
-          session, inlineGroup, contentX, curY, contentWidth, node.tagName === 'li' && bulletProbe, clamp);
+          session, inlineGroup, contentX, curY, contentWidth, clamp);
         appendAll(session.lines, lines);
         appendAll(box.children, nodes);
         appendAll(box.lineBoxes ??= [], lineBoxes);
@@ -283,8 +282,7 @@ export function layoutBlock(
     if (atTop && hasVisibleMarker(node)) {
       if (!bfcRoot && bottomAdjoinsChildren(style)) pending = throughStrut;
       if (MARKER_LINE_WITHOUT_CONTENT) {
-        contentEnd = Math.max(contentEnd,
-          session.measurer.lineHeight(style, bulletProbe));
+        contentEnd = Math.max(contentEnd, session.measurer.lineHeight(style));
       }
     }
     const raisesBox = style.minHeight > 0 &&

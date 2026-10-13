@@ -27,7 +27,6 @@ function usedSegmentWidths(
   session: LayoutSession,
   prepared: PreparedInline,
   containingWidth: number,
-  useBulletProbe: boolean,
 ): { widths: number[]; layouts: Map<number, InlineBlockLayout> | undefined } | undefined {
   if (prepared.inlineBlocks.length === 0 && prepared.percentEdges.length === 0) return undefined;
   const widths = prepared.width.slice();
@@ -48,10 +47,10 @@ function usedSegmentWidths(
     // The source node is the inner root; its box properties are applied here.
     resolvePercentages(s, contentWidth, true);
     resolveChildPercentages(source, contentWidth);
-    const inner = layoutInlineContent(session, source, 0, 0, contentWidth, useBulletProbe);
-    const contentHeight = inner.height || session.measurer.lineHeight(s, useBulletProbe);
+    const inner = layoutInlineContent(session, source, 0, 0, contentWidth);
+    const contentHeight = inner.height || session.measurer.lineHeight(s);
     const lastBaseline = inner.lines.at(-1)?.y ??
-      session.measurer.leadedBox(s, useBulletProbe).ascent;
+      session.measurer.leadedBox(s).ascent;
     const extra = inlineBlockExtra(s);
     const baselineOffset = extra.top + lastBaseline;
     const marginBoxHeight = extra.top + contentHeight + extra.bottom;
@@ -345,7 +344,6 @@ function bidiLineItems(
 /** One inline context's layout output and the state its lines share (`emitLine` appends). */
 interface InlineEmit {
   readonly session: LayoutSession;
-  readonly useBulletProbe: boolean;
   /**
    * The block's style: its strut seeds every line's height AND baseline, so small inline
    * text sits on the block-font baseline. Also the parent of runs with no inline ancestor.
@@ -379,7 +377,6 @@ export function layoutInlineContent(
   x: number,
   y: number,
   contentWidth: number,
-  useBulletProbe = false,
   clamp?: LineClampState,
 ): { nodes: LayoutNode[]; height: number; lines: LayoutLine[]; lineBoxes: LayoutLineBox[] } {
   // An ancestor's clamp already used its line budget — drop this content.
@@ -391,7 +388,7 @@ export function layoutInlineContent(
     return { nodes: [], height: 0, lines: [], lineBoxes: [] };
   }
 
-  const lines = flowInlineLines(session, node, prepared, contentWidth, useBulletProbe);
+  const lines = flowInlineLines(session, node, prepared, contentWidth);
   clampLines(session, node.style, lines, contentWidth, clamp);
 
   const style = node.style;
@@ -412,7 +409,6 @@ export function layoutInlineContent(
   }
   const out: InlineEmit = {
     session,
-    useBulletProbe,
     blockStyle: style,
     x,
     contentWidth,
@@ -454,17 +450,16 @@ function flowInlineLines(
   node: StyledNode,
   prepared: PreparedInline,
   contentWidth: number,
-  useBulletProbe: boolean,
 ): PositionedLine[] {
   const m = session.measurer;
-  const used = usedSegmentWidths(session, prepared, contentWidth, useBulletProbe);
+  const used = usedSegmentWidths(session, prepared, contentWidth);
   const textIndent = node.style.textIndent || 0;
   const tabMetrics = m.tabStops(node.style);
   // The block's strut: the minimum height of every line box.
-  const strutLineHeight = m.lineHeight(node.style, useBulletProbe);
+  const strutLineHeight = m.lineHeight(node.style);
   const items = new FlowItems(prepared, prepared.refs, used?.widths, used?.layouts);
   const lines: PositionedLine[] = flowLines(new LineFlow(
-    session, items, contentWidth, node.style.whiteSpace, useBulletProbe, textIndent, tabMetrics, strutLineHeight,
+    session, items, contentWidth, node.style.whiteSpace, textIndent, tabMetrics, strutLineHeight,
   )).map((line) => ({
     words: line.items.map((i) => items.word(i)),
     totalWidth: line.totalWidth,
@@ -592,9 +587,9 @@ function emitLine(
  * runs, inline-blocks), each with its own leading: max(ascent - shift), max(descent + shift).
  */
 function lineBoxExtent(out: InlineEmit, words: readonly Word[]): { ascent: number; descent: number } {
-  const { session, useBulletProbe, blockStyle } = out;
+  const { session, blockStyle } = out;
   const m = session.measurer;
-  const strutBox = m.leadedBox(blockStyle, useBulletProbe);
+  const strutBox = m.leadedBox(blockStyle);
   let lineAscent = strutBox.ascent;
   let lineDescent = strutBox.descent;
   for (const word of words) {
@@ -603,14 +598,14 @@ function lineBoxExtent(out: InlineEmit, words: readonly Word[]): { ascent: numbe
     // carry it as `parentStyle`. Added at its own shift, so it matches the box a direct-text
     // run of it brings. Positive shift is downward.
     if (word.refs.parentStyle) {
-      const parentBox = m.leadedBox(word.refs.parentStyle, useBulletProbe);
+      const parentBox = m.leadedBox(word.refs.parentStyle);
       const va = word.refs.parentStyle.verticalAlign;
       const shift = isShiftedVAlign(va)
-        ? verticalAlignShift(va, session, word.refs.parentStyle, blockStyle, useBulletProbe) : 0;
+        ? verticalAlignShift(va, session, word.refs.parentStyle, blockStyle) : 0;
       if (parentBox.ascent - shift > lineAscent) lineAscent = parentBox.ascent - shift;
       if (parentBox.descent + shift > lineDescent) lineDescent = parentBox.descent + shift;
     }
-    const own = m.leadedBox(word.refs.style, useBulletProbe);
+    const own = m.leadedBox(word.refs.style);
     let ascent = own.ascent;
     let descent = own.descent;
     // An inline-block is an atomic box: its baseline with its margin box around it, unshifted,
@@ -636,7 +631,7 @@ function lineBoxExtent(out: InlineEmit, words: readonly Word[]): { ascent: numbe
 function wordBaselineShift(out: InlineEmit, word: Word): number {
   const va = word.refs.style.verticalAlign;
   return isShiftedVAlign(va)
-    ? verticalAlignShift(va, out.session, word.refs.style, word.refs.parentStyle ?? out.blockStyle, out.useBulletProbe)
+    ? verticalAlignShift(va, out.session, word.refs.style, word.refs.parentStyle ?? out.blockStyle)
     : 0;
 }
 
@@ -647,7 +642,7 @@ function emitInlineBox(
   // Height from the box's OWN font; an inline-block's content box is its line-height.
   const { ascent: boxAscent, descent: boxDescent } =
     style.display === 'inline-block'
-      ? out.session.measurer.leadedBox(style, out.useBulletProbe)
+      ? out.session.measurer.leadedBox(style)
       : out.session.measurer.metrics(style);
   const padTop = style.paddingTop + style.borderTopWidth;
   const padBottom = style.paddingBottom + style.borderBottomWidth;

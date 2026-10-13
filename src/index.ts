@@ -40,7 +40,7 @@ export function layout(config: LayoutConfig): LayoutResult {
   // Without a height, vh falls back to the width (a square viewport).
   const tree = styleTree(html, measureCtx, width, { width, height: height || width });
   const { root, height: contentHeight, lines } =
-    buildLayoutTree(measureCtx, tree, width, config.accuracy === 'balanced', config.debug);
+    buildLayoutTree(measureCtx, tree, width, config.debug);
   let paintBounds: PaintBounds | undefined;
   // Released once measured, so a kept result does not pin the ctx.
   let boundsCtx: CanvasRenderingContext2D | null = measureCtx;

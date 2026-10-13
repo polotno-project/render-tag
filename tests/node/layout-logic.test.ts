@@ -76,7 +76,7 @@ function inline(
 /** Run layout and return the root box. */
 function doLayout(tree: StyledNode, width: number): LayoutBox {
   const ctx = mockCtx();
-  const { root } = buildLayoutTree(ctx, tree, width, false); // useDomMeasurements=false
+  const { root } = buildLayoutTree(ctx, tree, width);
   return root;
 }
 
@@ -947,7 +947,7 @@ describe('Layout logic (mocked measureText)', () => {
         block('p', [textNode('ab\tcd', { whiteSpace: 'pre-wrap', fontSize: 0 })],
           { whiteSpace: 'pre-wrap', fontSize: 0 }),
       ]);
-      const { root } = buildLayoutTree(recordingCtx().ctx, tree, 400, false);
+      const { root } = buildLayoutTree(recordingCtx().ctx, tree, 400);
       const cd = collectTexts(root).find(t => t.text === 'cd');
       expect(cd!.x).toBe(0);
     });
@@ -1130,7 +1130,7 @@ describe('Layout logic (mocked measureText)', () => {
           { display: 'list-item', fontSize: 76, lineHeight: 91 },
         ),
       ]);
-      const { height } = buildLayoutTree(ctx, tree, 600, false);
+      const { height } = buildLayoutTree(ctx, tree, 600);
       expect(height).toBeCloseTo(91, 0); // strut, not the span's 50
     });
 
@@ -1148,7 +1148,7 @@ describe('Layout logic (mocked measureText)', () => {
           { fontSize: 42, lineHeight: 50 },
         ),
       ]);
-      const { height } = buildLayoutTree(ctx, tree, 600, false);
+      const { height } = buildLayoutTree(ctx, tree, 600);
       expect(height).toBeCloseTo(91, 0); // content wins over the 50px strut
     });
   });
@@ -1267,7 +1267,7 @@ describe('Layout logic (mocked measureText)', () => {
         listMarker: '•',
       };
       const tree = block('div', [block('ul', [li])]);
-      const { root } = buildLayoutTree(ctx, tree, 200, false);
+      const { root } = buildLayoutTree(ctx, tree, 200);
       const texts = collectTexts(root);
       const marker = texts.find(t => t.text === '•')!;
       const item = texts.find(t => t.text === 'Item')!;
@@ -1375,7 +1375,7 @@ describe('Layout logic (mocked measureText)', () => {
         listMarker: '•',
       };
       const tree = block('div', [block('ul', [li], { direction: 'rtl' })], { direction: 'rtl' });
-      const { root } = buildLayoutTree(ctx, tree, 200, false);
+      const { root } = buildLayoutTree(ctx, tree, 200);
       const marker = collectTexts(root).find(t => t.text === '•')!;
       const liBox = (root.children[0] as LayoutBox).children[0] as LayoutBox;
       // ink left edge (facing the text) = origin - scaled left bearing (4*0.25=1)
@@ -1449,7 +1449,7 @@ describe('Layout logic (mocked measureText)', () => {
           listMarker: '1.',
           markerStyle: { fontSize: markerFontSize },
         };
-        const { root } = buildLayoutTree(ctx, block('div', [block('ul', [li])]), 200, false);
+        const { root } = buildLayoutTree(ctx, block('div', [block('ul', [li])]), 200);
         return collectTexts(root).find(t => t.text === '1.')!.width;
       };
       // 40px is 2.5x the li's 16px. Measured on the li's face both overrides
@@ -2507,7 +2507,7 @@ describe('WebKit truncates the line-height (Safari UA)', () => {
     vi.stubGlobal('navigator', { userAgent: SAFARI });
     try {
       const mod = await import('../../src/layout.ts');
-      return mod.buildLayoutTree(mockCtx(), tree, width, false).root;
+      return mod.buildLayoutTree(mockCtx(), tree, width).root;
     } finally {
       vi.unstubAllGlobals();
       vi.resetModules();

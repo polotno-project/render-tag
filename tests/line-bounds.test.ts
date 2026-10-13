@@ -89,7 +89,7 @@ function mockCtx(): CanvasRenderingContext2D {
 
 function doLines(tree: StyledNode, width: number): LayoutLine[] {
   const ctx = mockCtx();
-  const { lines } = buildLayoutTree(ctx, tree, width, false);
+  const { lines } = buildLayoutTree(ctx, tree, width);
   return lines;
 }
 

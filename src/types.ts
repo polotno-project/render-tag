@@ -23,9 +23,10 @@ interface LayoutInput {
   width: number;
   /** Height of the rendering area in CSS pixels (auto-sized from content if omitted) */
   height?: number;
-  /** 'performance' (default): canvas measurement only, consistent across
-   * browsers. 'balanced': hidden DOM probes for line heights, closer to each
-   * browser's own DOM. */
+  /**
+   * @deprecated Ignored. Layout is canvas measurement only; `'balanced'` (hidden DOM
+   * line-height probes) was removed and behaves as `'performance'`.
+   */
   accuracy?: 'balanced' | 'performance';
   /** Receives layout diagnostics: measurement, wrapping, positioning. */
   debug?: (entry: DebugEntry) => void;
