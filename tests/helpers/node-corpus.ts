@@ -3,7 +3,7 @@ import type { BenchmarkCase } from './test-cases.ts';
 /**
  * The browser corpus (`test-cases.ts`), loaded in Node for the DOM-free gates.
  *
- * `test-cases.ts` fetches the pinned @fontsource CSS relative to
+ * `test-cases.ts` fetches the vendored font CSS (tests/fonts) relative to
  * `location.href`, and in Node its `?url` imports resolve to nothing. The
  * gates that use this measure with a synthetic ctx and never load a font, so
  * every face is replaced by one inert `@font-face` (labelled so the Arabic

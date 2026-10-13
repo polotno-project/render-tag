@@ -10,17 +10,21 @@
  *  - `error`: Σ|lib − dom| / Σ dom at that alignment — the SHAPE error (dash
  *    lengths and phase, wave period and amplitude, the double gap).
  *
+ * One native capture per font × style × DPR holds every line × size
+ * (`stackFixtures`); each case masks its own region.
+ *
  * The rules, and the DOM measurements behind them, live in src/decoration.ts.
  * Gecko keeps its own (unmeasured) shapes, so the Firefox lane skips this.
  */
-import { describe, it, expect } from 'vitest';
+import { beforeAll, describe, it, expect } from 'vitest';
+import type { ComparisonResult } from './helpers/compare.ts';
 import { compareNativeRenders } from './helpers/native-compare.ts';
 import { loadMultiFontCss } from './helpers/test-cases.ts';
 import { browserName } from './helpers/browser-name.ts';
+import { pixels, stackFixtures, type Region, type Stack } from './helpers/decoration-scan.ts';
 
-function mask(canvas: HTMLCanvasElement): Float32Array {
-  const { width, height } = canvas;
-  const d = canvas.getContext('2d')!.getImageData(0, 0, width, height).data;
+function mask(image: ImageData): Float32Array {
+  const { width, height, data: d } = image;
   const m = new Float32Array(width * height);
   for (let p = 0, i = 0; p < m.length; p++, i += 4) {
     const r = d[i], g = d[i + 1], b = d[i + 2];
@@ -52,11 +56,30 @@ function align(lib: Float32Array, dom: Float32Array, width: number, height: numb
   return best;
 }
 
+/** Shift (device px) and shape error of one region of a capture at `dpr`. */
+function measureRegion(r: ComparisonResult, region: Region, dpr: number) {
+  return align(
+    mask(pixels(r.libCanvas, region, dpr)),
+    mask(pixels(r.domCanvas, region, dpr)),
+    region.width * dpr,
+    region.height * dpr,
+  );
+}
+
 /** Shift (device px) and shape error of one fixture at `dpr`. */
 async function measure(html: string, width: number, height: number, dpr: number) {
   const css = await loadMultiFontCss();
   const r = await compareNativeRenders(html, css, width, height, 0.1, dpr);
-  return align(mask(r.libCanvas), mask(r.domCanvas), width * dpr, height * dpr);
+  return measureRegion(r, { y: 0, width, height }, dpr);
+}
+
+/** Captures the stack once for its describe block; a cold WebKit capture is slow. */
+function capturedStack(stack: Stack, dpr: number): () => ComparisonResult {
+  let result: ComparisonResult;
+  beforeAll(async () => {
+    result = await compareNativeRenders(stack.html, await loadMultiFontCss(), stack.width, stack.height, 0.1, dpr);
+  }, 120_000);
+  return () => result;
 }
 
 /** Both device scales the corpus and Polotno render at: Blink rounds a wave
@@ -87,15 +110,26 @@ const positionBudget = (line: string, dpr: number) =>
 const lane = browserName === 'firefox' ? describe.skip : describe;
 
 lane('decoration shapes match the engine', () => {
-  for (const dpr of DPRS) for (const [fontName, family] of FONTS) for (const style of STYLES) for (const line of LINES) {
-    it.each(SIZES)(`${fontName} ${line} ${style} @ %ipx, DPR ${dpr}`, async (size) => {
-      const html =
+  for (const dpr of DPRS) for (const [fontName, family] of FONTS) for (const style of STYLES) {
+    const cases = LINES.flatMap((line) => SIZES.map((size) => ({ line, size })));
+    const stack = stackFixtures(cases.map(({ line, size }) => ({
+      html:
         `<div style="font-family:${family};font-size:${size}px;line-height:${size * 2}px;color:transparent;padding:${size / 2}px 0 0 10px">` +
         `<span style="text-decoration:${line} ${style} red;text-decoration-skip-ink:none">` +
-        `${'M'.repeat(Math.max(4, Math.floor(400 / size)))}</span></div>`;
-      const { shift, error } = await measure(html, 480, size * 3, dpr);
-      expect(Math.abs(shift), 'band position').toBeLessThanOrEqual(positionBudget(line, dpr));
-      expect(error, 'band shape').toBeLessThanOrEqual(SHAPE_BUDGET[style]);
+        `${'M'.repeat(Math.max(4, Math.floor(400 / size)))}</span></div>`,
+      width: 480,
+      height: size * 3,
+    })));
+    describe(`${fontName} ${style}, DPR ${dpr}`, () => {
+      const captured = capturedStack(stack, dpr);
+      it.each(cases.map(({ line, size }, index) => [line, size, index] as const))(
+        `${fontName} %s ${style} @ %ipx, DPR ${dpr}`,
+        (line, _size, index) => {
+          const { shift, error } = measureRegion(captured(), stack.regions[index], dpr);
+          expect(Math.abs(shift), 'band position').toBeLessThanOrEqual(positionBudget(line, dpr));
+          expect(error, 'band shape').toBeLessThanOrEqual(SHAPE_BUDGET[style]);
+        },
+      );
     });
   }
 });
@@ -135,8 +169,8 @@ lane('an ancestor decoration skips an atomic inline, like the engine', () => {
       const css = await loadMultiFontCss();
       const width = 480, height = 100;
       const r = await compareNativeRenders(html, css, width, height, 0.1, 1);
-      const lib = columns(mask(r.libCanvas), width, height);
-      const dom = columns(mask(r.domCanvas), width, height);
+      const lib = columns(mask(pixels(r.libCanvas)), width, height);
+      const dom = columns(mask(pixels(r.domCanvas)), width, height);
       const gap = (cols: boolean[]) => {
         const first = cols.indexOf(true);
         const last = cols.lastIndexOf(true);

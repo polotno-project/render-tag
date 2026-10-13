@@ -14,5 +14,13 @@
     "flex-geometry › Flex max-content basis",
     "flex-wrapping › Flex max-content basis",
     "line-box › sup and sub at 56px"
+  ],
+  "firefox-darwin": [
+    "margin-collapse › a min-height below the content height",
+    "margin-collapse › a min-height between the content and its trailing margin",
+    "margin-collapse › a min-height equal to the content height",
+    "margin-collapse › an <li> holding only an empty block with margins",
+    "margin-collapse › an empty <li> in a list",
+    "margin-collapse › blockquote > h1 collapses with the blockquote margins"
   ]
 }

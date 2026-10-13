@@ -77,20 +77,17 @@ async function installedVersions(names: string[]): Promise<Record<string, string
 }
 
 /**
- * The packages whose bytes reach a reference PNG: Playwright drives the
- * capture, and every pinned font face the fixtures load comes from an
- * `@fontsource` package served out of node_modules (its URL carries no
- * version, so the fixture digest cannot see a font update). Enumerated from
- * disk so a newly added font package joins the key without an edit here.
+ * The bytes outside the fixture that reach a reference PNG: Playwright drives
+ * the capture, and every pinned face the fixtures load is vendored under
+ * tests/fonts, whose MANIFEST.json carries each file's sha256 (a font URL
+ * carries no version, so the fixture digest cannot see a re-vendor).
  */
 async function pixelDependencyVersions(): Promise<Record<string, string>> {
-  const scopes = ['@fontsource', '@fontsource-variable'];
-  const fonts = await Promise.all(scopes.map(async (scope) =>
-    (await readdir(new URL(`${scope}/`, NODE_MODULES)))
-      .filter((entry) => !entry.startsWith('.'))
-      .map((entry) => `${scope}/${entry}`),
-  ));
-  return installedVersions(['playwright', 'playwright-core', ...fonts.flat().sort()]);
+  const [versions, manifest] = await Promise.all([
+    installedVersions(['playwright', 'playwright-core']),
+    readFile(new URL('../fonts/MANIFEST.json', import.meta.url)),
+  ]);
+  return { ...versions, 'tests/fonts/MANIFEST.json': digest(manifest) };
 }
 
 /**

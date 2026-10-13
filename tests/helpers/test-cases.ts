@@ -1,5 +1,8 @@
 import { isWebKit } from './browser-name.ts';
 import { matchFontFaces, replaceFontFaces, stripFontFaces } from './css-text.ts';
+// Every pinned face is vendored under tests/fonts (scripts/vendor-fonts.mjs):
+// the @fontsource CSS with its woff2 subsets beside it, versions and hashes in
+// MANIFEST.json. Served as static files by the Vite dev server.
 export interface BenchmarkCase {
   name: string;
   width: number;
@@ -8,27 +11,27 @@ export interface BenchmarkCase {
   html: string;
 }
 
-import openSansNormalCssUrl from '@fontsource-variable/open-sans/wght.css?url';
-import openSansItalicCssUrl from '@fontsource-variable/open-sans/wght-italic.css?url';
-import robotoNormalCssUrl from '@fontsource-variable/roboto/wght.css?url';
-import robotoItalicCssUrl from '@fontsource-variable/roboto/wght-italic.css?url';
-import playfairNormalCssUrl from '@fontsource-variable/playfair-display/wght.css?url';
-import playfairItalicCssUrl from '@fontsource-variable/playfair-display/wght-italic.css?url';
-import merriweatherNormalCssUrl from '@fontsource-variable/merriweather/wght.css?url';
-import merriweatherItalicCssUrl from '@fontsource-variable/merriweather/wght-italic.css?url';
-import inconsolataCssUrl from '@fontsource-variable/inconsolata/wght.css?url';
-import lobsterCssUrl from '@fontsource/lobster/400.css?url';
-import arabicCssUrl from '@fontsource/noto-sans-arabic/400.css?url';
-import devanagariCssUrl from '@fontsource-variable/noto-sans-devanagari/wght.css?url';
-import myanmarCssUrl from '@fontsource-variable/noto-sans-myanmar/wght.css?url';
-import khmerCssUrl from '@fontsource-variable/noto-sans-khmer/wght.css?url';
-import thaiCssUrl from '@fontsource-variable/noto-sans-thai/wght.css?url';
-import japaneseCssUrl from '@fontsource/noto-sans-jp/400.css?url';
-import simplifiedChineseCssUrl from '@fontsource/noto-sans-sc/400.css?url';
-import koreanCssUrl from '@fontsource/noto-sans-kr/400.css?url';
-import emojiCssUrl from '@fontsource/noto-emoji/400.css?url';
-import arimoNormalUrl from '@fontsource-variable/arimo/files/arimo-latin-wght-normal.woff2?url';
-import arimoItalicUrl from '@fontsource-variable/arimo/files/arimo-latin-wght-italic.woff2?url';
+import openSansNormalCssUrl from '../fonts/open-sans/wght.css?url';
+import openSansItalicCssUrl from '../fonts/open-sans/wght-italic.css?url';
+import robotoNormalCssUrl from '../fonts/roboto/wght.css?url';
+import robotoItalicCssUrl from '../fonts/roboto/wght-italic.css?url';
+import playfairNormalCssUrl from '../fonts/playfair-display/wght.css?url';
+import playfairItalicCssUrl from '../fonts/playfair-display/wght-italic.css?url';
+import merriweatherNormalCssUrl from '../fonts/merriweather/wght.css?url';
+import merriweatherItalicCssUrl from '../fonts/merriweather/wght-italic.css?url';
+import inconsolataCssUrl from '../fonts/inconsolata/wght.css?url';
+import lobsterCssUrl from '../fonts/lobster/400.css?url';
+import arabicCssUrl from '../fonts/noto-sans-arabic/400.css?url';
+import devanagariCssUrl from '../fonts/noto-sans-devanagari/wght.css?url';
+import myanmarCssUrl from '../fonts/noto-sans-myanmar/wght.css?url';
+import khmerCssUrl from '../fonts/noto-sans-khmer/wght.css?url';
+import thaiCssUrl from '../fonts/noto-sans-thai/wght.css?url';
+import japaneseCssUrl from '../fonts/noto-sans-jp/400.css?url';
+import simplifiedChineseCssUrl from '../fonts/noto-sans-sc/400.css?url';
+import koreanCssUrl from '../fonts/noto-sans-kr/400.css?url';
+import emojiCssUrl from '../fonts/noto-emoji/400.css?url';
+import arimoNormalUrl from '../fonts/arimo/arimo-latin-wght-normal.woff2?url';
+import arimoItalicUrl from '../fonts/arimo/arimo-latin-wght-italic.woff2?url';
 
 let _openSansCss: string | undefined;
 let _multiFontCss: string | undefined;

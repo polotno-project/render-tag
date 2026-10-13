@@ -1,3 +1,53 @@
+/** A fixture's rectangle inside a stacked capture, in CSS px. */
+export interface Region {
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface Stack {
+  html: string;
+  width: number;
+  height: number;
+  /** One per block, in block order. */
+  regions: Region[];
+}
+
+/**
+ * Stack independent fixtures into ONE native capture. Each block sits in its
+ * own box the size of its standalone canvas, at an integer offset, so its
+ * layout and raster are those of a capture of its own (`min-height`, not
+ * `height`: render-tag has no `height`, and no block here outgrows its box).
+ * The gap below each box takes what a renderer paints past the NEXT box's
+ * top (a 64px overline starts 2px above it): the engine clips that at the
+ * box, as the canvas edge did standalone, but render-tag has no overflow
+ * clipping. Never stack fonts: the pruned face set (`keepUsedFontFaces`)
+ * would change.
+ */
+export function stackFixtures(
+  blocks: { html: string; width: number; height: number }[],
+  gap = 8,
+): Stack {
+  const regions: Region[] = [];
+  let y = 0;
+  const html = blocks.map((block) => {
+    regions.push({ y, width: block.width, height: block.height });
+    y += block.height + gap;
+    return (
+      `<div style="width:${block.width}px;min-height:${block.height}px;` +
+      `padding-bottom:${gap}px;overflow:hidden">${block.html}</div>`
+    );
+  }).join('');
+  return { html, width: Math.max(...blocks.map((block) => block.width)), height: y, regions };
+}
+
+/** The device pixels of one region of a capture (default: all of it). */
+export function pixels(canvas: HTMLCanvasElement, region?: Region, dpr = 1): ImageData {
+  const context = canvas.getContext('2d')!;
+  if (!region) return context.getImageData(0, 0, canvas.width, canvas.height);
+  return context.getImageData(0, region.y * dpr, region.width * dpr, region.height * dpr);
+}
+
 export interface BandScan {
   /** First device-pixel row of the red band. */
   top: number;
@@ -8,9 +58,8 @@ export interface BandScan {
 }
 
 /** A solid red decoration band over black `H` glyphs, read off a raster. */
-export function scanBand(canvas: HTMLCanvasElement): BandScan {
-  const { width, height } = canvas;
-  const d = canvas.getContext('2d')!.getImageData(0, 0, width, height).data;
+export function scanBand(source: HTMLCanvasElement | ImageData): BandScan {
+  const { width, height, data: d } = source instanceof ImageData ? source : pixels(source);
   const red: number[] = [];
   let ink = -1;
   for (let y = 0; y < height; y++) {

@@ -84,7 +84,7 @@ const { canvas } = render({
         <div class="demo-panel"><div class="panel-label"><span>RICH TEXT INPUT</span><span>Editable</span></div><div class="demo-bar" id="demo-toolbar" role="toolbar" aria-label="Text formatting"><button data-fmt="bold" aria-label="Bold" aria-pressed="false"><b>B</b></button><button data-fmt="italic" aria-label="Italic" aria-pressed="false"><i>I</i></button><button data-fmt="underline" aria-label="Underline" aria-pressed="false"><u>U</u></button><button data-fmt="strikeThrough" aria-label="Strikethrough" aria-pressed="false"><s>S</s></button><span class="sep"></span><button data-fmt="formatBlock" data-val="h1" aria-label="Heading 1">H1</button><button data-fmt="formatBlock" data-val="h2" aria-label="Heading 2">H2</button><span class="sep"></span><button data-fmt="insertUnorderedList" aria-label="Bullet list">•</button><button data-fmt="insertOrderedList" aria-label="Numbered list">1.</button><label class="color-control"><span class="sr-only">Text color</span><input type="color" value="#0057ff" title="Text color"></label></div><div class="demo-body" id="editor-frame"><div id="editor" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Rich text input" spellcheck="false"><h2>Make something <em>worth reading.</em></h2><p>A little <strong>bold</strong>. A little <em>italic</em>. A whole lot of possibility.</p></div></div></div>
         <div class="demo-panel"><div class="panel-label"><span>CANVAS OUTPUT</span><span>Canvas 2D</span></div><div class="demo-body" id="canvas-frame" role="img" aria-label="Rendered rich text preview"></div></div>
       </div>
-      <div class="section-footnote"><span>Both panels use the selected content width.</span><a href="compare.html">Deep compare: canvas vs. browser →</a></div>
+      <div class="section-footnote"><span>Both panels use the selected content width.</span></div>
     </section>
     <section class="section shell" id="features">
       <div class="section-head"><div><p class="eyebrow">EXAMPLES</p><h2>Rendering examples.</h2></div><p class="section-description">Gradients, outlines, decorations and curves.<br>Every example below is a real canvas. Open its source.</p></div>
@@ -162,7 +162,7 @@ const { canvas } = render({
           <pre id="source-headings" class="feature-source" hidden></pre>
         </article>
       </div>
-      <div class="section-footnote"><a href="path.html">Try the text-on-path playground →</a><a href="compare.html">Inspect more examples against the browser →</a></div>
+      <div class="section-footnote"><a href="path.html">Try the text-on-path playground →</a></div>
     </section>
     <section class="section shell" id="performance">
       <div class="section-head"><div><p class="eyebrow">PERFORMANCE</p><h2>Render time comparison.</h2></div><div class="section-description"><p>Compare fresh HTML → canvas rendering of the same rich text, on your device.</p><button class="button button-blue" id="run-benchmark">Run comparison <span aria-hidden="true">→</span></button></div></div>
@@ -176,7 +176,7 @@ const { canvas } = render({
       </tbody></table></div>
       <p class="benchmark-note" id="benchmark-note" role="status">No prerecorded scores. Run to load the comparison libraries and measure in this browser.</p>
       <details class="benchmark-details"><summary>Method &amp; rendered outputs</summary><p>Rich text mixing Roboto, Playfair Display, Merriweather, and Lobster (self-hosted Google Fonts). 400px width, 1× resolution, two warm-ups, median of seven fresh renders per library. Each timed DOM capture uses a new root element and fresh content parsed from HTML; render-tag parses that same HTML internally. SnapDOM uses <code>invalidate: true</code> and <code>cache: false</code> to disable capture memoization and persistent library caches. Modern-screenshot and html2canvas use new contexts; dom-to-image-more resets per-render resource state and disables cached default-style copying. Font and module loading are excluded. Browser font, glyph, and HTTP caches are not disabled; work may be cached within a single call. Each render includes a pixel readback, and any font embedding inside the call is timed. Libraries have different goals: rich text drawing versus DOM capture. Compare output quality as well as speed.</p><div id="perf-outputs" class="perf-outputs"></div></details>
-      <div class="section-footnote"><span>Comparison libraries load from esm.sh only when you run this benchmark.</span><a href="compare.html">Explore the deep rendering comparison →</a></div>
+      <div class="section-footnote"><span>Comparison libraries load from esm.sh only when you run this benchmark.</span></div>
     </section>
     <section class="section shell" id="api">
       <div class="section-head"><div><p class="eyebrow">USAGE</p><h2>Core API.</h2></div><p class="section-description">Render directly, use measurements in your design,<br>or measure text in a headless workflow.</p></div>
@@ -230,7 +230,7 @@ console.log(result.layoutRoot);</code></pre>
     </section>
 
   </main>
-  <footer class="site-footer shell"><a class="brand" href="index.html">render-tag</a><a href="https://github.com/polotno-project/render-tag/blob/master/LICENSE" target="_blank" rel="noopener noreferrer">MIT license</a><nav aria-label="Footer navigation"><a href="compare.html">Deep compare</a><a href="path.html">Text on a path</a><a href="https://github.com/polotno-project/render-tag" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></footer>
+  <footer class="site-footer shell"><a class="brand" href="index.html">render-tag</a><a href="https://github.com/polotno-project/render-tag/blob/master/LICENSE" target="_blank" rel="noopener noreferrer">MIT license</a><nav aria-label="Footer navigation"><a href="path.html">Text on a path</a><a href="https://github.com/polotno-project/render-tag" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></footer>
   <noscript><p class="shell">Live canvas examples need JavaScript. Read the code examples or the <a href="https://github.com/polotno-project/render-tag#api">full API on GitHub</a>.</p></noscript>
   <script defer data-domain="polotno.com" src="https://plausible.io/js/script.js"></script>
   <script type="module" src="main.ts"></script>

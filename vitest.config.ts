@@ -42,8 +42,8 @@ const FIREFOX_LANE = [
   'tests/flex-parity.test.ts',
   'tests/computed-style-parity.test.ts',
   'tests/parse-style-extraction.test.ts',
-  // Gated in Firefox CI only (Firefox cannot launch on the maintainer's
-  // machine); Gecko's known divergences are in tests/engine-divergences.json.
+  // Gecko's known divergences are in tests/engine-divergences.json, keyed
+  // per platform (CI's ubuntu runner and the maintainer's Mac differ).
   'tests/line-box-parity.test.ts',
   'tests/line-baseline-parity.test.ts',
   'tests/margin-collapse-parity.test.ts',
@@ -113,6 +113,9 @@ export default defineConfig(({ mode }) => {
       fileParallelism: !update,
       projects: [
         {
+          // An inline project does not inherit the CLI `--mode`; without
+          // this, `import.meta.env.MODE` reads `test` under `npm run update`.
+          mode,
           test: {
             name: 'node',
             environment: 'node',
@@ -123,6 +126,7 @@ export default defineConfig(({ mode }) => {
           },
         },
         {
+          mode,
           // The browser context has no process.env; tests read this through
           // tests/helpers/portable-mode.ts. See CLAUDE.md "CI vs local deep testing".
           define: {

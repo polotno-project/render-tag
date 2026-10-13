@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { render, layout, drawLayout } from '../src/index.ts';
 import { drawTextOnPath } from '../src/path/index.ts';
-import fontUrl from '@fontsource-variable/arimo/files/arimo-latin-wght-normal.woff2?url';
+import fontUrl from './fonts/arimo/arimo-latin-wght-normal.woff2?url';
 import { isWebKit } from './helpers/browser-name.ts';
 
 beforeAll(async () => {

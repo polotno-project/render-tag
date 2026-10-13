@@ -224,13 +224,16 @@ Capture documents are reused by exact font-face set as persistent iframes
 fixture content for each screenshot. Native reference PNGs persist in
 `node_modules/.cache/render-tag/native-dom/` (git-ignored). The cache key
 includes the fixture, viewport, DPR, browser build, OS, the installed
-Playwright and `@fontsource*` versions, and the capture implementation;
+Playwright version, `tests/fonts/MANIFEST.json` and the capture implementation;
 superseded references are pruned, and a reference no run has read for 30
 days is dropped (a hit touches its file). A render-tag source change or another
 dependency bump does not invalidate it. Run `npm run test:clear-native-cache`
 to force a cold reference run.
 
-All corpus fonts are pinned `@fontsource` dev dependencies. The fallback stack
+All corpus fonts are vendored under `tests/fonts/`: the `@fontsource` CSS the
+lanes import with its woff2 subsets beside it, versions and per-file sha256 in
+`MANIFEST.json` (`npm run vendor:fonts`, `scripts/vendor-fonts.mjs`, re-vendors
+from the pinned package versions; no font package is installed). The fallback stack
 also pins Arabic, Devanagari, Myanmar, Khmer, Thai, Japanese, Simplified Chinese,
 Korean, and monochrome emoji faces. Tests do not contact Google Fonts or depend
 on system fallback selection. `tests/helpers/compare.ts` registers every
@@ -400,9 +403,12 @@ reports each case through `check`/`verdict`, and ends with `itRecords()` (it
 also fails on a listed key no case produced). Add the file to the
 engine-divergences entry under "Updating baselines"; update mode runs files
 one at a time because every file merges its keys into the one JSON. Firefox
-entries are the ubuntu CI runner's: the Mac's Gecko disagrees on system-font
-rows (`line-baseline › pitch 33.9px/1.15 sans-serif`, one box-model case), so
-edit them by hand from a Firefox CI failure's messages, never from a Mac run.
+entries are keyed per platform (`engineKey`): `firefox` is the ubuntu CI
+runner's list, `firefox-darwin` the Mac's — Gecko disagrees between the two
+on system-font rows (`line-baseline › pitch 33.9px/1.15 sans-serif`, one
+box-model case). Record the Mac list locally with `npm run update --
+--project firefox <the five files>`; the CI list only from a CI failure's
+messages.
 
 Still engine-gated on purpose: `decoration-position-parity` and
 `decoration-shape-parity` (Gecko decoration geometry is unmeasured; the

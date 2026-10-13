@@ -18,6 +18,14 @@ import { gateResidualBaseline } from './baselines.ts';
 
 const FILE = './tests/engine-divergences.json';
 const UPDATE = import.meta.env.MODE === 'update';
+/**
+ * Gecko's DOM differs between the ubuntu CI runner and a Mac in a few rows
+ * (fonts, hinting), so Firefox entries are keyed per platform: `firefox` is
+ * CI's, `firefox-darwin` the maintainer's. Blink and WebKit have one list.
+ */
+const engineKey = browserName === 'firefox' && navigator.platform.startsWith('Mac')
+  ? 'firefox-darwin'
+  : browserName;
 
 export interface DivergenceRatchet {
   /** The ratchet's verdict on one case: a failure message, or null. Pass
@@ -34,7 +42,7 @@ export interface DivergenceRatchet {
 export function divergenceRatchet(suite: string): DivergenceRatchet {
   const prefix = `${suite} › `;
   const listed = new Set(
-    ((recorded as Record<string, string[]>)[browserName] ?? []).filter((k) => k.startsWith(prefix)),
+    ((recorded as Record<string, string[]>)[engineKey] ?? []).filter((k) => k.startsWith(prefix)),
   );
   const seen = new Map<string, string | null>();
 
@@ -44,12 +52,12 @@ export function divergenceRatchet(suite: string): DivergenceRatchet {
     seen.set(key, divergence);
     if (UPDATE) return null;
     if (divergence !== null && !listed.has(key)) {
-      return `${key}: new ${browserName} divergence from its DOM — ${divergence}`;
+      return `${key}: new ${engineKey} divergence from its DOM — ${divergence}`;
     }
     if (divergence === null && listed.has(key)) {
-      return `${key}: now matches the ${browserName} DOM — remove it from ${FILE}`;
+      return `${key}: now matches the ${engineKey} DOM — remove it from ${FILE}`;
     }
-    if (divergence !== null) console.info(`[engine-divergences ${browserName}] listed: ${key} — ${divergence.slice(0, 300)}`);
+    if (divergence !== null) console.info(`[engine-divergences ${engineKey}] listed: ${key} — ${divergence.slice(0, 300)}`);
     return null;
   };
 
@@ -60,15 +68,15 @@ export function divergenceRatchet(suite: string): DivergenceRatchet {
       expect(v, v ?? '').toBeNull();
     },
     itRecords() {
-      it(`${suite}: the recorded ${browserName} divergences are real cases`, async () => {
+      it(`${suite}: the recorded ${engineKey} divergences are real cases`, async () => {
         // Fresh, not the import: an earlier file in the same update run may
         // have rewritten it.
         const current = JSON.parse(await commands.readFile(FILE)) as Record<string, string[]>;
         const mine = [...seen].filter(([, d]) => d !== null).map(([k]) => k);
-        const others = (current[browserName] ?? []).filter((k) => !k.startsWith(prefix));
+        const others = (current[engineKey] ?? []).filter((k) => !k.startsWith(prefix));
         const expected = await gateResidualBaseline({
           file: FILE,
-          browserName,
+          browserName: engineKey,
           signatures: [...others, ...mine].sort(),
           recorded: current,
           updateMode: UPDATE,
@@ -76,7 +84,7 @@ export function divergenceRatchet(suite: string): DivergenceRatchet {
         });
         if (expected === null) return;
         const stale = expected.filter((k) => k.startsWith(prefix) && !seen.has(k));
-        expect(stale, `Listed in ${FILE} for ${browserName} but no such case ran:\n${stale.join('\n')}`)
+        expect(stale, `Listed in ${FILE} for ${engineKey} but no such case ran:\n${stale.join('\n')}`)
           .toEqual([]);
       });
     },

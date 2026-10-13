@@ -1,7 +1,7 @@
 import { beforeAll, expect, test, vi } from 'vitest';
 import { layout, drawLayout, render, type PaintBounds } from '../src/index.ts';
 import { layoutTextOnPath, drawTextOnPathLayout, drawTextOnPath } from '../src/path/index.ts';
-import fontUrl from '@fontsource-variable/arimo/files/arimo-latin-wght-normal.woff2?url';
+import fontUrl from './fonts/arimo/arimo-latin-wght-normal.woff2?url';
 
 beforeAll(async () => {
   document.fonts.add(await new FontFace('BoundsFixture', `url(${fontUrl})`, { weight: '100 900' }).load());
