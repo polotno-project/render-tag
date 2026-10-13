@@ -493,8 +493,8 @@ export function addListMarker(
   let markerX: number;
   let markerY = baselineY;
   let markerDirection = 'ltr';
-  // What the glyph is DRAWN with: numbers at the li font, bullets scaled (below).
-  let markerDrawStyle: ResolvedStyle = markerStyleObj;
+  // What the glyph is DRAWN at: numbers at the li font-size, bullets scaled (below).
+  let markerFontSize = markerStyleObj.fontSize;
   let markerDrawWidth = markerWidth;
   const contentStartX = box.x + style.borderLeftWidth + style.paddingLeft;
   const boxRightEdge = box.x + box.width;
@@ -519,7 +519,7 @@ export function addListMarker(
       markerX = contentStartX - gap - inkRight;
     }
     markerY = baselineY - markerUnit + glyphInkCenter;
-    markerDrawStyle = { ...markerStyleObj, fontSize: markerStyleObj.fontSize * scale };
+    markerFontSize = markerStyleObj.fontSize * scale;
     markerDrawWidth = markerWidth * scale;
   } else {
     const gap = explicitGap !== undefined
@@ -546,7 +546,8 @@ export function addListMarker(
     x: markerX,
     y: markerY,
     width: markerDrawWidth,
-    style: { ...markerDrawStyle, textDecorationLine: 'none', textDecorations: [], fontWeight: ms?.fontWeight ?? 400, fontStyle: ms?.fontStyle ?? 'normal', direction: markerDirection },
+    // One spread: the marker's own style object (the paint-runs seam logic keys on identity).
+    style: { ...markerStyleObj, fontSize: markerFontSize, textDecorationLine: 'none', textDecorations: [], fontWeight: ms?.fontWeight ?? 400, fontStyle: ms?.fontStyle ?? 'normal', direction: markerDirection },
   };
   // The marker sits on the item's first line, whose top is the content top.
   (marker as PrivateText)[LINE_TOP] = box.y + style.borderTopWidth + style.paddingTop;
