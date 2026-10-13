@@ -50,7 +50,6 @@ function drawLayout(config: DrawConfig): { canvas };
 | `createCanvas` | browser canvas | Factory `(width, height) => canvas` for shadow composition. Required for shadows outside browsers. |
 | `renderShadows` | `true` | Set `false` to omit CSS and context shadows without allocating shadow buffers. Foreground stays drawing commands in both modes. |
 | `pixelRatio` | `devicePixelRatio` | HiDPI scaling. |
-| `accuracy` | — | Deprecated and ignored. Layout is pure canvas measurement and consistent cross-browser; `'balanced'` (hidden DOM probes for Firefox's `::marker` line heights) was removed. The [recommended CSS reset](#recommended-css-reset) fixes that difference at the source. |
 
 Use `layout()` + `drawLayout()` when you need to measure content, render the same layout onto multiple targets, or render onto an `OffscreenCanvas`.
 
@@ -209,7 +208,7 @@ const result = layout({ html, width: 400, ctx }); // ctx is required on Node
 drawLayout({ layout: result, width: 400, ctx: outputCtx, createCanvas });
 ```
 
-Without injection, functions throw with guidance. Layout never touches the DOM (the deprecated `accuracy` option is ignored), so nothing else is needed on Node. `render-tag/path` works the same way (`layoutTextOnPath` already takes `ctx`; it re-exports `setDOMParser`).
+Without injection, functions throw with guidance. Layout never touches the DOM, so nothing else is needed on Node. `render-tag/path` works the same way (`layoutTextOnPath` already takes `ctx`; it re-exports `setDOMParser`).
 
 ## Shadows
 
@@ -362,7 +361,7 @@ li::marker { content: none; font-size: 0; line-height: 0; }
 ### Design decisions
 
 - **Chrome-first.** When a rendering choice must favor one browser over another, Chrome wins.
-- **Cross-browser consistency over per-browser DOM fidelity.** Same canvas output in every browser, not pixel-matching each browser's quirks. Layout never probes the DOM (the former `accuracy: 'balanced'` did, and could not reconcile browser-specific line-break policies or Canvas/DOM metric differences anyway).
+- **Cross-browser consistency over per-browser DOM fidelity.** Same canvas output in every browser, not pixel-matching each browser's quirks. Layout never probes the DOM: a DOM probe could not reconcile browser-specific line-break policies or Canvas/DOM metric differences anyway.
 - **Line boxes follow the engine's own rounding** (Blink and WebKit floor the baseline; Blink lays line-heights on its 1/64px grid; WebKit truncates line-heights; Gecko is exact), so canvas text lands where that browser's DOM puts it and a contenteditable overlay of the same text stays on one line.
   Here per-browser fidelity wins over identical output.
 
