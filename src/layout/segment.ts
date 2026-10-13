@@ -101,8 +101,26 @@ export function segmenter(granularity: 'word' | 'grapheme'): Intl.Segmenter | un
  * lines. Past it the context restarts at the last word, never at a space: a bare ' '
  * measures in the primary font, but between fallback-font words the engine uses the
  * fallback, so a cut there mis-measured every RTL word after it.
+ *
+ * Simple-script text (`isSimpleScript`) restarts at EVERY word: kerning across a space is
+ * pairwise and its neutrals need no bidi context, so the previous word and its space are
+ * all the context a width depends on, at a third of the measured characters.
  */
 export const MEASURE_CONTEXT = 32;
+
+/**
+ * Latin, Greek, Cyrillic and the punctuation and symbols set beside them, without bidi
+ * controls (U+2000-200F, U+2028-202F) or anything shaped across words.
+ */
+function isSimpleScript(text: string): boolean {
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    if (c < 0x0590 || (c >= 0x2010 && c <= 0x2027) || (c >= 0x2030 && c <= 0x205E) ||
+      (c >= 0x20A0 && c <= 0x2BFF)) continue;
+    return false;
+  }
+  return true;
+}
 
 export interface Cumulative {
   text: string;
@@ -122,7 +140,8 @@ const MEASURE_BRACKET = 256;
  */
 function contextStart(text: string, word: number): number {
   const open: number[] = [];
-  for (let i = 0; i < word; i++) {
+  // The last word too: an opener starting it still wants the letter before it.
+  for (let i = 0; i < text.length; i++) {
     const code = text.charCodeAt(i);
     // ASCII by code; the Unicode property tests only past it.
     if (code < 0x80) {
@@ -144,7 +163,8 @@ const LETTER = /\p{L}/u;
 /** The width `piece` adds after what `cum` holds; appends it. */
 export function measureAfter(m: Measurer, state: MeasureState, cum: Cumulative, piece: string): number {
   const isSpace = piece === ' ';
-  if (!isSpace && cum.word > 0 && cum.text.length > MEASURE_CONTEXT) {
+  if (!isSpace && cum.word > 0 &&
+      (cum.text.length > MEASURE_CONTEXT || (isSimpleScript(piece) && isSimpleScript(cum.text)))) {
     const start = contextStart(cum.text, cum.word);
     if (start > 0) {
       cum.text = cum.text.slice(start);

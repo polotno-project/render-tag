@@ -1880,6 +1880,20 @@ describe('Layout logic (mocked measureText)', () => {
       expect(perChar).toBeLessThan(12);
     });
 
+    it('simple-script text measures each word after the previous word only', () => {
+      // Kerning across a space is pairwise, so the previous word and its space are the
+      // whole context: no measured string holds more than two words and their spaces.
+      const { longest } = measuring('alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu', 10000);
+      expect(longest).toBeLessThanOrEqual('delta epsilon '.length);
+    });
+
+    it('RTL text keeps the wide measuring context', () => {
+      // Between fallback-font words the engine sets the space in the fallback font, and a
+      // neutral takes its direction from the words around it: the context runs to 32.
+      const { longest } = measuring('مرحبا بكم في عالم النص العربي الجميل والطويل جدا هنا', 10000);
+      expect(longest).toBeGreaterThan(32);
+    });
+
     it('a long CJK run measures each character a bounded number of times', () => {
       // No spaces: the run is one word, measured whole once, then split.
       expect(measuring(cjkText, 400).perChar).toBeLessThan(24);

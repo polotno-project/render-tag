@@ -296,23 +296,16 @@ function prepareInline(session: LayoutSession, runs: TextRun[]): PreparedInline 
       if (!breakAtStart && abutsWithoutBreak(out, startLen)) out.flags[startLen] |= SEG_NO_BREAK_BEFORE;
     };
 
-    // Handle explicit newlines (from <br> or pre-wrap) — always force line break
-    if (text.includes('\n')) {
-      const parts = text.split('\n');
-      for (let i = 0; i < parts.length; i++) {
-        if (i > 0) out.push('\n', 0, 0, ref);
-        if (parts[i]) {
-          const startLen = out.count;
-          prepareString(session, out, parts[i], run, ref);
-          markSeam(startLen, i === 0);
-          markGlue(startLen);
-        }
+    // A newline (from <br> or pre-wrap) is always a forced break.
+    const parts = text.split('\n');
+    for (let i = 0; i < parts.length; i++) {
+      if (i > 0) out.push('\n', 0, 0, ref);
+      if (parts[i]) {
+        const startLen = out.count;
+        prepareString(session, out, parts[i], run, ref);
+        markSeam(startLen, i === 0);
+        markGlue(startLen);
       }
-    } else {
-      const startLen = out.count;
-      prepareString(session, out, text, run, ref);
-      markSeam(startLen, true);
-      markGlue(startLen);
     }
     if (out.count > runStart) lastTextStyle = run.style;
   }
