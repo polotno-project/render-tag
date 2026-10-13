@@ -9,7 +9,8 @@ import { escapedCodePoint, splitTopLevel } from './css-syntax.js';
 export interface ElementContext {
   /** Lower-case tag name. */
   tagName: string;
-  classes: Set<string>;
+  /** The `class` attribute's names, as written (a repeat matches the same rules twice, harmlessly). */
+  classes: readonly string[];
   /** null for the root container. */
   parent: ElementContext | null;
   el: Element;
@@ -464,8 +465,9 @@ export function parseSelectorList(prelude: string): ParsedSelector[] {
 // ─── Matching ───────────────────────────────────────────────────────
 
 /** The virtual `html` above the root context (whose own role is `body`). */
+const NO_CLASSES: readonly string[] = [];
 const VIRTUAL_HTML: ElementContext = {
-  tagName: 'html', classes: new Set(), parent: null, el: null as unknown as Element,
+  tagName: 'html', classes: NO_CLASSES, parent: null, el: null as unknown as Element,
 };
 
 interface Position {
@@ -492,10 +494,8 @@ export class SelectorMatcher {
 
   /** The context of `el`, whose parent context is `parent`. */
   context(el: Element, parent: ElementContext | null, tagName = el.tagName.toLowerCase()): ElementContext {
-    const classes = new Set<string>();
-    const className = el.getAttribute('class');
-    if (className) for (const c of className.split(/\s+/)) if (c) classes.add(c);
-    return { tagName, classes, parent, el };
+    const names = el.getAttribute('class')?.trim();
+    return { tagName, classes: names ? names.split(/\s+/) : NO_CLASSES, parent, el };
   }
 
   matches(sel: ParsedSelector, ctx: ElementContext): boolean {
@@ -572,9 +572,10 @@ export class SelectorMatcher {
     } else if (c.tag && c.tag !== ctx.tagName) return false;
     const el = ctx.el;
     if (c.id !== null && el.getAttribute('id') !== c.id) return false;
-    for (const cls of c.classes) if (!ctx.classes.has(cls)) return false;
-    for (const a of c.attrs) if (!attributeMatches(a, el)) return false;
-    for (const p of c.pseudos) if (!this.pseudo(p, ctx)) return false;
+    // Indexed loops: this runs per candidate rule per element, and a `for…of` allocates its iterator.
+    for (let i = 0; i < c.classes.length; i++) if (!ctx.classes.includes(c.classes[i])) return false;
+    for (let i = 0; i < c.attrs.length; i++) if (!attributeMatches(c.attrs[i], el)) return false;
+    for (let i = 0; i < c.pseudos.length; i++) if (!this.pseudo(c.pseudos[i], ctx)) return false;
     return true;
   }
 
@@ -583,7 +584,7 @@ export class SelectorMatcher {
       case 'root': return ctx.parent === null;
       case 'never': return false;
       case 'empty':
-        for (const child of ctx.el.childNodes) {
+        for (let child = ctx.el.firstChild; child; child = child.nextSibling) {
           if (child.nodeType === 1) return false;
           if (child.nodeType === 3 && (child.nodeValue ?? '').length > 0) return false;
         }

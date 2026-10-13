@@ -299,12 +299,13 @@ function isInlineSibling(n: Node | null): boolean {
   return d === 'inline' || d === 'inline-block';
 }
 
-/** TAG_DEFAULTS minus fontSize (resolved first), as [field, css property, value]. */
-const TAG_DEFAULT_ENTRIES: Record<string, [string, string, unknown][]> = nullProto({});
+/** TAG_DEFAULTS minus fontSize (resolved first), each field with its css property. */
+interface TagDefault { field: string; property: string; value: unknown }
+const TAG_DEFAULT_ENTRIES: Record<string, TagDefault[]> = nullProto({});
 for (const [tag, def] of Object.entries(TAG_DEFAULTS)) {
   TAG_DEFAULT_ENTRIES[tag] = Object.entries(def)
     .filter(([key]) => key !== 'fontSize')
-    .map(([key, val]) => [key, key.replace(/[A-Z]/g, m => '-' + m.toLowerCase()), val]);
+    .map(([field, value]) => ({ field, property: field.replace(/[A-Z]/g, m => '-' + m.toLowerCase()), value }));
 }
 
 /**
@@ -774,12 +775,12 @@ function applyKeyword(
 }
 
 /** Color fields whose initial value is `currentcolor`, resolved per element after the cascade, with their property. */
-const CURRENTCOLOR_PROPERTIES: readonly [keyof InternalStyle, string][] = [
-  ['textDecorationColor', 'text-decoration-color'], ['borderTopColor', 'border-top-color'],
-  ['borderRightColor', 'border-right-color'], ['borderBottomColor', 'border-bottom-color'],
-  ['borderLeftColor', 'border-left-color'],
+const CURRENTCOLOR_PROPERTIES: readonly { field: keyof InternalStyle; property: string }[] = [
+  { field: 'textDecorationColor', property: 'text-decoration-color' },
+  { field: 'borderTopColor', property: 'border-top-color' }, { field: 'borderRightColor', property: 'border-right-color' },
+  { field: 'borderBottomColor', property: 'border-bottom-color' }, { field: 'borderLeftColor', property: 'border-left-color' },
 ];
-const CURRENTCOLOR_FIELDS = new Set(CURRENTCOLOR_PROPERTIES.map(([field]) => field));
+const CURRENTCOLOR_FIELDS = new Set(CURRENTCOLOR_PROPERTIES.map((p) => p.field));
 
 /** Per resolve call: which CURRENTCOLOR_FIELDS of a style hold a concrete color (absent = none). */
 type CurrentColorTable = Map<ResolvedStyle, Set<keyof InternalStyle>>;
@@ -898,7 +899,7 @@ export function anonymousBlockStyle(style: ResolvedStyle): ResolvedStyle {
     if (INHERITED_PROPERTIES.has(property) || property.startsWith('text-decoration')) continue;
     for (const field of fields) (anonymous as any)[field] = INITIAL[field];
   }
-  for (const [field] of CURRENTCOLOR_PROPERTIES) (anonymous as any)[field] = anonymous.color;
+  for (const { field } of CURRENTCOLOR_PROPERTIES) (anonymous as any)[field] = anonymous.color;
   anonymous.display = 'block';
   anonymous[PERCENT_LENGTHS] = undefined;
   // It inherits text-indent, a percentage included, of its own width.
@@ -1443,7 +1444,7 @@ function inlineDeclarations(el: Element, memo: Map<string, readonly Declaration[
  * `[dir]`, `<bdi>` and non-rendered text; null keeps the parent's direction.
  */
 function autoDirection(el: Element): 'ltr' | 'rtl' | null {
-  for (const child of el.childNodes) {
+  for (let child = el.firstChild; child; child = child.nextSibling) {
     if (child.nodeType === TEXT_NODE) {
       for (const ch of child.textContent ?? '') {
         const cls = bidiClass(ch.codePointAt(0)!);
@@ -1492,12 +1493,17 @@ function cascadeOrder(
   out: Declaration[],
   isInline: boolean[],
 ): number {
+  // Indexed loops: this runs per element, and a `for…of` allocates its iterator.
   let n = 0;
-  for (const d of hints) { out[n] = d; isInline[n++] = false; }
-  for (const rule of matched) for (const d of rule.declarations) if (!d.important) { out[n] = d; isInline[n++] = false; }
-  for (const d of inline) if (!d.important) { out[n] = d; isInline[n++] = true; }
-  for (const rule of matched) for (const d of rule.declarations) if (d.important) { out[n] = d; isInline[n++] = false; }
-  for (const d of inline) if (d.important) { out[n] = d; isInline[n++] = true; }
+  for (let i = 0; i < hints.length; i++) { out[n] = hints[i]; isInline[n++] = false; }
+  for (let pass = 0; pass < 2; pass++) {
+    const important = pass === 1;
+    for (let r = 0; r < matched.length; r++) {
+      const ds = matched[r].declarations;
+      for (let i = 0; i < ds.length; i++) if (ds[i].important === important) { out[n] = ds[i]; isInline[n++] = false; }
+    }
+    for (let i = 0; i < inline.length; i++) if (inline[i].important === important) { out[n] = inline[i]; isInline[n++] = true; }
+  }
   return n;
 }
 
@@ -1582,7 +1588,9 @@ export function resolveStylesFromCSS(
       const id = el.getAttribute('id');
       if (id) collectMatches(ruleIndex.byId.get(id), matcher, ctx, matched, matchedMarker);
     }
-    for (const cls of ctx.classes) collectMatches(ruleIndex.byClass.get(cls), matcher, ctx, matched, matchedMarker);
+    for (let i = 0; i < ctx.classes.length; i++) {
+      collectMatches(ruleIndex.byClass.get(ctx.classes[i]), matcher, ctx, matched, matchedMarker);
+    }
     collectMatches(ruleIndex.byTag.get(tag), matcher, ctx, matched, matchedMarker);
     collectMatches(ruleIndex.universal, matcher, ctx, matched, matchedMarker);
     if (matched.length > 1) matched.sort(byCascadeOrder);
@@ -1597,9 +1605,10 @@ export function resolveStylesFromCSS(
       setProps.add('font-size');
     }
     if (tagDef) {
-      for (const [key, cssKey, val] of TAG_DEFAULT_ENTRIES[tag]) {
-        (style as any)[key] = val;
-        setProps.add(cssKey);
+      const defaults = TAG_DEFAULT_ENTRIES[tag];
+      for (let i = 0; i < defaults.length; i++) {
+        (style as any)[defaults[i].field] = defaults[i].value;
+        setProps.add(defaults[i].property);
       }
     }
     // HTML's UA sheet: `[hidden] { display: none }` (an author display wins).
@@ -1690,8 +1699,9 @@ export function resolveStylesFromCSS(
 
     // currentcolor defaults. An automatic decoration color is the visible stroke color,
     // else the fill color, else `color` — resolved on the declarer so descendants agree.
-    for (const [field, prop] of CURRENTCOLOR_PROPERTIES) {
-      if (setProps.has(prop) && String((style as InternalStyle)[field]).toLowerCase() !== 'currentcolor') {
+    for (let i = 0; i < CURRENTCOLOR_PROPERTIES.length; i++) {
+      const { field, property } = CURRENTCOLOR_PROPERTIES[i];
+      if (setProps.has(property) && String((style as InternalStyle)[field]).toLowerCase() !== 'currentcolor') {
         let set = concreteColors.get(style);
         if (!set) concreteColors.set(style, set = new Set());
         set.add(field);
@@ -1783,7 +1793,7 @@ export function resolveStylesFromCSS(
           style.borderLeftWidth - style.borderRightWidth - style.paddingLeft - style.paddingRight);
     resolvePercentages(style, childCb, true);
     const children: StyledNode[] = [];
-    for (const child of el.childNodes) {
+    for (let child = el.firstChild; child; child = child.nextSibling) {
       const childNode = walkNode(child, style, ctx, childCb);
       if (childNode) children.push(childNode);
     }
@@ -1820,7 +1830,7 @@ export function resolveStylesFromCSS(
 
       const ws = parentStyle.whiteSpace;
       const pre = ws === 'pre' || ws === 'pre-wrap' || ws === 'pre-line';
-      if (!pre && text.trim() === '' && !text.includes('\u00A0')) {
+      if (!pre && !/\S/.test(text) && !text.includes('\u00A0')) {
         // Dropped between blocks, or with a newline unless between two inline siblings (Chrome).
         const prev = node.previousSibling;
         const next = node.nextSibling;

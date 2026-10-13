@@ -13,6 +13,16 @@ HTML string + CSS → parseHTML (DOMParser) → resolveStylesFromCSS (pure CSS p
 
 - **`accuracy` option** (default: `'performance'`) — `'balanced'` enables hidden DOM probes for line heights. `'performance'` uses pure canvas API only.
 - **`render()` is synchronous** — no async, no font loading. Caller must load fonts first.
+- **`src/layout.ts` is the layout entry (public surface, `buildLayoutTree`);
+  the phases are `src/layout/`**: `session.ts` (the call's state,
+  `Measurer`, engine line-height rules, the deliberate module state),
+  `util.ts` (helpers more than one phase reads), `segment.ts` (runs,
+  segments and flags, CJK/emoji/kinsoku), `prepare.ts` (`preparedInline` and
+  the intrinsic sizes: one recursion), `flow.ts` (the line breaker, clamp),
+  `emit.ts` (bidi reordering, lines to nodes), `flex.ts` (flex sizing),
+  `block.ts` (margin collapsing, block/table/flex layout, list marker).
+  Imports point only DOWN that order: a helper two phases need goes in
+  `util.ts` or `session.ts`, never into a value import cycle.
 - **Layout is reentrant: one `LayoutSession` per `buildLayoutTree` call**,
   threaded down as `session`. It owns the call's `Measurer`, debug callback,
   lines, min/max-content caches, anonymous flex items and prepared inline
@@ -157,7 +167,7 @@ The mechanism (keep new paint features on it):
   `DecorationEntry` carries the same stamp as `declarer`, made once in
   `resolveStylesFromCSS` and shared by reference down the tree — it decides the
   band's thickness and the underline's position, so two runs may only merge
-  while `sameDecorationBand` holds (layout.ts).
+  while `sameDecorationBand` holds (src/layout/util.ts).
 - **Fragment geometry** — the paint spans the DECLARING element's fragment, not each
   word: `assignInlineFragmentBoxes` (per-line fragment box → `LayoutText.clip`/
   `.strokeImage`) in layout; `assignFragmentRanges` (natural-offset range) on path.
@@ -820,7 +830,7 @@ oracle's visual-order count (0 in both lanes).
   closer/stop (`。、，！？：；・）` + closing curly quote `”`, plus the Myanmar
   `၊-၏` and Khmer `។-៖ ៘-៚` section signs) and never ENDS with an opener
   (`「（` etc.) — all measured against Chrome DOM with `水×5 <char> 水×7`
-  probes. Both live in `TRAILING_PUNCT`/`OPENING_PUNCT` (layout.ts) and become
+  probes. Both live in `TRAILING_PUNCT`/`OPENING_PUNCT` (src/layout/segment.ts) and become
   segment flags; `breakBefore` applies the closers and `headGlueWidth` the
   openers. Small kana and `ー` are deliberately NOT glued: Chrome's default
   `line-break: auto` breaks before them freely (adding them would CREATE

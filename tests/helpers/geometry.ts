@@ -246,7 +246,7 @@ function canvasTokens(root: LayoutNode): GeoToken[] {
     const chars = glyphs(run.text);
     if (chars.length === 0) return;
     // An RTL bidi override stores its runs in VISUAL order: characters
-    // reversed, run order reversed, direction reset to ltr (layout.ts
+    // reversed, run order reversed, direction reset to ltr (src/layout/prepare.ts
     // `overrideRtl`), so the run no longer says it was reversed. Un-reverse
     // the characters of a run that declares the override, which lets its
     // glyphs pair; its line is compared order-insensitively (`visualOrder`),

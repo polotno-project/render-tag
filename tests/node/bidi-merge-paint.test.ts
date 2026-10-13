@@ -1,6 +1,6 @@
 /**
  * Visually adjacent RTL pieces of one level merge into one fillText so Arabic
- * shapes across span boundaries (`sameBidiRun`, layout.ts). The merged run
+ * shapes across span boundaries (`sameBidiRun`, src/layout/emit.ts). The merged run
  * paints with its FIRST piece's style, so pieces whose glyph paint differs in
  * any property must stay apart — each with its own paint.
  */

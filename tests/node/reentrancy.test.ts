@@ -4,7 +4,7 @@
  * `layout()` runs caller code in the middle of a call: the `debug` callback,
  * and the caller's own ctx (`measureText` on a PDF proxy, a test mock, an
  * instrumented canvas). Either may call `layout()` again. Each call owns its
- * state in a `LayoutSession` (layout.ts), so a nested call must not touch the
+ * state in a `LayoutSession` (src/layout/session.ts), so a nested call must not touch the
  * outer one: both results — tree, lines, paintBounds, debug stream, and the
  * paint drawn from them — equal what the two calls give run one after the
  * other.
