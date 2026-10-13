@@ -6,14 +6,13 @@
  *   // or: drawTextOnPathLayout({ layout: layoutTextOnPath({ html, path }), ctx });
  */
 
-import type { ShadowOptions, ResolvedStyle, DecorationEntry } from '../types.js';
-import { paintOrderHasStrokeFirst, isTransparent } from '../css-resolver.js';
-import { hasTextClip, paintsBoxBackground, sameDecorationBand, styleTree, layoutFontMetrics, type FontMetricsTable } from '../layout.js';
-import { fillIsTransparent, textFillColor } from '../render.js';
-import { bandWidthFor, drawDecorationLine, explicitUnderlineDelta, legacyDash } from '../decoration.js';
+import type { ShadowOptions, ResolvedStyle } from '../types.js';
+import { isTransparent } from '../css-resolver.js';
+import { hasTextClip, paintsBoxBackground, styleTree, layoutFontMetrics, type FontMetricsTable } from '../layout.js';
+import { glyphPaints, paintGlyphs } from '../render.js';
+import { fragmentBands, paintBand, type Band, type Pen } from '../decoration.js';
 import { parseLinearGradient } from '../gradient.js';
 import { PaintState, withDraw } from '../paint-state.js';
-import { STROKE_CASTS_TEXT_SHADOW } from '../engine.js';
 import { paintTextShadows, shadowBounds, shadowsOf, textPaintBounds, transformBounds, unionBounds, withCanvasShadow, measurePaintBounds, type PaintBounds, type TextShadow } from '../shadow.js';
 import { pathFromString, type PathLike } from './svg-path.js';
 import {
@@ -191,16 +190,12 @@ export function drawTextOnPathLayout(config: DrawTextOnPathLayoutConfig): void {
   const tb = layout.textBaseline;
   const fontMetrics = layoutFontMetrics.get(layout);
 
-  const foreground = (ps: PaintState, glyphs: GlyphPlacement[]) => {
-    drawGlyphs(ps, glyphs, layout.textWidth, tb);
-    drawDecorations(ps, glyphs, layout.textWidth, tb);
-  };
   const cache: InkCache = new Map();
   withDraw(ctx, config, 1, fontMetrics, (stateOf, pool) => {
     if (!pool) {
       const ps = stateOf(ctx);
       drawBackgrounds(ps, layout.glyphs, tb);
-      foreground(ps, layout.glyphs);
+      paintRuns(ps, layout.glyphs, layout.textWidth, tb);
       return;
     }
     const groups = collectPathShadowGroups(layout.glyphs);
@@ -212,11 +207,11 @@ export function drawTextOnPathLayout(config: DrawTextOnPathLayoutConfig): void {
         paintTextShadows(target, groupPieces(measure, cache, group, tb), group.shadows, (mask, inside) => {
           // The tile's glyphs only; a decorated span whole, so its dash phase holds.
           const maskState = new PaintState(mask, 1, true, fontMetrics);
-          drawGlyphs(maskState, inside.map(p => p.glyph), layout.textWidth, tb);
-          for (const span of new Set(inside.map(p => p.span))) drawDecorations(maskState, span, layout.textWidth, tb);
+          const visible = new Set(inside.map(p => p.glyph));
+          for (const span of new Set(inside.map(p => p.span))) paintRuns(maskState, span, layout.textWidth, tb, visible);
         }, pool);
       }
-      foreground(ps, layout.glyphs);
+      paintRuns(ps, layout.glyphs, layout.textWidth, tb);
     }, pool);
   });
 }
@@ -368,21 +363,6 @@ function strokePaintFor(
   return src ? sliceGradient(ctx, src.webkitTextStrokeImage, g, g.strokeImageRange, textWidth, baseY) : null;
 }
 
-/** What fills this glyph (the main renderer's precedence); null = nothing. */
-function effectiveFillPaint(
-  ctx: CanvasRenderingContext2D,
-  g: GlyphPlacement,
-  textWidth: number,
-  baseY: number,
-): string | CanvasGradient | null {
-  const usesClipPaint = hasTextClip(g.style) ||
-    (g.clipStyle != null && fillIsTransparent(g.style));
-  if (usesClipPaint) {
-    return clipPaintFor(ctx, g, textWidth, baseY);
-  }
-  return fillIsTransparent(g.style) ? null : textFillColor(g.style);
-}
-
 function drawGlyphs(
   ps: PaintState,
   glyphs: GlyphPlacement[],
@@ -392,126 +372,130 @@ function drawGlyphs(
   const { ctx } = ps;
   const base = frameBase(ctx);
   for (const g of glyphs) {
-    // Set before the frame: a fallback save scope forgets what is written inside.
     ps.glyph(g.style);
     const baseY = baselineLocalY(tb, g.ascent, g.descent);
-    // A shadow mask fills every glyph: its shadow is the glyph's shape.
-    const fill = effectiveFillPaint(ctx, g, textWidth, baseY) ?? (ps.coverage ? 'black' : null);
-    const isStroked = g.style.webkitTextStrokeWidth > 0 && (!ps.coverage || STROKE_CASTS_TEXT_SHADOW);
-    if (fill) ps.fill(fill);
-    if (isStroked) ps.textStroke(g.style, strokePaintFor(ctx, g, textWidth, baseY));
-
+    const paints = glyphPaints(ps, g.style, clipPaintFor(ctx, g, textWidth, baseY), strokePaintFor(ctx, g, textWidth, baseY));
     enterFrame(ps, base, g);
-    const drawFill = () => { if (fill) ctx.fillText(g.char, 0, baseY); };
-    const drawStroke = () => { if (isStroked) ctx.strokeText(g.char, 0, baseY); };
-    if (paintOrderHasStrokeFirst(g.style.paintOrder || '')) { drawStroke(); drawFill(); }
-    else { drawFill(); drawStroke(); }
+    paintGlyphs(ps, g.style, g.char, 0, baseY, paints);
     if (!base) ps.restore();
   }
   exitFrames(ctx, base);
-}
-
-/** A glyph's decoration entry for one line kind: the last match wins. */
-function decorationFor(style: ResolvedStyle, lineKind: string): DecorationEntry | null {
-  const entries = style.textDecorations;
-  for (let i = entries.length - 1; i >= 0; i--) if (entries[i].line === lineKind) return entries[i];
-  return null;
-}
-
-/** Stroke each run sharing one decoration; a transparent one uses the clip paint. */
-function drawDecorations(
-  ps: PaintState,
-  glyphs: GlyphPlacement[],
-  textWidth: number,
-  tb: TextBaseline,
-): void {
-  const { ctx } = ps;
-  for (const lineKind of ['underline', 'line-through', 'overline'] as const) {
-    let i = 0;
-    while (i < glyphs.length) {
-      const deco = decorationFor(glyphs[i].style, lineKind);
-      if (!deco) { i++; continue; }
-      const transparent = isTransparent(deco.color);
-      const src = transparent ? clipSourceOf(glyphs[i]) : undefined;
-      if (transparent && !src) { i++; continue; }
-      // canonicalColor writes fillStyle on first sight: keep its call order.
-      const canon = transparent ? '' : canonicalColor(ctx, deco.color);
-      let j = i + 1;
-      while (j < glyphs.length) {
-        const next = decorationFor(glyphs[j].style, lineKind);
-        if (
-          !next ||
-          (transparent ? !isTransparent(next.color) : canonicalColor(ctx, next.color) !== canon) ||
-          next.style !== deco.style ||
-          !sameDecorationBand(next, deco) ||
-          (transparent && clipSourceOf(glyphs[j]) !== src)
-        ) break;
-        j++;
-      }
-      drawDecorationRun(ps, glyphs.slice(i, j), lineKind, deco, textWidth, tb, transparent ? null : deco.color);
-      i = j;
-    }
-  }
-}
-
-/** A band's local y: underline off the declarer's descent, others the glyph's ascent. */
-function decorationLocalY(
-  g: GlyphPlacement,
-  deco: DecorationEntry,
-  declarerDescent: number,
-  lineWidth: number,
-  lineKind: 'underline' | 'line-through' | 'overline',
-  tb: TextBaseline,
-): number {
-  const baseY = baselineLocalY(tb, g.ascent, g.descent);
-  if (lineKind === 'underline') {
-    const explicitDelta = explicitUnderlineDelta(deco, lineWidth);
-    return baseY + (explicitDelta !== null ? explicitDelta : declarerDescent * 0.5);
-  }
-  if (lineKind === 'line-through') return baseY - g.ascent * 0.3;
-  return baseY - g.ascent * 0.9; // overline
 }
 
 /**
- * One decoration run. A solid, dotted or dashed `color` is one polyline, so
- * the dash phase stays continuous; double, wavy and the clip paint
- * (`color` null) draw per glyph in its rotated frame.
+ * Lands a straight band's run-local points on a run's glyph frames: x runs
+ * along the glyphs, each covering its natural width; y is each glyph's own.
+ * A line bends at every glyph joint, so one stroke carries its dash pattern
+ * along the curve.
  */
-function drawDecorationRun(
-  ps: PaintState,
-  group: GlyphPlacement[],
-  lineKind: 'underline' | 'line-through' | 'overline',
-  deco: DecorationEntry,
-  textWidth: number,
-  tb: TextBaseline,
-  color: string | null,
-): void {
-  const decoStyle = deco.style || 'solid';
-  const lineWidth = bandWidthFor(deco);
-  if (lineWidth <= 0) return;
-  const { ctx } = ps;
-  const declarerDescent = ps.fontBox(deco.declarer).descent;
-  const localY = (g: GlyphPlacement) => decorationLocalY(g, deco, declarerDescent, lineWidth, lineKind, tb);
+class BentPen implements Pen {
+  private x = 0;
+  private y = 0;
+  /** Each glyph's start along the run. */
+  private readonly starts: number[];
 
-  if (color !== null && decoStyle !== 'double' && decoStyle !== 'wavy') {
-    ps.stroke(color, lineWidth, legacyDash(decoStyle, lineWidth));
-    ctx.beginPath();
-    for (let i = 0; i < group.length; i++) {
-      const y = localY(group[i]);
-      const [left, right] = rotatedBox(group[i], y, y);
-      if (i === 0) ctx.moveTo(left.x, left.y);
-      else ctx.lineTo(left.x, left.y);
-      ctx.lineTo(right.x, right.y);
+  constructor(private readonly ctx: CanvasRenderingContext2D, private readonly run: GlyphPlacement[]) {
+    this.starts = run.map(g => g.pathOffset - run[0].pathOffset);
+  }
+
+  /** The glyph whose span holds x; the end glyphs extend past the run. */
+  private glyphAt(x: number): number {
+    let lo = 0, hi = this.starts.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (this.starts[mid] <= x) lo = mid; else hi = mid - 1;
     }
-    ctx.stroke();
+    return lo;
+  }
+
+  private point(x: number, y: number, i = this.glyphAt(x)): [number, number] {
+    const g = this.run[i];
+    const lx = x - this.starts[i];
+    const c = Math.cos(g.rotation), s = Math.sin(g.rotation);
+    return [g.x + c * lx - s * y, g.y + s * lx + c * y];
+  }
+
+  moveTo(x: number, y: number): void {
+    this.ctx.moveTo(...this.point(x, y));
+    this.x = x; this.y = y;
+  }
+
+  lineTo(x: number, y: number): void {
+    const from = this.glyphAt(this.x), to = this.glyphAt(x);
+    const step = to > from ? 1 : -1;
+    for (let i = from; i !== to; i += step) {
+      // The joint, in the frame of the glyph being entered.
+      const next = step > 0 ? i + 1 : i;
+      const jx = this.starts[next];
+      const jy = this.y + (y - this.y) * (jx - this.x) / (x - this.x);
+      this.ctx.lineTo(...this.point(jx, jy, next));
+    }
+    this.ctx.lineTo(...this.point(x, y, to));
+    this.x = x; this.y = y;
+  }
+
+  bezierCurveTo(c1x: number, c1y: number, c2x: number, c2y: number, x: number, y: number): void {
+    this.ctx.bezierCurveTo(...this.point(c1x, c1y), ...this.point(c2x, c2y), ...this.point(x, y));
+    this.x = x; this.y = y;
+  }
+
+  quadraticCurveTo(cx: number, cy: number, x: number, y: number): void {
+    this.ctx.quadraticCurveTo(...this.point(cx, cy), ...this.point(x, y));
+    this.x = x; this.y = y;
+  }
+}
+
+/**
+ * One band over a run: a colored band is one stroke bent along the run; a
+ * transparent one shows the clip paint, a gradient in each glyph's frame, so
+ * it paints each glyph's slice there.
+ */
+function paintRunBand(
+  ps: PaintState, run: GlyphPlacement[], band: Band, color: string, textWidth: number, tb: TextBaseline,
+): void {
+  if (!isTransparent(color)) {
+    paintBand(ps, band, color, new BentPen(ps.ctx, run));
     return;
   }
+  const { ctx } = ps;
   const base = frameBase(ctx);
-  for (const g of group) {
+  for (const g of run) {
+    const paint = clipPaintFor(ctx, g, textWidth, baselineLocalY(tb, g.ascent, g.descent));
+    if (!paint) continue;
     enterFrame(ps, base, g);
-    const paint = color ?? clipPaintFor(ctx, g, textWidth, baselineLocalY(tb, g.ascent, g.descent));
-    if (paint) drawDecorationLine(ps, 0, localY(g), g.width, lineWidth, decoStyle, paint);
+    ps.save();
+    ctx.beginPath();
+    ctx.rect(0, band.y - band.fontSize, g.width, 2 * band.fontSize + band.rows);
+    ctx.clip();
+    paintBand(ps, { ...band, x: run[0].pathOffset - g.pathOffset }, paint);
+    ps.restore();
     if (!base) ps.restore();
   }
   exitFrames(ctx, base);
+}
+
+/**
+ * Paint each same-style run (one text node's glyphs: the fragment) in engine
+ * order: under/overlines, glyphs, line-throughs. `visible` narrows the glyphs
+ * painted (a shadow tile); bands always span the run.
+ */
+function paintRuns(
+  ps: PaintState, glyphs: GlyphPlacement[], textWidth: number, tb: TextBaseline, visible?: Set<GlyphPlacement>,
+): void {
+  for (let i = 0; i < glyphs.length;) {
+    const { style } = glyphs[i];
+    let j = i + 1;
+    while (j < glyphs.length && glyphs[j].style === style) j++;
+    const run = glyphs.slice(i, j);
+    i = j;
+    let bands: { band: Band; deco: { color: string } }[] = [];
+    if (style.textDecorations.length) {
+      const head = run[0], tail = run[run.length - 1];
+      const baseY = baselineLocalY(tb, head.ascent, head.descent);
+      bands = fragmentBands(ps, style, 0, tail.pathOffset + tail.width - head.pathOffset, baseY, 0);
+    }
+    for (const b of bands) if (b.band.line !== 'line-through') paintRunBand(ps, run, b.band, b.deco.color, textWidth, tb);
+    drawGlyphs(ps, visible ? run.filter(g => visible.has(g)) : run, textWidth, tb);
+    for (const b of bands) if (b.band.line === 'line-through') paintRunBand(ps, run, b.band, b.deco.color, textWidth, tb);
+  }
 }

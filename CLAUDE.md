@@ -197,7 +197,9 @@ When touching this area, run all of them plus `decoration-propagation`,
   (`PaintState.deviceScale`, from `pixelRatio`).
 - Gates: `decoration-shape-parity`, `decoration-position-parity` (DPR 1 and
   2, Chromium + WebKit), `tests/node/decoration-fragments.test.ts`. Text on a
-  path still draws the old shapes per glyph.
+  path paints the same bands (`fragmentBands`, `paintBand`) per same-style
+  run, drawn through a `Pen` that bends them along the glyph frames
+  (`BentPen`, src/path/index.ts); a clip-painted band paints per glyph.
 
 ### Gradients (`src/gradient.ts`)
 

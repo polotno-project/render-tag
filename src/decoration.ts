@@ -1,5 +1,6 @@
-import type { DecorationEntry } from './types.js';
+import type { DecorationEntry, ResolvedStyle } from './types.js';
 import { BLINK_UNDERLINE_GAP, ENGINE } from './engine.js';
+import { isShiftedVAlign } from './layout.js';
 import type { PaintState } from './paint-state.js';
 
 // Text decoration bands. The engine paints a decoration once per text fragment
@@ -7,6 +8,10 @@ import type { PaintState } from './paint-state.js';
 // its spaces, and restart at the next text node (decoration-shape-parity).
 
 type DecorationLine = 'underline' | 'overline' | 'line-through';
+
+/** Where a band's path points land: the ctx itself for a straight fragment;
+ * text on a path bends them along its glyph frames. */
+export type Pen = Pick<CanvasRenderingContext2D, 'moveTo' | 'lineTo' | 'bezierCurveTo' | 'quadraticCurveTo'>;
 
 /** One decoration band across one text fragment. */
 export interface Band {
@@ -74,7 +79,7 @@ function thicknessOf(deco: DecorationEntry, deviceScale: number): [rows: number,
 }
 
 /** Where a fragment's decorations hang: what `decorationBand` needs to know. */
-interface FragmentLine {
+export interface FragmentLine {
   baseline: number;
   /** The line's own baseline when only the run was vertical-aligned. */
   underlineBaseline: number;
@@ -133,16 +138,42 @@ export function decorationBand(
   return { line, style, x, width, y, rows, thickness: t, fontSize, deviceScale };
 }
 
-export const paintBand: (ps: PaintState, band: Band, color: string | CanvasGradient) => void =
+/**
+ * A fragment's decoration bands with their entries, ancestors' first (the
+ * caller colors each; a transparent entry shows the clip paint). Thickness
+ * and the underline's baseline come from the declarer (one flat band, even
+ * over a `super` child it does not own); the overline and line-through
+ * follow the fragment's own ascent. `lineBaseline` is the line's baseline
+ * when only the run was vertical-aligned. tests/decorating-box-geometry.test.ts.
+ */
+export function fragmentBands(
+  ps: PaintState, style: ResolvedStyle, x: number, width: number,
+  baseline: number, snap: number, lineBaseline?: number,
+): { band: Band; deco: DecorationEntry }[] {
+  let ascent: number | undefined;
+  const bands: { band: Band; deco: DecorationEntry }[] = [];
+  for (const deco of style.textDecorations) {
+    const underlineBaseline =
+      lineBaseline !== undefined && !isShiftedVAlign(deco.declarer.verticalAlign) ? lineBaseline : baseline;
+    if (deco.line !== 'underline') ascent ??= ps.fontBox(style).ascent;
+    const band = decorationBand(deco, {
+      baseline, underlineBaseline, fontSize: style.fontSize, ascent: ascent ?? 0, snap,
+    }, x, width, ps.deviceScale);
+    if (band) bands.push({ band, deco });
+  }
+  return bands;
+}
+
+export const paintBand: (ps: PaintState, band: Band, color: string | CanvasGradient, pen?: Pen) => void =
   ENGINE === 'blink' ? blinkBand : ENGINE === 'webkit' ? webkitBand
-    : (ps, b, c) => drawDecorationLine(ps, b.x, b.y + b.rows / 2, b.width, b.rows, b.style, c);
+    : (ps, b, c, pen) => drawDecorationLine(ps, b.x, b.y + b.rows / 2, b.width, b.rows, b.style, c, pen);
 
 /** A horizontal stroke `rows` thick whose top edge is `top`. */
-function rule(ps: PaintState, x0: number, x1: number, top: number, rows: number, color: string | CanvasGradient) {
+function rule(ps: PaintState, x0: number, x1: number, top: number, rows: number, color: string | CanvasGradient, pen: Pen) {
   ps.stroke(color, rows);
   ps.ctx.beginPath();
-  ps.ctx.moveTo(x0, top + rows / 2);
-  ps.ctx.lineTo(x1, top + rows / 2);
+  pen.moveTo(x0, top + rows / 2);
+  pen.lineTo(x1, top + rows / 2);
   ps.ctx.stroke();
 }
 
@@ -223,7 +254,7 @@ function subCubic(p: Point[], s0: number, s1: number): Point[] {
  * (Blink clips its tile to the fragment), so no clip path is needed.
  */
 function wavePath(
-  ctx: CanvasRenderingContext2D, x0: number, x1: number, anchor: number,
+  pen: Pen, x0: number, x1: number, anchor: number,
   axis: number, wavelength: number, cp: number,
 ) {
   let start = anchor + Math.floor((x0 - anchor) / wavelength) * wavelength;
@@ -235,21 +266,21 @@ function wavePath(
     const s1 = waveParameterAt(x1 - start, wavelength);
     if (s1 <= s0) continue;
     const [p0, p1, p2, p3] = subCubic(cycle, s0, s1);
-    if (first) { ctx.moveTo(p0[0], p0[1]); first = false; }
-    ctx.bezierCurveTo(p1[0], p1[1], p2[0], p2[1], p3[0], p3[1]);
+    if (first) { pen.moveTo(p0[0], p0[1]); first = false; }
+    pen.bezierCurveTo(p1[0], p1[1], p2[0], p2[1], p3[0], p3[1]);
   }
 }
 
-function blinkBand(ps: PaintState, band: Band, color: string | CanvasGradient) {
+function blinkBand(ps: PaintState, band: Band, color: string | CanvasGradient, pen: Pen = ps.ctx) {
   const { ctx } = ps;
   const { line, style, x, width, y, rows, thickness: t } = band;
   // Solid and double bands are rects snapped on y only (`SnapYAxis`).
   const top = Math.floor(y + 0.5);
   if (style === 'double') {
-    rule(ps, x, x + width, top, rows, color);
+    rule(ps, x, x + width, top, rows, color, pen);
     // The second band is moved t + 1 and snapped on its own.
     const offset = line === 'line-through' ? Math.floor(t + 1) : line === 'overline' ? -(t + 1) : t + 1;
-    rule(ps, x, x + width, Math.floor(y + offset + 0.5), rows, color);
+    rule(ps, x, x + width, Math.floor(y + offset + 0.5), rows, color, pen);
     return;
   }
   if (style === 'dotted' || style === 'dashed') {
@@ -262,8 +293,8 @@ function blinkBand(ps: PaintState, band: Band, color: string | CanvasGradient) {
     if (pattern?.cap === 'round') { x0 += w / 2; x1 -= w / 2; }
     ps.stroke(color, t, pattern?.dash, pattern?.cap);
     ctx.beginPath();
-    ctx.moveTo(x0, mid);
-    ctx.lineTo(x1, mid);
+    pen.moveTo(x0, mid);
+    pen.lineTo(x1, mid);
     ctx.stroke();
     return;
   }
@@ -277,11 +308,11 @@ function blinkBand(ps: PaintState, band: Band, color: string | CanvasGradient) {
     const axis = toDevice(y + offset + tileTop, band.deviceScale) + 0.5 - tileTop;
     ps.stroke(color, t);
     ctx.beginPath();
-    wavePath(ctx, x, x + width, toDevice(x, band.deviceScale), axis, wavelength, cp);
+    wavePath(pen, x, x + width, toDevice(x, band.deviceScale), axis, wavelength, cp);
     ctx.stroke();
     return;
   }
-  rule(ps, x, x + width, top, rows, color);
+  rule(ps, x, x + width, top, rows, color, pen);
 }
 
 // ─── WebKit ─────────────────────────────────────────────────────────────
@@ -291,20 +322,20 @@ function blinkBand(ps: PaintState, band: Band, color: string | CanvasGradient) {
  * rows/rows and dashed 2·rows/2·rows, unfitted; wavy: a cubic per 2·step,
  * step = fontSize / 4.5, stretched so whole steps fill the fragment.
  */
-function webkitBand(ps: PaintState, band: Band, color: string | CanvasGradient) {
+function webkitBand(ps: PaintState, band: Band, color: string | CanvasGradient, pen: Pen = ps.ctx) {
   const { ctx } = ps;
   const { style, x, width, y: top, rows } = band;
   if (style === 'double') {
-    rule(ps, x, x + width, top, rows, color);
-    rule(ps, x, x + width, top + 2 * rows, rows, color);
+    rule(ps, x, x + width, top, rows, color, pen);
+    rule(ps, x, x + width, top + 2 * rows, rows, color, pen);
     return;
   }
   if (style === 'dotted' || style === 'dashed') {
     const on = style === 'dotted' ? rows : 2 * rows;
     ps.stroke(color, rows, [on, on]);
     ctx.beginPath();
-    ctx.moveTo(toDevice(x, band.deviceScale), top + rows / 2);
-    ctx.lineTo(x + width, top + rows / 2);
+    pen.moveTo(toDevice(x, band.deviceScale), top + rows / 2);
+    pen.lineTo(x + width, top + rows / 2);
     ctx.stroke();
     return;
   }
@@ -322,25 +353,20 @@ function webkitBand(ps: PaintState, band: Band, color: string | CanvasGradient) 
     const axis = top + 1 + (rows % 2 ? 0.5 : 0) - raise;
     ps.stroke(color, band.thickness);
     ctx.beginPath();
-    ctx.moveTo(x, axis);
+    pen.moveTo(x, axis);
     for (let at = x; at + 2 * step <= x + width + 1e-6; at += 2 * step) {
-      ctx.bezierCurveTo(at + step, axis + cp, at + step, axis - cp, at + 2 * step, axis);
+      pen.bezierCurveTo(at + step, axis + cp, at + step, axis - cp, at + 2 * step, axis);
     }
     ctx.stroke();
     return;
   }
-  rule(ps, x, x + width, top, rows, color);
+  rule(ps, x, x + width, top, rows, color, pen);
 }
 
 // ─── Gecko (unmeasured) ─────────────────────────────────────────────────
 
-/** The unmeasured dash pattern of `drawDecorationLine`; undefined = solid. */
-export function legacyDash(style: string, w: number): number[] | undefined {
-  return style === 'dotted' ? [w, w * 2] : style === 'dashed' ? [w * 3, w * 2] : undefined;
-}
-
-/** Unmeasured decoration shapes centered on `y`, for Gecko and text-on-path. */
-export function drawDecorationLine(
+/** Unmeasured decoration shapes centered on `y`; dotted w/2w, dashed 3w/2w. */
+function drawDecorationLine(
   ps: PaintState,
   x: number,
   y: number,
@@ -348,6 +374,7 @@ export function drawDecorationLine(
   lineWidth: number,
   decoStyle: string,
   color: string | CanvasGradient,
+  pen: Pen = ps.ctx,
 ): void {
   y = Math.round(y - lineWidth / 2) + lineWidth / 2;
   const { ctx } = ps;
@@ -356,27 +383,28 @@ export function drawDecorationLine(
     const gap = Math.max(lineWidth, 2);
     ps.stroke(color, Math.max(0.5, lineWidth * 0.5));
     ctx.beginPath();
-    ctx.moveTo(x, y - gap / 2);
-    ctx.lineTo(x + width, y - gap / 2);
-    ctx.moveTo(x, y + gap / 2);
-    ctx.lineTo(x + width, y + gap / 2);
+    pen.moveTo(x, y - gap / 2);
+    pen.lineTo(x + width, y - gap / 2);
+    pen.moveTo(x, y + gap / 2);
+    pen.lineTo(x + width, y + gap / 2);
     ctx.stroke();
   } else if (decoStyle === 'wavy') {
     const amplitude = Math.max(1.5, lineWidth);
     const wavelength = amplitude * 4;
     ps.stroke(color, lineWidth);
     ctx.beginPath();
-    ctx.moveTo(x, y);
+    pen.moveTo(x, y);
     for (let cx = x; cx < x + width; cx += wavelength) {
-      ctx.quadraticCurveTo(cx + wavelength / 4, y - amplitude, cx + wavelength / 2, y);
-      ctx.quadraticCurveTo(cx + wavelength * 3 / 4, y + amplitude, cx + wavelength, y);
+      pen.quadraticCurveTo(cx + wavelength / 4, y - amplitude, cx + wavelength / 2, y);
+      pen.quadraticCurveTo(cx + wavelength * 3 / 4, y + amplitude, cx + wavelength, y);
     }
     ctx.stroke();
   } else {
-    ps.stroke(color, lineWidth, legacyDash(decoStyle, lineWidth));
+    const w = lineWidth;
+    ps.stroke(color, w, decoStyle === 'dotted' ? [w, w * 2] : decoStyle === 'dashed' ? [w * 3, w * 2] : undefined);
     ctx.beginPath();
-    ctx.moveTo(x, y);
-    ctx.lineTo(x + width, y);
+    pen.moveTo(x, y);
+    pen.lineTo(x + width, y);
     ctx.stroke();
   }
 }

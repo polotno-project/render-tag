@@ -3,7 +3,6 @@ import {
   hasStrokeImage,
   hasTextClip,
   layoutFontMetrics,
-  isShiftedVAlign,
   paintLineSnap,
   paintsBoxBackground,
   startsMeasuredRun,
@@ -12,7 +11,7 @@ import {
 import { isTransparent, paintOrderHasStrokeFirst } from './css-resolver.js';
 import { hasTextShadow, paintTextShadows, shadowBounds, shadowsOf, textPaintBounds, unionBounds, withCanvasShadow, type PaintBounds, type ShadowPiece, type TextShadow } from './shadow.js';
 import { PaintState, withDraw } from './paint-state.js';
-import { decorationBand, paintBand, type Band } from './decoration.js';
+import { fragmentBands, paintBand, type Band } from './decoration.js';
 import { BLINK_TEXT_RUN_SHAPING, STROKE_CASTS_TEXT_SHADOW } from './engine.js';
 
 function hasBorder(style: ResolvedStyle, side: 'Top' | 'Right' | 'Bottom' | 'Left'): boolean {
@@ -62,76 +61,60 @@ export function fillIsTransparent(style: ResolvedStyle): boolean {
   return isTransparent(style.webkitTextFillColor || style.color);
 }
 
-/** What fills and strokes a fragment's glyphs and clip-painted bands. */
-interface TextPaints {
-  /** Fill with the clip paint. */
-  clipped: boolean;
+/** What paints a run's glyphs and its clip-painted bands. */
+export interface TextPaints {
+  /** The glyph fill; null paints none. */
+  fill: CanvasGradient | string | null;
+  /** The nearest background-clip:text paint, which a transparent band shows. */
   clip: CanvasGradient | string | null;
-  stroke: CanvasGradient | null;
+  stroked: boolean;
+  /** The --rt-text-stroke-image gradient, over the stroke color. */
+  strokeImage: CanvasGradient | null;
 }
 
 /**
- * Resolve a fragment's clip and stroke paints once; `gradientFill` and
- * `strokeGradient` are threaded down from declaring blocks.
+ * Both renderers' precedence. The clip paint fills a run that declares the
+ * clip, or whose own fill is transparent under a declaring ancestor. A
+ * transparent fill paints nothing (Chrome, even with a stroke) except on a
+ * coverage mask, where every glyph is its own shadow's shape; Blink's mask
+ * omits the stroke (STROKE_CASTS_TEXT_SHADOW).
  */
+export function glyphPaints(
+  ps: PaintState, style: ResolvedStyle, clip: CanvasGradient | string | null, strokeImage: CanvasGradient | null,
+): TextPaints {
+  const clipped = hasTextClip(style) || (clip != null && fillIsTransparent(style));
+  const fill = clipped ? clip || style.color
+    : !fillIsTransparent(style) || ps.coverage ? textFillColor(style) : null;
+  const stroked = style.webkitTextStrokeWidth > 0 && (!ps.coverage || STROKE_CASTS_TEXT_SHADOW);
+  return { fill, clip, stroked, strokeImage };
+}
+
+/** A fragment's paints: an inline declarer's (layout's fragment box) beats a declaring block's. */
 function textPaints(
   ps: PaintState,
   node: LayoutText,
   gradientFill: CanvasGradient | string | null | undefined,
   strokeGradient: CanvasGradient | null | undefined,
 ): TextPaints {
-  const { style } = node;
-
-  // An inline declarer's clip paint (layout's fragment box) beats a block's.
   const { clip: box, strokeImage } = node;
-  const inlineClipPaint: CanvasGradient | string | null = box
-    ? (box.image ? ps.linearGradient(box.image, box.x, box.width, box.y, box.height) : null) ??
-      box.color ?? null
+  const inlineClip = box
+    ? (box.image ? ps.linearGradient(box.image, box.x, box.width, box.y, box.height) : null) ?? box.color ?? null
     : null;
-
-  const clip = inlineClipPaint ?? gradientFill ?? null;
-
-  // An ancestor's clip paint shows only through a transparent own fill.
-  const clipped = hasTextClip(style) ||
-    ((gradientFill != null || inlineClipPaint != null) && fillIsTransparent(style));
-
   const inlineStroke = strokeImage
     ? ps.linearGradient(strokeImage.image, strokeImage.x, strokeImage.width, strokeImage.y, strokeImage.height)
     : null;
-  return { clipped, clip, stroke: inlineStroke ?? strokeGradient ?? null };
+  return glyphPaints(ps, node.style, inlineClip ?? gradientFill ?? null, inlineStroke ?? strokeGradient ?? null);
 }
 
-/** Fill and stroke one run's glyphs at baseline `y`, in its paint order. */
-function drawGlyphs(ps: PaintState, node: LayoutText, y: number, paints: TextPaints): void {
-  const { style } = node;
+/** Fill and stroke `text` at (x, y) with `paints`, in the style's paint order. */
+export function paintGlyphs(
+  ps: PaintState, style: ResolvedStyle, text: string, x: number, y: number, paints: TextPaints,
+): void {
   const { ctx } = ps;
-  ps.text(style);
-  const isFillTransparent = fillIsTransparent(style);
-
-  const drawFill = () => {
-    if (paints.clipped) {
-      ps.fill(paints.clip || style.color);
-      ctx.fillText(node.text, node.x, y);
-    } else if (!isFillTransparent || ps.coverage) {
-      // Chrome paints nothing for a transparent fill, even without a stroke.
-      ps.fill(textFillColor(style));
-      ctx.fillText(node.text, node.x, y);
-    }
-  };
-
-  const drawStroke = () => {
-    if (style.webkitTextStrokeWidth <= 0 || (ps.coverage && !STROKE_CASTS_TEXT_SHADOW)) return;
-    ps.textStroke(style, paints.stroke);
-    ctx.strokeText(node.text, node.x, y);
-  };
-
-  if (paintOrderHasStrokeFirst(style.paintOrder)) {
-    drawStroke();
-    drawFill();
-  } else {
-    drawFill();
-    drawStroke();
-  }
+  const fill = () => { if (paints.fill) { ps.fill(paints.fill); ctx.fillText(text, x, y); } };
+  const stroke = () => { if (paints.stroked) { ps.textStroke(style, paints.strokeImage); ctx.strokeText(text, x, y); } };
+  if (paintOrderHasStrokeFirst(style.paintOrder)) { stroke(); fill(); }
+  else { fill(); stroke(); }
 }
 
 /** One text fragment: same style, no measured-run seam, same baseline, touching. */
@@ -141,43 +124,23 @@ function sameTextFragment(a: LayoutText, b: LayoutText): boolean {
   return Math.abs(bl - ar) <= 0.5 || Math.abs(al - br) <= 0.5;
 }
 
-/**
- * A fragment's decoration bands, ancestors' first, each in its declarer's
- * color and style. Thickness and the underline's baseline come from the
- * declarer (one flat band, even over a `super` child it does not own); the
- * overline and line-through follow each fragment's own ascent.
- * tests/decorating-box-geometry.test.ts.
- */
-function fragmentBands(
+/** A fragment's bands across its runs' extent, colored; a transparent entry shows the clip paint or nothing. */
+function coloredBands(
   ps: PaintState, runs: LayoutText[], snap: number, paints: TextPaints,
 ): { band: Band; color: string | CanvasGradient }[] {
   const head = runs[0];
-  const { style } = head;
   let left = Infinity, right = -Infinity;
   for (const run of runs) {
     const [l, r] = textEdges(run);
     if (l < left) left = l;
     if (r > right) right = r;
   }
-  const baseline = head.y + snap;
+  // `lineBaselineY` is set only on a vertical-align-shifted run.
   const lineBaseline = head.lineBaselineY === undefined ? undefined : head.lineBaselineY + snap;
-  let ascent: number | undefined;
   const bands: { band: Band; color: string | CanvasGradient }[] = [];
-  for (const deco of style.textDecorations) {
-    // A transparent band shows the clip paint, whatever this run's own fill.
-    let color: string | CanvasGradient = deco.color;
-    if (isTransparent(deco.color)) {
-      if (!paints.clip) continue;
-      color = paints.clip;
-    }
-    // `lineBaselineY` is set only on a vertical-align-shifted run.
-    const underlineBaseline =
-      lineBaseline !== undefined && !isShiftedVAlign(deco.declarer.verticalAlign) ? lineBaseline : baseline;
-    if (deco.line !== 'underline') ascent ??= ps.fontBox(style).ascent;
-    const band = decorationBand(deco, {
-      baseline, underlineBaseline, fontSize: style.fontSize, ascent: ascent ?? 0, snap,
-    }, left, right - left, ps.deviceScale);
-    if (band) bands.push({ band, color });
+  for (const { band, deco } of fragmentBands(ps, head.style, left, right - left, head.y + snap, snap, lineBaseline)) {
+    const color = isTransparent(deco.color) ? paints.clip : deco.color;
+    if (color) bands.push({ band, color });
   }
   return bands;
 }
@@ -195,10 +158,13 @@ function paintFragment(
   if (beforeText) for (const original of originals) beforeText(ps.ctx, original);
   const paints = textPaints(ps, runs[0], gradientFill, strokeGradient);
   const bands = runs[0].style.textDecorations.length
-    ? fragmentBands(ps, runs, paintLineSnap(originals[0]), paints)
+    ? coloredBands(ps, runs, paintLineSnap(originals[0]), paints)
     : [];
   for (const { band, color } of bands) if (band.line !== 'line-through') paintBand(ps, band, color);
-  runs.forEach((run, i) => drawGlyphs(ps, run, run.y + paintLineSnap(originals[i]), paints));
+  runs.forEach((run, i) => {
+    ps.text(run.style);
+    paintGlyphs(ps, run.style, run.text, run.x, run.y + paintLineSnap(originals[i]), paints);
+  });
   for (const { band, color } of bands) if (band.line === 'line-through') paintBand(ps, band, color);
 }
 
@@ -299,23 +265,28 @@ function renderBox(
     }
   }
 
-  // A uniform rounded border strokes the rounded path once on its centerline;
-  // per-side borders on rounded corners stay straight lines (rare, and per-corner
-  // color joins are not reproducible with strokes).
-  const uniformRoundedBorder = radii !== null && hasBorder(style, 'Top') &&
+  // A uniform border is one stroke on its centerline: four side strokes would
+  // double a translucent color at the corners. Per-side borders on rounded
+  // corners stay straight lines (rare, and per-corner color joins are not
+  // reproducible with strokes).
+  const uniformBorder = hasBorder(style, 'Top') &&
     (['Right', 'Bottom', 'Left'] as const).every((side) =>
       style[`border${side}Width`] === style.borderTopWidth &&
       style[`border${side}Style`] === style.borderTopStyle &&
       style[`border${side}Color`] === style.borderTopColor);
-  if (uniformRoundedBorder) {
+  if (uniformBorder) {
     const w = style.borderTopWidth;
     ps.stroke(style.borderTopColor, w);
-    ctx.beginPath();
-    ctx.roundRect(
-      box.x + w / 2, box.y + w / 2, box.width - w, box.height - w,
-      radii.map((r) => ({ x: Math.max(0, r.x - w / 2), y: Math.max(0, r.y - w / 2) })),
-    );
-    ctx.stroke();
+    if (radii) {
+      ctx.beginPath();
+      ctx.roundRect(
+        box.x + w / 2, box.y + w / 2, box.width - w, box.height - w,
+        radii.map((r) => ({ x: Math.max(0, r.x - w / 2), y: Math.max(0, r.y - w / 2) })),
+      );
+      ctx.stroke();
+    } else {
+      ctx.strokeRect(box.x + w / 2, box.y + w / 2, box.width - w, box.height - w);
+    }
   } else {
     const borders: [side: 'Top' | 'Right' | 'Bottom' | 'Left', x1: number, y1: number, x2: number, y2: number][] = [
       ['Top', box.x, box.y + style.borderTopWidth / 2, box.x + box.width, box.y + style.borderTopWidth / 2],
