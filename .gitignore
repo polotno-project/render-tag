@@ -37,3 +37,7 @@ tests/engine-probe.*.json
 tests/list-marker-report.*.html
 tests/list-marker-table.*.txt
 .vitest-attachments/
+
+# Chrome canvas layout recording for cross-browser.compare (local, environment-pinned):
+# npm run test:cross-browser:record
+tests/cross-browser-reference.json

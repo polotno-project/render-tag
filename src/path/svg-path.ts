@@ -78,6 +78,7 @@ function tokenize(d: string): { cmd: string; args: number[] }[] {
 /**
  * Parse path data into an array of normalized absolute-coordinate segments.
  * Drops moveTo commands (they don't draw); inserts a closing line for Z.
+ * An incomplete argument tuple ends its command (never a NaN coordinate).
  */
 export function parsePathData(d: string): Seg[] {
   const tokens = tokenize(d);
@@ -106,7 +107,7 @@ export function parsePathData(d: string): Seg[] {
     switch (upper) {
       case 'M': {
         // M arglist: first pair = moveto, subsequent pairs = lineto
-        for (let i = 0; i < a.length; i += 2) {
+        for (let i = 0; i + 2 <= a.length; i += 2) {
           const x = ax(a[i]);
           const y = ay(a[i + 1]);
           if (i === 0) {
@@ -120,7 +121,7 @@ export function parsePathData(d: string): Seg[] {
         break;
       }
       case 'L': {
-        for (let i = 0; i < a.length; i += 2) {
+        for (let i = 0; i + 2 <= a.length; i += 2) {
           const x = ax(a[i]);
           const y = ay(a[i + 1]);
           segs.push({ type: 'L', x0: cx, y0: cy, x1: x, y1: y });
@@ -145,7 +146,7 @@ export function parsePathData(d: string): Seg[] {
         break;
       }
       case 'C': {
-        for (let i = 0; i < a.length; i += 6) {
+        for (let i = 0; i + 6 <= a.length; i += 6) {
           const c1x = ax(a[i]);
           const c1y = ay(a[i + 1]);
           const c2x = ax(a[i + 2]);
@@ -160,7 +161,7 @@ export function parsePathData(d: string): Seg[] {
         break;
       }
       case 'S': {
-        for (let i = 0; i < a.length; i += 4) {
+        for (let i = 0; i + 4 <= a.length; i += 4) {
           // Reflect previous cubic c2 about current point. If previous was not C/S, use cx,cy.
           const c1x = lastCubicCtrl ? 2 * cx - lastCubicCtrl.x : cx;
           const c1y = lastCubicCtrl ? 2 * cy - lastCubicCtrl.y : cy;
@@ -176,7 +177,7 @@ export function parsePathData(d: string): Seg[] {
         break;
       }
       case 'Q': {
-        for (let i = 0; i < a.length; i += 4) {
+        for (let i = 0; i + 4 <= a.length; i += 4) {
           const ctlx = ax(a[i]);
           const ctly = ay(a[i + 1]);
           const x = ax(a[i + 2]);
@@ -189,9 +190,9 @@ export function parsePathData(d: string): Seg[] {
         break;
       }
       case 'T': {
-        for (let i = 0; i < a.length; i += 2) {
-          const ctlx = lastQuadCtrl ? 2 * cx - lastQuadCtrl.x : cx;
-          const ctly = lastQuadCtrl ? 2 * cy - lastQuadCtrl.y : cy;
+        for (let i = 0; i + 2 <= a.length; i += 2) {
+          const ctlx: number = lastQuadCtrl ? 2 * cx - lastQuadCtrl.x : cx;
+          const ctly: number = lastQuadCtrl ? 2 * cy - lastQuadCtrl.y : cy;
           const x = ax(a[i]);
           const y = ay(a[i + 1]);
           segs.push({ type: 'Q', x0: cx, y0: cy, cx: ctlx, cy: ctly, x1: x, y1: y });
@@ -202,7 +203,7 @@ export function parsePathData(d: string): Seg[] {
         break;
       }
       case 'A': {
-        for (let i = 0; i < a.length; i += 7) {
+        for (let i = 0; i + 7 <= a.length; i += 7) {
           const rx = a[i];
           const ry = a[i + 1];
           const xAxisRotation = a[i + 2];
@@ -385,44 +386,48 @@ export function buildPathLike(segs: Seg[]): PathLike {
     // Reject NaN / Infinity — `t < 0` etc. silently pass NaN through.
     if (!Number.isFinite(t)) return null;
     if (t < 0 || t > totalLen + 1e-6) return null;
+    if (entries.length === 0) return null;
     // Exact start point: the general path can differ by a -0, or in a
     // degenerate curve whose leading samples have zero length.
-    if (t === 0 && entries.length > 0) {
+    if (t === 0) {
       const { seg, arc } = entries[0];
       return arc ? evalArc(arc, 0) : { x: seg.x0, y: seg.y0 };
     }
-    // Linear scan: segment counts are small.
-    for (let i = 0; i < entries.length; i++) {
-      const e = entries[i];
-      if (t > e.startLen + e.length + 1e-6) continue;
-      const local = t - e.startLen;
-      if (e.seg.type === 'L') {
-        const frac = e.length === 0 ? 0 : Math.max(0, Math.min(1, local / e.length));
-        return {
-          x: e.seg.x0 + (e.seg.x1 - e.seg.x0) * frac,
-          y: e.seg.y0 + (e.seg.y1 - e.seg.y0) * frac,
-        };
-      }
-      // Binary search the sample table for the bracketing pair.
-      const samples = e.samples!;
-      let lo = 0, hi = samples.length - 1;
-      while (hi - lo > 1) {
-        const mid = (lo + hi) >> 1;
-        if (samples[mid].len <= local) lo = mid;
-        else hi = mid;
-      }
-      const a = samples[lo];
-      const b = samples[hi];
-      const span = b.len - a.len;
-      const frac = span === 0 ? 0 : (local - a.len) / span;
-      // Clamp to [0, 1] — float drift in the polyline-sum vs true arc length
-      // can push frac past 1.0 when t lands just past the last sample.
-      const tt = Math.max(0, Math.min(1, a.t + (b.t - a.t) * frac));
-      if (e.seg.type === 'C') return evalCubic(e.seg, tt);
-      if (e.seg.type === 'Q') return evalQuadratic(e.seg, tt);
-      return evalArc(e.arc!, tt);
+    // First entry whose end reaches t (ends are non-decreasing).
+    let lo = 0, hi = entries.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (t > entries[mid].startLen + entries[mid].length + 1e-6) lo = mid + 1;
+      else hi = mid;
     }
-    return null;
+    const e = entries[lo];
+    if (t > e.startLen + e.length + 1e-6) return null;
+    const local = t - e.startLen;
+    if (e.seg.type === 'L') {
+      const frac = e.length === 0 ? 0 : Math.max(0, Math.min(1, local / e.length));
+      return {
+        x: e.seg.x0 + (e.seg.x1 - e.seg.x0) * frac,
+        y: e.seg.y0 + (e.seg.y1 - e.seg.y0) * frac,
+      };
+    }
+    // Binary search the sample table for the bracketing pair.
+    const samples = e.samples!;
+    lo = 0; hi = samples.length - 1;
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      if (samples[mid].len <= local) lo = mid;
+      else hi = mid;
+    }
+    const a = samples[lo];
+    const b = samples[hi];
+    const span = b.len - a.len;
+    const frac = span === 0 ? 0 : (local - a.len) / span;
+    // Clamp to [0, 1] — float drift in the polyline-sum vs true arc length
+    // can push frac past 1.0 when t lands just past the last sample.
+    const tt = Math.max(0, Math.min(1, a.t + (b.t - a.t) * frac));
+    if (e.seg.type === 'C') return evalCubic(e.seg, tt);
+    if (e.seg.type === 'Q') return evalQuadratic(e.seg, tt);
+    return evalArc(e.arc!, tt);
   }
 
   return { length: totalLen, getPointAtLength };

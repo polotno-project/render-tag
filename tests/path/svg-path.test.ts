@@ -114,6 +114,28 @@ describe('SVG path parser', () => {
     expect(p.length).toBe(200);
   });
 
+  it('an incomplete argument tuple ends its command, never a NaN segment', () => {
+    expect(parsePathData('M0,0 L100,0 L50').length).toBe(1);
+    expect(parsePathData('M0,0 C10,10 20').length).toBe(0);
+    // `NaN` tokenizes as the `a` arc command with one argument.
+    expect(parsePathData('M0,0 L NaN 10').length).toBe(0);
+    expect(pathFromString('M0,0 L100,0 L50').length).toBe(100);
+    expect(pathFromString('M0,0 A50,50 0 0').length).toBe(0);
+  });
+
+  it('finds the segment at joints and across zero-length segments like a scan', () => {
+    const p = pathFromString('M0,0 L10,0 L10,0 L20,0');
+    approx(p.getPointAtLength(10)!.x, 10);
+    approx(p.getPointAtLength(15)!.x, 15);
+    approx(p.getPointAtLength(20)!.x, 20);
+    let d = 'M0,0';
+    for (let i = 1; i <= 1000; i++) d += ` L${i},0`;
+    const many = pathFromString(d);
+    expect(many.length).toBe(1000);
+    for (const t of [0.5, 1, 499.25, 500, 999.9, 1000]) approx(many.getPointAtLength(t)!.x, t);
+    expect(many.getPointAtLength(1000.1)).toBeNull();
+  });
+
   it('rejects non-finite query lengths', () => {
     const p = pathFromString('M0,0 L100,0');
     expect(p.getPointAtLength(Number.NaN)).toBeNull();

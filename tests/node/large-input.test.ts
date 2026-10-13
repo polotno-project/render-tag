@@ -6,8 +6,8 @@
  */
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { DOMParser as LinkedomDOMParser } from 'linkedom';
-import { layout, setDOMParser } from '../../src/index.node.ts';
-import { layoutTextOnPath } from '../../src/path/index.node.ts';
+import { layout, setDOMParser } from '../../src/index.ts';
+import { layoutTextOnPath } from '../../src/path/index.ts';
 import { mockCtx } from '../helpers/mock-ctx.ts';
 
 beforeAll(() => setDOMParser(new LinkedomDOMParser()));

@@ -29,7 +29,7 @@ export function splitLeadingStyles(html: string): { css: string; rest: string } 
     if (!tail) break;
     const text = rest.slice(open[0].length, end.index);
     if (styleApplies(unquotedAttributes(open[0]))) {
-      css += text.replace(/\r\n?/g, '\n').replace(/\0/g, '\uFFFD') + '\n';
+      css += (text.includes('\r') ? text.replace(/\r\n?/g, '\n') : text).replace(/\0/g, '\uFFFD') + '\n';
     }
     whitespace += open[0].slice(0, open[0].search(/<style/i));
     rest = rest.slice(end.index + 7 + tail[0].length);

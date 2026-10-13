@@ -4,11 +4,11 @@ import { bidiClass } from './bidi.js';
 import { parseDeclarationList, parseStylesheet } from './css-syntax.js';
 import { SelectorMatcher, parseSelectorList, type ElementContext, type ParsedSelector } from './css-selectors.js';
 import {
-  FONT_SIZE_KEYWORDS, LEGACY_FONT_SIZES, resolveFontSize, resolveFontWeight, resolveLength, resolveNumberOrLength,
-  type FontUnits, type LengthBasis, type Viewport,
+  FONT_SIZE_KEYWORDS, LEGACY_FONT_SIZES, memoized, nullProto, resolveFontSize, resolveFontWeight, resolveLength,
+  resolveNumberOrLength, type FontUnits, type LengthBasis, type Viewport,
 } from './css-values.js';
 import {
-  BORDER_STYLES, KEYWORDS, backgroundClip, display, fontStyle, isColor, isFontFamilyList, isImageList,
+  BORDER_STYLES, CHECK_BASIS, KEYWORDS, backgroundClip, display, fontStyle, isColor, isFontFamilyList, isImageList,
   MATH, isImage, isTextShadow, listStyleType, paintOrder, parseLegacyColor, splitTopLevel,
   splitTopLevelWhitespace, textDecorationLine, textTransform, verticalAlign,
 } from './css-validate.js';
@@ -17,23 +17,8 @@ import {
 const ELEMENT_NODE = 1;
 const TEXT_NODE = 3;
 
-/**
- * Answers of `isTransparent` by exact text, like `isColor`'s: paint asks once
- * per painted fragment and shadow pass, over a handful of distinct colors.
- * Bounded: cleared when full.
- */
-const transparentAnswers = new Map<string, boolean>();
-const TRANSPARENT_ANSWERS_MAX = 512;
-
-export function isTransparent(color: string): boolean {
-  let answer = transparentAnswers.get(color);
-  if (answer === undefined) {
-    answer = checkTransparent(color);
-    if (transparentAnswers.size >= TRANSPARENT_ANSWERS_MAX) transparentAnswers.clear();
-    transparentAnswers.set(color, answer);
-  }
-  return answer;
-}
+/** Memoized like `isColor`: paint asks once per painted fragment and shadow pass. */
+export const isTransparent: (color: string) => boolean = memoized(checkTransparent);
 
 function checkTransparent(color: string): boolean {
   if (!color) return true;
@@ -72,7 +57,7 @@ export interface ResolveOptions {
 /** Unitless line-height multiplier; children re-resolve it (see types.ts). */
 export const LINE_HEIGHT_MULTIPLIER: unique symbol = Symbol('lineHeightMultiplier');
 /** Percentage text-underline-offset; children re-resolve it. */
-export const UNDERLINE_OFFSET_PCT: unique symbol = Symbol('underlineOffsetPct');
+const UNDERLINE_OFFSET_PCT: unique symbol = Symbol('underlineOffsetPct');
 /** `overflow-x`/`-y`, read only to find BFC roots (`establishesBfc`). */
 export const OVERFLOW_X: unique symbol = Symbol('overflowX');
 export const OVERFLOW_Y: unique symbol = Symbol('overflowY');
@@ -129,7 +114,7 @@ type InternalStyle = ResolvedStyle & PrivateStyleFields;
 
 /** Defaults for every field, private ones included, so all styles share one hidden class. */
 function defaultStyle(): ResolvedStyle {
-  const style = {
+  const style: ResolvedStyle = {
     // The UA default font is serif (Times).
     fontFamily: 'serif',
     fontSize: 16,
@@ -203,15 +188,16 @@ function defaultStyle(): ResolvedStyle {
     flexBasis: null,
     listStyleType: 'disc',
     lineClamp: 0,
-  } as InternalStyle;
+  };
   // Assigned, not computed keys: those lose V8's fast literal path.
-  style[LINE_HEIGHT_MULTIPLIER] = undefined;
-  style[UNDERLINE_OFFSET_PCT] = undefined;
-  style[OVERFLOW_X] = undefined;
-  style[OVERFLOW_Y] = undefined;
-  style[FLEX_BASIS_KEYWORD] = undefined;
-  style[BOX_SIZING] = undefined;
-  style[PERCENT_LENGTHS] = undefined;
+  const internal = style as InternalStyle;
+  internal[LINE_HEIGHT_MULTIPLIER] = undefined;
+  internal[UNDERLINE_OFFSET_PCT] = undefined;
+  internal[OVERFLOW_X] = undefined;
+  internal[OVERFLOW_Y] = undefined;
+  internal[FLEX_BASIS_KEYWORD] = undefined;
+  internal[BOX_SIZING] = undefined;
+  internal[PERCENT_LENGTHS] = undefined;
   return style;
 }
 
@@ -230,7 +216,7 @@ const BOLD: Partial<ResolvedStyle> = { fontWeight: 700 };
 const UNDERLINE: Partial<ResolvedStyle> = { textDecorationLine: 'underline' };
 const LINE_THROUGH: Partial<ResolvedStyle> = { textDecorationLine: 'line-through' };
 
-const TAG_DEFAULTS: Record<string, Partial<ResolvedStyle>> = {
+const TAG_DEFAULTS: Record<string, Partial<ResolvedStyle>> = nullProto({
   strong: BOLD,
   b: BOLD,
   em: ITALIC,
@@ -299,7 +285,7 @@ const TAG_DEFAULTS: Record<string, Partial<ResolvedStyle>> = {
   // Never rendered.
   head: HIDDEN, title: HIDDEN, meta: HIDDEN, link: HIDDEN, base: HIDDEN, template: HIDDEN,
   noembed: HIDDEN, noframes: HIDDEN, param: HIDDEN, rp: HIDDEN, datalist: HIDDEN, area: HIDDEN,
-};
+});
 
 /** The UA `display` of a tag: `inline` unless the UA sheet says otherwise. */
 function uaDisplay(tag: string): string {
@@ -314,7 +300,7 @@ function isInlineSibling(n: Node | null): boolean {
 }
 
 /** TAG_DEFAULTS minus fontSize (resolved first), as [field, css property, value]. */
-const TAG_DEFAULT_ENTRIES: Record<string, [string, string, unknown][]> = {};
+const TAG_DEFAULT_ENTRIES: Record<string, [string, string, unknown][]> = nullProto({});
 for (const [tag, def] of Object.entries(TAG_DEFAULTS)) {
   TAG_DEFAULT_ENTRIES[tag] = Object.entries(def)
     .filter(([key]) => key !== 'fontSize')
@@ -509,7 +495,7 @@ export function expandShorthand(property: string, value: string): Longhand[] {
 }
 
 /** `thin`/`medium`/`thick` border widths, as Blink, WebKit and Gecko size them. */
-const BORDER_WIDTH_KEYWORDS: Record<string, number> = { thin: 1, medium: 3, thick: 5 };
+const BORDER_WIDTH_KEYWORDS: Record<string, number> = nullProto({ thin: 1, medium: 3, thick: 5 });
 const isWidthToken = (p: string) =>
   /^[+-]?(?:\d|\.\d)/.test(p) || MATH.test(p) || p.toLowerCase() in BORDER_WIDTH_KEYWORDS;
 
@@ -682,7 +668,7 @@ function applyFontDeclaration(
 }
 
 /** The ResolvedStyle fields each (physical) property writes. */
-const PROPERTY_FIELDS: Record<string, readonly (keyof InternalStyle)[]> = {
+const PROPERTY_FIELDS: Record<string, readonly (keyof InternalStyle)[]> = nullProto({
   'font-family': ['fontFamily'], 'font-size': ['fontSize'], 'font-weight': ['fontWeight'],
   'font-style': ['fontStyle'], 'font-variant-caps': ['fontVariantCaps'], color: ['color'],
   'text-align': ['textAlign'], 'text-align-last': ['textAlignLast'], 'text-indent': ['textIndent'],
@@ -712,7 +698,7 @@ const PROPERTY_FIELDS: Record<string, readonly (keyof InternalStyle)[]> = {
   'border-bottom-right-radius': ['borderBottomRightRadius'], 'border-bottom-left-radius': ['borderBottomLeftRadius'],
   'flex-direction': ['flexDirection'], gap: ['gap'], 'flex-grow': ['flexGrow'], 'flex-shrink': ['flexShrink'],
   'flex-basis': ['flexBasis', FLEX_BASIS_KEYWORD], 'box-sizing': [BOX_SIZING],
-};
+});
 
 /** The properties render-tag inherits (see `inheritFont` and `inheritFrom`). */
 const INHERITED_PROPERTIES = new Set([
@@ -733,12 +719,12 @@ const INITIAL: Readonly<InternalStyle> = Object.freeze({
   borderLeftColor: 'currentcolor',
 });
 
-const LOGICAL_PROPERTIES: Record<string, [ltr: string, rtl: string]> = {
+const LOGICAL_PROPERTIES: Record<string, [ltr: string, rtl: string]> = nullProto({
   'padding-inline-start': ['padding-left', 'padding-right'],
   'padding-inline-end': ['padding-right', 'padding-left'],
   'margin-inline-start': ['margin-left', 'margin-right'],
   'margin-inline-end': ['margin-right', 'margin-left'],
-};
+});
 
 /** `property`, a logical one mapped through the parent's `direction`. */
 function physical(property: string, direction: string): string {
@@ -977,8 +963,7 @@ const textShadow: Parser = (value, env) => {
 const flexFactor: Parser = value =>
   /^[+]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(value.trim()) ? parseFloat(value) : NaN;
 
-const PARSERS: Record<string, Parser> = {
-  __proto__: null,
+const PARSERS: Record<string, Parser> = nullProto({
   color, 'text-decoration-color': color, 'background-color': color,
   '-webkit-text-stroke-color': colorOrCurrent, '-webkit-text-fill-color': colorOrCurrent,
   'text-indent': (value, env) => cbLengthOf(value, env),
@@ -1018,7 +1003,7 @@ const PARSERS: Record<string, Parser> = {
     return first.toLowerCase() === 'normal' ? 0 : cbLengthOf(first, env);
   },
   'flex-grow': flexFactor, 'flex-shrink': flexFactor,
-} as Record<string, Parser>;
+});
 for (const property in KEYWORDS) PARSERS[property] = keywordOf(property);
 PARSERS['box-sizing'] = value => {
   const v = value.trim().toLowerCase();
@@ -1145,11 +1130,8 @@ function applyDeclaration(style: ResolvedStyle, property: string, value: string,
   return false;
 }
 
-/** What a shorthand's longhands are checked against: no element, a viewport, a 16px font. */
-const CHECK_BASIS: LengthBasis = {
-  em: 16, rem: 16, percent: 16, viewport: { width: 100, height: 100 }, fontStyle: null, measure: undefined,
-};
-const CHECK_ENV: DeclarationEnv = { b: CHECK_BASIS, containerWidth: 100, percent: false };
+/** What a shorthand's longhands are checked against: no element, a viewport, a 16px font (own copy: `lengthOf` re-aims `percent`). */
+const CHECK_ENV: DeclarationEnv = { b: { ...CHECK_BASIS }, containerWidth: 100, percent: false };
 const CHECK_STYLE = defaultStyle();
 
 /**
@@ -1163,9 +1145,9 @@ function expandDeclaration(property: string, value: string): Longhand[] {
   for (const { property: p, value: v } of longhands) {
     // A CSS-wide keyword is the whole value or invalid (`padding: inherit 5px`).
     if (cssWideKeyword(p, v)) { if (wide) continue; return []; }
-    CHECK_BASIS.percent = 16;
+    CHECK_ENV.b.percent = 16;
     const valid = FONT_PROPERTIES.has(p)
-      ? applyFontDeclaration(CHECK_STYLE, p, v, INITIAL, CHECK_BASIS)
+      ? applyFontDeclaration(CHECK_STYLE, p, v, INITIAL, CHECK_ENV.b)
       : applyDeclaration(CHECK_STYLE, p, v, CHECK_ENV);
     if (!valid) return [];
   }
@@ -1344,7 +1326,7 @@ function evictRuleCache(): void {
   }
 }
 
-const BULLETS: Record<string, string> = { __proto__: null, disc: '•', circle: '○', square: '■' } as Record<string, string>;
+const BULLETS: Record<string, string> = nullProto({ disc: '•', circle: '○', square: '■' });
 
 /** Format an integer using a numbered CSS list-style-type. */
 function formatListMarker(n: number, type: string): string {
@@ -1421,7 +1403,6 @@ function listOrdinals(list: Element, cache: ListOrdinals): Map<Element, number> 
 
 /** A <li>'s marker text, honoring list-style-type, <ol start>, <ol reversed> and <li value>. */
 function getListMarker(el: Element, listStyleType: string, ordinals: ListOrdinals): string | undefined {
-  if (el.tagName.toLowerCase() !== 'li') return undefined;
   if (listStyleType === 'none') return '';
   const bullet = BULLETS[listStyleType];
   if (bullet !== undefined) return bullet;
@@ -1582,15 +1563,15 @@ export function resolveStylesFromCSS(
     return size;
   }
 
-  /** `cbWidth`: the containing block width that percentages resolve against. */
+  /** `tag`: lower-cased; `cbWidth`: the containing block width that percentages resolve against. */
   function resolveElement(
     el: Element,
+    tag: string,
     parentStyle: ResolvedStyle,
     parentCtx: ElementContext | null,
     cbWidth: number,
   ): StyledNode {
-    const tag = el.tagName.toLowerCase();
-    const ctx = matcher.context(el, parentCtx);
+    const ctx = matcher.context(el, parentCtx, tag);
 
     const style = defaultStyle();
     const setProps = new Set<string>();
@@ -1746,20 +1727,20 @@ export function resolveStylesFromCSS(
     }
     // No ancestor decoration reaches an atomic inline's content (CSS Text Decoration 3 §2.1).
     const atomic = ATOMIC_INLINE.has(style.display);
-    style.textDecorations = parentStyle.textDecorations.length && !atomic
-      ? [...parentStyle.textDecorations, ...ownEntries]
-      : ownEntries;
-    const decoSet = new Set(style.textDecorationLine.split(/\s+/).filter(d => d && d !== 'none'));
-    if (!atomic && parentStyle.textDecorationLine && parentStyle.textDecorationLine !== 'none') {
-      for (const d of parentStyle.textDecorationLine.split(/\s+/)) {
-        if (d && d !== 'none') decoSet.add(d);
+    // Arrays are never shared between styles: a caller may write into a result (determinism gate).
+    const inherited = atomic ? [] : parentStyle.textDecorations;
+    style.textDecorations = inherited.length > 0 ? [...inherited, ...ownEntries] : ownEntries;
+    if (inherited.length > 0) {
+      // The union of lines, own first; the parent's string is already that union.
+      if (ownEntries.length === 0) style.textDecorationLine = parentStyle.textDecorationLine;
+      else {
+        const lines = ownEntries.map(d => d.line);
+        for (const d of inherited) if (!lines.includes(d.line)) lines.push(d.line);
+        style.textDecorationLine = lines.join(' ');
       }
     }
-    if (decoSet.size > 0) {
-      style.textDecorationLine = [...decoSet].join(' ');
-    }
 
-    const marker = getListMarker(el, style.listStyleType, ordinals);
+    const marker = tag === 'li' ? getListMarker(el, style.listStyleType, ordinals) : undefined;
 
     // `::marker` (only on `<li>`): the MARKER_FIELDS its rules change, and a hidden flag.
     let markerStyle: Partial<ResolvedStyle> | undefined;
@@ -1863,10 +1844,10 @@ export function resolveStylesFromCSS(
     // <wbr> renders as a zero-width space.
     if (tag === 'wbr') return textNode('\u200B', parentStyle);
 
-    const resolved = resolveElement(el, parentStyle, parentCtx, cbWidth);
+    const resolved = resolveElement(el, tag, parentStyle, parentCtx, cbWidth);
     return resolved.style.display === 'none' ? null : resolved;
   }
 
   const rootStyle = defaultStyle();
-  return resolveElement(container, rootStyle, null, containerWidth);
+  return resolveElement(container, 'div', rootStyle, null, containerWidth);
 }

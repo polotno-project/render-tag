@@ -1,4 +1,5 @@
 import type { AnyCanvas, CanvasFactory, ResolvedStyle } from './types.js';
+import { isTransparent } from './css-resolver.js';
 
 export interface TextShadow {
   offsetX: number;
@@ -7,9 +8,12 @@ export interface TextShadow {
   color: string;
 }
 
+export function hasTextShadow(style: ResolvedStyle): boolean {
+  return !!style.textShadow && style.textShadow !== 'none';
+}
+
 /** A CSS text-shadow list ("2px 2px 4px rgba(0,0,0,0.3), ...") as values. */
 function parseTextShadows(shadow: string, currentColor: string): TextShadow[] {
-  if (!shadow || shadow === 'none') return [];
   const shadows: TextShadow[] = [];
   for (const part of shadow.split(/,(?![^(]*\))/)) {
     const tokens = part.trim().match(/[^\s(]+\([^)]*\)|[^\s]+/g) ?? [];
@@ -25,11 +29,14 @@ function parseTextShadows(shadow: string, currentColor: string): TextShadow[] {
   return shadows;
 }
 
+const NO_SHADOWS = { shadows: [] as TextShadow[], key: '[]' };
+
 /** A style's parsed shadows and their grouping key, cached in the caller's
  * per-draw map (styles may change between draws). */
 export function shadowsOf(
   cache: Map<ResolvedStyle, { shadows: TextShadow[]; key: string }>, style: ResolvedStyle,
 ): { shadows: TextShadow[]; key: string } {
+  if (!hasTextShadow(style)) return NO_SHADOWS;
   let entry = cache.get(style);
   if (!entry) {
     const shadows = parseTextShadows(style.textShadow, style.color);
@@ -63,8 +70,8 @@ export function withoutCanvasShadow(ctx: CanvasRenderingContext2D, paint: Paint)
 
 function requireShadowContext(ctx: CanvasRenderingContext2D): void {
   if (typeof ctx.getTransform !== 'function' || typeof ctx.setTransform !== 'function' ||
-      typeof ctx.drawImage !== 'function') {
-    throw new Error('render-tag: shadows require a Canvas 2D context with getTransform, setTransform and drawImage. For vector adapters, set renderShadows: false and paint shadows separately.');
+      typeof ctx.drawImage !== 'function' || typeof ctx.getLineDash !== 'function') {
+    throw new Error('render-tag: shadows require a Canvas 2D context with getTransform, setTransform, drawImage and getLineDash. For vector adapters, set renderShadows: false and paint shadows separately.');
   }
 }
 
@@ -96,7 +103,7 @@ export function textPaintBounds(
 ): PaintBounds {
   const metrics = ctx.measureText(text);
   const stroke = style.webkitTextStrokeWidth / 2 *
-    (style.strokeLinejoin === 'miter' ? ctx.miterLimit : 1);
+    (style.strokeLinejoin === 'miter' ? ctx.miterLimit ?? 10 : 1);
   let pad = 2 + stroke;
   for (const deco of style.textDecorations) {
     const thickness = deco.declarer.textDecorationThickness ?? Math.max(1, deco.declarer.fontSize / 15);
@@ -279,8 +286,8 @@ export function withCanvasShadow(
   ctx: CanvasRenderingContext2D, bounds: () => PaintBounds, paint: Paint, pool: ScratchPool,
 ): void {
   const color = ctx.shadowColor;
-  const hasShadow = color && color !== 'transparent' && color !== 'rgba(0, 0, 0, 0)' &&
-    color !== '#00000000' && (ctx.shadowBlur > 0 || ctx.shadowOffsetX !== 0 || ctx.shadowOffsetY !== 0);
+  const hasShadow = !isTransparent(color) &&
+    (ctx.shadowBlur > 0 || ctx.shadowOffsetX !== 0 || ctx.shadowOffsetY !== 0);
   if (!hasShadow) { paint(ctx); return; }
   requireShadowContext(ctx);
   const source = layer(ctx, bounds(), ctx.getTransform(), paint, pool);
@@ -304,6 +311,10 @@ export function withCanvasShadow(
 
 /** Pixels per shadow tile: a small blur margin per tile, a few-MB mask. */
 const TILE_PIXELS = 1 << 20;
+
+/** Blink's canvas area limit: a larger shadow image could not be drawn, and
+ * tiling it would not end (a 1e20px font, a 1e5px blur). */
+const MAX_SHADOW_PIXELS = 1 << 28;
 
 /** A piece of a shadow group: its ink in layout coordinates. */
 export interface ShadowPiece { bounds: PaintBounds }
@@ -348,6 +359,7 @@ export function paintTextShadows<T extends ShadowPiece>(
   const boxes = pieces.map(piece => transformBounds(piece.bounds, space));
   const all = pixelBox(boxes.reduce(unionBounds));
   const imageTop = all.y + top, imageBottom = all.y + all.height + bottom;
+  if ((all.width + right - left) * (imageBottom - imageTop) > MAX_SHADOW_PIXELS) return;
   const rows = uniform
     ? Math.max(64, Math.floor(TILE_PIXELS / (all.width + right - left)))
     : imageBottom - imageTop;

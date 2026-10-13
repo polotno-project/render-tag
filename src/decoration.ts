@@ -180,8 +180,9 @@ function blinkDash(style: string, width: number, length: number): { dash: number
     }
     return { dash: [dash, style === 'dashed' ? bestDashGap(length, dash, gap) : gap], cap: 'butt' };
   }
+  // Up to two dot widths hold one dot (at exactly two, the fitted gap divides by zero).
   const perDot = width * 2;
-  if (length < perDot) return { dash: [0, perDot], cap: 'round' };
+  if (length <= perDot) return { dash: [0, perDot], cap: 'round' };
   // Blink's epsilon keeps the last dot from rounding off the end.
   return { dash: [0, bestDashGap(length, width, width) + width - 1e-2], cap: 'round' };
 }

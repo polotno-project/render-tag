@@ -278,7 +278,8 @@ export function layoutGlyphsOnPath(input: LayoutInput): LayoutOutput {
     const effectiveWidth =
       g.width - trailing + (g.isSpace ? extraPerSpace : 0);
     const p0 = path.getPointAtLength(offset);
-    if (!p0) break;
+    // A non-finite point (malformed path data) ends the text, never a NaN glyph.
+    if (!p0 || !Number.isFinite(p0.x + p0.y)) break;
 
     let endLen = offset + effectiveWidth;
     let p1: Point | null;
@@ -291,7 +292,7 @@ export function layoutGlyphsOnPath(input: LayoutInput): LayoutOutput {
     } else {
       p1 = path.getPointAtLength(endLen);
     }
-    if (!p1) break;
+    if (!p1 || !Number.isFinite(p1.x + p1.y)) break;
 
     const rotation = Math.atan2(p1.y - p0.y, p1.x - p0.x);
     glyphs.push({

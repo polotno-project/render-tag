@@ -27,6 +27,8 @@ export type { LayoutComparisonResult } from './wrap-comparison.ts';
 // comparison can switch the shared document to EXACTLY the face set its
 // isolated native capture receives (`useOnlyFontFaces`).
 const registeredFontFaces = new Map<string, HTMLStyleElement>();
+/** The `css` the enabled face set was last computed from; undefined = unknown. */
+let enabledFontFacesFor: string | null | undefined;
 let fontLoadQueue = Promise.resolve();
 let fontWarmId = 0;
 
@@ -90,6 +92,7 @@ async function registerFonts(css: string): Promise<void> {
   }
 
   newBlocks.forEach((block, i) => registeredFontFaces.set(block, styles[i]));
+  enabledFontFacesFor = undefined;
 }
 
 /**
@@ -102,11 +105,14 @@ async function registerFonts(css: string): Promise<void> {
  * the pruned set, with identical layout).
  */
 function useOnlyFontFaces(css: string | null): void {
+  // Every change of the enabled set is a style recalc; the same set is free.
+  if (css === enabledFontFacesFor) return;
   const wanted = css === null ? null : new Set(matchFontFaces(css));
   for (const [block, style] of registeredFontFaces) {
     const disabled = wanted !== null && !wanted.has(block);
     if (style.disabled !== disabled) style.disabled = disabled;
   }
+  enabledFontFacesFor = css;
 }
 
 function ensureFontsLoaded(css: string): Promise<void> {
@@ -121,10 +127,20 @@ function inlineStyles(html: string): string {
     .join('\n');
 }
 
-export async function prepareComparisonFonts(html: string, css: string): Promise<void> {
-  useOnlyFontFaces(null);
+/**
+ * Register every face `css` declares, enable the faces `activeCss` declares
+ * (null: all of them) and lay the fixture out once so they load. A pixel
+ * comparison passes its pruned face set, so the document switches face sets
+ * ONCE per comparison; the DOM-only oracles leave the whole catalog enabled.
+ */
+export async function prepareComparisonFonts(
+  html: string,
+  css: string,
+  activeCss: string | null = null,
+): Promise<void> {
   const inlineCss = inlineStyles(html);
   await ensureFontsLoaded(`${css || ''}\n${inlineCss}`);
+  useOnlyFontFaces(activeCss === null ? null : `${activeCss}\n${inlineCss}`);
 
   const containerId = `__font_warm_${fontWarmId++}__`;
   const container = document.createElement('div');
@@ -684,42 +700,40 @@ export function compareWrapping(
   return compareLineMembership(rawCanvasLines, rawDomLines);
 }
 
+/** `canvas` composited onto white and padded to `width` x `height`, as RGBA bytes. */
 function pixelsOnWhite(
   canvas: HTMLCanvasElement,
   width: number,
   height: number,
-): ImageData {
-  // Normalize through ImageData before drawing. Directly drawing a decoded PNG
-  // is color-managed differently in Firefox and changes byte-level baselines.
-  const sourcePixels = canvas.getContext('2d')!.getImageData(
-    0,
-    0,
-    canvas.width,
-    canvas.height,
-  );
-  const padded = new ImageData(width, height);
-  padded.data.fill(255);
-  for (let y = 0; y < Math.min(canvas.height, height); y++) {
-    const sourceStart = y * canvas.width * 4;
-    padded.data.set(
-      sourcePixels.data.subarray(sourceStart, sourceStart + Math.min(canvas.width, width) * 4),
-      y * width * 4,
-    );
+): Uint8ClampedArray {
+  const source = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data;
+  const pixels = new Uint8ClampedArray(width * height * 4).fill(255);
+  const rows = Math.min(canvas.height, height);
+  const columns = Math.min(canvas.width, width);
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < columns; x++) {
+      const from = (y * canvas.width + x) * 4;
+      const to = (y * width + x) * 4;
+      const alpha = source[from + 3];
+      if (alpha === 0) continue;
+      if (alpha === 255) {
+        pixels[to] = source[from];
+        pixels[to + 1] = source[from + 1];
+        pixels[to + 2] = source[from + 2];
+        continue;
+      }
+      // Source-over on opaque white in 8-bit premultiplied space: the bytes
+      // a canvas `drawImage` produces in Blink and WebKit (verified on the
+      // corpus), so scores stay bit-identical to the recorded baselines.
+      for (let channel = 0; channel < 3; channel++) {
+        pixels[to + channel] = Math.round(source[from + channel] * alpha / 255) + 255 - alpha;
+      }
+    }
   }
-  const normalized = document.createElement('canvas');
-  normalized.width = width;
-  normalized.height = height;
-  normalized.getContext('2d')!.putImageData(padded, 0, 0);
-
-  const composited = document.createElement('canvas');
-  composited.width = width;
-  composited.height = height;
-  const context = composited.getContext('2d')!;
-  context.fillStyle = '#fff';
-  context.fillRect(0, 0, width, height);
-  context.drawImage(normalized, 0, 0);
-  return context.getImageData(0, 0, width, height);
+  return pixels;
 }
+
+const WHITE_RGBA = 0xffffffff;
 
 /** Compare two canvases after putting transparent and missing pixels on white. */
 export function compareCanvasPixels(
@@ -735,24 +749,19 @@ export function compareCanvasPixels(
   // which costs more than the comparison itself. The count is identical either
   // way, so the diff image is rendered lazily for the few diagnostic callers.
   const mismatchedPixels = pixelmatch(
-    referencePixels.data,
-    actualPixels.data,
+    referencePixels,
+    actualPixels,
     null,
     width,
     height,
     { threshold },
   );
+  // Little-endian: a white RGBA pixel reads 0xffffffff either way.
+  const reference32 = new Uint32Array(referencePixels.buffer);
+  const actual32 = new Uint32Array(actualPixels.buffer);
   let contentPixels = 0;
-  for (let offset = 0; offset < referencePixels.data.length; offset += 4) {
-    const referenceIsWhite =
-      referencePixels.data[offset] === 255 &&
-      referencePixels.data[offset + 1] === 255 &&
-      referencePixels.data[offset + 2] === 255;
-    const actualIsWhite =
-      actualPixels.data[offset] === 255 &&
-      actualPixels.data[offset + 1] === 255 &&
-      actualPixels.data[offset + 2] === 255;
-    if (!referenceIsWhite || !actualIsWhite) contentPixels++;
+  for (let index = 0; index < reference32.length; index++) {
+    if (reference32[index] !== WHITE_RGBA || actual32[index] !== WHITE_RGBA) contentPixels++;
   }
 
   const totalPixels = width * height;
@@ -766,8 +775,8 @@ export function compareCanvasPixels(
     get diffCanvas() {
       const diff = new ImageData(width, height);
       pixelmatch(
-        referencePixels.data,
-        actualPixels.data,
+        referencePixels,
+        actualPixels,
         diff.data,
         width,
         height,
@@ -804,15 +813,11 @@ export async function compareRendersWithReference(
   referenceWarmsInternally = false,
 ): Promise<ComparisonResult> {
   const fixtureCss = keepUsedFontFaces(css, html);
-  // Register the complete fixture catalog in a stable order. The isolated
-  // native page gets the pruned CSS below, but incrementally adding subsets to
-  // the shared canvas document makes face selection depend on test-file order.
-  await prepareComparisonFonts(html, css);
-  // ...then render the canvas beside exactly the faces the isolated reference
-  // gets. Left in place for the caller's wrap check on the same fixture; the
-  // next prepareComparisonFonts re-enables the catalog.
-  useOnlyFontFaces(`${fixtureCss}\n${inlineStyles(html)}`);
-  await document.fonts.ready;
+  // Register the complete fixture catalog in a stable order (incrementally
+  // adding subsets to the shared canvas document makes face selection depend
+  // on test-file order), then enable exactly the faces the isolated reference
+  // gets. Left in place for the caller's wrap check on the same fixture.
+  await prepareComparisonFonts(html, css, fixtureCss);
 
   // A reference renderer can resolve glyph paint lazily. One throwaway render
   // down each path keeps the measurement independent of which path happened

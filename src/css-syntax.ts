@@ -247,6 +247,25 @@ function declarationsIn(s: string, start: number, end: number, inBlock: boolean)
   return out;
 }
 
+/** Split at a top-level `separator`: outside parens, brackets, strings and escapes. */
+export function splitTopLevel(value: string, separator: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let quote = '';
+  let start = 0;
+  for (let i = 0; i < value.length; i++) {
+    const c = value[i];
+    if (c === '\\') i++;
+    else if (quote) { if (c === quote) quote = ''; }
+    else if (c === '"' || c === "'") quote = c;
+    else if (c === '(' || c === '[') depth++;
+    else if (c === ')' || c === ']') depth--;
+    else if (c === separator && depth === 0) { out.push(value.slice(start, i)); start = i + 1; }
+  }
+  out.push(value.slice(start));
+  return out;
+}
+
 /** A hex escape's code point as text; zero, a surrogate or past U+10FFFF is U+FFFD (CSS Syntax 3 §4.3.7). */
 export function escapedCodePoint(cp: number): string {
   return cp === 0 || cp > 0x10ffff || (cp >= 0xd800 && cp <= 0xdfff) ? '\uFFFD' : String.fromCodePoint(cp);

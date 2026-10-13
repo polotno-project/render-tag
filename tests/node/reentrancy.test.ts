@@ -17,7 +17,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { DOMParser as LinkedomDOMParser } from 'linkedom';
-import { layout, drawLayout, setDOMParser } from '../../src/index.node.ts';
+import { layout, drawLayout, setDOMParser } from '../../src/index.ts';
 import type { LayoutResult, DebugEntry } from '../../src/types.ts';
 import { recordingCtx, type RecordingCtx } from '../helpers/recording-ctx.ts';
 import { serializeResult } from '../helpers/serialize-result.ts';
@@ -252,7 +252,7 @@ describe('measurements after layout() are reentrant', () => {
   });
 
   it('text-on-path layout and paintBounds, nested at every measureText (same ctx)', async () => {
-    const path = await import('../../src/path/index.node.ts');
+    const path = await import('../../src/path/index.ts');
     const run = (ctx: CanvasRenderingContext2D) => path.layoutTextOnPath({ html: PATH_HTML, path: PATH_D, ctx });
     const expectedLayout = run(recordingCtx(600, 200).ctx);
     const expected = { layout: serializeResult(expectedLayout), bounds: expectedLayout.paintBounds };
@@ -299,7 +299,7 @@ describe('a result is self-contained', () => {
   });
 
   it('text-on-path paints the same after another layout on a ctx with other font metrics', async () => {
-    const path = await import('../../src/path/index.node.ts');
+    const path = await import('../../src/path/index.ts');
     const paint = (result: ReturnType<typeof path.layoutTextOnPath>) => {
       const rec = recordingCtx(600, 200);
       path.drawTextOnPathLayout({ layout: result, ctx: rec.ctx, createCanvas: rec.createCanvas });

@@ -7,8 +7,8 @@
  * stay in the suites, in that engine's layout units — only skips live here.
  *
  * Self-parity, so it gates in portable mode as well. Re-record deliberately
- * with `npm run test:update-engine-divergences[:firefox|:webkit]`, which runs
- * the files one at a time: each file merges its own keys into the shared file.
+ * with `npm run update -- --project <browser> <the parity files>`; update mode
+ * runs files one at a time, and each merges its own keys into the shared file.
  */
 import { it, expect } from 'vitest';
 import { commands } from 'vitest/browser';
@@ -17,7 +17,7 @@ import { browserName } from './browser-name.ts';
 import { gateResidualBaseline } from './baselines.ts';
 
 const FILE = './tests/engine-divergences.json';
-const UPDATE = import.meta.env.MODE === 'update-engine-divergences';
+const UPDATE = import.meta.env.MODE === 'update';
 
 export interface DivergenceRatchet {
   /** The ratchet's verdict on one case: a failure message, or null. Pass

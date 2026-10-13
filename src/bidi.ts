@@ -554,7 +554,8 @@ export class BidiTextBuilder {
   /** Move the open-context stack to `context`'s chain. */
   enter(context: BidiContext | null): void {
     const chain: BidiContext[] = [];
-    for (let c = context; c; c = c.parent) chain.unshift(c);
+    for (let c = context; c; c = c.parent) chain.push(c);
+    chain.reverse();
     let common = 0;
     while (common < chain.length && common < this.open.length &&
       chain[common] === this.open[common]) common++;

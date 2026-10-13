@@ -17,8 +17,8 @@
  */
 import { afterAll, describe, expect, it } from 'vitest';
 import { DOMParser as LinkedomDOMParser } from 'linkedom';
-import { layout, drawLayout, setDOMParser } from '../../src/index.node.ts';
-import { drawTextOnPath } from '../../src/path/index.node.ts';
+import { layout, drawLayout, setDOMParser } from '../../src/index.ts';
+import { drawTextOnPath } from '../../src/path/index.ts';
 import { recordingCtx } from '../helpers/recording-ctx.ts';
 
 afterAll(() => setDOMParser(null));

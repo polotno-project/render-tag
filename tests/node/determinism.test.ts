@@ -32,13 +32,13 @@ import { loadNodeCorpus, caseHtml } from '../helpers/node-corpus.ts';
 import { recordingCtx, type RecordingCtx } from '../helpers/recording-ctx.ts';
 import { serializeResult as serialize } from '../helpers/serialize-result.ts';
 
-type Api = typeof import('../../src/index.node.ts');
-type PathApi = typeof import('../../src/path/index.node.ts');
+type Api = typeof import('../../src/index.ts');
+type PathApi = typeof import('../../src/path/index.ts');
 
 async function freshApis(): Promise<{ api: Api; path: PathApi }> {
   vi.resetModules();
-  const api = await import('../../src/index.node.ts');
-  const path = await import('../../src/path/index.node.ts');
+  const api = await import('../../src/index.ts');
+  const path = await import('../../src/path/index.ts');
   // One dom module behind both entries, so one injection serves both.
   api.setDOMParser(new LinkedomDOMParser());
   return { api, path };

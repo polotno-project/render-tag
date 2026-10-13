@@ -17,7 +17,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { DOMParser as LinkedomDOMParser } from 'linkedom';
 import { buildLayoutTree, buildCanvasFont, sameDecorationBand } from '../../src/layout.ts';
 import { BLINK_SUPER_SUB } from '../../src/engine.ts';
-import { layout, drawLayout, setDOMParser } from '../../src/index.node.ts';
+import { layout, drawLayout, setDOMParser } from '../../src/index.ts';
 import { mockCtx, CHAR_WIDTH } from '../helpers/mock-ctx.ts';
 import { recordingCtx } from '../helpers/recording-ctx.ts';
 import type { StyledNode, ResolvedStyle, LayoutBox, LayoutText, DecorationEntry } from '../../src/types.ts';
@@ -939,6 +939,17 @@ describe('Layout logic (mocked measureText)', () => {
       ]);
       const cd = collectTexts(doLayout(tree, 600)).find(t => t.text === 'cd');
       expect(cd!.x).toBe(240);
+    });
+
+    it('tab at font-size 0 advances nothing (no NaN from x % 0)', () => {
+      // Widths scale with the font here: a 0px space makes the stop interval 0.
+      const tree = block('div', [
+        block('p', [textNode('ab\tcd', { whiteSpace: 'pre-wrap', fontSize: 0 })],
+          { whiteSpace: 'pre-wrap', fontSize: 0 }),
+      ]);
+      const { root } = buildLayoutTree(recordingCtx().ctx, tree, 400, false);
+      const cd = collectTexts(root).find(t => t.text === 'cd');
+      expect(cd!.x).toBe(0);
     });
 
     it('pre-wrap: trailing space at a soft wrap is trimmed (hangs)', () => {
@@ -2343,6 +2354,18 @@ describe('Layout logic (mocked measureText)', () => {
         expect(lines.join('')).not.toContain('hidden');
       });
     });
+  });
+});
+
+describe('layout() input validation', () => {
+  it.each([Infinity, -Infinity, NaN, 0, -5])('rejects width %s', (width) => {
+    expect(() => layout({ html: '<p>x</p>', width, ctx: mockCtx() })).toThrowError(/width must be/);
+  });
+
+  it.each([Infinity, NaN, 0])('rejects pixelRatio %s', (pixelRatio) => {
+    const result = layout({ html: '<p>x</p>', width: 100, ctx: mockCtx() });
+    expect(() => drawLayout({ layout: result, width: 100, ctx: mockCtx(), pixelRatio }))
+      .toThrowError(/pixelRatio must be/);
   });
 });
 

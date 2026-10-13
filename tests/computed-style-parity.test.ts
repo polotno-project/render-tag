@@ -64,7 +64,7 @@
  * step must SHRINK the list: a newly failing key fails, and so does a key that
  * now passes but is still listed (remove it — same philosophy as the pixel
  * baselines). Re-record deliberately with
- * `npm run test:update-computed-style-failures[:webkit|:firefox]`.
+ * `npm run update -- --project <browser> tests/computed-style-parity.test.ts`.
  *
  * Firefox has no recorded list yet (it could not launch where this was
  * written): its entry is `null`, so that lane runs every case and reports
@@ -584,7 +584,7 @@ describe('computed-style parity (ResolvedStyle vs getComputedStyle)', () => {
       JSON.stringify(divergences, null, 1) + '\n',
     );
 
-    const updateMode = import.meta.env.MODE === 'update-computed-style';
+    const updateMode = import.meta.env.MODE === 'update';
     const recorded = knownFailures as Record<string, string[] | null>;
     if (recorded[browserName] === null && !updateMode) {
       // An explicitly unrecorded lane (Firefox: never run where this suite
@@ -592,7 +592,7 @@ describe('computed-style parity (ResolvedStyle vs getComputedStyle)', () => {
       // its divergence set is not gated until someone records it there.
       console.warn(
         `[computed-style ${browserName}] no recorded list: ${keys.length} divergent fields ` +
-        `NOT gated. Record with npm run test:update-computed-style-failures:${browserName}.`,
+        `NOT gated. Record with npm run update -- --project ${browserName} tests/computed-style-parity.test.ts.`,
       );
       return;
     }

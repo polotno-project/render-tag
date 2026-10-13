@@ -251,7 +251,7 @@ drawLayout({ layout: result, width: 400, ctx: pdfContext, createCanvas });
 ```
 
 With shadows enabled, the proxy must support Canvas 2D image and transform
-operations, including `drawImage`, `getTransform` and `setTransform`. The adapter
+operations, including `drawImage`, `getTransform`, `setTransform` and `getLineDash`. The adapter
 owns PDF image embedding and must preserve drawing order if embedding is
 asynchronous; render-tag's drawing APIs remain synchronous. One text-shadow
 group can arrive as several abutting horizontal image tiles, drawn unscaled on

@@ -373,12 +373,14 @@ function fontBox(m: TextMetrics): FontBox {
   };
 }
 
-/** Each run's line-box top, for `paintLineSnap`; kept off the public `LayoutText` shape. */
-const runLineTops = new WeakMap<LayoutText, number>();
-
+/**
+ * Each run's line-box top, for `paintLineSnap`. A symbol key, off the public `LayoutText`
+ * shape; a WeakMap entry per run made GC 40% of a long document's layout.
+ */
+const LINE_TOP: unique symbol = Symbol('lineTop');
 /** Marks a LayoutText that starts a measuring run (`startsMeasuredRun`). A symbol: no public field. */
 const RUN_SEAM: unique symbol = Symbol('runSeam');
-type SeamFlagged = LayoutText & { [RUN_SEAM]?: true };
+type PrivateText = LayoutText & { [LINE_TOP]?: number; [RUN_SEAM]?: true };
 
 /**
  * True when `node` starts a new measuring run after a piece of the same style
@@ -386,7 +388,7 @@ type SeamFlagged = LayoutText & { [RUN_SEAM]?: true };
  * layout did not produce batches by style.
  */
 export function startsMeasuredRun(node: LayoutText): boolean {
-  return (node as SeamFlagged)[RUN_SEAM] === true;
+  return (node as PrivateText)[RUN_SEAM] === true;
 }
 
 /**
@@ -395,7 +397,7 @@ export function startsMeasuredRun(node: LayoutText): boolean {
  */
 export function paintLineSnap(node: LayoutText): number {
   if (!SNAPS_LINE_PAINT) return 0;
-  const top = runLineTops.get(node) ?? node.lineBaselineY ?? node.y;
+  const top = (node as PrivateText)[LINE_TOP] ?? node.lineBaselineY ?? node.y;
   return Math.round(top) - top;
 }
 
@@ -907,9 +909,13 @@ const MEASURE_BRACKET = 256;
 function contextStart(text: string, word: number): number {
   const open: number[] = [];
   for (let i = 0; i < word; i++) {
-    const c = text[i];
-    if (OPEN_BRACKET.test(c)) open.push(i);
-    else if (CLOSE_BRACKET.test(c)) open.pop();
+    const code = text.charCodeAt(i);
+    // ASCII by code; the Unicode property tests only past it.
+    if (code < 0x80) {
+      if (code === 0x28 || code === 0x5B || code === 0x7B) open.push(i);
+      else if (code === 0x29 || code === 0x5D || code === 0x7D) open.pop();
+    } else if (OPEN_BRACKET.test(text[i])) open.push(i);
+    else if (CLOSE_BRACKET.test(text[i])) open.pop();
   }
   if (open.length === 0) return word;
   let start = open[0];
@@ -974,22 +980,31 @@ function textFlags(text: string): number {
   if (!text) return 0;
   let flags = 0;
   if (text === '\n') flags |= SEG_HARD_BREAK;
+  // Neither set holds an ASCII letter or digit: a text starting with one is in neither.
+  if (isAsciiAlnum(text.charCodeAt(0))) return flags;
   if (TRAILING_PUNCT.test(text)) flags |= SEG_CLOSING_PUNCT;
   if (OPENING_PUNCT.test(text)) flags |= SEG_OPENING_PUNCT;
   return flags;
 }
 
+function isAsciiAlnum(code: number): boolean {
+  return (code >= 0x30 && code <= 0x39) || (code >= 0x41 && code <= 0x5A) || (code >= 0x61 && code <= 0x7A);
+}
+
 /** Whether `splitSegment` breaks this text per character / cluster, whatever the width. */
 function breakFlags(text: string): number {
   let flags = 0;
+  // U+200D is the lowest code `EMOJI_CANDIDATE` matches.
+  let emojiCandidate = false;
   for (let i = 0; i < text.length; i++) {
     const code = text.codePointAt(i)!;
+    if (code >= 0x200D) emojiCandidate = true;
     if (isCJKCode(code)) { flags |= SEG_CJK; break; }
     if (code > 0xFFFF) i++;
   }
   // Emoji only with a grapheme segmenter, so ZWJ sequences, skin tones and
   // flag pairs stay intact.
-  if (segmenter('grapheme') && EMOJI_CANDIDATE.test(text) && graphemes(text).some(isEmojiCluster)) {
+  if (emojiCandidate && segmenter('grapheme') && EMOJI_CANDIDATE.test(text) && graphemes(text).some(isEmojiCluster)) {
     flags |= SEG_EMOJI;
   }
   return flags;
@@ -1786,7 +1801,8 @@ class LineFlow {
     const interval = this.tabMetrics?.interval || this.items.width(tab);
     const halfSpace = this.tabMetrics?.halfSpace ?? 0;
     const currentPos = this.lineStart() + this.line.totalWidth;
-    let advance = interval - (currentPos % interval);
+    // No stops at font-size 0 (`x % 0` is NaN): the tab advances nothing.
+    let advance = interval > 0 ? interval - (currentPos % interval) : 0;
     if (advance < halfSpace) advance += interval;
     this.place(this.items.cut(tab, this.items.text(tab), advance), advance, lineHeight);
   }
@@ -2790,8 +2806,9 @@ function lineBoxExtent(out: InlineEmit, words: readonly Word[]): { ascent: numbe
     // run of it brings. Positive shift is downward.
     if (word.refs.parentStyle) {
       const parentBox = m.leadedBox(word.refs.parentStyle, useBulletProbe);
-      const shift = verticalAlignShift(
-        word.refs.parentStyle.verticalAlign, session, word.refs.parentStyle, blockStyle, useBulletProbe);
+      const va = word.refs.parentStyle.verticalAlign;
+      const shift = isShiftedVAlign(va)
+        ? verticalAlignShift(va, session, word.refs.parentStyle, blockStyle, useBulletProbe) : 0;
       if (parentBox.ascent - shift > lineAscent) lineAscent = parentBox.ascent - shift;
       if (parentBox.descent + shift > lineDescent) lineDescent = parentBox.descent + shift;
     }
@@ -2922,8 +2939,8 @@ function emitInlineBackgrounds(
 /** Record a text node's line top, run seam and paint declarers for the passes after layout. */
 function registerTextNode(out: InlineEmit, node: LayoutText, word: Word, lineTop: number): void {
   out.nodes.push(node);
-  runLineTops.set(node, lineTop);
-  if (word.runSeam) (node as SeamFlagged)[RUN_SEAM] = true;
+  (node as PrivateText)[LINE_TOP] = lineTop;
+  if (word.runSeam) (node as PrivateText)[RUN_SEAM] = true;
   if (word.refs.clipStyle) out.clipRuns.set(node, word.refs.clipStyle);
   if (word.refs.strokeImageStyle) out.strokeImageRuns.set(node, word.refs.strokeImageStyle);
 }
@@ -2991,7 +3008,7 @@ function emitLineText(
     // at its right edge (`PaintState.text` sets textAlign).
     const rtlPiece = levels !== null && levels[wordIndex] % 2 === 1;
 
-    registerTextNode(out, {
+    const node: LayoutText = {
       type: 'text',
       text: word.text,
       x: rtlPiece ? curX + effectiveWidth : curX,
@@ -3000,10 +3017,11 @@ function emitLineText(
       // Paint direction is the bidi LEVEL's, never the CSS `direction` (unicode-bidi: normal
       // reorders nothing).
       style: withDirection(out.session, word.refs.style, rtlPiece ? 'rtl' : 'ltr'),
-      // Only when vertical-align moved this run off the line — an
-      // underline from an unshifted declarer still hangs off the line.
-      ...(baselineY !== lineBaselineY ? { lineBaselineY } : {}),
-    }, word, lineTop);
+    };
+    // Only when vertical-align moved this run off the line — an
+    // underline from an unshifted declarer still hangs off the line.
+    if (baselineY !== lineBaselineY) node.lineBaselineY = lineBaselineY;
+    registerTextNode(out, node, word, lineTop);
 
     curX += effectiveWidth;
   }
@@ -3021,8 +3039,8 @@ function translateInlineNode(layoutNode: LayoutNode, dx: number, dy: number): vo
   layoutNode.y += dy;
   if (layoutNode.type === 'text') {
     if (layoutNode.lineBaselineY !== undefined) layoutNode.lineBaselineY += dy;
-    const lineTop = runLineTops.get(layoutNode);
-    if (lineTop !== undefined) runLineTops.set(layoutNode, lineTop + dy);
+    const lineTop = (layoutNode as PrivateText)[LINE_TOP];
+    if (lineTop !== undefined) (layoutNode as PrivateText)[LINE_TOP] = lineTop + dy;
     if (layoutNode.clip) {
       layoutNode.clip.x += dx;
       layoutNode.clip.y += dy;
@@ -3891,7 +3909,7 @@ function addListMarker(
     style: { ...markerDrawStyle, textDecorationLine: 'none', textDecorations: [], fontWeight: ms?.fontWeight ?? 400, fontStyle: ms?.fontStyle ?? 'normal', direction: markerDirection },
   };
   // The marker sits on the item's first line, whose top is the content top.
-  runLineTops.set(marker, box.y + style.borderTopWidth + style.paddingTop);
+  (marker as PrivateText)[LINE_TOP] = box.y + style.borderTopWidth + style.paddingTop;
   box.children.unshift(marker);
 
   // Publish the marker as a LayoutLine too, merged with its item's text by baseline.

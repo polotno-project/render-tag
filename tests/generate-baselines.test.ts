@@ -1,9 +1,9 @@
 /**
  * Run this test to regenerate baselines for the current browser.
  *
- *   npm run test:update-baselines            # Chrome
- *   npm run test:update-baselines:firefox    # Firefox
- *   npm run test:update-baselines:webkit     # Playwright WebKit (not Safari)
+ *   npm run update -- --project chromium tests/generate-baselines.test.ts
+ *   npm run update -- --project firefox  tests/generate-baselines.test.ts
+ *   npm run update -- --project webkit   tests/generate-baselines.test.ts   # Playwright WebKit (not Safari)
  */
 import { describe, it, expect } from 'vitest';
 import { commands } from 'vitest/browser';

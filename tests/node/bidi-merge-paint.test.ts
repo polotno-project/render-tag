@@ -6,7 +6,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { DOMParser as LinkedomDOMParser } from 'linkedom';
-import { layout, drawLayout, setDOMParser } from '../../src/index.node.ts';
+import { layout, drawLayout, setDOMParser } from '../../src/index.ts';
 import { recordingCtx } from '../helpers/recording-ctx.ts';
 
 beforeAll(() => setDOMParser(new LinkedomDOMParser()));

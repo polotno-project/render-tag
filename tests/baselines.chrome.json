@@ -1084,7 +1084,7 @@
     "wrap": true
   },
   "Formatted text (bold, italic, colors)@Playfair Display": {
-    "score": 0.6,
+    "score": 0.34,
     "wrap": true
   },
   "Multi-heading article@Playfair Display": {
@@ -1108,7 +1108,7 @@
     "wrap": true
   },
   "Text decorations & shadows@Playfair Display": {
-    "score": 3.13,
+    "score": 2.58,
     "wrap": true
   },
   "Stroked transparent text with shadow@Playfair Display": {
@@ -1144,7 +1144,7 @@
     "wrap": true
   },
   "Deeply nested inline styles@Playfair Display": {
-    "score": 0.56,
+    "score": 0.42,
     "wrap": true
   },
   "Adjacent styled spans no space@Playfair Display": {
@@ -1236,7 +1236,7 @@
     "wrap": true
   },
   "Deeply nested mixed lists@Playfair Display": {
-    "score": 0.45,
+    "score": 0,
     "wrap": true
   },
   "Large display list markers@Playfair Display": {
@@ -1248,7 +1248,7 @@
     "wrap": true
   },
   "List items with rich formatting@Playfair Display": {
-    "score": 1.68,
+    "score": 1.53,
     "wrap": true
   },
   "Empty list items mixed with content@Playfair Display": {
@@ -1308,7 +1308,7 @@
     "wrap": true
   },
   "Dense mixed inline styles@Playfair Display": {
-    "score": 0.69,
+    "score": 0.13,
     "wrap": true
   },
   "Hindi Devanagari text@Playfair Display": {
@@ -1344,7 +1344,7 @@
     "wrap": true
   },
   "Mixed scripts with formatting@Playfair Display": {
-    "score": 0.69,
+    "score": 0.71,
     "wrap": true
   },
   "RTL with inline code@Playfair Display": {
@@ -1356,7 +1356,7 @@
     "wrap": true
   },
   "URL text wrapping@Playfair Display": {
-    "score": 1.2,
+    "score": 0.01,
     "wrap": true
   },
   "Numbers and currency in RTL@Playfair Display": {
@@ -1364,19 +1364,19 @@
     "wrap": true
   },
   "Word joiner and zero-width space@Playfair Display": {
-    "score": 0.37,
+    "score": 0.09,
     "wrap": true
   },
   "Dense emoji sequences@Playfair Display": {
-    "score": 1.27,
+    "score": 0.18,
     "wrap": true
   },
   "Emoji in lists@Playfair Display": {
-    "score": 1.14,
+    "score": 1.02,
     "wrap": true
   },
   "Mixed font sizes with CJK@Playfair Display": {
-    "score": 0.06,
+    "score": 0,
     "wrap": true
   },
   "Long CJK paragraph@Playfair Display": {
@@ -1384,7 +1384,7 @@
     "wrap": true
   },
   "Mixed app text comprehensive@Playfair Display": {
-    "score": 3.17,
+    "score": 2.92,
     "wrap": false
   },
   "Lists with alignment variations@Playfair Display": {
@@ -1712,7 +1712,7 @@
     "wrap": true
   },
   "URL text wrapping@Merriweather": {
-    "score": 1.99,
+    "score": 0.67,
     "wrap": true
   },
   "Numbers and currency in RTL@Merriweather": {
@@ -1740,7 +1740,7 @@
     "wrap": false
   },
   "Mixed app text comprehensive@Merriweather": {
-    "score": 1.39,
+    "score": 1.29,
     "wrap": true
   },
   "Lists with alignment variations@Merriweather": {
@@ -2076,7 +2076,7 @@
     "wrap": true
   },
   "Word joiner and zero-width space@Lobster": {
-    "score": 1.08,
+    "score": 0,
     "wrap": true
   },
   "Dense emoji sequences@Lobster": {
@@ -2096,7 +2096,7 @@
     "wrap": false
   },
   "Mixed app text comprehensive@Lobster": {
-    "score": 0.4,
+    "score": 0.14,
     "wrap": true
   },
   "Lists with alignment variations@Lobster": {

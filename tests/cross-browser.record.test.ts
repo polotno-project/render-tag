@@ -2,7 +2,7 @@
  * Record Chrome canvas layout as the cross-browser reference.
  * Run this in Chrome to generate the reference data that Firefox/WebKit compare against.
  *
- *   npm run test:cross-browser:record
+ *   npx vitest run --project chromium tests/cross-browser.record.test.ts
  */
 import { describe, it, expect } from 'vitest';
 import { commands } from 'vitest/browser';

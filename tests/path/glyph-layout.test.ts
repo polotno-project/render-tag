@@ -246,6 +246,19 @@ describe('layoutGlyphsOnPath', () => {
     expect(out.glyphs.map(g => g.char)).toEqual(['a', 'b', 'c']);
   });
 
+  it('a non-finite path point ends the text instead of placing a NaN glyph', () => {
+    const ctx = mockCtx();
+    // Malformed path data: finite for 25px, then NaN points.
+    const path: PathLike = {
+      length: 200,
+      getPointAtLength: (t: number) => t <= 25 ? { x: t, y: 0 } : { x: NaN, y: NaN },
+    };
+    const out = layoutGlyphsOnPath({ segments: [seg('abcdef')], path, ctx, align: 'left', textBaseline: 'alphabetic' });
+    expect(out.glyphs.map(g => g.char)).toEqual(['a', 'b']);
+    for (const g of out.glyphs) expect(Number.isFinite(g.x + g.y + g.rotation)).toBe(true);
+    expect(Number.isFinite(out.bounds.width)).toBe(true);
+  });
+
   it('letterSpacing increases the per-glyph advance', () => {
     const ctx = mockCtx();
     const path = horizontalPath(200);

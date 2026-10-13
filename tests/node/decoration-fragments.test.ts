@@ -12,8 +12,9 @@
  */
 import { afterAll, describe, expect, it } from 'vitest';
 import { DOMParser as LinkedomDOMParser } from 'linkedom';
-import { layout, drawLayout, setDOMParser } from '../../src/index.node.ts';
+import { layout, drawLayout, setDOMParser } from '../../src/index.ts';
 import { recordingCtx } from '../helpers/recording-ctx.ts';
+import { mockCtx } from '../helpers/mock-ctx.ts';
 
 afterAll(() => setDOMParser(null));
 
@@ -61,6 +62,19 @@ describe('one decoration band per text fragment', () => {
     expect(dash[0]).toBe(6);
     const n = Math.round((x1 - x0 + dash[1]) / (dash[0] + dash[1]));
     expect(n * dash[0] + (n - 1) * dash[1]).toBeCloseTo(x1 - x0, 4);
+  });
+
+  it('paints one dot on a fragment exactly two dot widths wide', () => {
+    // mock-ctx: 10px per character; 50px auto thickness is 5, so one glyph is
+    // exactly perDot. The fitted gap divides by zero there ([0, Infinity] is a
+    // dash list canvas ignores, which painted a solid line).
+    const html = '<p style="margin:0;font-size:50px;text-decoration:underline dotted">I</p>';
+    const result = layout({ html, width: 600, ctx: mockCtx() });
+    const painted = recordingCtx(600, 200);
+    drawLayout({ layout: result, width: 600, ctx: painted.ctx });
+    const [p] = strokes(painted.paints);
+    expect(band(p).dash).toEqual([0, 10]);
+    expect(p).toContain('lineCap="round"');
   });
 
   it('draws one continuous wave from the fragment start', () => {

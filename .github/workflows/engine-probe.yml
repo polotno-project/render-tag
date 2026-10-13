@@ -32,7 +32,7 @@ jobs:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-${{ matrix.browser }}-${{ hashFiles('package-lock.json') }}
       - run: npx playwright install --with-deps ${{ matrix.browser }}
-      - run: npm run probe:engines:${{ matrix.browser }}
+      - run: npx vitest run --project ${{ matrix.browser }} tests/engine-probe.test.ts
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -66,7 +66,7 @@ describe('Layout stress test (width sweep)', () => {
       browserName,
       signatures,
       recorded: stressBaseline as Record<string, string[]>,
-      updateMode: import.meta.env.MODE === 'update-stress',
+      updateMode: import.meta.env.MODE === 'update',
       writeFile: commands.writeFile,
     });
     if (expected === null) return;

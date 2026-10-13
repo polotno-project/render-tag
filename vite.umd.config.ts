@@ -11,7 +11,7 @@ export default defineConfig({
     },
     outDir: 'lib',
     emptyOutDir: false,
-    sourcemap: true,
+    sourcemap: false,
     minify: true,
   },
 });

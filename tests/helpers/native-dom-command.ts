@@ -1,7 +1,7 @@
 import type { BrowserCommand } from 'vitest/node';
 import '@vitest/browser-playwright';
 import { createHash } from 'node:crypto';
-import { mkdir, readdir, readFile, rename, rm, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rename, rm, stat, unlink, utimes, writeFile } from 'node:fs/promises';
 import { release } from 'node:os';
 import path from 'node:path';
 import type { Browser, Page } from 'playwright';
@@ -28,7 +28,7 @@ export const NATIVE_DOM_CACHE_ROOT = path.resolve(
 const ENGINE_QUIRKS: Record<string, { reopensRunnerOrigin: boolean; omitsBackground: boolean }> = {
   // Firefox cannot reopen Vitest's runner origin in a second context, so the
   // capture page stays on an opaque origin — `server: { cors: true }` in
-  // vitest.browser.config.ts is what lets its absolute font URLs still load.
+  // vitest.config.ts is what lets its absolute font URLs still load.
   // omitBackground asks Firefox to change the page background, an operation its
   // Playwright transport does not implement. Pixel comparison normalizes both
   // images onto white anyway, so an opaque screenshot is equivalent.
@@ -107,7 +107,7 @@ function environmentDigest(
 ): Promise<string> {
   environmentKey ||= Promise.all([
     Promise.all([
-      readFile(new URL('../../vitest.browser.config.ts', import.meta.url)),
+      readFile(new URL('../../vitest.config.ts', import.meta.url)),
       readFile(new URL(import.meta.url)),
       readFile(new URL('./css-text.ts', import.meta.url)),
     ]),
@@ -123,7 +123,9 @@ function environmentDigest(
       dependencies,
       implementation: digest(Buffer.concat(implementation)),
     }));
-    await pruneSupersededEnvironments(path.join(NATIVE_DOM_CACHE_ROOT, browserName), key);
+    const browserDirectory = path.join(NATIVE_DOM_CACHE_ROOT, browserName);
+    await pruneSupersededEnvironments(browserDirectory, key);
+    await pruneStaleReferences(path.join(browserDirectory, key));
     return key;
   });
   return environmentKey;
@@ -146,9 +148,28 @@ async function pruneSupersededEnvironments(
   );
 }
 
+/** A reference no run has read for this long belongs to a fixture that changed. */
+const STALE_REFERENCE_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * A hit touches its PNG (`readCached`), so an edited fixture's old reference
+ * ages out instead of riding along in every CI cache tarball.
+ */
+async function pruneStaleReferences(directory: string): Promise<void> {
+  const entries = await readdir(directory).catch(() => []);
+  const cutoff = Date.now() - STALE_REFERENCE_MS;
+  await Promise.all(entries.map(async (entry) => {
+    const file = path.join(directory, entry);
+    if ((await stat(file)).mtimeMs < cutoff) await rm(file, { force: true });
+  }));
+}
+
 async function readCached(file: string): Promise<Buffer | undefined> {
   try {
-    return await readFile(file);
+    const image = await readFile(file);
+    const now = new Date();
+    void utimes(file, now, now).catch(() => {});
+    return image;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     return undefined;

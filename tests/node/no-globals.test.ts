@@ -8,7 +8,7 @@
  */
 import { describe, it, expect, afterAll } from 'vitest';
 import { DOMParser as LinkedomDOMParser } from 'linkedom';
-import { layout, drawLayout, setDOMParser } from '../../src/index.node.ts';
+import { layout, drawLayout, setDOMParser } from '../../src/index.ts';
 import { PARITY_HTML, PARITY_WIDTH, mockMeasureCtx } from '../helpers/parity-fixture.ts';
 
 const DOM_GLOBALS = ['document', 'DOMParser', 'Node', 'HTMLElement', 'Element', 'window'] as const;

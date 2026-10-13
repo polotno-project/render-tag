@@ -1,5 +1,5 @@
 {
-  "_comment": "Recorded 1px full-corpus width-sweep divergence per browser (tests/wrap-sweep.test.ts). A signature is either a structural band 'key w=<start>-<end>' (a wrong break decision persisting over 3px or more) or 'key knife=<n>' (n threshold knife-edge bands of 1-2px). Update only via npm run test:update-wrap-sweep-baseline[:firefox|:webkit], after verifying the change.",
+  "_comment": "Recorded 1px full-corpus width-sweep divergence per browser (tests/wrap-sweep.test.ts). A signature is either a structural band 'key w=<start>-<end>' (a wrong break decision persisting over 3px or more) or 'key knife=<n>' (n threshold knife-edge bands of 1-2px). Update only via npm run update -- --project <browser> tests/wrap-sweep.test.ts, after verifying the change.",
   "chrome": [
     "CJK text with formatting knife=1",
     "Code blocks & quotes knife=2",

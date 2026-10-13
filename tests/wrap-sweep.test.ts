@@ -2,10 +2,8 @@
  * Full-corpus width sweep at 1px resolution — the wide net for line-breaking
  * bugs. Not part of `npm test`: it is a rarely-run milestone gate.
  *
- *   npm run test:wrap-sweep                      # Chrome
- *   npm run test:wrap-sweep:firefox
- *   npm run test:wrap-sweep:webkit
- *   npm run test:update-wrap-sweep-baseline[:firefox|:webkit]
+ *   npx vitest run --project chromium tests/wrap-sweep.test.ts   # or firefox, webkit
+ *   npm run update -- --project chromium tests/wrap-sweep.test.ts
  *
  * Why 1px and not the stress test's 10px: wrapping is a STEP function of
  * container width, so a divergence occupies a contiguous BAND of widths whose
@@ -162,7 +160,7 @@ describe('Full-corpus 1px width sweep', () => {
       browserName,
       signatures,
       recorded: sweepBaseline as unknown as Record<string, string[]>,
-      updateMode: import.meta.env.MODE === 'update-wrap-sweep',
+      updateMode: import.meta.env.MODE === 'update',
       writeFile: commands.writeFile,
     });
     if (expected === null) return;

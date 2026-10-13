@@ -5,7 +5,7 @@
  */
 import { it, expect, afterAll } from 'vitest';
 import { DOMParser as LinkedomDOMParser } from 'linkedom';
-import { layout, setDOMParser } from '../../src/index.node.ts';
+import { layout, setDOMParser } from '../../src/index.ts';
 import {
   PARITY_HTML,
   PARITY_WIDTH,

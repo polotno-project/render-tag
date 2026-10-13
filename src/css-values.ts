@@ -25,6 +25,31 @@ export interface LengthBasis {
   measure: ((style: ResolvedStyle) => FontUnits) | undefined; // undefined: ch/ex = 0.5em (CSS Values 4)
 }
 
+/**
+ * A lookup table keyed by author text (property names, tag names, keywords):
+ * no prototype, so `constructor` or `toString` finds nothing.
+ */
+export function nullProto<T extends object>(entries: T): T {
+  return Object.assign(Object.create(null), entries);
+}
+
+/**
+ * `fn` with its answers kept by exact argument text: a pure function of the
+ * string, so the memo may outlive a call. Bounded: cleared when full.
+ */
+export function memoized<R>(fn: (text: string) => R, max = 512): (text: string) => R {
+  const answers = new Map<string, R>();
+  return (text) => {
+    let answer = answers.get(text);
+    if (answer === undefined) {
+      answer = fn(text);
+      if (answers.size >= max) answers.clear();
+      answers.set(text, answer);
+    }
+    return answer;
+  };
+}
+
 /** A typed numeric value: a length (in px, percentages already resolved) or a plain number. */
 interface Typed {
   value: number;
@@ -205,9 +230,9 @@ export function resolveLength(value: string, b: LengthBasis): number {
  * them (their table, not the CSS ratio: `small` is 13px, not 14.2). Gecko's
  * table has the same values at 16px (unverified here).
  */
-export const FONT_SIZE_KEYWORDS: Record<string, number> = {
+export const FONT_SIZE_KEYWORDS: Record<string, number> = nullProto({
   'xx-small': 9, 'x-small': 10, small: 13, medium: 16, large: 18, 'x-large': 24, 'xx-large': 32, 'xxx-large': 48,
-};
+});
 
 /** HTML's legacy `<font size>` 1-7 → its absolute-size keyword's px. */
 export const LEGACY_FONT_SIZES = [10, 13, 16, 18, 24, 32, 48];

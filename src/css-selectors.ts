@@ -4,7 +4,7 @@
  * unsupported one only itself (Selectors 4 §3.1). Dynamic states are never active.
  * The root container stands for both `html` and `body` (`html > body > p` works).
  */
-import { escapedCodePoint } from './css-syntax.js';
+import { escapedCodePoint, splitTopLevel } from './css-syntax.js';
 
 export interface ElementContext {
   /** Lower-case tag name. */
@@ -317,7 +317,7 @@ class SelectorParser {
       case 'not': case 'is': case 'where': case 'matches': case '-webkit-any': {
         const forgiving = name !== 'not';
         const list: ParsedSelector[] = [];
-        for (const part of splitList(arg)) {
+        for (const part of splitTopLevel(arg, ',')) {
           const sel = parseComplex(part, false);
           if (sel === INVALID || sel === UNSUPPORTED) {
             // :is()/:where() take a forgiving list: the argument drops alone.
@@ -343,30 +343,6 @@ class SelectorParser {
 
 function nth(a: number, b: number, fromEnd: boolean, ofType: boolean): Pseudo {
   return { kind: 'nth', a, b, fromEnd, ofType };
-}
-
-/** Split a selector list at top-level commas (outside parens, brackets, strings). */
-function splitList(text: string): string[] {
-  const out: string[] = [];
-  let depth = 0;
-  let start = 0;
-  let quote = '';
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i];
-    if (quote) {
-      if (c === '\\') i++;
-      else if (c === quote) quote = '';
-    } else if (c === '"' || c === "'") quote = c;
-    else if (c === '\\') i++;
-    else if (c === '(' || c === '[') depth++;
-    else if (c === ')' || c === ']') depth--;
-    else if (c === ',' && depth === 0) {
-      out.push(text.slice(start, i));
-      start = i + 1;
-    }
-  }
-  out.push(text.slice(start));
-  return out;
 }
 
 /** `An+B` (Selectors 4 §13), `odd`, `even`; null when invalid or `of S`. */
@@ -467,7 +443,7 @@ function parseComplex(text: string, allowPseudoElement: boolean): ParsedSelector
 /** A selector list's supported members, or INVALID when any member is invalid. */
 function parseSelectorListResult(prelude: string): ParsedSelector[] | typeof INVALID {
   const out: ParsedSelector[] = [];
-  for (const member of splitList(prelude)) {
+  for (const member of splitTopLevel(prelude, ',')) {
     const sel = parseComplex(member, true);
     if (sel === INVALID) return INVALID;
     if (sel !== UNSUPPORTED) out.push(sel);
@@ -501,21 +477,25 @@ interface Position {
 
 const ONLY: Position = { index: 1, count: 1, typeIndex: 1, typeCount: 1 };
 
+/** Per selector, per combinator index: element → the combinator's answer at it. */
+type ChainMemo = Map<ParsedSelector, Map<Element, boolean>[]>;
+
 /**
  * Selector matching for ONE resolve call. Caches child positions per parent and
- * the `~` answer per element, so a `~` rule over a long list stays linear.
+ * the `~` and descendant answers per element, so a `~` rule over a long list
+ * and `span span span …` over deep nesting both stay linear.
  */
 export class SelectorMatcher {
   private readonly positions = new Map<Element, Map<Element, Position>>();
-  /** Per selector, per combinator index: element → some earlier sibling matches. */
-  private readonly siblingMemo = new Map<ParsedSelector, Map<Element, boolean>[]>();
+  private readonly siblingMemo: ChainMemo = new Map();
+  private readonly ancestorMemo: ChainMemo = new Map();
 
   /** The context of `el`, whose parent context is `parent`. */
-  context(el: Element, parent: ElementContext | null): ElementContext {
+  context(el: Element, parent: ElementContext | null, tagName = el.tagName.toLowerCase()): ElementContext {
     const classes = new Set<string>();
     const className = el.getAttribute('class');
     if (className) for (const c of className.split(/\s+/)) if (c) classes.add(c);
-    return { tagName: el.tagName.toLowerCase(), classes, parent, el };
+    return { tagName, classes, parent, el };
   }
 
   matches(sel: ParsedSelector, ctx: ElementContext): boolean {
@@ -532,34 +512,36 @@ export class SelectorMatcher {
         return parent !== null && this.compound(next, parent) && this.from(sel, i + 1, parent);
       }
       case ' ':
-        for (let a = this.up(ctx); a; a = this.up(a)) {
-          if (this.compound(next, a) && this.from(sel, i + 1, a)) return true;
-        }
-        return false;
+        return this.someEarlier(this.ancestorMemo, (c) => this.up(c), sel, i, ctx);
       case '+': {
         const prev = this.previous(ctx);
         return prev !== null && this.compound(next, prev) && this.from(sel, i + 1, prev);
       }
       default:
-        return this.someEarlierSibling(sel, i, ctx);
+        return this.someEarlier(this.siblingMemo, (c) => this.previous(c), sel, i, ctx);
     }
   }
 
   /**
-   * `~`: does a sibling before `ctx` match compounds[i + 1] and the chain
-   * left of it? Walks back only until a sibling whose own answer is known;
-   * every sibling walked past gets the same answer recorded.
+   * `~` and descendant: does a context before `ctx` along `step` (earlier
+   * sibling, or ancestor) match compounds[i + 1] and the chain left of it?
+   * Walks only until a context whose own answer is known; every one walked
+   * past gets the same answer recorded, keyed by `ctx.el` (the virtual html
+   * is one shared context, keyed by its null element).
    */
-  private someEarlierSibling(sel: ParsedSelector, i: number, ctx: ElementContext): boolean {
-    let perIndex = this.siblingMemo.get(sel);
-    if (!perIndex) this.siblingMemo.set(sel, perIndex = []);
+  private someEarlier(
+    table: ChainMemo, step: (c: ElementContext) => ElementContext | null,
+    sel: ParsedSelector, i: number, ctx: ElementContext,
+  ): boolean {
+    let perIndex = table.get(sel);
+    if (!perIndex) table.set(sel, perIndex = []);
     const memo = perIndex[i] ??= new Map();
     const known = memo.get(ctx.el);
     if (known !== undefined) return known;
     const next = sel.compounds[i + 1];
     const walked: Element[] = [ctx.el];
     let result = false;
-    for (let s = this.previous(ctx); s; s = this.previous(s)) {
+    for (let s = step(ctx); s; s = step(s)) {
       if (this.compound(next, s) && this.from(sel, i + 1, s)) { result = true; break; }
       const answer = memo.get(s.el);
       if (answer !== undefined) { result = answer; break; }

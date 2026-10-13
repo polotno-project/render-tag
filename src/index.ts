@@ -28,8 +28,8 @@ let defaultMeasureCtx: CanvasRenderingContext2D | null = null;
 export function layout(config: LayoutConfig): LayoutResult {
   const { html, width, height } = config;
 
-  if (!width || width <= 0 || Number.isNaN(width)) {
-    throw new TypeError(`layout: width must be a positive number, got ${width}`);
+  if (!Number.isFinite(width) || width <= 0) {
+    throw new TypeError(`layout: width must be a positive finite number, got ${width}`);
   }
 
   // No save/restore on a caller's ctx: it is not free on PDF proxies.
@@ -42,10 +42,17 @@ export function layout(config: LayoutConfig): LayoutResult {
   const { root, height: contentHeight, lines } =
     buildLayoutTree(measureCtx, tree, width, config.accuracy === 'balanced', config.debug);
   let paintBounds: PaintBounds | undefined;
+  // Released once measured, so a kept result does not pin the ctx.
+  let boundsCtx: CanvasRenderingContext2D | null = measureCtx;
   return {
     layoutRoot: root, height: height || contentHeight, lines,
     get paintBounds() {
-      return paintBounds ??= measurePaintBounds(measureCtx, () => getNodePaintBounds(measureCtx, root));
+      if (!paintBounds) {
+        const ctx = boundsCtx!;
+        paintBounds = measurePaintBounds(ctx, () => getNodePaintBounds(ctx, root));
+        boundsCtx = null;
+      }
+      return paintBounds;
     },
   };
 }
@@ -63,6 +70,9 @@ export function drawLayout(config: DrawConfig): { canvas: AnyCanvas } {
 
   if (config.ctx && config.canvas) {
     throw new TypeError('drawLayout: ctx and canvas are mutually exclusive — provide one or neither');
+  }
+  if (!Number.isFinite(pixelRatio) || pixelRatio <= 0) {
+    throw new TypeError(`drawLayout: pixelRatio must be a positive finite number, got ${pixelRatio}`);
   }
 
   const finalHeight = layoutResult.height;

@@ -14,7 +14,7 @@
  */
 import { afterAll, describe, expect, it } from 'vitest';
 import { DOMParser as LinkedomDOMParser } from 'linkedom';
-import { layout, drawLayout, setDOMParser } from '../../src/index.node.ts';
+import { layout, drawLayout, setDOMParser } from '../../src/index.ts';
 import { recordingCtx } from '../helpers/recording-ctx.ts';
 import { collectTexts } from '../helpers/layout-tree.ts';
 
@@ -45,6 +45,17 @@ const P = '<p style="margin:0;font-size:20px">';
 describe('paint batching follows the measured run', () => {
   it('still paints one text node as one batched fillText', () => {
     expect(paint(`${P}Hello brave world</p>`).fills.map(([t]) => t)).toEqual(['Hello brave world']);
+  });
+
+  // The batch is per fragment: a run the gate rejects, a sibling box or a
+  // text-shadow leaves the other runs of the box batched.
+  it.each([
+    ['an underlined word', 'Hello brave <u>new</u> world', ['Hello brave ', 'new', ' world']],
+    ['an inline background box', 'Hello <span style="background:yellow">brave</span> world', ['Hello ', 'brave', ' world']],
+    ['a nested block', '<div>Hello brave</div><div>new world</div>', ['Hello brave', 'new world']],
+    ['a text-shadow', '<span style="text-shadow:1px 1px 2px red">Hello brave</span> world', ['Hello brave', ' world']],
+  ])('batches the plain runs of a box beside %s', (_label, html, expected) => {
+    expect(paint(`${P}${html}</p>`).fills.map(([t]) => t)).toEqual(expected);
   });
 
   for (const [label, html] of [

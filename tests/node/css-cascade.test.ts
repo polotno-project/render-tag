@@ -800,3 +800,43 @@ describe('isTransparent', () => {
     }
   });
 });
+
+describe('author text named like Object.prototype members', () => {
+  // Every table keyed by author text has no prototype: `constructor` finds nothing.
+  it('a <constructor> tag is an unstyled inline element', () => {
+    expect(el('<constructor>x</constructor>', 'constructor').style).toMatchObject({ display: 'inline', fontSize: 16 });
+  });
+
+  it('prototype-named properties and keywords are invalid, not Object members', () => {
+    const p = el('<p style="constructor: inherit; toString: 1px; hasOwnProperty: red; color: red">x</p>', 'p');
+    expect(p.style.color).toBe('red');
+    expect(el('<p style="font-size: constructor">x</p>', 'p').style.fontSize).toBe(16);
+    expect(el('<p style="border: constructor solid">x</p>', 'p').style.borderTopWidth).toBe(0);
+    expect(el('<p style="-webkit-text-stroke: toString red">x</p>', 'p').style.webkitTextStrokeWidth).toBe(0);
+    expect(el('<p style="margin-constructor: 4px">x</p>', 'p').style.marginLeft).toBe(0);
+  });
+});
+
+describe('selector matching cost', () => {
+  const nested = (n: number) => `${'<span>'.repeat(n)}x${'</span>'.repeat(n)}`;
+
+  it('a descendant chain over deep nesting is linear, not exponential', () => {
+    const chain = Array.from({ length: 10 }, () => 'span').join(' ');
+    const start = performance.now();
+    const spans = elements(`<style>${chain} { color: red }</style>${nested(60)}`);
+    expect(performance.now() - start).toBeLessThan(200);
+    expect(spans.map((s) => s.style.color)).toEqual([...Array(9).fill('rgb(0, 0, 0)'), ...Array(51).fill('red')]);
+  });
+
+  it('the descendant memo keeps each element its own ancestry', () => {
+    const html = '<style>span span { color: red } div p b { font-weight: 400 }</style>' +
+      '<div><p><span>a<b><span>in</span></b></span><span>out</span></p><b>top</b></div>';
+    const named = Object.fromEntries(elements(html).filter((n) => n.children[0]?.textContent)
+      .map((n) => [n.children[0].textContent, n.style]));
+    expect(named.a.color).toBe('rgb(0, 0, 0)');
+    expect(named.in.color).toBe('red');
+    expect(named.out.color).toBe('rgb(0, 0, 0)');
+    expect(named.in.fontWeight).toBe(400);
+    expect(named.top.fontWeight).toBe(700);
+  });
+});

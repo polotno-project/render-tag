@@ -18,7 +18,7 @@
  * - a counter going UP is a regression (e.g. a measure loop gone quadratic);
  * - a counter going DOWN is an improvement that must be promoted on purpose,
  *   so the bound keeps ratcheting instead of leaving headroom to regress into.
- *   Promote with `npm run test:update-perf-counters`.
+ *   Promote with `npm run update -- --project node tests/node/perf-counters.test.ts`.
  *
  * `sourceChars` is the fixture's own text length; it must match exactly, and
  * `measuredChars / sourceChars` is the number to drive toward ~1.
@@ -29,8 +29,8 @@
 import { afterAll, expect, it } from 'vitest';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { DOMParser as LinkedomDOMParser } from 'linkedom';
-import { layout, drawLayout, setDOMParser } from '../../src/index.node.ts';
-import { layoutTextOnPath } from '../../src/path/index.node.ts';
+import { layout, drawLayout, setDOMParser } from '../../src/index.ts';
+import { layoutTextOnPath } from '../../src/path/index.ts';
 import { parseHTML } from '../../src/parse.ts';
 import { resolveStylesFromCSS } from '../../src/css-resolver.ts';
 import { buildLayoutTree, type LayoutStats } from '../../src/layout.ts';
@@ -40,7 +40,7 @@ import { collectTexts } from '../helpers/layout-tree.ts';
 import { generateLargeHTML } from '../helpers/large-doc.ts';
 
 const BASELINE_PATH = new URL('../perf-counters-baseline.json', import.meta.url);
-const UPDATE = import.meta.env.MODE === 'update-perf-counters';
+const UPDATE = import.meta.env.MODE === 'update';
 
 afterAll(() => setDOMParser(null));
 
@@ -252,5 +252,5 @@ it('work counters match the recorded bounds', () => {
       else if (now < was) problems.push(`${name} ${key}: ${now} (bound ${was}, -${was - now} improvement; lower the bound)`);
     }
   }
-  expect(problems, `${problems.join('\n')}\n\nA deliberate change is promoted with: npm run test:update-perf-counters`).toEqual([]);
+  expect(problems, `${problems.join('\n')}\n\nA deliberate change is promoted with: npm run update -- --project node tests/node/perf-counters.test.ts`).toEqual([]);
 });

@@ -1,6 +1,6 @@
 /**
  * Engine-probe matrix — a maintainer measurement tool, NOT a gate (not in
- * `npm test` or any lane). `npm run probe:engines[:chromium|:firefox|:webkit]`.
+ * `npm test` or any lane). `npm run probe:engines` (all engines) or `npx vitest run --project <browser> tests/engine-probe.test.ts`.
  *
  * Each FAMILY is a table of inputs for one engine rule in `src/engine.ts`. A
  * row measures the engine's own DOM and render-tag's `layout()` in the same

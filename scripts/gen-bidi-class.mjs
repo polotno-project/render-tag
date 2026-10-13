@@ -1,11 +1,18 @@
-// Generates src/bidi-class-data.ts from scripts/data/DerivedBidiClass-17.0.0.txt
-// (https://www.unicode.org/Public/17.0.0/ucd/extracted/DerivedBidiClass.txt,
-// sha256 4867b4b7f0731ed1bfcd34cc6251211ff1542541fce0734b6fbda139ee80b3a4).
-// Run: npm run gen:bidi-class
-import { readFileSync, writeFileSync } from 'node:fs';
+// Generates src/bidi-class-data.ts from Unicode's DerivedBidiClass.txt, downloaded
+// on each run and verified against the pinned sha256 (the 172 KB source is not kept
+// in the repo). Run: npm run gen:bidi-class
+import { createHash } from 'node:crypto';
+import { writeFileSync } from 'node:fs';
 
-const INPUT = new URL('./data/DerivedBidiClass-17.0.0.txt', import.meta.url);
+const SOURCE = 'https://www.unicode.org/Public/17.0.0/ucd/extracted/DerivedBidiClass.txt';
+const SHA256 = '4867b4b7f0731ed1bfcd34cc6251211ff1542541fce0734b6fbda139ee80b3a4';
 const OUTPUT = new URL('../src/bidi-class-data.ts', import.meta.url);
+
+const response = await fetch(SOURCE);
+if (!response.ok) throw new Error(`${SOURCE}: HTTP ${response.status}`);
+const source = Buffer.from(await response.arrayBuffer());
+const digest = createHash('sha256').update(source).digest('hex');
+if (digest !== SHA256) throw new Error(`${SOURCE}: sha256 ${digest}, expected ${SHA256}`);
 // Index i is encoded as the letter 'A' + i; must match `BidiClass` in src/bidi.ts.
 const CLASSES = ['L', 'R', 'AL', 'EN', 'ES', 'ET', 'AN', 'CS', 'NSM', 'BN', 'B', 'S', 'WS', 'ON',
   'LRE', 'LRO', 'RLE', 'RLO', 'PDF', 'LRI', 'RLI', 'FSI', 'PDI'];
@@ -20,7 +27,7 @@ const fill = (from, to, cls) => {
   table.fill(index, parseInt(from, 16), parseInt(to ?? from, 16) + 1);
 };
 // `@missing` defaults first, in file order (later ones are more specific), then the data lines.
-const lines = readFileSync(INPUT, 'utf8').split('\n');
+const lines = source.toString('utf8').split('\n');
 for (const line of lines) {
   const m = /^# @missing: ([0-9A-F]+)\.\.([0-9A-F]+); (\w+)/.exec(line);
   if (!m) continue;

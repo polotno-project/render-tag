@@ -18,7 +18,8 @@ HTML string + CSS → parseHTML (DOMParser) → resolveStylesFromCSS (pure CSS p
   lines, min/max-content caches, anonymous flex items and prepared inline
   content. Never add a module-level `let` or cache to layout; put it on the
   session (`tests/node/reentrancy.test.ts`). The deliberate module state:
-  `layoutFontMetrics` and `runLineTops` (WeakMaps keyed by results), the
+  `layoutFontMetrics` (a WeakMap keyed by results; a run's line top is a
+  symbol property, `LINE_TOP`, like `RUN_SEAM`), the
   `claimCtx` writer token (a number, holds no reference), the DOM probe
   elements, and the stateless `Intl.Segmenter`s. `paintBounds` and
   `drawLayout` are reentrant too, and a result paints the same after a later
@@ -126,7 +127,11 @@ HTML string + CSS → parseHTML (DOMParser) → resolveStylesFromCSS (pure CSS p
   (`:has()`, `::before`, form states) never matches, that member only;
   INVALID drops the whole list (Selectors 4). Dynamic states never match.
   Never strip an unknown part and match the rest. `SelectorMatcher` caches
-  per call (`~` is ratcheted in `tests/node/perf-counters.test.ts`).
+  per call: `~` and the descendant combinator memoize their answer per
+  element (`someEarlier`), so deep `span span …` nesting and long lists stay
+  linear (`~` is ratcheted in `tests/node/perf-counters.test.ts`, nesting in
+  `css-cascade.test.ts`). Every table keyed by author text (tags, property
+  names, keywords) is `nullProto`: `constructor` finds nothing.
 - **Display defaults to `inline`**; only the HTML UA block list is block.
   `<wbr>` becomes `​`; `<q>` gets quote text nodes sharing its style.
 - `parseHTML` lifts LEADING `<style>` blocks off as text before DOMParser.
@@ -199,8 +204,8 @@ Quality scores compare render-tag with a screenshot of the same fixture in an
 independent browser page. Chromium and WebKit use isolated Playwright pages.
 Firefox uses the same Playwright screenshot path without `omitBackground`,
 which its transport does not implement; comparisons normalize both images onto
-white instead. The SVG `foreignObject` path remains a fast demo helper and has
-a canary against native DOM, but it is not the test oracle.
+white instead. The SVG `foreignObject` rasteriser (`docs/html-to-svg`) is a
+demo helper for the benchmark page only, never a test oracle.
 
 Capture documents are reused by exact font-face set as persistent iframes
 (WebKit also gets a separate top-level page per font set) and receive fresh
@@ -208,7 +213,8 @@ fixture content for each screenshot. Native reference PNGs persist in
 `node_modules/.cache/render-tag/native-dom/` (git-ignored). The cache key
 includes the fixture, viewport, DPR, browser build, OS, the installed
 Playwright and `@fontsource*` versions, and the capture implementation;
-superseded references are pruned. A render-tag source change or another
+superseded references are pruned, and a reference no run has read for 30
+days is dropped (a hit touches its file). A render-tag source change or another
 dependency bump does not invalidate it. Run `npm run test:clear-native-cache`
 to force a cold reference run.
 
@@ -234,7 +240,7 @@ Playwright WebKit is the WebKit engine, not branded Safari. CI runs the full
 corpus headlessly with WebKit on macOS. Branded Safari has no headless mode, so
 its `safaridriver` canaries are an explicit manual diagnostic, not a CI gate.
 They cover solid paint, rich inline text, and exact wrapping; Safari does not
-have a recorded 531-case baseline. Do not label WebKit baselines as Safari
+have a recorded 537-key baseline. Do not label WebKit baselines as Safari
 results.
 
 Several geometry suites intentionally encode Chrome-first output (for example,
@@ -243,25 +249,36 @@ WebKit still gate the complete native pixel/wrap corpus plus their native-oracle
 cross-browser structure, and width-sweep checks.
 
 ### Running tests
+
+One `vitest.config.ts` with four projects — `node`, `chromium`, `firefox`,
+`webkit` — selected with `--project`. A browser project's `include` is its
+lane: what that engine gates. `chromium` runs every browser suite except the
+maintainer tools in `MAINTAINER_ONLY` (recorders, sweeps, report-only
+probes). A test file named on the command line joins every browser lane for
+that run, so `--project <x> <file>` runs any file in any engine. `npm run
+update` is the one re-recording mode (`--mode update`, read by the suites as
+`import.meta.env.MODE`); it runs files one at a time.
+
 ```bash
-npm test                                      # baseline pixel/wrap tests (Chromium) + Node suites (npm run test:node)
+npm test                                      # Node suites + the Chromium lane, one vitest run
+npm run test:browser                          # the Chromium lane alone (test:node: the Node suites alone)
 npm run test:firefox                          # full Firefox + cross-browser + stress gates (own baselines)
 npm run test:webkit                           # full WebKit + cross-browser + stress gates (own baselines; not branded Safari)
+npm run update -- --project <browser> <files> # re-record a baseline (see "Updating baselines")
+npm run probe:engines                         # engine-probe matrix, all three engines (measurement, not a gate)
 npm run test:safari-native                    # manual visible Safari diagnostic (macOS; non-core)
-npm run test:svg-oracle                       # optional SVG demo-path canary; not a core gate
 npm run test:clear-native-cache               # remove local native-reference PNGs
-npm run test:cross-browser:record             # record Chrome canvas layout as reference
-npm run test:cross-browser:{firefox,webkit}   # compare that engine's canvas layout vs the Chrome reference
-npx vitest run -c vitest.node.config.ts tests/node/layout-logic.test.ts  # layout unit tests (Node, mocked measureText, <1s)
-npx vitest run tests/wrapping-parity.test.ts  # focused Chrome DOM-wrap regressions
-npx vitest run tests/flex-parity.test.ts      # flex item geometry vs the DOM (all 3 lanes)
-npx vitest run tests/computed-style-parity.test.ts  # ResolvedStyle vs getComputedStyle (all 3 lanes)
-npx vitest run tests/margin-collapse-parity.test.ts  # block margins vs the DOM (all 3 lanes, ratcheted)
-npm run probe:engines[:chromium|:firefox|:webkit]   # engine-probe matrix (measurement, not a gate)
-npx vitest run tests/geometry-oracle.test.ts  # line/token geometry vs the DOM, report-only (Chromium + WebKit)
-npx vitest run tests/render.test.ts           # render quality tests
-npm run test:stress                           # native-DOM layout width sweep (7 cases, 10px)
-npm run test:wrap-sweep                       # full corpus at 1px, default font (rare, ~20 s)
+npx vitest run --project node tests/node/layout-logic.test.ts          # layout unit tests (mocked measureText, <1s)
+npx vitest run --project chromium tests/wrapping-parity.test.ts        # focused Chrome DOM-wrap regressions
+npx vitest run --project chromium tests/flex-parity.test.ts            # flex item geometry vs the DOM (all 3 lanes)
+npx vitest run --project chromium tests/computed-style-parity.test.ts  # ResolvedStyle vs getComputedStyle (all 3 lanes)
+npx vitest run --project chromium tests/margin-collapse-parity.test.ts # block margins vs the DOM (all 3 lanes, ratcheted)
+npx vitest run --project chromium tests/render*.test.ts                # pixel/wrap baselines: render.test.ts + render.fonts.test.ts (5-font matrix)
+npx vitest run --project chromium tests/stress.test.ts                 # native-DOM layout width sweep (7 cases, 10px)
+npx vitest run --project chromium tests/wrap-sweep.test.ts             # full corpus at 1px, default font (rare, ~20 s)
+npx vitest run --project chromium tests/geometry-oracle.test.ts        # line/token geometry vs the DOM, report-only (also webkit)
+npx vitest run --project chromium tests/cross-browser.record.test.ts   # record Chrome canvas layout as reference
+npx vitest run --project webkit tests/cross-browser.compare.test.ts    # that engine's canvas layout vs the Chrome reference (also firefox)
 npm run dev                                   # demo page with side-by-side comparison
 npm run build                                 # TypeScript compilation
 ```
@@ -274,7 +291,7 @@ maintainer's machine, and font rasterization differs per OS and per GitHub
 runner image (ubuntu drifted scores up to +31.9%; even `macos-latest` WebKit
 missed 3 shadow keys). So GitHub Actions runs every lane with
 `RENDER_TAG_PORTABLE=1` — injected through a vitest `define` in
-`vitest.browser.config.ts` because the browser context has no `process.env`,
+`vitest.config.ts` because the browser context has no `process.env`,
 read via `tests/helpers/portable-mode.ts`.
 
 Portable mode gates everything that self-compares inside the current
@@ -285,7 +302,9 @@ FULL strictness, and skips only the environment-pinned contracts:
 - `render.test.ts` — the baseline score/wrap contract and key-set coverage
   (all cases still render and log; a throw still fails)
 - `cross-browser.compare.test.ts` — skipped entirely (the Chrome reference
-  layout is a local recording)
+  layout, `tests/cross-browser-reference.json`, is a git-ignored local
+  recording; `npx vitest run --project chromium tests/cross-browser.record.test.ts` creates it, and the suite
+  skips with that instruction when it is absent)
 - `wrap-fuzz.test.ts` — the structural-signature set only; overflow still gates
 - `native-dom-oracle.test.ts` — the ≤1-mismatched-pixel constant relaxes to a
   <2% transport-sanity bound
@@ -305,7 +324,12 @@ image update flakes them, move that gate behind the flag too.
 - `score`: content mismatch %. A change greater than 0.01% in either direction fails
 - `wrap`: exact normalized line membership; there is no 1–2 character drift allowance
 - Baselines cover default font cases, Polotno cases, and all cases × 5 fonts (Open Sans, Roboto, Playfair Display, Merriweather, Lobster)
-- Each browser has its own baselines — no cross-browser tolerance hack
+- Each browser has its own baselines — no cross-browser tolerance hack.
+  `baselines.firefox.json` gates only locally: CI runs portable (the
+  contract is skipped), and the lane became runnable on the maintainer's Mac
+  in October 2026 (`firefoxLaunch` in vitest.config.ts), when it was
+  re-recorded there. The two ubuntu-pinned Gecko parity rows (engine
+  divergence ratchet) still fail on the Mac.
 - Reference renderer: native browser screenshot (`tests/helpers/native-dom-command.ts`)
 - Line membership comes from `extractDomLines` (per-character `Range` rects
   for a word that wraps mid-word). **Take the LAST rect, never the first**: at
@@ -318,16 +342,20 @@ image update flakes them, move that gate behind the flag too.
 ### Updating baselines
 - **Tests never update baselines** — baselines are only updated via explicit commands as a deliberate milestone
 - **Any unrecorded change fails** — regression, improvement, wrap change, or key-set change
-- **Update commands** (run after verifying improvements):
-  - `npm run test:update-baselines` — Chrome baselines
-  - `npm run test:update-baselines:firefox` — Firefox baselines
-  - `npm run test:update-baselines:webkit` — WebKit baselines
-  - `npm run test:update-cross-browser-baseline:{firefox,webkit}` — structural residuals
-  - `npm run test:update-stress-baseline[:firefox|:webkit]` — width-sweep residuals
-  - `npm run test:update-wrap-sweep-baseline[:firefox|:webkit]` — full-corpus 1px sweep bands
-  - `npm run test:update-computed-style-failures[:firefox|:webkit]` — computed-style known failures
-  - `npm run test:update-engine-divergences[:firefox|:webkit]` — per-engine DOM-parity divergences
-  - `npm run test:update-perf-counters` — Node work-counter bounds (`tests/perf-counters-baseline.json`)
+- **One command**: `npm run update -- --project <browser> <files>` runs the
+  named files in `--mode update`, one file at a time; each rewrites its own
+  recorded contract for that engine. Run after verifying improvements:
+  - `tests/generate-baselines.test.ts` — `tests/baselines.<browser>.json` pixel scores and wraps
+  - `tests/cross-browser.compare.test.ts` — structural residuals (firefox, webkit)
+  - `tests/stress.test.ts` — width-sweep residuals
+  - `tests/wrap-sweep.test.ts` — full-corpus 1px sweep bands
+  - `tests/computed-style-parity.test.ts` — computed-style known failures
+  - the five DOM-parity suites, named together (a listed key of an unnamed
+    suite reads as stale): `tests/margin-collapse-parity.test.ts`,
+    `tests/line-baseline-parity.test.ts`, `tests/line-box-parity.test.ts`,
+    `tests/box-model-parity.test.ts`, `tests/flex-parity.test.ts` —
+    per-engine DOM-parity divergences (`tests/engine-divergences.json`)
+  - `--project node tests/node/perf-counters.test.ts` — Node work-counter bounds (`tests/perf-counters-baseline.json`)
 
 ### Computed-style oracle (`tests/computed-style-parity.test.ts`)
 
@@ -357,10 +385,12 @@ numbers. Tolerances stay in the suites, in engine layout units (Gecko's
 in portable CI too. Shared code: `tests/helpers/engine-divergences.ts` over
 `gateResidualBaseline`; a new parity suite calls `divergenceRatchet(suite)`,
 reports each case through `check`/`verdict`, and ends with `itRecords()` (it
-also fails on a listed key no case produced). Add the file to the update
-scripts, which run `--no-file-parallelism` because every file merges its keys
-into the one JSON. Firefox cannot launch on the maintainer's Mac: edit its
-entries by hand from a Firefox CI failure's messages.
+also fails on a listed key no case produced). Add the file to the
+engine-divergences entry under "Updating baselines"; update mode runs files
+one at a time because every file merges its keys into the one JSON. Firefox
+entries are the ubuntu CI runner's: the Mac's Gecko disagrees on system-font
+rows (`line-baseline › pitch 33.9px/1.15 sans-serif`, one box-model case), so
+edit them by hand from a Firefox CI failure's messages, never from a Mac run.
 
 Still engine-gated on purpose: `decoration-position-parity` and
 `decoration-shape-parity` (Gecko decoration geometry is unmeasured; the
@@ -368,7 +398,8 @@ Firefox lane does not run them) and `wrap-fuzz`'s per-browser signature sets.
 
 ### Engine-probe matrix (`tests/engine-probe.test.ts`) — measurement, not a gate
 
-`npm run probe:engines` (or `probe:engines:{chromium,firefox,webkit}`) runs
+`npm run probe:engines` (or `npx vitest run --project <browser>
+tests/engine-probe.test.ts`) runs
 parameterized DOM probes in each engine and writes the git-ignored
 `tests/engine-probe.<browser>.json`: per row the inputs, the engine's DOM
 numbers, render-tag's `layout()` prediction in that same browser, and the
@@ -379,17 +410,17 @@ and em line-heights, first baseline, line pitch, vertical-align shifts,
 min-height end margins, empty blocks, list markers, nested inline-blocks,
 decoration bands. Pinned fonts by default; `:system` families are separate.
 A probe is one table entry. Not in any lane: run it on the Mac when changing
-an engine rule. Firefox cannot launch there (`probe:engines` reports that,
-runs the other two and exits nonzero), so Gecko rules are fitted from the
-`Engine probe` workflow (`workflow_dispatch`, ubuntu, all three engines),
-which uploads the JSON files as artifacts and gates nothing.
+an engine rule. Gecko rules are fitted from the `Engine probe` workflow
+(`workflow_dispatch`, ubuntu, all three engines), which uploads the JSON
+files as artifacts and gates nothing; the Mac's Firefox run is a local
+preview only, because its system fonts differ from the runner's.
 
 ### Unit tests for layout logic (`tests/node/layout-logic.test.ts`)
 Unit tests cover deterministic layout algorithms directly — no browser, no fonts, no pixels. They mock `ctx.measureText` to return predictable widths (e.g., 10px per character), then assert the output of layout functions.
 
-They run in **Node** under `npm run test:node` (part of `npm test`); pass
-`-c vitest.node.config.ts` for a focused run, or the default config runs the
-file in Chromium. `layout({ html })` cases parse with linkedom
+They run in **Node** under `npm run test:node` (part of `npm test`);
+`npx vitest run --project node tests/node/layout-logic.test.ts` for a
+focused run. `layout({ html })` cases parse with linkedom
 (`setDOMParser`), pinned against the browser parser by
 `tests/node/parity.test.ts`. Node has no Gecko/WebKit user agent, so the
 engine flags take the Blink branch. A case that needs real font metrics or
@@ -426,7 +457,8 @@ Neither gate is environment-pinned, so CI runs both at full strictness.
   (inline preparation passes, segments, `Word` objects) through
   `buildLayoutTree`'s internal `stats` sink.
   `tests/perf-counters-baseline.json` is a ratchet: UP fails as a
-  regression, DOWN fails until promoted with `npm run test:update-perf-counters`.
+  regression, DOWN fails until promoted with
+  `npm run update -- --project node tests/node/perf-counters.test.ts`.
 
 ### Full-corpus 1px width sweep (`tests/wrap-sweep.test.ts`) — rare milestone gate
 
@@ -439,8 +471,8 @@ records only default-font keys, so it fails on every `@<font>` key: explore
 with it, record before gating on it. Run it deliberately, like a baseline.
 
 ```bash
-npm run test:wrap-sweep[:firefox|:webkit]
-npm run test:update-wrap-sweep-baseline[:firefox|:webkit]
+npx vitest run --project <browser> tests/wrap-sweep.test.ts
+npm run update -- --project <browser> tests/wrap-sweep.test.ts
 ```
 
 **Why 1px, when `stress.test.ts` already sweeps at 10px.** Wrapping is a STEP
@@ -465,7 +497,7 @@ measurement nudges.
 per-case detail, and the run logs the widest structural bands first — that
 ordering is the fixing queue.
 
-**This gate measures what the 531-key baselines cannot.** Those sample each
+**This gate measures what the 537-key baselines cannot.** Those sample each
 case at ONE width, so a case can read `wrap=true` there and still break at a
 third of all other widths.
 
@@ -486,7 +518,8 @@ browser's own layout of the same fixture. `compareGeometry`
 own width and writes `tests/geometry-report.<browser>.json` (git-ignored):
 per-key line membership, visual order, and signed per-token x / baseline /
 advance errors. It asserts nothing about the numbers yet; only an exception
-fails it. Chromium and WebKit lanes.
+fails it. In no lane (maintainer-only, like the wrap sweep): run it by name
+with `--project chromium` or `--project webkit`.
 
 - Same mount and word walk as the wrap oracle (`mountFixture`,
   `collectDomWords`, LAST character rect); lines are cut by `groupDomLines`,
@@ -502,8 +535,8 @@ fails it. Chromium and WebKit lanes.
 
 ### Wrap-accuracy debugging harness (`tests/wrap-debug.test.ts`)
 A maintainer tool (not part of `npm test`) for hunting text-wrapping divergences
-between the canvas and the real DOM. Run `npx vitest run tests/wrap-debug.test.ts`
-(or `-c vitest.firefox.config.ts` / `.webkit`); it sweeps every case × font ×
+between the canvas and the real DOM. Run `npx vitest run --project chromium tests/wrap-debug.test.ts`
+(or `--project firefox` / `webkit`); it sweeps every case × font ×
 width via `compareWrapping` and writes `tests/wrap-report.<browser>.json`
 (git-ignored) listing each failure with per-line diffs and by-case/by-font
 counts. Tune the run by editing the `FONT_MODE` / `WIDTH_MODE` / `CASE_FILTER`
@@ -594,8 +627,8 @@ own box geometry (Chromium and WebKit lanes).
   `overflow:hidden` content div.
 - **min-height on a parent is an engine rule** (`MIN_HEIGHT_END_MARGINS`):
   Blink drops the last child's margins when the min-height raises the box;
-  WebKit always collapses them out; Gecko keeps them inside (unverified,
-  Firefox cannot run here).
+  WebKit always collapses them out; Gecko keeps them inside (unverified
+  against Firefox CI).
 
 ### Flex sizing (`layoutFlex`, `flexBaseSize`, `resolveFlexibleLengths`)
 Every flex item has a **base size** before any space is shared, and that is the
@@ -685,7 +718,7 @@ everything inside keeping its laid-out offset. `SNAPS_LINE_PAINT` and
 `paintLineSnap` model it at paint time only: `LayoutText.y` stays the
 fractional baseline; render adds `round(lineTop) - lineTop` to glyphs,
 decorations, shadows and `paintBounds`. The line top is kept off the public
-node (`runLineTops`); a hand-built node falls back to its baseline. Snap the
+node (the `LINE_TOP` symbol); a hand-built node falls back to its baseline. Snap the
 line, never each run's baseline. Text in an inline-block snaps by its own
 inner line box. The auto underline hangs `ceil(fontSize / 20)` px below the
 SNAPPED baseline (`BLINK_UNDERLINE_GAP`). WebKit snaps to a DEVICE pixel
@@ -703,10 +736,12 @@ WebKit floors the font-size to 1/64px first). The paint snap is not public.
 Detecting the engine is UA-only (`accuracy: 'performance'` promises no DOM
 probe): Gecko is the one that sends a real `Gecko/<date>` token, Blink the one
 that says `Chrome/` — matched with NO word boundary, because headless Chrome
-says `HeadlessChrome/`. Safari sends neither. Firefox cannot launch here, so
-Gecko is verified only in Firefox CI: the parity suites gate there, with
-Gecko's known divergences in `tests/engine-divergences.json`, and its rules
-are fitted from the engine-probe workflow's output. Branded Safari has not
+says `HeadlessChrome/`. Safari sends neither. Gecko is verified in Firefox
+CI: the parity suites gate there, with Gecko's known divergences in
+`tests/engine-divergences.json`, and its rules are fitted from the
+engine-probe workflow's output. The local Firefox lane (macOS 27 needs the
+`firefoxLaunch` workaround in vitest.config.ts) previews it; its system-font
+rows differ from the runner's. Branded Safari has not
 been re-measured.
 
 `vertical-align: text-top` / `text-bottom` align the box's LEADED edge with the
@@ -790,10 +825,14 @@ oracle's visual-order count (0 in both lanes).
   openers. Small kana and `ー` are deliberately NOT glued: Chrome's default
   `line-break: auto` breaks before them freely (adding them would CREATE
   divergence).
-- Blink paints a plain Latin/Cyrillic/Greek source run with one `fillText` call,
-  preserving shaping across spaces. Layout remains word-based and public. The
-  paint batch is disabled for complex scripts, rich paints, justification,
-  nested boxes, Gecko, and WebKit.
+- Blink paints a plain Latin/Cyrillic/Greek text fragment with one `fillText`
+  call per measured run, preserving shaping across spaces. Layout remains
+  word-based and public. The batch is decided per FRAGMENT (`forEachFragment`):
+  a fragment whose runs are all plain batches even when a sibling is
+  decorated, boxed or nested; a run with decorations, strokes, clip paints or
+  justification, a complex script, Gecko or WebKit does not. Text shadows are
+  cast from the same batched run as the foreground
+  (`tests/node/paint-runs.test.ts`).
 - **Block strut**: every line box has a minimum height AND a baseline from the
   block's OWN font (its font-size × line-height), even when all inline content
   on the line is smaller. `flowInlineLines` seeds `flowLines` (line height)

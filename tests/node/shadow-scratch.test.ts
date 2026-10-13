@@ -15,7 +15,7 @@
  */
 import { afterAll, expect, it } from 'vitest';
 import { DOMParser as LinkedomDOMParser } from 'linkedom';
-import { layout, drawLayout, setDOMParser } from '../../src/index.node.ts';
+import { layout, drawLayout, setDOMParser } from '../../src/index.ts';
 import { recordingCtx } from '../helpers/recording-ctx.ts';
 
 afterAll(() => setDOMParser(null));
@@ -61,4 +61,19 @@ it('casts one image per tile for every shadow value, not one per value', () => {
   expect(handedPixels).toBeLessThan(contentPixels * 1.25);
   // The pool never holds a whole-document mask: a tile is a fraction of it.
   expect(rec.scratch.peakPixels - handedPixels).toBeLessThan(contentPixels / 4);
+});
+
+// A shadow image beyond Blink's canvas area limit could not be drawn, and its
+// tile loop did not end (1e20px font: tileTop + 64 === tileTop) or allocated
+// thousands of canvases (1e5px blur).
+it('skips a shadow image no canvas could hold instead of tiling it', () => {
+  setDOMParser(new LinkedomDOMParser());
+  for (const style of ['font-size:1e20px;text-shadow:1px 1px 1px red', 'text-shadow:0 0 1e5px red']) {
+    const rec = recordingCtx(WIDTH, 1000);
+    const html = `<p style="${style}">${PARAGRAPH}</p>`.repeat(3);
+    const result = layout({ html, width: WIDTH, ctx: rec.ctx });
+    drawLayout({ layout: result, width: WIDTH, ctx: rec.ctx, createCanvas: rec.createCanvas });
+    expect([style, rec.scratch.created]).toEqual([style, 0]);
+    expect(rec.paints.some((p) => p.startsWith('fillText('))).toBe(true);
+  }
 });

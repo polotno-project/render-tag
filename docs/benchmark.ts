@@ -1,5 +1,5 @@
 import { compareWrapping, extractDomLines } from '../tests/helpers/compare.ts';
-import { compareSvgRenders } from '../tests/helpers/svg-compare.ts';
+import { compareSvgRenders } from './svg-compare.ts';
 import { loadBasicCases, polotnoCase, polotnoListsCase, FONT_VARIANTS, loadMultiFontCss } from '../tests/helpers/test-cases.ts';
 import type { BenchmarkCase } from '../tests/helpers/test-cases.ts';
 import { layout } from '../src/index.ts';

@@ -1,10 +1,10 @@
-import { htmlToImage } from 'html-to-svg';
+import { htmlToImage } from './html-to-svg/index.ts';
 import {
   compareRendersWithReference,
   type ComparisonResult,
-} from './compare.ts';
+} from '../tests/helpers/compare.ts';
 
-/** Render through the demo's optional SVG foreignObject path. */
+/** Render through the demo's SVG foreignObject path (docs only; not a test oracle). */
 export async function renderToSvg(
   html: string,
   css: string,

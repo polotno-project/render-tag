@@ -1,61 +1,15 @@
 import { describe, it, expect } from 'vitest';
-import { compareWrapping, WRAP_SKIPS } from './helpers/compare.ts';
+import { compareWrapping } from './helpers/compare.ts';
 import { compareNativeRenders as compareRenders } from './helpers/native-compare.ts';
-import { loadBasicCases, polotnoCase, polotnoListsCase, negativeListMarginsCase, FONT_VARIANTS, loadMultiFontCss } from './helpers/test-cases.ts';
+import { loadBasicCases, polotnoCase, polotnoListsCase, negativeListMarginsCase, FONT_VARIANTS } from './helpers/test-cases.ts';
 import type { BenchmarkCase } from './helpers/test-cases.ts';
-import {
-  classifyBaselineResult,
-  validateBaselineCoverage,
-  type BaselineEntry,
-} from './helpers/baselines.ts';
-import chromeBaselines from './baselines.chrome.json';
-import firefoxBaselines from './baselines.firefox.json';
-import webkitBaselines from './baselines.webkit.json';
+import { validateBaselineCoverage } from './helpers/baselines.ts';
+import { baselineKey, baselineMap, gateBaselines, PIXEL_RATIO } from './helpers/render-corpus.ts';
 import { browserName } from './helpers/browser-name.ts';
 import { PORTABLE_GATES_ONLY } from './helpers/portable-mode.ts';
 
-// Each browser has its own baseline file — no cross-browser tolerance needed.
-const SCORE_TOLERANCE = 0.01;
-const PIXEL_RATIO = 2;
-
-const baselineFiles: Record<string, Record<string, BaselineEntry>> = {
-  chrome: chromeBaselines as Record<string, BaselineEntry>,
-  firefox: firefoxBaselines as Record<string, BaselineEntry>,
-  webkit: webkitBaselines as Record<string, BaselineEntry>,
-};
-const baselineMap = baselineFiles[browserName];
-
-function formatResult(name: string, score: number, wrap: boolean, baseline?: BaselineEntry): string {
-  const scoreDelta = baseline ? (score - baseline.score) : 0;
-  const scoreStr = baseline
-    ? (scoreDelta < -0.5 ? ` (${scoreDelta.toFixed(1)} improved)` : scoreDelta > SCORE_TOLERANCE ? ` (+${scoreDelta.toFixed(1)} REGRESSION!)` : '')
-    : '';
-  const wrapStr = baseline
-    ? (baseline.wrap && !wrap ? ' (WRAP REGRESSION!)' : !baseline.wrap && wrap ? ' (wrap improved)' : '')
-    : '';
-  return `[${name}] score: ${score.toFixed(2)}%${scoreStr} | wrap: ${wrap}${wrapStr}`;
-}
-
-/** Run a single case: pixel comparison + wrapping check. Returns score and wrap result. */
-async function runCase(
-  tc: BenchmarkCase,
-  css: string,
-): Promise<{ score: number; wrap: boolean }> {
-  const result = await compareRenders(tc.html, css, tc.width, tc.height, 0.1, PIXEL_RATIO);
-  const wrap = WRAP_SKIPS.has(tc.name)
-    ? { wrappingMatch: true } // skipped = treat as passing
-    : compareWrapping(tc.html, css, tc.width, tc.height, result.canvasLines);
-  return { score: result.contentMismatchPercentage, wrap: wrap.wrappingMatch };
-}
-
-/** Baseline key for a case, optionally with a font suffix. */
-function baselineKey(caseName: string, fontName?: string): string {
-  return fontName ? `${caseName}@${fontName}` : caseName;
-}
-
 describe('HTML Canvas Renderer', () => {
   let allCases: BenchmarkCase[];
-
 
   it('loads all test cases', async () => {
     allCases = await loadBasicCases();
@@ -82,31 +36,7 @@ describe('HTML Canvas Renderer', () => {
     it('all cases (score + wrapping)', async () => {
       if (!allCases) allCases = await loadBasicCases();
       const cases = [...allCases, polotnoCase, polotnoListsCase, negativeListMarginsCase];
-      const baselineIssues: string[] = [];
-
-      for (const tc of cases) {
-        const key = baselineKey(tc.name);
-        const baseline = PORTABLE_GATES_ONLY ? undefined : baselineMap[key];
-        const { score, wrap } = await runCase(tc, tc.css);
-
-        console.log(formatResult(key, score, wrap, baseline));
-        if (!PORTABLE_GATES_ONLY) {
-          baselineIssues.push(
-            ...classifyBaselineResult(
-              key,
-              score,
-              wrap,
-              baseline,
-              SCORE_TOLERANCE,
-            ),
-          );
-        }
-      }
-
-      expect(
-        baselineIssues,
-        `Baseline contract changed:\n  ${baselineIssues.join('\n  ')}`,
-      ).toEqual([]);
+      await gateBaselines(cases.map((tc) => ({ key: baselineKey(tc.name), tc, css: tc.css })));
     }, 300000);
   });
 
@@ -235,49 +165,8 @@ describe('HTML Canvas Renderer', () => {
     });
   });
 
-  describe('Multi-font matrix', () => {
-    // Cold WebKit native captures can take longer than five minutes on macOS.
-    it('all cases × all fonts (score + wrapping)', async () => {
-      if (!allCases) allCases = await loadBasicCases();
-      const multiFontCss = await loadMultiFontCss();
-      const fonts = FONT_VARIANTS;
-      const baselineIssues: string[] = [];
-
-      for (const font of fonts) {
-        let totalScore = 0;
-        let count = 0;
-
-        for (const tc of allCases) {
-          const css = multiFontCss + '\n' + tc.css + `\nbody { font-family: ${font.family} !important; }`;
-          const key = baselineKey(tc.name, font.name);
-          const baseline = PORTABLE_GATES_ONLY ? undefined : baselineMap[key];
-          const { score, wrap } = await runCase(tc, css);
-
-          console.log(formatResult(key, score, wrap, baseline));
-          totalScore += score;
-          count++;
-          if (!PORTABLE_GATES_ONLY) {
-            baselineIssues.push(
-              ...classifyBaselineResult(
-                key,
-                score,
-                wrap,
-                baseline,
-                SCORE_TOLERANCE,
-              ),
-            );
-          }
-        }
-
-        console.log(`[${font.name}] avg: ${(totalScore / count).toFixed(1)}%`);
-      }
-
-      expect(
-        baselineIssues,
-        `Baseline contract changed:\n  ${baselineIssues.join('\n  ')}`,
-      ).toEqual([]);
-    }, 900000);
-  });
+  // The 5-font matrix runs in tests/render.fonts.test.ts
+  // (tests/helpers/render-corpus.ts); its keys are validated above.
 
   describe('Visual debug: bullet item with leading nbsp', () => {
     it('renders the case and prints layout', async () => {

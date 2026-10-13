@@ -5,14 +5,14 @@
  */
 import { it, expect, afterAll } from 'vitest';
 import { DOMParser } from 'linkedom';
-import { layoutTextOnPath } from '../../src/path/index.node.ts';
+import { layoutTextOnPath } from '../../src/path/index.ts';
 import {
   lineBaselineOffset,
   getFontMetrics,
   tabStopMetrics,
   layout,
   setDOMParser,
-} from '../../src/index.node.ts';
+} from '../../src/index.ts';
 import type {
   LayoutBox,
   LayoutText,
@@ -20,7 +20,7 @@ import type {
   ResolvedStyle,
   DecorationEntry,
   BorderRadius,
-} from '../../src/index.node.ts';
+} from '../../src/index.ts';
 import { mockCtx, CHAR_WIDTH } from '../helpers/mock-ctx.ts';
 
 it('re-exports the shared metric helpers', () => {
@@ -53,7 +53,7 @@ it('names the layout node types', () => {
 
 afterAll(() => setDOMParser(null));
 
-it('measures painted bounds through both Node entry points without a DOM canvas', () => {
+it('measures painted bounds through both entry points without a DOM canvas', () => {
   setDOMParser(new DOMParser());
   const ctx = mockCtx();
   const html = '<div style="font-size:40px;text-shadow:60px 0 red">Hello</div>';

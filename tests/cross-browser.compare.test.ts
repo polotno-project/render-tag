@@ -1,10 +1,11 @@
 /**
  * Compare current browser's canvas layout against Chrome reference.
- * Run after recording Chrome reference with test:cross-browser:record.
+ * Run after recording the Chrome reference (tests/cross-browser.record.test.ts).
  *
- *   npm run test:cross-browser:firefox
- *   npm run test:cross-browser:webkit
+ *   npx vitest run --project webkit tests/cross-browser.compare.test.ts   # or firefox
+ *   npm run update -- --project webkit tests/cross-browser.compare.test.ts
  */
+/// <reference types="vite/client" />
 import { describe, it, expect } from 'vitest';
 import { commands } from 'vitest/browser';
 import { prepareComparisonFonts, renderToCanvas } from './helpers/compare.ts';
@@ -14,7 +15,6 @@ import {
 } from './helpers/wrap-comparison.ts';
 import { loadBasicCases, polotnoCase, polotnoListsCase, FONT_VARIANTS, loadMultiFontCss } from './helpers/test-cases.ts';
 import { gateResidualBaseline } from './helpers/baselines.ts';
-import reference from './cross-browser-reference.json';
 import residualBaseline from './cross-browser-baseline.json';
 import { browserName } from './helpers/browser-name.ts';
 import { PORTABLE_GATES_ONLY } from './helpers/portable-mode.ts';
@@ -28,7 +28,14 @@ interface ReferenceEntry {
   lines: ReferenceLine[];
 }
 
-const refMap = reference as Record<string, ReferenceEntry>;
+// The recording is git-ignored (environment-pinned): a fresh clone has none
+// until `npx vitest run --project chromium tests/cross-browser.record.test.ts` runs.
+const RECORDING = './cross-browser-reference.json';
+const reference = import.meta.glob<{ default: Record<string, ReferenceEntry> }>(
+  './cross-browser-reference.json',
+  { eager: true },
+)[RECORDING]?.default;
+const refMap: Record<string, ReferenceEntry> = reference ?? {};
 
 function baselineKey(caseName: string, fontName?: string): string {
   return fontName ? `${caseName}@${fontName}` : caseName;
@@ -95,6 +102,13 @@ function compareLinesAgainstReference(
 // the maintainer's machine; canvas metrics shift per OS, so portable mode
 // (CI) skips this suite entirely.
 describe.skipIf(PORTABLE_GATES_ONLY)(`Cross-browser consistency: ${browserName} vs chrome`, () => {
+  if (!reference) {
+    it('needs the Chrome reference recording', ({ skip }) => {
+      skip(`tests${RECORDING.slice(1)} is missing: run \`npx vitest run --project chromium tests/cross-browser.record.test.ts\` first`);
+    });
+    return;
+  }
+
   it('all cases match Chrome reference layout', async () => {
     const allCases = await loadBasicCases();
     const results: CaseResult[] = [];
@@ -146,7 +160,7 @@ describe.skipIf(PORTABLE_GATES_ONLY)(`Cross-browser consistency: ${browserName} 
           console.log(`[${r.key}] Y-DRIFT: ${r.maxYDrift?.toFixed(1)}px`);
         }
       } else if (r.status === 'no-reference') {
-        console.log(`[${r.key}] NO REFERENCE (run test:cross-browser:record first)`);
+        console.log(`[${r.key}] NO REFERENCE (record tests/cross-browser.record.test.ts first)`);
       }
     }
 
@@ -173,7 +187,7 @@ describe.skipIf(PORTABLE_GATES_ONLY)(`Cross-browser consistency: ${browserName} 
     console.log(`\n=== Summary: ${matches.length + yDriftOnly.length}/${results.length} consistent | ${lineCountMismatches.length} line-count | ${textMismatches.length} text | ${yDriftOnly.length} y-drift-only ===`);
 
     if (noRef.length > 0) {
-      console.log(`WARNING: ${noRef.length} cases have no Chrome reference. Run: npm run test:cross-browser:record`);
+      console.log(`WARNING: ${noRef.length} cases have no Chrome reference. Run: npx vitest run --project chromium tests/cross-browser.record.test.ts`);
     }
 
     const signatures = results
@@ -193,7 +207,7 @@ describe.skipIf(PORTABLE_GATES_ONLY)(`Cross-browser consistency: ${browserName} 
       browserName,
       signatures,
       recorded: residualBaseline as Record<string, string[]>,
-      updateMode: import.meta.env.MODE === 'update-cross-browser',
+      updateMode: import.meta.env.MODE === 'update',
       writeFile: commands.writeFile,
     });
     if (expected === null) return;

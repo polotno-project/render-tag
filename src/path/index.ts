@@ -92,7 +92,7 @@ export function layoutTextOnPath(config: LayoutTextOnPathConfig): TextOnPathLayo
       ...result,
       get paintBounds() {
         return paintBounds ??= measurePaintBounds(measureCtx,
-          () => pathPaintBounds(new PaintState(measureCtx, 1, false, fontMetrics), result));
+          () => pathPaintBounds(new PaintState(measureCtx, 1, false, fontMetrics), new Map(), result));
       },
     };
     layoutFontMetrics.set(layout, fontMetrics);
@@ -102,11 +102,22 @@ export function layoutTextOnPath(config: LayoutTextOnPathConfig): TextOnPathLayo
   }
 }
 
-interface PathShadowGroup {
-  glyphs: GlyphPlacement[][];
-  shadows: TextShadow[];
-  bounds?: PaintBounds;
+/** One shadow-casting glyph; `paintTextShadows` culls pieces per tile. */
+interface GlyphPiece {
+  bounds: PaintBounds;
+  glyph: GlyphPlacement;
+  /** Its contiguous span: decorations paint per span so the dash phase holds. */
+  span: GlyphPlacement[];
 }
+
+interface PathShadowGroup {
+  spans: GlyphPlacement[][];
+  shadows: TextShadow[];
+  pieces?: GlyphPiece[];
+}
+
+/** Local glyph ink by style and text, measured once per draw. */
+type InkCache = Map<ResolvedStyle, Map<string, PaintBounds>>;
 
 function collectPathShadowGroups(glyphs: GlyphPlacement[]): Map<string, PathShadowGroup> {
   const groups = new Map<string, PathShadowGroup>();
@@ -117,44 +128,60 @@ function collectPathShadowGroups(glyphs: GlyphPlacement[]): Map<string, PathShad
     const key = shadows.length ? json : '';
     if (key) {
       let group = groups.get(key);
-      if (!group) { group = { glyphs: [], shadows }; groups.set(key, group); }
+      if (!group) { group = { spans: [], shadows }; groups.set(key, group); }
       // Keep gaps: decorations must not bridge unrelated spans.
-      if (key !== previousKey) group.glyphs.push([]);
-      group.glyphs[group.glyphs.length - 1].push(glyph);
+      if (key !== previousKey) group.spans.push([]);
+      group.spans[group.spans.length - 1].push(glyph);
     }
     previousKey = key;
   }
   return groups;
 }
 
-function pathForegroundBounds(
-  ps: PaintState, glyphs: GlyphPlacement[], tb: TextBaseline,
-): PaintBounds {
-  if (!glyphs.length) return { x: 0, y: 0, width: 0, height: 0 };
-  return glyphs.map(g => {
+/** A glyph's painted box in world space. */
+function glyphBounds(ps: PaintState, cache: InkCache, g: GlyphPlacement, tb: TextBaseline): PaintBounds {
+  let byText = cache.get(g.style);
+  if (!byText) cache.set(g.style, byText = new Map());
+  // The last glyph's width lacks its trailing letter-space.
+  const key = g.width + ' ' + g.char;
+  let local = byText.get(key);
+  if (!local) {
     const baseY = baselineLocalY(tb, g.ascent, g.descent);
     ps.glyph(g.style);
     const ink = textPaintBounds(ps.ctx, g.char, g.style, 0, baseY, g.width);
-    const box = unionBounds(ink, { x: 0, y: baseY - g.ascent, width: g.width, height: g.ascent + g.descent });
-    const c = Math.cos(g.rotation), s = Math.sin(g.rotation);
-    return transformBounds(box, { a: c, b: s, c: -s, d: c, e: g.x, f: g.y });
-  }).reduce(unionBounds);
+    local = unionBounds(ink, { x: 0, y: baseY - g.ascent, width: g.width, height: g.ascent + g.descent });
+    byText.set(key, local);
+  }
+  const c = Math.cos(g.rotation), s = Math.sin(g.rotation);
+  return transformBounds(local, { a: c, b: s, c: -s, d: c, e: g.x, f: g.y });
 }
 
-function pathPaintBounds(
-  ps: PaintState, layout: LayoutOutput,
-  groups = collectPathShadowGroups(layout.glyphs),
+function pathForegroundBounds(
+  ps: PaintState, cache: InkCache, glyphs: GlyphPlacement[], tb: TextBaseline,
 ): PaintBounds {
-  let bounds = pathForegroundBounds(ps, layout.glyphs, layout.textBaseline);
-  for (const group of groups.values()) {
-    bounds = unionBounds(bounds, shadowBounds(groupInk(ps, group, layout.textBaseline), group.shadows));
-  }
+  if (!glyphs.length) return { x: 0, y: 0, width: 0, height: 0 };
+  let bounds = glyphBounds(ps, cache, glyphs[0], tb);
+  for (let i = 1; i < glyphs.length; i++) bounds = unionBounds(bounds, glyphBounds(ps, cache, glyphs[i], tb));
   return bounds;
 }
 
-/** A shadow group's foreground ink, measured once per draw. */
-function groupInk(ps: PaintState, group: PathShadowGroup, tb: TextBaseline): PaintBounds {
-  return group.bounds ??= pathForegroundBounds(ps, group.glyphs.flat(), tb);
+/** A group's glyphs as shadow pieces, measured once per draw. */
+function groupPieces(ps: PaintState, cache: InkCache, group: PathShadowGroup, tb: TextBaseline): GlyphPiece[] {
+  return group.pieces ??= group.spans.flatMap(span =>
+    span.map(glyph => ({ bounds: glyphBounds(ps, cache, glyph, tb), glyph, span })));
+}
+
+function pathPaintBounds(
+  ps: PaintState, cache: InkCache, layout: LayoutOutput,
+  groups = collectPathShadowGroups(layout.glyphs),
+): PaintBounds {
+  const tb = layout.textBaseline;
+  let bounds = pathForegroundBounds(ps, cache, layout.glyphs, tb);
+  for (const group of groups.values()) {
+    const ink = groupPieces(ps, cache, group, tb).map(p => p.bounds).reduce(unionBounds);
+    bounds = unionBounds(bounds, shadowBounds(ink, group.shadows));
+  }
+  return bounds;
 }
 
 /** Draw a layout: backgrounds, text shadows, glyphs, decorations; ctx is restored. */
@@ -168,6 +195,7 @@ export function drawTextOnPathLayout(config: DrawTextOnPathLayoutConfig): void {
     drawGlyphs(ps, glyphs, layout.textWidth, tb);
     drawDecorations(ps, glyphs, layout.textWidth, tb);
   };
+  const cache: InkCache = new Map();
   withDraw(ctx, config, 1, fontMetrics, (stateOf, pool) => {
     if (!pool) {
       const ps = stateOf(ctx);
@@ -177,14 +205,15 @@ export function drawTextOnPathLayout(config: DrawTextOnPathLayoutConfig): void {
     }
     const groups = collectPathShadowGroups(layout.glyphs);
     const measure = stateOf(ctx);
-    withCanvasShadow(ctx, () => pathPaintBounds(measure, layout, groups), target => {
+    withCanvasShadow(ctx, () => pathPaintBounds(measure, cache, layout, groups), target => {
       const ps = stateOf(target);
       drawBackgrounds(ps, layout.glyphs, tb);
       for (const group of groups.values()) {
-        // One piece: each tile the group spans repaints all its glyphs.
-        paintTextShadows(target, [{ bounds: groupInk(measure, group, tb) }], group.shadows, mask => {
+        paintTextShadows(target, groupPieces(measure, cache, group, tb), group.shadows, (mask, inside) => {
+          // The tile's glyphs only; a decorated span whole, so its dash phase holds.
           const maskState = new PaintState(mask, 1, true, fontMetrics);
-          group.glyphs.forEach(glyphs => foreground(maskState, glyphs));
+          drawGlyphs(maskState, inside.map(p => p.glyph), layout.textWidth, tb);
+          for (const span of new Set(inside.map(p => p.span))) drawDecorations(maskState, span, layout.textWidth, tb);
         }, pool);
       }
       foreground(ps, layout.glyphs);
@@ -199,8 +228,9 @@ export function drawTextOnPath(config: DrawTextOnPathConfig): DrawTextOnPathResu
   return layout;
 }
 
-/** A colour's canonical `fillStyle` form, so `red` and `#f00` group together. */
+/** A colour's canonical `fillStyle` form, so `red` and `#f00` group together. Bounded: cleared when full. */
 const colorCanon = new WeakMap<CanvasRenderingContext2D, Map<string, string>>();
+const COLOR_CANON_MAX = 512;
 function canonicalColor(ctx: CanvasRenderingContext2D, color: string): string {
   if (!color) return '';
   let perCtx = colorCanon.get(ctx);
@@ -211,9 +241,31 @@ function canonicalColor(ctx: CanvasRenderingContext2D, color: string): string {
     ctx.fillStyle = color;
     canon = typeof ctx.fillStyle === 'string' ? ctx.fillStyle : color;
     ctx.fillStyle = prev;
+    if (perCtx.size >= COLOR_CANON_MAX) perCtx.clear();
     perCtx.set(color, canon);
   }
   return canon;
+}
+
+/** The caller's transform, or null on a ctx that cannot report it (then save/translate/rotate/restore per glyph). */
+function frameBase(ctx: CanvasRenderingContext2D): DOMMatrix | null {
+  return typeof ctx.getTransform === 'function' ? ctx.getTransform() : null;
+}
+
+/** Enter glyph `g`'s frame: one setTransform, composed as translate then rotate. */
+function enterFrame(ps: PaintState, base: DOMMatrix | null, g: GlyphPlacement): void {
+  const { ctx } = ps;
+  if (!base) { ps.save(); ctx.translate(g.x, g.y); ctx.rotate(g.rotation); return; }
+  const c = Math.cos(g.rotation), s = Math.sin(g.rotation);
+  ctx.setTransform(
+    base.a * c + base.c * s, base.b * c + base.d * s,
+    base.a * -s + base.c * c, base.b * -s + base.d * c,
+    base.a * g.x + base.c * g.y + base.e, base.b * g.x + base.d * g.y + base.f);
+}
+
+/** Back to the caller's transform after the last glyph. */
+function exitFrames(ctx: CanvasRenderingContext2D, base: DOMMatrix | null): void {
+  if (base) ctx.setTransform(base.a, base.b, base.c, base.d, base.e, base.f);
 }
 
 /** Fill each run of glyphs sharing a background colour as one curve-following polygon. */
@@ -338,8 +390,9 @@ function drawGlyphs(
   tb: TextBaseline,
 ): void {
   const { ctx } = ps;
+  const base = frameBase(ctx);
   for (const g of glyphs) {
-    // Set before the transform scope so it survives the restore.
+    // Set before the frame: a fallback save scope forgets what is written inside.
     ps.glyph(g.style);
     const baseY = baselineLocalY(tb, g.ascent, g.descent);
     // A shadow mask fills every glyph: its shadow is the glyph's shape.
@@ -348,15 +401,14 @@ function drawGlyphs(
     if (fill) ps.fill(fill);
     if (isStroked) ps.textStroke(g.style, strokePaintFor(ctx, g, textWidth, baseY));
 
-    ctx.save();
-    ctx.translate(g.x, g.y);
-    ctx.rotate(g.rotation);
+    enterFrame(ps, base, g);
     const drawFill = () => { if (fill) ctx.fillText(g.char, 0, baseY); };
     const drawStroke = () => { if (isStroked) ctx.strokeText(g.char, 0, baseY); };
     if (paintOrderHasStrokeFirst(g.style.paintOrder || '')) { drawStroke(); drawFill(); }
     else { drawFill(); drawStroke(); }
-    ctx.restore();
+    if (!base) ps.restore();
   }
+  exitFrames(ctx, base);
 }
 
 /** A glyph's decoration entry for one line kind: the last match wins. */
@@ -454,13 +506,12 @@ function drawDecorationRun(
     ctx.stroke();
     return;
   }
+  const base = frameBase(ctx);
   for (const g of group) {
-    // State written inside the transform scope is forgotten when it closes.
-    ps.save();
-    ctx.translate(g.x, g.y);
-    ctx.rotate(g.rotation);
+    enterFrame(ps, base, g);
     const paint = color ?? clipPaintFor(ctx, g, textWidth, baselineLocalY(tb, g.ascent, g.descent));
     if (paint) drawDecorationLine(ps, 0, localY(g), g.width, lineWidth, decoStyle, paint);
-    ps.restore();
+    if (!base) ps.restore();
   }
+  exitFrames(ctx, base);
 }

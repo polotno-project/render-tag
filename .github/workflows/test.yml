@@ -21,42 +21,28 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  chromium:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: npm
-      - run: npm ci
-      - name: Cache native DOM references
-        uses: actions/cache@v6
-        with:
-          path: node_modules/.cache/render-tag/native-dom
-          # A unique key every run: actions/cache only uploads when the key
-          # missed, and references added by this run must get written back.
-          # What actually invalidates a reference is decided in
-          # tests/helpers/native-dom-command.ts, which partitions the cache by
-          # an environment digest and prunes the directories it supersedes.
-          key: ${{ runner.os }}-native-dom-chromium-${{ github.run_id }}
-          restore-keys: |
-            ${{ runner.os }}-native-dom-chromium-
-      - name: Cache Playwright browsers
-        uses: actions/cache@v6
-        with:
-          path: ${{ runner.os == 'macOS' && '~/Library/Caches/ms-playwright' || '~/.cache/ms-playwright' }}
-          key: ${{ runner.os }}-playwright-chromium-${{ hashFiles('package-lock.json') }}
-      - run: npx playwright install --with-deps chromium
-      - run: npm test
-        env:
-          RENDER_TAG_PORTABLE: "1"
-      - run: npm run build
-
-  firefox:
-    runs-on: ubuntu-latest
+  test:
+    name: ${{ matrix.browser }}
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - browser: chromium
+            os: ubuntu-latest
+            install: --with-deps chromium
+            script: test
+          - browser: firefox
+            os: ubuntu-latest
+            install: --with-deps firefox
+            script: test:firefox
+          # Playwright WebKit is not branded Safari, but running the engine on
+          # macOS is the closest automatable full-corpus lane to shipping Safari.
+          - browser: webkit
+            os: macos-latest
+            install: webkit
+            script: test:webkit
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v7
@@ -73,49 +59,17 @@ jobs:
           # What actually invalidates a reference is decided in
           # tests/helpers/native-dom-command.ts, which partitions the cache by
           # an environment digest and prunes the directories it supersedes.
-          key: ${{ runner.os }}-native-dom-firefox-${{ github.run_id }}
+          key: ${{ runner.os }}-native-dom-${{ matrix.browser }}-${{ github.run_id }}
           restore-keys: |
-            ${{ runner.os }}-native-dom-firefox-
+            ${{ runner.os }}-native-dom-${{ matrix.browser }}-
       - name: Cache Playwright browsers
         uses: actions/cache@v6
         with:
           path: ${{ runner.os == 'macOS' && '~/Library/Caches/ms-playwright' || '~/.cache/ms-playwright' }}
-          key: ${{ runner.os }}-playwright-firefox-${{ hashFiles('package-lock.json') }}
-      - run: npx playwright install --with-deps firefox
-      - run: npm run test:firefox
+          key: ${{ runner.os }}-playwright-${{ matrix.browser }}-${{ hashFiles('package-lock.json') }}
+      - run: npx playwright install ${{ matrix.install }}
+      - run: npm run ${{ matrix.script }}
         env:
           RENDER_TAG_PORTABLE: "1"
-
-  webkit:
-    # Playwright WebKit is not branded Safari, but running the engine on macOS
-    # is the closest automatable full-corpus lane to shipping Safari.
-    runs-on: macos-latest
-    timeout-minutes: 25
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: npm
-      - run: npm ci
-      - name: Cache native DOM references
-        uses: actions/cache@v6
-        with:
-          path: node_modules/.cache/render-tag/native-dom
-          # A unique key every run: actions/cache only uploads when the key
-          # missed, and references added by this run must get written back.
-          # What actually invalidates a reference is decided in
-          # tests/helpers/native-dom-command.ts, which partitions the cache by
-          # an environment digest and prunes the directories it supersedes.
-          key: ${{ runner.os }}-native-dom-webkit-${{ github.run_id }}
-          restore-keys: |
-            ${{ runner.os }}-native-dom-webkit-
-      - name: Cache Playwright browsers
-        uses: actions/cache@v6
-        with:
-          path: ${{ runner.os == 'macOS' && '~/Library/Caches/ms-playwright' || '~/.cache/ms-playwright' }}
-          key: ${{ runner.os }}-playwright-webkit-${{ hashFiles('package-lock.json') }}
-      - run: npx playwright install webkit
-      - run: npm run test:webkit
-        env:
-          RENDER_TAG_PORTABLE: "1"
+      - if: matrix.browser == 'chromium'
+        run: npm run build

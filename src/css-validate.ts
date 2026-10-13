@@ -2,27 +2,12 @@
 // colors, images, shadows, font families, keywords — per CSS Color 4, Images 4,
 // Text Decoration, Fonts 4 as Blink/WebKit parse them. An invalid value (incl.
 // `var()`/`attr()`/`env()`) drops the declaration, so the cascaded value survives.
-import { resolveLength, type LengthBasis } from './css-values.js';
+import { memoized, resolveLength, type LengthBasis } from './css-values.js';
+import { splitTopLevel } from './css-syntax.js';
+
+export { splitTopLevel };
 
 // ─── Splitting ──────────────────────────────────────────────────────
-
-/** Split at a top-level separator (outside parens and strings). */
-export function splitTopLevel(value: string, separator: string): string[] {
-  const out: string[] = [];
-  let depth = 0;
-  let quote = '';
-  let start = 0;
-  for (let i = 0; i < value.length; i++) {
-    const c = value[i];
-    if (quote) { if (c === quote) quote = ''; else if (c === '\\') i++; }
-    else if (c === '"' || c === "'") quote = c;
-    else if (c === '(') depth++;
-    else if (c === ')') depth--;
-    else if (c === separator && depth === 0) { out.push(value.slice(start, i)); start = i + 1; }
-  }
-  out.push(value.slice(start));
-  return out;
-}
 
 /** Split on whitespace, but only at paren-depth 0 — keeps `rgb(1, 2, 3)` intact. */
 export function splitTopLevelWhitespace(value: string): string[] {
@@ -76,8 +61,8 @@ const PERCENT = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?%$/i;
 const ANGLE = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?(?:deg|rad|grad|turn)$/i;
 export const MATH = /^(?:calc|min|max|clamp)\(/i;
 
-/** A basis that resolves every unit, for syntax checks only. */
-const CHECK_BASIS: LengthBasis = {
+/** A basis that resolves every unit, for syntax checks only (the resolver's shorthand checks copy it). */
+export const CHECK_BASIS: LengthBasis = {
   em: 16, rem: 16, percent: 1, viewport: { width: 100, height: 100 }, fontStyle: null, measure: undefined,
 };
 const CHECK_BASIS_NO_PERCENT: LengthBasis = { ...CHECK_BASIS, percent: NaN };
@@ -166,23 +151,10 @@ function isLegacyChannels(parts: string[], hsl: boolean): boolean {
 }
 
 /**
- * Answers of `isColor` by exact text. A pure function of the string, so it
- * may outlive a call; documents repeat a handful of colors thousands of
- * times. Bounded: cleared when full.
+ * A `<color>`: keyword, hex or color function. `currentcolor` and `transparent`
+ * included. Memoized: documents repeat a handful of colors thousands of times.
  */
-const colorAnswers = new Map<string, boolean>();
-const COLOR_ANSWERS_MAX = 512;
-
-/** A `<color>`: keyword, hex or color function. `currentcolor` and `transparent` included. */
-export function isColor(value: string): boolean {
-  let answer = colorAnswers.get(value);
-  if (answer === undefined) {
-    answer = checkColor(value);
-    if (colorAnswers.size >= COLOR_ANSWERS_MAX) colorAnswers.clear();
-    colorAnswers.set(value, answer);
-  }
-  return answer;
-}
+export const isColor: (value: string) => boolean = memoized(checkColor);
 
 function checkColor(value: string): boolean {
   const v = value.trim();
@@ -385,16 +357,19 @@ export function isTextShadow(value: string): boolean {
 const FAMILY_IDENT = /^-?(?:[a-z_\u0080-￿]|\\.)(?:[\w\u0080-￿-]|\\.)*$/i;
 const NOT_FAMILY_NAMES = new Set(['inherit', 'initial', 'unset', 'default', 'revert', 'revert-layer']);
 
-/** `font-family`: a comma list of strings (an empty one included, as Blink parses it) or identifier sequences. */
-export function isFontFamilyList(value: string): boolean {
-  return splitTopLevel(value, ',').every((item) => {
+/**
+ * `font-family`: a comma list of strings (an empty one included, as Blink
+ * parses it) or identifier sequences. Memoized: every element re-checks its
+ * matched declaration.
+ */
+export const isFontFamilyList: (value: string) => boolean = memoized((value) =>
+  splitTopLevel(value, ',').every((item) => {
     const v = item.trim();
     if (/^(['"])[\s\S]*\1$/.test(v)) return v.length >= 2;
     const words = v.split(/\s+/);
     return words[0] !== '' && words.every((w) => FAMILY_IDENT.test(w)) &&
       !(words.length === 1 && NOT_FAMILY_NAMES.has(words[0].toLowerCase()));
-  });
-}
+  }));
 
 // ─── Keywords ───────────────────────────────────────────────────────
 
@@ -416,7 +391,6 @@ export const KEYWORDS: Record<string, Set<string>> = {
   'unicode-bidi': set('normal embed isolate bidi-override isolate-override plaintext -webkit-isolate -webkit-isolate-override -webkit-plaintext'),
   'stroke-linejoin': set('miter round bevel miter-clip arcs'),
   'flex-direction': set('row row-reverse column column-reverse'),
-  'box-sizing': set('content-box border-box'),
   'overflow-x': OVERFLOW,
   'overflow-y': OVERFLOW,
   'border-top-style': BORDER_STYLES,
@@ -476,7 +450,9 @@ export function textTransform(value: string): string | null {
 const BACKGROUND_CLIP = set('border-box padding-box content-box text border-area');
 /** `background-clip`: a comma list of boxes, lower-cased; or null. */
 export function backgroundClip(value: string): string | null {
-  const layers = splitTopLevel(value.toLowerCase(), ',').map((l) => l.trim());
+  const v = value.trim().toLowerCase();
+  if (!v.includes(',')) return BACKGROUND_CLIP.has(v) ? v : null;
+  const layers = v.split(',').map((l) => l.trim());
   return layers.every((l) => BACKGROUND_CLIP.has(l)) ? layers.join(', ') : null;
 }
 
