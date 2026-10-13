@@ -2,6 +2,18 @@
 
 Only the interesting, user-visible changes. Full detail lives in the git history.
 
+## 0.3.0 — 2026-10-13
+
+- Lay out long documents up to twice as fast and stop retaining memory across calls: line tops no longer live in a module-level table, and plain Latin, Greek and Cyrillic text is measured after the previous word only (same line breaks, about half the `measureText` calls).
+- Draw plain text with one `fillText` per fragment in Chromium, including shadowed text and fragments beside decorated or boxed siblings: about three times fewer drawing commands, closer to Chrome's own shaping.
+- Draw text on a path with one transform per run instead of a save/translate/rotate per glyph, cull shadow tiles by glyph, and paint its decorations at the measured browser positions with continuous dashes and waves.
+- Stroke a uniform border as one rectangle, so translucent corners are no longer double-blended.
+- Fix hangs on extreme input: a huge font size or blur inside `text-shadow`, and deeply nested elements matched by a long descendant selector.
+- Fix a dotted underline exactly two dots wide painting as a solid line, NaN geometry from a `pre-wrap` tab at `font-size: 0` or malformed path data, and author text named `constructor` corrupting the cascade.
+- Reject non-finite `width` and `pixelRatio`, and release the measuring context once `paintBounds` is read.
+- Remove the `accuracy` option: layout is canvas measurement only and never touches the DOM.
+- Ship no source maps or Node entry shims; the package is 208 KB packed instead of 454 KB. Types are now strict.
+
 ## 0.2.2 — 2026-10-08
 
 - Speed up text layout by reusing measurements and preparing inline content once per layout call; reduce temporary layout allocations.
