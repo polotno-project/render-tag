@@ -83,6 +83,15 @@ async function withTimeout<T>(promise: Promise<T>, milliseconds: number): Promis
   }
 }
 
+function formatRatio(ratio: number): string {
+  return `${ratio >= 10 ? Math.round(ratio) : ratio.toFixed(1)}×`;
+}
+
+function ratioLabel(ratio: number): string {
+  if (Math.abs(ratio - 1) < 0.05) return 'baseline';
+  return ratio > 1 ? `${formatRatio(ratio)} slower` : `${formatRatio(1 / ratio)} faster`;
+}
+
 export function initBenchmark(): void {
   const button = document.getElementById('run-benchmark') as HTMLButtonElement;
   const note = document.getElementById('benchmark-note')!;
@@ -93,6 +102,7 @@ export function initBenchmark(): void {
     outputs.replaceChildren();
     for (const row of document.querySelectorAll<HTMLElement>('[data-bench]')) {
       row.querySelector<HTMLElement>('.bench-time')!.textContent = '—';
+      row.querySelector<HTMLElement>('.bench-ratio')!.textContent = '—';
       row.querySelector<HTMLElement>('.bench-status')!.textContent = 'Waiting';
       row.querySelector<HTMLElement>('.bench-bar')!.style.width = '0';
     }
@@ -150,12 +160,17 @@ export function initBenchmark(): void {
           outputs.appendChild(explanation);
         }
         const maximum = Math.max(...results.map(result => result.milliseconds), 0.01);
+        const baseline = results.find(result => result.id === 'render-tag')?.milliseconds;
         for (const result of results) {
-          const bar = document.querySelector<HTMLElement>(`[data-bench="${result.id}"] .bench-bar`)!;
-          bar.style.width = `${Math.max(1, result.milliseconds / maximum * 100)}%`;
+          const row = document.querySelector<HTMLElement>(`[data-bench="${result.id}"]`)!;
+          row.querySelector<HTMLElement>('.bench-bar')!.style.width = `${Math.max(1, result.milliseconds / maximum * 100)}%`;
+          row.querySelector<HTMLElement>('.bench-ratio')!.textContent = baseline === undefined ? '—' : ratioLabel(result.milliseconds / baseline);
         }
       }
-      note.textContent = `${results.length} of ${RUNNERS.length} libraries measured · median of 7 fresh renders · no cached render results · 400px · 1× · pixel readback included. See method and outputs below.`;
+      const baseline = results.find(result => result.id === 'render-tag')?.milliseconds ?? NaN;
+      const ratios = results.filter(result => result.id !== 'render-tag').map(result => result.milliseconds / baseline);
+      const lead = ratios.length && ratios.every(ratio => ratio > 1) ? `render-tag was ${formatRatio(Math.min(...ratios))}–${formatRatio(Math.max(...ratios))} faster on this device · ` : '';
+      note.textContent = `${lead}${results.length} of ${RUNNERS.length} libraries measured · median of 7 fresh renders · no cached render results · 400px · 1× · pixel readback included. See method and outputs below.`;
     } finally {
       button.disabled = false;
       button.textContent = 'Run comparison again →';

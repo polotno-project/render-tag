@@ -153,7 +153,8 @@ h1 { font-size: clamp(44px, 5.6vw, 72px); }
 .bench-bar { height: 8px; width: 0; background: #d1d5dc; transition: width .3s; }
 [data-bench='render-tag'] .bench-bar { background: var(--blue); }
 [data-bench='render-tag'] th, [data-bench='render-tag'] .bench-time { color: var(--blue); }
-.bench-time { font: 14px var(--mono); white-space: nowrap; }
+.bench-time, .bench-ratio { font: 14px var(--mono); white-space: nowrap; }
+.bench-ratio { color: var(--muted); }
 .bench-status { color: var(--muted); font-size: 12px; }
 .benchmark-cache-note { color: #4c5360; font-size: 13px; margin-bottom: 20px; }
 .benchmark-note { font-size: 13px; color: var(--muted); margin-top: 16px; }
