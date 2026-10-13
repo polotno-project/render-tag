@@ -1,10 +1,10 @@
-@font-face { font-family: Roboto; src: url('../node_modules/@fontsource-variable/roboto/files/roboto-latin-wght-normal.woff2') format('woff2'); font-weight: 100 900; font-style: normal; font-display: swap; }
-@font-face { font-family: Roboto; src: url('../node_modules/@fontsource-variable/roboto/files/roboto-latin-wght-italic.woff2') format('woff2'); font-weight: 100 900; font-style: italic; font-display: swap; }
-@font-face { font-family: 'Playfair Display'; src: url('../node_modules/@fontsource-variable/playfair-display/files/playfair-display-latin-wght-normal.woff2') format('woff2'); font-weight: 400 900; font-style: normal; font-display: swap; }
-@font-face { font-family: 'Playfair Display'; src: url('../node_modules/@fontsource-variable/playfair-display/files/playfair-display-latin-wght-italic.woff2') format('woff2'); font-weight: 400 900; font-style: italic; font-display: swap; }
-@font-face { font-family: Merriweather; src: url('../node_modules/@fontsource-variable/merriweather/files/merriweather-latin-wght-normal.woff2') format('woff2'); font-weight: 300 900; font-style: normal; font-display: swap; }
-@font-face { font-family: Merriweather; src: url('../node_modules/@fontsource-variable/merriweather/files/merriweather-latin-wght-italic.woff2') format('woff2'); font-weight: 300 900; font-style: italic; font-display: swap; }
-@font-face { font-family: Lobster; src: url('../node_modules/@fontsource/lobster/files/lobster-latin-400-normal.woff2') format('woff2'); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: Roboto; src: url('../tests/fonts/roboto/roboto-latin-wght-normal.woff2') format('woff2'); font-weight: 100 900; font-style: normal; font-display: swap; }
+@font-face { font-family: Roboto; src: url('../tests/fonts/roboto/roboto-latin-wght-italic.woff2') format('woff2'); font-weight: 100 900; font-style: italic; font-display: swap; }
+@font-face { font-family: 'Playfair Display'; src: url('../tests/fonts/playfair-display/playfair-display-latin-wght-normal.woff2') format('woff2'); font-weight: 400 900; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Playfair Display'; src: url('../tests/fonts/playfair-display/playfair-display-latin-wght-italic.woff2') format('woff2'); font-weight: 400 900; font-style: italic; font-display: swap; }
+@font-face { font-family: Merriweather; src: url('../tests/fonts/merriweather/merriweather-latin-wght-normal.woff2') format('woff2'); font-weight: 300 900; font-style: normal; font-display: swap; }
+@font-face { font-family: Merriweather; src: url('../tests/fonts/merriweather/merriweather-latin-wght-italic.woff2') format('woff2'); font-weight: 300 900; font-style: italic; font-display: swap; }
+@font-face { font-family: Lobster; src: url('../tests/fonts/lobster/lobster-latin-400-normal.woff2') format('woff2'); font-weight: 400; font-style: normal; font-display: swap; }
 
 :root {
   --ink: #101113;
