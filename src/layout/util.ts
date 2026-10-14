@@ -129,7 +129,7 @@ export function resolveChildPercentages(node: StyledNode, cbWidth: number): void
  * Whitespace that collapses away (no line box). A newline reaching layout is always a
  * forced break, so it makes one.
  */
-function isCollapsibleWhitespace(node: StyledNode): boolean {
+export function isCollapsibleWhitespace(node: StyledNode): boolean {
   if (node.tagName !== '#text') return false;
   const ws = node.style.whiteSpace;
   const text = node.textContent ?? '';

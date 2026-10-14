@@ -812,14 +812,19 @@ export function widestLine(lines: readonly FlowLine[], textIndent: number): numb
 
 /**
  * `-webkit-line-clamp` line budget shared across block descendants (Chrome legacy
- * `-webkit-box`). Known gap: a budget spent exactly at a paragraph end drops what follows
- * without an ellipsis.
+ * `-webkit-box`).
  */
 export interface LineClampState {
   /** Line boxes still allowed before the cut. */
   remaining: number;
   /** Truncation point reached — all subsequent content is dropped. */
   exhausted: boolean;
+  /**
+   * In-flow content follows the content being laid out, inside the clamping box: a budget
+   * spent exactly at its end still hides something, so the last line takes the "…".
+   * `layoutBlock` sets it right before every call that passes the clamp down.
+   */
+  followed: boolean;
 }
 
 /** True (and marks it exhausted) once a clamp has no lines left. */
@@ -830,8 +835,9 @@ export function clampSpent(clamp: LineClampState | undefined): boolean {
 }
 
 /**
- * `-webkit-line-clamp`: keep N lines and end the Nth with "…". The budget is an
- * ancestor's shared clamp when one is active, else this element's own.
+ * `-webkit-line-clamp`: keep N lines and end the Nth with "…" when the cut hides anything
+ * (later lines, or content after this one). The budget is an ancestor's shared clamp when
+ * one is active, else this element's own.
  */
 export function clampLines(
   session: LayoutSession,
@@ -841,7 +847,7 @@ export function clampLines(
   clamp: LineClampState | undefined,
 ): void {
   const clampN = clamp ? clamp.remaining : style.lineClamp;
-  if (clampN > 0 && lines.length > clampN) {
+  if (clampN > 0 && (lines.length > clampN || (lines.length === clampN && clamp?.followed))) {
     lines.length = clampN;
     const lastLine = lines[clampN - 1];
     // A first-line cut also loses the text-indent.

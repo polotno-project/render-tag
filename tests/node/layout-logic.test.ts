@@ -2340,20 +2340,60 @@ describe('Layout logic (mocked measureText)', () => {
         expect(lines[1].endsWith('…')).toBe(true);
       });
 
-      it('exact-fit boundary: following paragraph is dropped', () => {
-        // First paragraph consumes the whole budget without truncation;
-        // anything after it must still be dropped. (No ellipsis in this
-        // case — the budget ran out between paragraphs, after the Nth
-        // line was already emitted. Known limitation.)
+      it('exact-fit boundary: following paragraph is dropped behind an ellipsis', () => {
+        // The first paragraph spends the whole budget; the cut still hides
+        // what follows, so its last line ends in "…" (Chrome).
         const tree = block('div', [
           block('p', [textNode('aaaaaaaaa bbbbbbbbb')]), // exactly 2 lines
           block('p', [textNode('hidden')]),
         ], { lineClamp: 2 });
         const root = doLayout(tree, 100);
         const lines = getLines(root);
-        expect(lines.length).toBe(2);
-        expect(lines.join('')).not.toContain('hidden');
+        expect(lines).toEqual(['aaaaaaaaa', 'bbbbbbbbb…']);
         expect(root.height).toBe(40);
+      });
+
+      it.each([
+        ['<p>Intro</p><p>two</p><p>three</p><p>four</p>', 'three…'],
+        ['<p>Intro</p>\n<p>two</p>\n<p>three</p>\n', 'three'],
+        ['Intro<br>two<br>three<br>four', 'three…'],
+      ])('ends the last visible line in "…" only when the cut hides content: %j', (content, last) => {
+        const html = '<div style="font-size:20px;line-height:24px;display:-webkit-box;' +
+          `-webkit-box-orient:vertical;-webkit-line-clamp:3">${content}</div>`;
+        const lines = layout({ html, width: 200, ctx: mockCtx() }).lines;
+        expect(lines.map((line) => line.text)).toEqual(['Intro', 'two', last]);
+      });
+
+      it('exact-fit boundary: content hidden past an ancestor still gets the ellipsis', () => {
+        const tree = block('div', [
+          block('div', [
+            block('p', [textNode('aaaaaaaaa')]),
+            block('div', [block('p', [textNode('bbbbbbbbb')])]),
+          ]),
+          block('p', [textNode('hidden')]),
+        ], { lineClamp: 2 });
+        expect(getLines(doLayout(tree, 100))).toEqual(['aaaaaaaaa', 'bbbbbbbbb…']);
+      });
+
+      // Chrome counts an empty box after the cut, but not collapsible white space.
+      it.each([
+        ['an empty box', block('p', []), 'bbbbbbbbb…'],
+        ['collapsible white space', textNode('  '), 'bbbbbbbbb'],
+      ])('exact-fit boundary: %s after the cut', (_, after, last) => {
+        const tree = block('div', [
+          block('p', [textNode('aaaaaaaaa')]),
+          block('p', [textNode('bbbbbbbbb')]),
+          after,
+        ], { lineClamp: 2 });
+        expect(getLines(doLayout(tree, 100))).toEqual(['aaaaaaaaa', last]);
+      });
+
+      it('exact-fit boundary: inline lines before a hidden block get the ellipsis', () => {
+        const tree = block('div', [
+          textNode('aaaaaaaaa bbbbbbbbb'), // exactly 2 lines
+          block('p', [textNode('hidden')]),
+        ], { lineClamp: 2 });
+        expect(getLines(doLayout(tree, 100))).toEqual(['aaaaaaaaa', 'bbbbbbbbb…']);
       });
 
       it('mixed inline + block children under a clamped wrapper', () => {

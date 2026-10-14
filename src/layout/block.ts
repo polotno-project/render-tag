@@ -7,7 +7,8 @@ import {
 import { MARKER_LINE_WITHOUT_CONTENT, MIN_HEIGHT_END_MARGINS } from '../engine.js';
 import { BULLET_MARKERS, LINE_TOP, type LayoutSession, type PrivateText } from './session.js';
 import {
-  appendAll, createsLineBox, hasOnlyInlineChildren, horizontalFrame, isInline, resolveChildPercentages,
+  appendAll, createsLineBox, hasOnlyInlineChildren, horizontalFrame, isCollapsibleWhitespace, isInline,
+  resolveChildPercentages,
 } from './util.js';
 import { clampSpent, type LineClampState } from './flow.js';
 import { layoutInlineContent } from './emit.js';
@@ -131,7 +132,7 @@ export function layoutBlock(
   // `-webkit-line-clamp` here starts a line budget shared with descendants (Chrome legacy
   // -webkit-box); an ancestor's clamp wins.
   if (!clamp && style.lineClamp > 0) {
-    clamp = { remaining: style.lineClamp, exhausted: false };
+    clamp = { remaining: style.lineClamp, exhausted: false, followed: false };
   }
 
   const borderTop = style.borderTopWidth;
@@ -211,6 +212,15 @@ export function layoutBlock(
     // The margins of children that collapsed through while `atTop`: they
     // adjoin this box's top, and — when nothing else is in flow — its bottom.
     let throughStrut = NO_MARGIN;
+    // Whether content follows this box inside the clamping box; each child adds its later
+    // siblings. Chrome counts any box after the cut, even an empty one, but not collapsible
+    // white space (WebKit and Gecko count only line boxes; Chrome-first).
+    const followedOutside = clamp?.followed ?? false;
+    let lastContent = -1;
+    if (clamp) {
+      lastContent = node.children.length - 1;
+      while (lastContent >= 0 && isCollapsibleWhitespace(node.children[lastContent])) lastContent--;
+    }
 
     for (let ci = 0; ci < node.children.length; ci++) {
       const child = node.children[ci];
@@ -239,6 +249,7 @@ export function layoutBlock(
           children: inlineChildren,
           textContent: null,
         };
+        if (clamp) clamp.followed = followedOutside || ci < lastContent;
         const { nodes, height, lines, lineBoxes } = layoutInlineContent(
           session, inlineGroup, contentX, curY, contentWidth, clamp);
         appendAll(session.lines, lines);
@@ -248,6 +259,7 @@ export function layoutBlock(
         continue;
       }
 
+      if (clamp) clamp.followed = followedOutside || ci < lastContent;
       const top = leadingStrut(child);
       if (collapsesThrough(child)) {
         // Its top and bottom margins adjoin: they join the pending run. Its
