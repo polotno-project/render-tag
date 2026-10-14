@@ -2,6 +2,10 @@
 
 Only the interesting, user-visible changes. Full detail lives in the git history.
 
+## 0.3.1 — 2026-10-14
+
+- Fix `-webkit-line-clamp` dropping the "…" when the cut falls at a paragraph boundary (`<p>Intro</p><p>two</p><p>three</p><p>four</p>` clamped to 3 lines now ends in "three…", like Chrome).
+
 ## 0.3.0 — 2026-10-13
 
 - Lay out long documents up to twice as fast and stop retaining memory across calls: line tops no longer live in a module-level table, and plain Latin, Greek and Cyrillic text is measured after the previous word only (same line breaks, about half the `measureText` calls).
