@@ -72,3 +72,11 @@ export const LAYOUT_UNIT_LINE_HEIGHT = ENGINE === 'blink';
 /** Gecko rounds a line-height to its 1/60px app units (17.3px x 1.85 = 32.005
  * lays out as 32), measured in Firefox CI. line-baseline-parity. */
 export const APP_UNIT_LINE_HEIGHT = ENGINE === 'gecko';
+
+/** Inline widths live on the 1/64px LayoutUnit grid: the available width is
+ * truncated (a `width: 751.855px` box is 751.84375 wide), a line fits up to
+ * one unit over it inclusive, and intrinsic sizes ceil to it. Blink's line
+ * breaker works in LayoutUnits with an epsilon; WebKit measures the same.
+ * Gecko's 1/60px app-unit widths are unmeasured. wrapping-parity
+ * (knife-edge), `Line fit on the layout grid`. */
+export const LAYOUT_UNIT_LINE_FIT = ENGINE !== 'gecko';

@@ -7,7 +7,7 @@ import { bidiContextFor, type BidiContext } from '../bidi.js';
 import type { LayoutSession } from './session.js';
 import {
   appendAll, hasOnlyInlineChildren, hasStrokeImage, hasTextClip, hasVisibleBoxStyles, horizontalFrame,
-  horizontalMargins, isInline, transformTextRuns,
+  horizontalMargins, isInline, layoutUnitCeil, transformTextRuns,
 } from './util.js';
 import {
   abutsWithoutBreak, breakFlags, forEachHyphenPiece, measureAfter, needsSegmenter, segmenter, SegmentBuilder,
@@ -402,8 +402,9 @@ function inlineContentSize(session: LayoutSession, node: StyledNode, max: boolea
     }
   }
   const textIndent = intrinsicStyle(node.style).textIndent;
-  return widestLine(flowLines(new LineFlow(
-    session, new FlowItems(prepared, refs, widths), max ? Infinity : 0, node.style.whiteSpace, textIndent)), textIndent);
+  // Blink's `LayoutUnit::FromFloatCeil`: a box shrunk to this width holds its content.
+  return layoutUnitCeil(widestLine(flowLines(new LineFlow(
+    session, new FlowItems(prepared, refs, widths), max ? Infinity : 0, node.style.whiteSpace, textIndent)), textIndent));
 }
 
 /**

@@ -828,8 +828,19 @@ oracle's visual-order count (0 in both lanes).
   back to the nearest letter (`contextStart`; UBA N0/W7).
 - **Knife-edge re-measure, over the edge only.** A line overflowing by under
   1px in one measuring state is re-measured as one string
-  (`knifeEdgeOverflows`, 0.02px tolerance). A sum under the edge is trusted:
-  re-measuring both ways moved wraps both ways.
+  (`knifeEdgeOverflows`). A sum under the edge is trusted: re-measuring both
+  ways moved wraps both ways.
+- **The fit test is on the engine's layout grid** (`LAYOUT_UNIT_LINE_FIT`,
+  `LineFlow.budget`, `layoutUnit`, `LINE_FIT_TOLERANCE`): Blink and WebKit
+  truncate the available width and the text-indent to 1/64px (a
+  `width: 751.855px` box is 751.84375 wide) and keep a line up to one unit
+  over that, inclusive (120.015625px fits 120px). Intrinsic sizes snap UP
+  (`layoutUnitCeil`), so a box shrunk to its max-content holds its content.
+  Measured in both engines at 1/64px steps around ~1,200 lines; Playfair
+  Display is the one face whose `measureText` differs from layout. Gecko's
+  threshold is not a function of `measureText` (unmeasured): it keeps a 0.02px
+  tolerance. Gates: the knife-edge cases in `wrapping-parity` and `Line fit on
+  the layout grid` in `layout-logic`.
 - `fontKerning` is `'none'` only for `font-kerning: none`, else `'normal'`
 - `ctx.letterSpacing` — use native property, not manual per-character rendering
 - Cross-font boundaries still accumulate errors — inherent canvas API limitation

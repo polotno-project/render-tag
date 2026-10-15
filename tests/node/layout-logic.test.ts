@@ -1758,6 +1758,32 @@ describe('Layout logic (mocked measureText)', () => {
   // a later run with a different state AFTER the text under test, so a site
   // that sets only part of the state measures with that run's leftovers.
 
+  // ─── Line fit on the engine's layout grid ───────────────────────────
+
+  describe('Line fit on the layout grid', () => {
+    // Blink and WebKit truncate the available width to a 1/64px LayoutUnit
+    // (a 99.98px box is 99.96875 wide) and keep a line up to one unit over
+    // it, inclusive (100px fits 99.99px's 99.984375).
+    const linesAt = (width: number, letterSpacing = 0) => {
+      const html = `<p style="margin:0;letter-spacing:${letterSpacing}px">aaaa bbbbb</p>`;
+      return layout({ html, width, ctx: mockCtx() }).lines.map((line) => line.text);
+    };
+
+    it('a 100px line wraps in a 99.98px box and stays whole in a 99.99px one', () => {
+      expect(linesAt(99.98)).toEqual(['aaaa', 'bbbbb']);
+      expect(linesAt(99.99)).toEqual(['aaaa bbbbb']);
+    });
+
+    it('a line up to 1/64px over the box stays whole', () => {
+      expect(linesAt(100, 0.001)).toEqual(['aaaa bbbbb']);
+      expect(linesAt(100, 1 / 640)).toEqual(['aaaa bbbbb']);
+    });
+
+    it('a line more than 1/64px over the box wraps', () => {
+      expect(linesAt(100, 0.002)).toEqual(['aaaa', 'bbbbb']);
+    });
+  });
+
   describe('Measuring state', () => {
     const textsOf = (html: string, width: number, ctx = mockCtx()) =>
       collectTexts(layout({ html, width, ctx }).layoutRoot);

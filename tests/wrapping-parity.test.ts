@@ -104,6 +104,26 @@ it.each([
   expect(result, JSON.stringify(result, null, 2)).toMatchObject({ wrappingMatch: true });
 });
 
+// Blink and WebKit truncate the box width to a 1/64px LayoutUnit and keep a line up to
+// one unit over it. The pre-wrap text is the Polotno editor's repro: its first line
+// measures 751.8677px, wraps at 751.855 (laid out 751.84375 wide) and stays at 751.86.
+// "container box" measures 529.1443px: it wraps at 529.125 and stays at 529.140625.
+const KNIFE_EDGE_CASES: [string, number, number[]][] = [
+  ['<p style="white-space:pre-wrap">Header  adf ;lkajsdf f asdfasfsdf sadfsad asdfasdfas ' +
+    'dfasdfasdfasdfas dfasdf</p>', 800, [751.85, 751.855, 751.86, 751.875]],
+  ['<p>Typography fitting puts every line right at the edge of its container box</p>', 1200,
+    [529.109375, 529.125, 529.140625, 529.15625]],
+];
+it.each(KNIFE_EDGE_CASES.flatMap(([html, height, widths]) => widths.map((width) => [width, html, height])))(
+  'breaks a knife-edge line like the native DOM at %s px', async (width, html, height) => {
+    const font = FONT_VARIANTS.find((item) => item.name === 'Roboto')!;
+    const css = `${await loadMultiFontCss()}\n${RESET}` +
+      ` body { font-family: ${font.family}; font-size: 87.5px; line-height: 1.2; } p { margin: 0; }`;
+    await prepareComparisonFonts(html, css);
+    const result = compareWrapping(html, css, width, height);
+    expect(result, JSON.stringify(result, null, 2)).toMatchObject({ wrappingMatch: true });
+  });
+
 it.each([
   ['CJK', '<div style="overflow-wrap:break-word">ab \u6f22\u5b57 cd</div>'],
   ['emoji', '<div style="overflow-wrap:break-word">ab xy\u{1F600}\u{1F600} cd</div>'],

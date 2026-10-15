@@ -1,6 +1,7 @@
 // Helpers more than one layout phase reads; nothing here calls into a phase.
 import type { StyledNode, LayoutText, ResolvedStyle, DecorationEntry } from '../types.js';
 import { isTransparent, resolvePercentages } from '../css-resolver.js';
+import { LAYOUT_UNIT_LINE_FIT } from '../engine.js';
 
 /**
  * Apply text-transform per run, keeping CSS word context across style boundaries: a later
@@ -159,4 +160,17 @@ export function horizontalFrame(style: ResolvedStyle): number {
 
 export function horizontalMargins(style: ResolvedStyle): number {
   return style.marginLeft + style.marginRight;
+}
+
+/**
+ * `x` on Blink's and WebKit's 1/64px LayoutUnit grid, truncated like `LayoutUnit(float)`;
+ * exact in Gecko. Infinity stays Infinity (the max-content flow).
+ */
+export function layoutUnit(x: number): number {
+  return LAYOUT_UNIT_LINE_FIT ? Math.trunc(x * 64) / 64 : x;
+}
+
+/** `x` snapped up to the grid, like an intrinsic size (`LayoutUnit::FromFloatCeil`). */
+export function layoutUnitCeil(x: number): number {
+  return LAYOUT_UNIT_LINE_FIT ? Math.ceil(x * 64) / 64 : x;
 }

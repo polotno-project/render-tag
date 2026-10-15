@@ -1,6 +1,8 @@
 // The one line breaker: min-content at 0, max-content at Infinity, layout at the used width.
 // A flow never writes to the prepared content; what it cuts is a piece in its own `FlowItems`.
 import type { ResolvedStyle } from '../types.js';
+import { LAYOUT_UNIT_LINE_FIT } from '../engine.js';
+import { layoutUnit } from './util.js';
 import { inlineBlockExtra, type LayoutSession, type Measurer, type MeasureState, type TabStops } from './session.js';
 import {
   forEachHyphenPiece, graphemes, isAtomicInlineBlock, isCJKCode, isEmojiCluster, MEASURE_CONTEXT,
@@ -8,6 +10,10 @@ import {
   SEG_RUN_SEAM, SEG_SOFT_HYPHEN, SEG_SPACE, SEG_TAB, textFlags,
   type InlineBlockLayout, type PositionedLine, type PreparedInline, type SegmentRefs, type Word,
 } from './segment.js';
+
+/** How far over the grid budget a line still fits: one LayoutUnit, inclusive (120.015625px
+ * fits 120px). Gecko is unmeasured: a hair, since a broader tolerance packs extra words. */
+const LINE_FIT_TOLERANCE = LAYOUT_UNIT_LINE_FIT ? 1 / 64 : 0.02;
 
 /**
  * `-webkit-line-clamp` cut-off: trim trailing spaces and text (atomic inline-blocks
@@ -406,9 +412,13 @@ export class LineFlow {
     return this.lines.length === 0 ? this.textIndent : 0;
   }
 
-  /** The width the current line may fill. */
+  /**
+   * The width the current line may fill: content width and indent on the engine's layout
+   * grid, plus `LINE_FIT_TOLERANCE`. The content width is snapped as one length; Blink snaps
+   * width and padding separately, which can differ by a unit for a fractional frame.
+   */
   budget(): number {
-    return this.contentWidth - this.lineStart();
+    return layoutUnit(this.contentWidth) - layoutUnit(this.lineStart()) + LINE_FIT_TOLERANCE;
   }
 
   isSpace(i: number): boolean {
@@ -800,8 +810,7 @@ function knifeEdgeOverflows(flow: LineFlow, piece: number, tail: number, headExt
   if (items.flags(piece) & SEG_SOFT_HYPHEN) text += '-';
   if (text) textWidth += m.width(state, text);
   const fullWidth = textWidth + markerWidth + tail + headExtra;
-  // Only a hair of sub-pixel overflow: a broader tolerance packs extra words.
-  return fullWidth > flow.budget() + 0.02;
+  return fullWidth > flow.budget();
 }
 
 /** The widest line of a flow, the first standing `textIndent` further in. */

@@ -12,7 +12,7 @@
     "wrap": true
   },
   "Rich blog post": {
-    "score": 0.01,
+    "score": 0,
     "wrap": true
   },
   "Styled table": {
@@ -380,7 +380,7 @@
     "wrap": true
   },
   "Rich blog post@Open Sans": {
-    "score": 0.01,
+    "score": 0,
     "wrap": true
   },
   "Styled table@Open Sans": {
@@ -736,7 +736,7 @@
     "wrap": true
   },
   "Rich blog post@Roboto": {
-    "score": 0.01,
+    "score": 0,
     "wrap": true
   },
   "Styled table@Roboto": {
@@ -1092,7 +1092,7 @@
     "wrap": true
   },
   "Rich blog post@Playfair Display": {
-    "score": 0.01,
+    "score": 0,
     "wrap": true
   },
   "Styled table@Playfair Display": {
@@ -1448,7 +1448,7 @@
     "wrap": true
   },
   "Rich blog post@Merriweather": {
-    "score": 0.01,
+    "score": 0,
     "wrap": true
   },
   "Styled table@Merriweather": {
@@ -1804,7 +1804,7 @@
     "wrap": true
   },
   "Rich blog post@Lobster": {
-    "score": 0.01,
+    "score": 0,
     "wrap": true
   },
   "Styled table@Lobster": {
@@ -1820,7 +1820,7 @@
     "wrap": true
   },
   "Text decorations & shadows@Lobster": {
-    "score": 0.02,
+    "score": 0.03,
     "wrap": true
   },
   "Stroked transparent text with shadow@Lobster": {
