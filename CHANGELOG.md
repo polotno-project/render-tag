@@ -2,6 +2,10 @@
 
 Only the interesting, user-visible changes. Full detail lives in the git history.
 
+## 0.3.2 — 2026-10-14
+
+- Break lines where Chrome and WebKit break them at the edge of the box: the available width is truncated to the engines' 1/64px layout grid and a line is kept up to one unit over it, instead of a flat 0.02px tolerance. Text fitted to a fractional width (for example `751.855px`) no longer re-wraps between the DOM and the canvas.
+
 ## 0.3.1 — 2026-10-14
 
 - Fix `-webkit-line-clamp` dropping the "…" when the cut falls at a paragraph boundary (`<p>Intro</p><p>two</p><p>three</p><p>four</p>` clamped to 3 lines now ends in "three…", like Chrome).
