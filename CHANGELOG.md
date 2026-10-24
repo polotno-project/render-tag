@@ -2,6 +2,12 @@
 
 Only the interesting, user-visible changes. Full detail lives in the git history.
 
+## 0.3.3 — 2026-10-24
+
+- Lay out and draw faster with fewer allocations: plain ASCII text skips Unicode segmentation, a word split across many inline styles lays out in linear time instead of quadratic, and drawing derives each style's text state once per draw.
+- Fix a memory leak: a kept `layout()` result whose styles used percentages held on to the measuring canvas context. A kept `layoutTextOnPath()` result now also releases it once `paintBounds` is read.
+- Fix `line-height: inherit` and `text-underline-offset: inherit` after an earlier value on the same element: they now take the parent's value, as browsers do.
+
 ## 0.3.2 — 2026-10-14
 
 - Break lines where Chrome and WebKit break them at the edge of the box: the available width is truncated to the engines' 1/64px layout grid and a line is kept up to one unit over it, instead of a flat 0.02px tolerance. Text fitted to a fractional width (for example `751.855px`) no longer re-wraps between the DOM and the canvas.
