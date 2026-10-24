@@ -1,15 +1,14 @@
 /**
  * Unit tests for LayoutLine.bounds — per-line geometry.
  *
- * Reuses the mocked-measureText helpers from tests/node/layout-logic.test.ts conventions:
- * 10px per character, fontSize=16, lineHeight=20.
+ * The shared mock context (10px per character) over the style fixture
+ * (fontSize 16, lineHeight 20).
  */
 import { describe, it, expect } from 'vitest';
-import { buildLayoutTree } from '../src/layout.ts';
-import type { StyledNode, ResolvedStyle, LayoutLine } from '../src/types.ts';
-import { styleFixture as defaultStyle } from './helpers/style-fixture.ts';
-
-const CHAR_WIDTH = 10;
+import { buildLayoutTree } from '../../src/layout.ts';
+import type { StyledNode, ResolvedStyle, LayoutLine } from '../../src/types.ts';
+import { styleFixture as defaultStyle } from '../helpers/style-fixture.ts';
+import { mockCtx, CHAR_WIDTH } from '../helpers/mock-ctx.ts';
 
 function textNode(text: string, styleOverrides: Partial<ResolvedStyle> = {}): StyledNode {
   return {
@@ -47,44 +46,6 @@ function inline(
     children,
     textContent: null,
   };
-}
-
-function mockCtx(): CanvasRenderingContext2D {
-  const ctx = {
-    font: '',
-    fontKerning: 'normal',
-    letterSpacing: '0px',
-    direction: 'ltr' as CanvasDirection,
-    textAlign: 'start' as CanvasTextAlign,
-    textBaseline: 'alphabetic' as CanvasTextBaseline,
-    measureText(text: string) {
-      const width = text.length * CHAR_WIDTH;
-      return {
-        width,
-        actualBoundingBoxAscent: 12,
-        actualBoundingBoxDescent: 4,
-        fontBoundingBoxAscent: 12,
-        fontBoundingBoxDescent: 4,
-        actualBoundingBoxLeft: 0,
-        actualBoundingBoxRight: width,
-      };
-    },
-    fillText() {},
-    strokeText() {},
-    save() {},
-    restore() {},
-    scale() {},
-    setLineDash() {},
-    beginPath() {},
-    moveTo() {},
-    lineTo() {},
-    stroke() {},
-    fillRect() {},
-    getImageData() { return { data: new Uint8ClampedArray(0), width: 0, height: 0 }; },
-    putImageData() {},
-    createLinearGradient() { return { addColorStop() {} }; },
-  };
-  return ctx as unknown as CanvasRenderingContext2D;
 }
 
 function doLines(tree: StyledNode, width: number): LayoutLine[] {

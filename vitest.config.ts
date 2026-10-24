@@ -3,6 +3,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { configDefaults, defineConfig } from 'vitest/config';
 import { captureNativeDom } from './tests/helpers/native-dom-command.ts';
+import { OUT_DIR } from './tests/helpers/report-path.ts';
 
 /**
  * One config, four projects: `node` and one browser instance per engine.
@@ -13,8 +14,8 @@ import { captureNativeDom } from './tests/helpers/native-dom-command.ts';
  * opt in, because several geometry suites deliberately encode Chrome-first
  * output (see CLAUDE.md). A lane is not the only thing an engine can run:
  * a test file named on the command line joins every browser lane for that
- * run, so `npx vitest run --project webkit tests/generate-baselines.test.ts`
- * works although no lane gates that file.
+ * run, so `npx vitest run --project webkit tests/wrap-sweep.test.ts` works
+ * although no lane gates that file.
  *
  * `--mode update` is the one re-recording mode (`import.meta.env.MODE`).
  * Files run one at a time in it: the engine-divergence suites merge their
@@ -23,9 +24,7 @@ import { captureNativeDom } from './tests/helpers/native-dom-command.ts';
 
 /** Browser suites no lane gates: recorders, sweeps and report-only probes. */
 const MAINTAINER_ONLY = [
-  'tests/generate-baselines.test.ts',
   'tests/cross-browser.compare.test.ts',
-  'tests/cross-browser.record.test.ts',
   'tests/wrap-debug.test.ts',
   'tests/wrap-sweep.test.ts',
   'tests/perf.test.ts',
@@ -53,32 +52,15 @@ const FIREFOX_LANE = [
   'tests/stress.test.ts',
   'tests/text-shadow-paint.test.ts',
   'tests/paint-bounds.test.ts',
-  // UNVERIFIED in Firefox until they pass there.
   'tests/box-model-parity.test.ts',
   'tests/gradient-parity.test.ts',
 ];
 
 const WEBKIT_LANE = [
-  'tests/render.test.ts',
-  'tests/render.fonts.test.ts',
-  'tests/native-dom-oracle.test.ts',
-  'tests/font-fixtures.test.ts',
-  'tests/flex-parity.test.ts',
-  'tests/computed-style-parity.test.ts',
-  'tests/parse-style-extraction.test.ts',
-  'tests/line-box-parity.test.ts',
-  'tests/line-baseline-parity.test.ts',
-  'tests/margin-collapse-parity.test.ts',
-  'tests/box-model-parity.test.ts',
-  'tests/bidi-order-parity.test.ts',
-  'tests/line-metadata.test.ts',
-  'tests/cross-browser.compare.test.ts',
-  'tests/stress.test.ts',
-  'tests/text-shadow-paint.test.ts',
-  'tests/paint-bounds.test.ts',
+  ...FIREFOX_LANE,
+  // Blink and WebKit only: Gecko's decoration geometry and stroke shadow are unmeasured.
   'tests/decoration-shape-parity.test.ts',
   'tests/decoration-position-parity.test.ts',
-  'tests/gradient-parity.test.ts',
   'tests/text-shadow-coverage.test.ts',
 ];
 
@@ -119,6 +101,7 @@ export default defineConfig(({ mode }) => {
           test: {
             name: 'node',
             environment: 'node',
+            attachmentsDir: `${OUT_DIR}/attachments`,
             include: ['tests/node/**/*.test.ts'],
             testTimeout: 30_000,
             // tests/node/memory.test.ts calls gc().
@@ -128,15 +111,18 @@ export default defineConfig(({ mode }) => {
         {
           mode,
           // The browser context has no process.env; tests read this through
-          // tests/helpers/portable-mode.ts. See CLAUDE.md "CI vs local deep testing".
+          // tests/helpers/portable-mode.ts. See CLAUDE.md "Portable mode (CI)".
           define: {
             __RENDER_TAG_PORTABLE__: JSON.stringify(process.env.RENDER_TAG_PORTABLE === '1'),
           },
           plugins: [captureCors],
           test: {
+            attachmentsDir: `${OUT_DIR}/attachments`,
             browser: {
               enabled: true,
               headless: true,
+              // A failing pixel or geometry assertion already prints its numbers.
+              screenshotFailures: false,
               provider: playwright(),
               commands: { captureNativeDom },
               fileParallelism: !update,

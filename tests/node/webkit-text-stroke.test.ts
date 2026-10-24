@@ -8,10 +8,15 @@
  * back to the shorthand `2px rgb(255, 255, 255)`, so this hits real input
  * whenever inline styles are read from a live DOM.
  */
-import { describe, it, expect } from 'vitest';
-import { expandShorthand, resolveStylesFromCSS } from '../src/css-resolver.ts';
-import { parseHTML } from '../src/parse.ts';
-import type { StyledNode } from '../src/types.ts';
+import { afterAll, beforeAll, describe, it, expect } from 'vitest';
+import { DOMParser as LinkedomDOMParser } from 'linkedom';
+import { expandShorthand, resolveStylesFromCSS } from '../../src/css-resolver.ts';
+import { parseHTML } from '../../src/parse.ts';
+import { setDOMParser } from '../../src/dom.ts';
+import type { StyledNode } from '../../src/types.ts';
+
+beforeAll(() => setDOMParser(new LinkedomDOMParser()));
+afterAll(() => setDOMParser(null));
 
 function color(decls: { property: string; value: string }[]): string | undefined {
   return decls.find(d => d.property === '-webkit-text-stroke-color')?.value;

@@ -2370,3 +2370,56 @@ export const polotnoCase: BenchmarkCase = {
 </style>`,
   css: '',
 };
+
+/** Baseline key for a case, optionally with a font suffix. */
+function baselineKey(caseName: string, fontName?: string): string {
+  return fontName ? `${caseName}@${fontName}` : caseName;
+}
+
+export type FontVariant = (typeof FONT_VARIANTS)[number];
+
+/** One corpus key: a case at its own font, or under one `FONT_VARIANTS` override. */
+export interface CorpusEntry {
+  key: string;
+  tc: BenchmarkCase;
+  css: string;
+  /** The `FONT_VARIANTS` name; absent at the case's own font. */
+  font?: FontVariant['name'];
+}
+
+/** The cases beyond `loadBasicCases()`; they run at their own font only. */
+export const CORPUS_EXTRAS: readonly BenchmarkCase[] = [polotnoCase, polotnoListsCase, negativeListMarginsCase];
+
+/**
+ * The corpus as keyed entries, in baseline-file order: every basic case and
+ * then `extras` at their own font, then each of `fonts` x the basic cases
+ * with `body { font-family: ... !important }` over the multi-font faces.
+ */
+export async function loadCorpus({
+  defaultFont = true,
+  extras = CORPUS_EXTRAS,
+  fonts = FONT_VARIANTS,
+}: {
+  /** Include the own-font entries (basic cases and `extras`). */
+  defaultFont?: boolean;
+  extras?: readonly BenchmarkCase[];
+  fonts?: readonly FontVariant[];
+} = {}): Promise<CorpusEntry[]> {
+  const cases = await loadBasicCases();
+  const entries: CorpusEntry[] = defaultFont
+    ? [...cases, ...extras].map((tc) => ({ key: baselineKey(tc.name), tc, css: tc.css }))
+    : [];
+  if (fonts.length === 0) return entries;
+  const multiFontCss = await loadMultiFontCss();
+  for (const font of fonts) {
+    for (const tc of cases) {
+      entries.push({
+        key: baselineKey(tc.name, font.name),
+        tc,
+        css: `${multiFontCss}\n${tc.css}\nbody { font-family: ${font.family} !important; }`,
+        font: font.name,
+      });
+    }
+  }
+  return entries;
+}

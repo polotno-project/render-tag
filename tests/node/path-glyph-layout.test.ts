@@ -4,43 +4,10 @@ import { bidiContextFor, type BidiContext } from '../../src/bidi.ts';
 import type { PathLike } from '../../src/path/svg-path.ts';
 import type { ResolvedStyle } from '../../src/types.ts';
 import { styleFixture } from '../helpers/style-fixture.ts';
-
-const CHAR_WIDTH = 10;
+import { mockCtx, CHAR_WIDTH } from '../helpers/mock-ctx.ts';
 
 const mockStyle = (overrides: Partial<ResolvedStyle> = {}): ResolvedStyle =>
   styleFixture({ display: 'inline', ...overrides });
-
-// Emulates the real 2D context closely enough for advance arithmetic — in
-// particular it FOLDS `letterSpacing` into `measureText`, one space per
-// character INCLUDING the last. Measured on all three engines: `measureText`
-// grows by one space for a 1-char string and three for a 3-char one, in
-// Chromium, Firefox and WebKit alike. A mock that ignored it reported a
-// plausible-looking width and hid a double-count in the advance.
-//
-// It models UNIFORM spacing, which is where it stops being faithful: Chrome
-// applies no letter-spacing at all inside a cursive Arabic run, so a real
-// shaped run there measures without the spaces this mock adds.
-function mockCtx(charWidth = CHAR_WIDTH): CanvasRenderingContext2D {
-  const ctx = {
-    font: '',
-    fontKerning: 'normal',
-    letterSpacing: '0px',
-    measureText(text: string) {
-      const ls = parseFloat(ctx.letterSpacing) || 0;
-      const width = text.length * (charWidth + ls);
-      return {
-        width,
-        actualBoundingBoxAscent: 12,
-        actualBoundingBoxDescent: 4,
-        fontBoundingBoxAscent: 12,
-        fontBoundingBoxDescent: 4,
-        actualBoundingBoxLeft: 0,
-        actualBoundingBoxRight: width,
-      };
-    },
-  };
-  return ctx as unknown as CanvasRenderingContext2D;
-}
 
 /** Straight horizontal path from (0,0) along +x for `length` units. */
 function horizontalPath(length: number): PathLike {

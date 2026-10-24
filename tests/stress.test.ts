@@ -1,3 +1,10 @@
+/**
+ * Native-DOM width sweep: 7 hand-named Latin cases from 100px to their own
+ * width in 10px steps, gating exact line membership against the DOM (residuals
+ * in tests/stress-baseline.json). Run it for wrapping changes. It takes no
+ * screenshots: a vertical shift that keeps line membership is caught only by
+ * the pixel baselines. `wrap-sweep.test.ts` is the 1px, full-corpus version.
+ */
 import { describe, it, expect } from 'vitest';
 import { commands } from 'vitest/browser';
 import {

@@ -11,35 +11,9 @@
 import { describe, it, expect } from 'vitest';
 import { render } from '../src/index.ts';
 import { compareNativeRenders } from './helpers/native-compare.ts';
+import { countPixels, isAny, isBlue, isRed, type Rect } from './helpers/pixels.ts';
 
-interface Rect {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-}
-
-/** Count pixels in a region matching a color predicate (alpha >= 128). */
-function countPixels(
-  canvas: HTMLCanvasElement,
-  predicate: (r: number, g: number, b: number) => boolean,
-  rect?: Rect,
-): number {
-  const ctx = canvas.getContext('2d')!;
-  const { x, y, w, h } = rect ?? { x: 0, y: 0, w: canvas.width, h: canvas.height };
-  const data = ctx.getImageData(x, y, w, h).data;
-  let count = 0;
-  for (let i = 0; i < data.length; i += 4) {
-    if (data[i + 3] < 128) continue;
-    if (predicate(data[i], data[i + 1], data[i + 2])) count++;
-  }
-  return count;
-}
-
-const isRed = (r: number, g: number, b: number) => r > 150 && g < 100 && b < 100;
-const isBlue = (r: number, g: number, b: number) => b > 150 && r < 100 && g < 100;
 const isGreen = (r: number, g: number, b: number) => g > 150 && r < 100 && b < 100;
-const isAny = () => true;
 
 const CLIP = '-webkit-background-clip: text; color: transparent;';
 

@@ -8,22 +8,7 @@
 import { describe, it, expect } from 'vitest';
 import { render } from '../src/index.ts';
 import { compareNativeRenders } from './helpers/native-compare.ts';
-
-function countPixels(
-  canvas: HTMLCanvasElement,
-  predicate: (r: number, g: number, b: number) => boolean,
-): number {
-  const ctx = canvas.getContext('2d')!;
-  const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-  let count = 0;
-  for (let i = 0; i < data.length; i += 4) {
-    if (data[i + 3] < 128) continue;
-    if (predicate(data[i], data[i + 1], data[i + 2])) count++;
-  }
-  return count;
-}
-
-const isRed = (r: number, g: number, b: number) => r > 150 && g < 100 && b < 100;
+import { countPixels, isRed } from './helpers/pixels.ts';
 
 describe('background-clip: text with solid background-color', () => {
   it('block declarer: paints red glyphs, not a full-width red band', () => {

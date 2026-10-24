@@ -1,9 +1,11 @@
 /**
- * Compare current browser's canvas layout against Chrome reference.
- * Run after recording the Chrome reference (tests/cross-browser.record.test.ts).
+ * Compare the current browser's canvas layout against Chrome's canvas layout.
+ * The Chrome reference is a local recording (environment-pinned, git-ignored)
+ * in tests/.out/cross-browser-reference.json; update mode on Chromium writes it.
  *
- *   npx vitest run --project webkit tests/cross-browser.compare.test.ts   # or firefox
- *   npm run update -- --project webkit tests/cross-browser.compare.test.ts
+ *   npm run update -- --project chromium tests/cross-browser.compare.test.ts  # record the reference
+ *   npx vitest run --project webkit tests/cross-browser.compare.test.ts       # or firefox
+ *   npm run update -- --project webkit tests/cross-browser.compare.test.ts    # re-record residuals
  */
 /// <reference types="vite/client" />
 import { describe, it, expect } from 'vitest';
@@ -13,11 +15,12 @@ import {
   compareLineMembership,
   normalizeLineText,
 } from './helpers/wrap-comparison.ts';
-import { loadBasicCases, polotnoCase, polotnoListsCase, FONT_VARIANTS, loadMultiFontCss } from './helpers/test-cases.ts';
+import { loadCorpus, polotnoCase, polotnoListsCase } from './helpers/test-cases.ts';
 import { gateResidualBaseline } from './helpers/baselines.ts';
 import residualBaseline from './cross-browser-baseline.json';
 import { browserName } from './helpers/browser-name.ts';
 import { PORTABLE_GATES_ONLY } from './helpers/portable-mode.ts';
+import { reportPath } from './helpers/report-path.ts';
 
 interface ReferenceLine {
   y: number;
@@ -28,17 +31,33 @@ interface ReferenceEntry {
   lines: ReferenceLine[];
 }
 
-// The recording is git-ignored (environment-pinned): a fresh clone has none
-// until `npx vitest run --project chromium tests/cross-browser.record.test.ts` runs.
-const RECORDING = './cross-browser-reference.json';
-const reference = import.meta.glob<{ default: Record<string, ReferenceEntry> }>(
-  './cross-browser-reference.json',
-  { eager: true },
-)[RECORDING]?.default;
-const refMap: Record<string, ReferenceEntry> = reference ?? {};
+const REFERENCE_FILE = reportPath('cross-browser-reference.json');
+const RECORD_COMMAND = 'npm run update -- --project chromium tests/cross-browser.compare.test.ts';
+const UPDATE_MODE = import.meta.env.MODE === 'update';
 
-function baselineKey(caseName: string, fontName?: string): string {
-  return fontName ? `${caseName}@${fontName}` : caseName;
+/** The corpus without negativeListMarginsCase: the recorded reference and residuals predate it. */
+const loadCrossBrowserCorpus = () => loadCorpus({ extras: [polotnoCase, polotnoListsCase] });
+
+/** Canvas lines per corpus key, as the reference records them. */
+async function canvasLines(): Promise<Array<{ key: string; lines: ReferenceLine[] }>> {
+  const out: Array<{ key: string; lines: ReferenceLine[] }> = [];
+  for (const { key, tc, css } of await loadCrossBrowserCorpus()) {
+    await prepareComparisonFonts(tc.html, css);
+    out.push({ key, lines: renderToCanvas(tc.html, css, tc.width, tc.height).lines });
+  }
+  return out;
+}
+
+/** The Chrome reference, or null when it has not been recorded here. */
+async function readReference(): Promise<Record<string, ReferenceEntry> | null> {
+  let json: string;
+  try {
+    json = await commands.readFile(REFERENCE_FILE);
+  } catch (error) {
+    if (String(error).includes('ENOENT')) return null;
+    throw error;
+  }
+  return JSON.parse(json) as Record<string, ReferenceEntry>;
 }
 
 interface CaseResult {
@@ -58,6 +77,7 @@ function signatureHash(value: string): string {
 }
 
 function compareLinesAgainstReference(
+  refMap: Record<string, ReferenceEntry>,
   key: string,
   currentLines: { y: number; text: string }[],
 ): CaseResult {
@@ -102,39 +122,28 @@ function compareLinesAgainstReference(
 // the maintainer's machine; canvas metrics shift per OS, so portable mode
 // (CI) skips this suite entirely.
 describe.skipIf(PORTABLE_GATES_ONLY)(`Cross-browser consistency: ${browserName} vs chrome`, () => {
-  if (!reference) {
-    it('needs the Chrome reference recording', ({ skip }) => {
-      skip(`tests${RECORDING.slice(1)} is missing: run \`npx vitest run --project chromium tests/cross-browser.record.test.ts\` first`);
-    });
+  if (browserName === 'chrome' && UPDATE_MODE) {
+    it('records the Chrome reference layout', async () => {
+      const results: Record<string, ReferenceEntry> = {};
+      for (const { key, lines } of await canvasLines()) {
+        results[key] = { lines };
+        console.log(`[${key}] ${lines.length} lines`);
+      }
+      await commands.writeFile(REFERENCE_FILE, JSON.stringify(results, null, 2) + '\n');
+      console.log(`\nRecorded ${Object.keys(results).length} cases to ${REFERENCE_FILE}`);
+      expect(Object.keys(results).length).toBeGreaterThan(0);
+    }, 300000);
     return;
   }
 
-  it('all cases match Chrome reference layout', async () => {
-    const allCases = await loadBasicCases();
-    const results: CaseResult[] = [];
-
-    // Default font cases
-    const defaultCases = [...allCases, polotnoCase, polotnoListsCase];
-    for (const tc of defaultCases) {
-      const key = baselineKey(tc.name);
-      await prepareComparisonFonts(tc.html, tc.css);
-      const { lines } = renderToCanvas(tc.html, tc.css, tc.width, tc.height);
-      const result = compareLinesAgainstReference(key, lines);
-      results.push(result);
+  it('all cases match Chrome reference layout', async ({ skip }) => {
+    const refMap = await readReference();
+    if (!refMap) {
+      skip(`${REFERENCE_FILE} is missing: run \`${RECORD_COMMAND}\` first`);
+      return;
     }
-
-    // Multi-font cases
-    const multiFontCss = await loadMultiFontCss();
-    for (const font of FONT_VARIANTS) {
-      for (const tc of allCases) {
-        const css = multiFontCss + '\n' + tc.css + `\nbody { font-family: ${font.family} !important; }`;
-        const key = baselineKey(tc.name, font.name);
-        await prepareComparisonFonts(tc.html, css);
-        const { lines } = renderToCanvas(tc.html, css, tc.width, tc.height);
-        const result = compareLinesAgainstReference(key, lines);
-        results.push(result);
-      }
-    }
+    const results = (await canvasLines())
+      .map(({ key, lines }) => compareLinesAgainstReference(refMap, key, lines));
 
     // Print report
     const matches = results.filter(r => r.status === 'match');
@@ -160,7 +169,7 @@ describe.skipIf(PORTABLE_GATES_ONLY)(`Cross-browser consistency: ${browserName} 
           console.log(`[${r.key}] Y-DRIFT: ${r.maxYDrift?.toFixed(1)}px`);
         }
       } else if (r.status === 'no-reference') {
-        console.log(`[${r.key}] NO REFERENCE (record tests/cross-browser.record.test.ts first)`);
+        console.log(`[${r.key}] NO REFERENCE (record it: ${RECORD_COMMAND})`);
       }
     }
 
@@ -187,7 +196,7 @@ describe.skipIf(PORTABLE_GATES_ONLY)(`Cross-browser consistency: ${browserName} 
     console.log(`\n=== Summary: ${matches.length + yDriftOnly.length}/${results.length} consistent | ${lineCountMismatches.length} line-count | ${textMismatches.length} text | ${yDriftOnly.length} y-drift-only ===`);
 
     if (noRef.length > 0) {
-      console.log(`WARNING: ${noRef.length} cases have no Chrome reference. Run: npx vitest run --project chromium tests/cross-browser.record.test.ts`);
+      console.log(`WARNING: ${noRef.length} cases have no Chrome reference. Run: ${RECORD_COMMAND}`);
     }
 
     const signatures = results
@@ -207,7 +216,7 @@ describe.skipIf(PORTABLE_GATES_ONLY)(`Cross-browser consistency: ${browserName} 
       browserName,
       signatures,
       recorded: residualBaseline as Record<string, string[]>,
-      updateMode: import.meta.env.MODE === 'update',
+      updateMode: UPDATE_MODE,
       writeFile: commands.writeFile,
     });
     if (expected === null) return;

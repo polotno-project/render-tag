@@ -1,13 +1,16 @@
 /**
  * Shared fixed-width mock canvas context for DOM-free tests: every character
- * is CHAR_WIDTH px wide, letter-spacing adds after every character (mirrors
- * Chrome canvas, trailing included). Used by layout-logic and the
- * browser/node parity suites so all environments measure identically.
+ * is `charWidth` px wide (CHAR_WIDTH by default), letter-spacing adds after
+ * every character, trailing included: `measureText` grows by one spacing for
+ * a 1-char string and three for a 3-char one in Chromium, Firefox and WebKit
+ * alike. The spacing is uniform, which is where the mock stops being
+ * faithful: Chrome applies none inside a cursive Arabic run. Ascent 12 and
+ * descent 4 at every font size.
  */
 
 export const CHAR_WIDTH = 10;
 
-export function mockCtx(): CanvasRenderingContext2D {
+export function mockCtx(charWidth = CHAR_WIDTH): CanvasRenderingContext2D {
   const ctx = {
     font: '',
     fontKerning: 'normal',
@@ -17,7 +20,7 @@ export function mockCtx(): CanvasRenderingContext2D {
     textBaseline: 'alphabetic' as CanvasTextBaseline,
     measureText(text: string) {
       const ls = parseFloat((ctx as any).letterSpacing) || 0;
-      const width = text.length * CHAR_WIDTH + text.length * ls;
+      const width = text.length * charWidth + text.length * ls;
       return {
         width,
         actualBoundingBoxAscent: 12,

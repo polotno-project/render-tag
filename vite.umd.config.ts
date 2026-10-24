@@ -1,17 +1,14 @@
 import { defineConfig } from 'vite';
-import { resolve } from 'path';
 
 export default defineConfig({
   build: {
     lib: {
-      entry: resolve(__dirname, 'src/index.ts'),
+      entry: 'src/index.ts',
       name: 'RenderTag',
       formats: ['umd'],
       fileName: () => 'render-tag.umd.js',
     },
     outDir: 'lib',
     emptyOutDir: false,
-    sourcemap: false,
-    minify: true,
   },
 });

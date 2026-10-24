@@ -4,7 +4,7 @@ import { generateLargeHTML } from './helpers/large-doc.ts';
 
 /**
  * Performance test with large content.
- * Run: npx vitest run tests/perf.test.ts
+ * Run: npx vitest run --project chromium tests/perf.test.ts
  */
 
 test('performance: large content render', () => {

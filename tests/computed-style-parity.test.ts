@@ -78,6 +78,7 @@ import { Measurer } from '../src/layout.ts';
 import type { ResolvedStyle, StyledNode } from '../src/types.ts';
 import { CSS_FEATURE_CASES, DEFAULT_WIDTH, type CssFeatureCase } from './helpers/css-feature-cases.ts';
 import { browserName } from './helpers/browser-name.ts';
+import { reportPath } from './helpers/report-path.ts';
 import { gateResidualBaseline } from './helpers/baselines.ts';
 import knownFailures from './computed-style-known-failures.json';
 import { PORTABLE_GATES_ONLY } from './helpers/portable-mode.ts';
@@ -580,7 +581,7 @@ describe('computed-style parity (ResolvedStyle vs getComputedStyle)', () => {
     const keys = [...new Set(divergences.map((d) => d.key))].sort();
     // Every divergence with both values, for triage (git-ignored).
     await commands.writeFile(
-      `./tests/computed-style-report.${browserName}.json`,
+      reportPath(`computed-style-report.${browserName}.json`),
       JSON.stringify(divergences, null, 1) + '\n',
     );
 

@@ -1,11 +1,13 @@
 node_modules/
 dist/
 lib/
-*.tsbuildinfo
 
-# Test artifacts
-tests/__screenshots__/
+# Generated test output: reports, logs, the local cross-browser recording,
+# vitest attachments (tests/helpers/report-path.ts)
+tests/.out/
+
 .claude
+
 # OS files
 .DS_Store
 Thumbs.db
@@ -19,25 +21,3 @@ Thumbs.db
 # Env
 .env
 .env.local
-
-# Reference files
-Text.ts
-
-# Wrap-debug harness reports (generated)
-tests/wrap-report.*.json
-tests/wrap-sweep-report.*.json
-tests/wrap-sweep-progress.*.log
-# Geometry oracle shadow-mode reports (generated)
-tests/geometry-report.*.json
-# Computed-style oracle triage reports (generated)
-tests/computed-style-report.*.json
-# Engine-probe matrix outputs (generated)
-tests/engine-probe.*.json
-# List-marker parity harness reports (generated)
-tests/list-marker-report.*.html
-tests/list-marker-table.*.txt
-.vitest-attachments/
-
-# Chrome canvas layout recording for cross-browser.compare (local, environment-pinned):
-# npm run test:cross-browser:record
-tests/cross-browser-reference.json

@@ -15,28 +15,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { render } from '../src/index.ts';
-
-interface Rect { x: number; y: number; w: number; h: number; }
-
-function countPixels(
-  canvas: HTMLCanvasElement,
-  predicate: (r: number, g: number, b: number) => boolean,
-  rect?: Rect,
-): number {
-  const ctx = canvas.getContext('2d')!;
-  const { x, y, w, h } = rect ?? { x: 0, y: 0, w: canvas.width, h: canvas.height };
-  const data = ctx.getImageData(x, y, w, h).data;
-  let count = 0;
-  for (let i = 0; i < data.length; i += 4) {
-    if (data[i + 3] < 128) continue;
-    if (predicate(data[i], data[i + 1], data[i + 2])) count++;
-  }
-  return count;
-}
-
-const isReddish = (r: number, g: number, b: number) => r > 130 && g < 110 && b < 110;
-const isGreenish = (r: number, g: number, b: number) => g > 150 && b < 120;
-const isAny = () => true;
+import { countPixels, isAny, isGreenish, isReddish } from './helpers/pixels.ts';
 
 // The exact fragment reported by the user.
 const BUG_HTML =

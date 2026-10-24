@@ -1475,6 +1475,67 @@ describe('Layout logic (mocked measureText)', () => {
     });
   });
 
+  // ─── ::marker padding-inline-end (resolved from the author sheet) ──────
+  // An explicit padding replaces the default bullet gap of 7 + ascent/3 =
+  // 11px (mock ascent 12), so 1em at 16px widens the gap by 16 - 11 = 5.
+  describe('::marker pseudo-element', () => {
+    const CSS = 'body { font-family: sans-serif; font-size: 16px; }';
+
+    /** Each `<li>`'s marker (its first child) and the non-marker text runs. */
+    function markerLayout(html: string, css: string) {
+      const { layoutRoot } = layout({ html: `<style>${css}</style>${html}`, width: 400, height: 400, ctx: mockCtx() });
+      const markers: LayoutText[] = [];
+      const items: LayoutText[] = [];
+      const walk = (n: LayoutBox | LayoutText, isMarker = false) => {
+        if (n.type === 'text') {
+          if (isMarker) markers.push(n);
+          else if (n.text.trim()) items.push(n);
+          return;
+        }
+        n.children.forEach((c, i) => walk(c, n.tagName === 'li' && i === 0));
+      };
+      walk(layoutRoot);
+      return { markers, items };
+    }
+    const ltrGap = (marker: LayoutText, item: LayoutText) => item.x - (marker.x + marker.width);
+
+    it('padding-inline-end widens the marker→content gap (LTR)', () => {
+      const def = markerLayout('<ul><li>item</li></ul>', CSS);
+      const wide = markerLayout('<ul><li>item</li></ul>', `${CSS} ::marker { padding-inline-end: 1em; }`);
+      expect(ltrGap(wide.markers[0], wide.items[0]) - ltrGap(def.markers[0], def.items[0])).toBeCloseTo(5, 5);
+    });
+
+    it('padding-inline-end maps to the correct side in RTL', () => {
+      const html = '<ul dir="rtl"><li>عنصر</li></ul>';
+      const def = markerLayout(html, CSS);
+      const wide = markerLayout(html, `${CSS} ::marker { padding-inline-end: 1em; }`);
+      // RTL: the marker is to the RIGHT of the content.
+      const rtlGap = (m: { markers: LayoutText[]; items: LayoutText[] }) =>
+        m.markers[0].x - (m.items[0].x + m.items[0].width);
+      expect(rtlGap(wide) - rtlGap(def)).toBeCloseTo(5, 5);
+    });
+
+    it('a ::marker rule only matches inside the selector ancestor', () => {
+      const got = markerLayout(
+        '<ul class="fancy"><li>fancy</li></ul><ul><li>plain</li></ul>',
+        `${CSS} .fancy ::marker { padding-inline-end: 1em; }`,
+      );
+      const fancy = got.items.find((i) => i.text.includes('fancy'))!;
+      const plain = got.items.find((i) => i.text.includes('plain'))!;
+      const fancyMarker = got.markers.find((m) => Math.abs(m.y - fancy.y) < 8)!;
+      const plainMarker = got.markers.find((m) => Math.abs(m.y - plain.y) < 8)!;
+      expect(ltrGap(fancyMarker, fancy) - ltrGap(plainMarker, plain)).toBeCloseTo(5, 5);
+    });
+
+    it('a higher-specificity ::marker rule wins over a lower-specificity one', () => {
+      const got = markerLayout(
+        '<ul><li class="special">x</li></ul>',
+        `${CSS} li::marker { padding-inline-end: 0.5em; } .special::marker { padding-inline-end: 2em; }`,
+      );
+      expect(ltrGap(got.markers[0], got.items[0])).toBeCloseTo(32, 5);
+    });
+  });
+
   // ─── RTL inline boxes and decorations ────────────────────────────────
   // Hebrew letters (א ב ג …), not Latin: Latin in an RTL paragraph is LTR
   // text (UAX #9 level 2) and keeps its own left-to-right order.
@@ -2064,7 +2125,7 @@ describe('Layout logic (mocked measureText)', () => {
     });
 
     it("sub lowers, super raises by the engine's own rule (font size 16)", () => {
-      // Measured off the DOM, 8-56px across three families (see CLAUDE.md):
+      // Measured off the DOM, 8-56px across three families (`BLINK_SUPER_SUB`):
       // Blink and WebKit shift by fontSize/3 + 1 and fontSize/5 + 1, Gecko by
       // 0.34em and 0.2em. These are not tunable constants — they are what the
       // browser does, and the parity suites check them against it.
@@ -2508,8 +2569,8 @@ describe('sameDecorationBand (run merging)', () => {
 //
 // The engine flags are module-level consts read off the UA, so this block
 // re-imports layout.ts under a Safari UA (Node otherwise takes the Blink
-// branch). Measured in Playwright WebKit (see CLAUDE.md "Line boxes and the
-// baseline"): a line box is `floor(line-height)` tall, the line-height being
+// branch). Measured in Playwright WebKit (`TRUNCATES_LINE_HEIGHT` in
+// src/engine.ts): a line box is `floor(line-height)` tall, the line-height being
 // WebKit's float32 product — 16px x 1.6 stands 25px, 20px x 1.15 stands 23
 // even though `20 * 1.15` is 22.999999999999996 in double — and the baseline
 // sits `floor(half-leading)` below the line top plus the ascent.
@@ -2573,6 +2634,24 @@ describe('a CSS-wide keyword on line-height', () => {
       width: 35, ctx: mockCtx(),
     }).layoutRoot).filter((t) => t.text.trim()).map((t) => t.y);
     expect(ys[1] - ys[0]).toBe(40);
+  });
+});
+
+// A percentage computes against the element's own font-size and inherits as
+// that px value (computed-style-parity checks the resolved values). It once
+// fell into the unitless branch: 120% was a 120x multiplier, 2400px a line.
+describe('line-height: <percentage>', () => {
+  const heightOf = (html: string) => layout({ html, width: 300, ctx: mockCtx() }).height;
+
+  it('120% lays out one line like unitless 1.2', () => {
+    expect(heightOf('<div style="font-size:20px;line-height:120%">hello</div>')).toBe(24);
+    expect(heightOf('<div style="font-size:20px;line-height:1.2">hello</div>')).toBe(24);
+  });
+
+  it('a child inherits the computed 24px, not the ratio', () => {
+    // The 40px span keeps the 24px line; unitless 1.2 recomputes to 48px.
+    expect(heightOf('<div style="font-size:20px;line-height:120%"><span style="font-size:40px">hello</span></div>')).toBe(24);
+    expect(heightOf('<div style="font-size:20px;line-height:1.2"><span style="font-size:40px">hello</span></div>')).toBe(48);
   });
 });
 

@@ -23,7 +23,7 @@ import { resolveBidi, lineLevels, visualOrder } from '../src/bidi.ts';
 
 const WIDTH = 700;
 const CSS = 'p { margin: 0; font-family: sans-serif; font-size: 16px; line-height: 24px; }';
-/** Extent tolerance: Range rects snap in WebKit (CLAUDE.md, geometry oracle). */
+/** Extent tolerance: WebKit pixel-snaps Range rects (a ~1px floor on x and advance). */
 const EXTENT_TOLERANCE = 1.5;
 
 interface Glyph { c: string; x: number }

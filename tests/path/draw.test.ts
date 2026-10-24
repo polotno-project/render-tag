@@ -7,14 +7,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { drawTextOnPath, layoutTextOnPath, drawTextOnPathLayout } from '../../src/path/index.ts';
-
-function makeCanvas(width: number, height: number) {
-  const c = document.createElement('canvas');
-  c.width = width;
-  c.height = height;
-  const ctx = c.getContext('2d')!;
-  return { canvas: c, ctx };
-}
+import { makeCanvas } from '../helpers/pixels.ts';
 
 function isCanvasNonEmpty(ctx: CanvasRenderingContext2D, w: number, h: number): boolean {
   const data = ctx.getImageData(0, 0, w, h).data;

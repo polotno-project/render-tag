@@ -20,6 +20,24 @@ export function validateBaselineCoverage(
   };
 }
 
+/**
+ * The baseline file after an update run of some of its keys: `produced`
+ * replaces `recorded`, ordered as `keys` (the whole corpus); a recorded key
+ * no corpus case produces is dropped.
+ */
+export function mergeBaselines(
+  keys: readonly string[],
+  recorded: Record<string, BaselineEntry>,
+  produced: Record<string, BaselineEntry>,
+): Record<string, BaselineEntry> {
+  const merged: Record<string, BaselineEntry> = {};
+  for (const key of keys) {
+    const entry = produced[key] ?? recorded[key];
+    if (entry) merged[key] = entry;
+  }
+  return merged;
+}
+
 export function classifyBaselineResult(
   key: string,
   score: number,

@@ -27,12 +27,10 @@ import {
   SWEEP_WRAP_SKIPS,
   warmNativeLayout,
 } from './helpers/compare.ts';
-import {
-  loadBasicCases, loadMultiFontCss, FONT_VARIANTS,
-  polotnoCase, polotnoListsCase, negativeListMarginsCase,
-} from './helpers/test-cases.ts';
+import { loadCorpus, FONT_VARIANTS } from './helpers/test-cases.ts';
 import type { BenchmarkCase } from './helpers/test-cases.ts';
 import { browserName } from './helpers/browser-name.ts';
+import { reportPath } from './helpers/report-path.ts';
 import { gateResidualBaseline } from './helpers/baselines.ts';
 import sweepBaseline from './wrap-sweep-baseline.json';
 
@@ -79,27 +77,10 @@ async function sweepOne(key: string, tc: BenchmarkCase, css: string): Promise<Ca
 
 describe('Full-corpus 1px width sweep', () => {
   it('finds no unrecorded line-breaking divergence', async () => {
-    const allCases = await loadBasicCases();
     const wanted = (tc: BenchmarkCase) =>
       !SWEEP_WRAP_SKIPS.has(tc.name) && (!CASE_FILTER || CASE_FILTER.includes(tc.name));
-
-    const work: Array<{ key: string; tc: BenchmarkCase; css: string }> = [];
-    for (const tc of [...allCases, polotnoCase, polotnoListsCase, negativeListMarginsCase]) {
-      if (wanted(tc)) work.push({ key: tc.name, tc, css: tc.css });
-    }
-    if (FONT_MODE === 'all') {
-      const multiFontCss = await loadMultiFontCss();
-      for (const font of FONT_VARIANTS) {
-        for (const tc of allCases) {
-          if (!wanted(tc)) continue;
-          work.push({
-            key: `${tc.name}@${font.name}`,
-            tc,
-            css: `${multiFontCss}\n${tc.css}\nbody { font-family: ${font.family} !important; }`,
-          });
-        }
-      }
-    }
+    const work = (await loadCorpus({ fonts: FONT_MODE === 'all' ? FONT_VARIANTS : [] }))
+      .filter((unit) => wanted(unit.tc));
 
     const findings: CaseFinding[] = [];
     let points = 0;
@@ -112,7 +93,7 @@ describe('Full-corpus 1px width sweep', () => {
       // record of which key was running. Keeping the page alive is
       // sweepWrapWidths' job: it yields the task queue inside each case.
       await commands.writeFile(
-        `./tests/wrap-sweep-progress.${browserName}.log`,
+        reportPath(`wrap-sweep-progress.${browserName}.log`),
         `[${index + 1}/${work.length}] ${unit.key}\n`,
       );
       await prepareComparisonFonts(unit.tc.html, unit.css);
@@ -144,7 +125,7 @@ describe('Full-corpus 1px width sweep', () => {
     }
 
     await commands.writeFile(
-      `./tests/wrap-sweep-report.${browserName}.json`,
+      reportPath(`wrap-sweep-report.${browserName}.json`),
       JSON.stringify({ browserName, points, failures, findings }, null, 1) + '\n',
     );
 

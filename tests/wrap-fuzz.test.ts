@@ -27,11 +27,12 @@ import { PORTABLE_GATES_ONLY } from './helpers/portable-mode.ts';
  *     clear render-bug class; robust (tens of px, never sub-pixel).
  *   • No NEW structural (line-count) divergence CLASS beyond the signatures in
  *     wrap-fuzz-baseline.json — same philosophy as the pixel baselines.
- * It also writes tests/wrap-report.fuzz-<browser>.json for triage.
+ * It also writes tests/.out/wrap-report.fuzz-<browser>.json for triage.
  *
- * Run alone: npx vitest run tests/wrap-fuzz.test.ts. Tune NUM_CASES / SEED.
+ * Run alone: npx vitest run --project chromium tests/wrap-fuzz.test.ts. Tune NUM_CASES / SEED.
  */
 import { browserName } from './helpers/browser-name.ts';
+import { reportPath } from './helpers/report-path.ts';
 
 // ─── Config ────────────────────────────────────────────────────────────────
 const NUM_CASES = 600;
@@ -241,7 +242,7 @@ describe('Wrap fuzz (generative differential)', () => {
       findings,
     }, null, 2);
     const { commands } = await import('vitest/browser');
-    const out = `tests/wrap-report.fuzz-${browserName}.json`;
+    const out = reportPath(`wrap-report.fuzz-${browserName}.json`);
     await commands.writeFile(out, report);
     console.log(`\nReport written to ${out}`);
 

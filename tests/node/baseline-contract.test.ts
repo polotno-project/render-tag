@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   classifyBaselineResult,
+  mergeBaselines,
   validateBaselineCoverage,
 } from '../helpers/baselines.ts';
 
@@ -25,6 +26,19 @@ describe('baseline contract', () => {
       .toEqual(['improved: score 9.98% (was 10%, -0.02 improvement; update baseline)']);
     expect(classifyBaselineResult('wrap improved', 10, true, baseline, 0.01))
       .toEqual(['wrap improved: wrapping improved; update baseline']);
+  });
+
+  it('merges an update run in corpus order and drops keys no case produces', () => {
+    const merged = mergeBaselines(
+      ['a', 'b', 'c'],
+      { stale: { score: 9, wrap: true }, c: { score: 3, wrap: true }, a: { score: 1, wrap: true } },
+      { b: { score: 2, wrap: false }, a: { score: 1.5, wrap: false } },
+    );
+    expect(JSON.stringify(merged)).toBe(JSON.stringify({
+      a: { score: 1.5, wrap: false },
+      b: { score: 2, wrap: false },
+      c: { score: 3, wrap: true },
+    }));
   });
 
   it('treats an absent baseline as a contract failure', () => {

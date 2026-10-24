@@ -2,8 +2,8 @@ name: Engine probe
 
 # Report-only measurement (tests/engine-probe.test.ts): each engine's DOM
 # numbers beside render-tag's prediction, uploaded as JSON for fitting engine
-# rules — chiefly Gecko, which cannot launch on the maintainer's machine.
-# Never gates anything. See CLAUDE.md "Engine-probe matrix".
+# rules, chiefly Gecko on the ubuntu runner (its system fonts differ from the Mac).
+# Never gates anything. See the header of tests/engine-probe.test.ts.
 
 on:
   workflow_dispatch:
@@ -30,12 +30,14 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ matrix.browser }}-${{ hashFiles('package-lock.json') }}
+          key: ${{ runner.os }}-playwright-${{ matrix.browser }}-${{ hashFiles('node_modules/playwright-core/browsers.json') }}
       - run: npx playwright install --with-deps ${{ matrix.browser }}
       - run: npx vitest run --project ${{ matrix.browser }} tests/engine-probe.test.ts
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: engine-probe-${{ matrix.browser }}
-          path: tests/engine-probe.*.json
+          path: tests/.out/engine-probe.*.json
+          # tests/.out is a dot-folder, which upload-artifact skips by default.
+          include-hidden-files: true
           if-no-files-found: error

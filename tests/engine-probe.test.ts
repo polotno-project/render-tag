@@ -5,7 +5,7 @@
  * Each FAMILY is a table of inputs for one engine rule in `src/engine.ts`. A
  * row measures the engine's own DOM and render-tag's `layout()` in the same
  * browser (so render-tag predicts with that engine's flags) and records both
- * plus the signed delta per field. `tests/engine-probe.<browser>.json`
+ * plus the signed delta per field. `tests/.out/engine-probe.<browser>.json`
  * (git-ignored) holds every row, one per line, sorted by family, and a
  * summary: rows matching within `tol` (the engine's layout unit, or 0 device
  * px for raster families) and the worst rows. Fit a rule from the rows, then
@@ -24,6 +24,7 @@ import { compareNativeRenders } from './helpers/native-compare.ts';
 import { scanBand } from './helpers/decoration-scan.ts';
 import { FONT_VARIANTS, loadMultiFontCss } from './helpers/test-cases.ts';
 import { browserName } from './helpers/browser-name.ts';
+import { reportPath } from './helpers/report-path.ts';
 
 /** What getBoundingClientRect resolves to: Blink and WebKit LayoutUnits,
  * Gecko app units. */
@@ -404,7 +405,7 @@ describe('engine probe', () => {
       `"summary": [\n${summary.map(line).join(',\n')}\n],\n` +
       `"rows": {\n${Object.entries(rows).map(([name, list]) =>
         `${line(name)}: [\n${list.map(line).join(',\n')}\n]`).join(',\n')}\n}\n}\n`;
-    await commands.writeFile(`./tests/engine-probe.${browserName}.json`, json);
+    await commands.writeFile(reportPath(`engine-probe.${browserName}.json`), json);
     // Report-only: the run fails only if a family produced no rows at all.
     for (const s of summary) expect(s.rows, s.family).toBeGreaterThan(0);
   }, 1_200_000);

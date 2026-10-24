@@ -36,8 +36,7 @@
     "html2canvas"
   ],
   "files": [
-    "lib",
-    "README.md"
+    "lib"
   ],
   "scripts": {
     "dev": "vite --config docs/vite.config.ts",
@@ -56,13 +55,12 @@
     "vendor:fonts": "node scripts/vendor-fonts.mjs"
   },
   "devDependencies": {
-    "@vitest/browser": "^4",
-    "@vitest/browser-playwright": "^4.1.2",
+    "@vitest/browser-playwright": "^4.1.12",
     "linkedom": "^0.18",
     "pixelmatch": "^7",
-    "playwright": "^1",
+    "playwright": "1.58.2",
     "typescript": "^6",
     "vite": "^8",
-    "vitest": "^4"
+    "vitest": "^4.1.12"
   }
 }

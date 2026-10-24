@@ -10,7 +10,7 @@
  * current environment (parity vs the same browser's DOM, overflow, unit
  * logic). The environment-pinned contracts remain the local deep gate.
  *
- * See CLAUDE.md "CI vs local deep testing".
+ * See CLAUDE.md "Portable mode (CI)".
  */
 declare const __RENDER_TAG_PORTABLE__: boolean | undefined;
 

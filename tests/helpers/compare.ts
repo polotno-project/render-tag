@@ -214,7 +214,7 @@ export function renderToCanvas(
 
 /**
  * Corpus cases whose wrapping no gate compares — the one home of every wrap
- * skip. render.test and generate-baselines read it directly; wrap-sweep and
+ * skip. The baseline gate (render-corpus.ts) reads it directly; wrap-sweep and
  * wrap-debug through `SWEEP_WRAP_SKIPS`, which extends it.
  */
 export const WRAP_SKIPS: ReadonlySet<string> = new Set([

@@ -6,7 +6,7 @@ name: Test
 # cross-browser Chrome reference, fuzz signature sets, system-font geometry)
 # stay local-only — they were recorded on the maintainer's machine and font
 # rasterization differs per OS/runner image. See CLAUDE.md
-# "CI vs local deep testing".
+# "Portable mode (CI)".
 
 on:
   push:
@@ -66,7 +66,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ${{ runner.os == 'macOS' && '~/Library/Caches/ms-playwright' || '~/.cache/ms-playwright' }}
-          key: ${{ runner.os }}-playwright-${{ matrix.browser }}-${{ hashFiles('package-lock.json') }}
+          key: ${{ runner.os }}-playwright-${{ matrix.browser }}-${{ hashFiles('node_modules/playwright-core/browsers.json') }}
       - run: npx playwright install ${{ matrix.install }}
       - run: npm run ${{ matrix.script }}
         env:

@@ -20,24 +20,9 @@
  */
 import { describe, it, expect } from 'vitest';
 import { render } from '../src/index.ts';
+import { countColoredPixels, isRed } from './helpers/pixels.ts';
 
-function countColoredPixels(
-  canvas: HTMLCanvasElement,
-  predicate: (r: number, g: number, b: number) => boolean,
-): number {
-  const ctx = canvas.getContext('2d')!;
-  const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-  let count = 0;
-  for (let i = 0; i < data.length; i += 4) {
-    const r = data[i], g = data[i + 1], b = data[i + 2], a = data[i + 3];
-    if (a < 128) continue;
-    if (r > 240 && g > 240 && b > 240) continue;
-    if (predicate(r, g, b)) count++;
-  }
-  return count;
-}
-
-const isRed = (r: number, g: number, b: number) => r > 150 && g < 100 && b < 100;
+// Wider than the shared isBlue: no green bound.
 const isBlue = (r: number, g: number, b: number) => b > 150 && r < 100;
 
 describe('decoration color propagation across block children', () => {

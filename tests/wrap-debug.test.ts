@@ -1,3 +1,23 @@
+/**
+ * Wrap-accuracy debugging harness: a maintainer tool, in no lane. Sweeps every
+ * case x font x width through `compareWrapping` and writes
+ * `tests/.out/wrap-report.<browser>.json` (each failure with per-line diffs,
+ * plus by-case and by-font counts). Tune FONT_MODE / WIDTH_MODE / CASE_FILTER
+ * below: plain constants, because the browser context has no `process.env`.
+ *
+ *   npx vitest run --project chromium tests/wrap-debug.test.ts   # or firefox, webkit
+ *
+ * Classify a divergence before chasing it: a different line COUNT is likely a
+ * break-logic bug; the same count with shifted membership is a break-boundary
+ * divergence. Table cells and multi-column content are known-hard: their
+ * independent flows cannot be paired through one global line stream.
+ *
+ * To tell a measurement bug from a font-loading artifact, open the benchmark
+ * page (`npm run dev`, `benchmark.html?case=…&font=…`): it prints a
+ * per-character canvas-vs-DOM line check and per-word measureText-vs-DOM
+ * deltas. measureText matches the DOM to ~0.01px, except Playfair Display at
+ * 48px (253.34px vs 251.77px for "This is 48px").
+ */
 import { describe, it, beforeAll } from 'vitest';
 import {
   compareWrapping,
@@ -5,15 +25,12 @@ import {
   warmNativeLayout,
   SWEEP_WRAP_SKIPS,
 } from './helpers/compare.ts';
-import {
-  loadBasicCases,
-  FONT_VARIANTS,
-  loadMultiFontCss,
-} from './helpers/test-cases.ts';
-import type { BenchmarkCase } from './helpers/test-cases.ts';
+import { loadCorpus, FONT_VARIANTS } from './helpers/test-cases.ts';
+import type { BenchmarkCase, CorpusEntry } from './helpers/test-cases.ts';
 
 // ─── Browser detection ──────────────────────────────────────────────────
 import { browserName } from './helpers/browser-name.ts';
+import { reportPath } from './helpers/report-path.ts';
 
 // ─── Config ──────────────────────────────────────────────────────────────
 // This runs in the browser context, where process.env is NOT populated — so
@@ -58,33 +75,18 @@ interface Failure {
 }
 
 describe('Wrap debug matrix', () => {
-  let allCases: BenchmarkCase[];
-  let multiFontCss: string;
+  let corpus: CorpusEntry[];
 
   beforeAll(async () => {
-    allCases = await loadBasicCases();
-    multiFontCss = await loadMultiFontCss();
+    corpus = await loadCorpus({ extras: [], fonts: FONT_MODE === 'all' ? FONT_VARIANTS : [] });
   }, 60000);
 
   it('sweeps wrapping across cases × fonts × widths', async () => {
-    const cases = CASE_FILTER
-      ? allCases.filter((c) => CASE_FILTER.has(c.name))
-      : allCases;
-
-    const fontPasses: { name: string; cssFor: (tc: BenchmarkCase) => string }[] =
-      [{ name: 'default', cssFor: (tc) => tc.css }];
-    if (FONT_MODE === 'all') {
-      for (const f of FONT_VARIANTS) {
-        fontPasses.push({
-          name: f.name,
-          cssFor: (tc) =>
-            multiFontCss +
-            '\n' +
-            tc.css +
-            `\nbody { font-family: ${f.family} !important; }`,
-        });
-      }
-    }
+    const units = CASE_FILTER
+      ? corpus.filter((unit) => CASE_FILTER.has(unit.tc.name))
+      : corpus;
+    const caseCount = new Set(units.map((unit) => unit.tc.name)).size;
+    const fontPassCount = 1 + (FONT_MODE === 'all' ? FONT_VARIANTS.length : 0);
 
     const failures: Failure[] = [];
     let totalRuns = 0;
@@ -94,49 +96,46 @@ describe('Wrap debug matrix', () => {
     const failByFont = new Map<string, number>();
     const failByCaseFont = new Map<string, number>();
 
-    for (const tc of cases) {
+    for (const { tc, css, font = 'default' } of units) {
       const widths = widthsFor(tc);
       const known = KNOWN_HARD.has(tc.name);
-      for (const fp of fontPasses) {
-        const css = fp.cssFor(tc);
-        await prepareComparisonFonts(tc.html, css);
-        warmNativeLayout(tc.html, css, tc.width);
-        for (const w of widths) {
-          totalRuns++;
-          let res;
-          try {
-            res = compareWrapping(tc.html, css, w, tc.height);
-          } catch (e) {
-            failures.push({
-              case: tc.name,
-              font: fp.name,
-              width: w,
-              canvasLines: -1,
-              domLines: -1,
-              diff: [{ i: -1, canvas: 'ERROR', dom: String(e) }],
-              known,
-            });
-            continue;
-          }
-          if (!res.wrappingMatch) {
-            failures.push({
-              case: tc.name,
-              font: fp.name,
-              width: w,
-              canvasLines: res.canvasLineCount,
-              domLines: res.domLineCount,
-              diff: res.differentLines.slice(0, 3).map((d) => ({
-                i: d.lineIndex,
-                canvas: d.canvas,
-                dom: d.dom,
-              })),
-              known,
-            });
-            failByCase.set(tc.name, (failByCase.get(tc.name) || 0) + 1);
-            failByFont.set(fp.name, (failByFont.get(fp.name) || 0) + 1);
-            const cf = `${tc.name} @ ${fp.name}`;
-            failByCaseFont.set(cf, (failByCaseFont.get(cf) || 0) + 1);
-          }
+      await prepareComparisonFonts(tc.html, css);
+      warmNativeLayout(tc.html, css, tc.width);
+      for (const w of widths) {
+        totalRuns++;
+        let res;
+        try {
+          res = compareWrapping(tc.html, css, w, tc.height);
+        } catch (e) {
+          failures.push({
+            case: tc.name,
+            font,
+            width: w,
+            canvasLines: -1,
+            domLines: -1,
+            diff: [{ i: -1, canvas: 'ERROR', dom: String(e) }],
+            known,
+          });
+          continue;
+        }
+        if (!res.wrappingMatch) {
+          failures.push({
+            case: tc.name,
+            font,
+            width: w,
+            canvasLines: res.canvasLineCount,
+            domLines: res.domLineCount,
+            diff: res.differentLines.slice(0, 3).map((d) => ({
+              i: d.lineIndex,
+              canvas: d.canvas,
+              dom: d.dom,
+            })),
+            known,
+          });
+          failByCase.set(tc.name, (failByCase.get(tc.name) || 0) + 1);
+          failByFont.set(font, (failByFont.get(font) || 0) + 1);
+          const cf = `${tc.name} @ ${font}`;
+          failByCaseFont.set(cf, (failByCaseFont.get(cf) || 0) + 1);
         }
       }
     }
@@ -148,7 +147,7 @@ describe('Wrap debug matrix', () => {
 
     // ─── Human-readable summary ───────────────────────────────────────────
     console.log(
-      `\n=== WRAP DEBUG [${browserName}] cases=${cases.length} fontPasses=${fontPasses.length} runs=${totalRuns} ===`,
+      `\n=== WRAP DEBUG [${browserName}] cases=${caseCount} fontPasses=${fontPassCount} runs=${totalRuns} ===`,
     );
     console.log(
       `Failures: ${failures.length} total | ${actionable.length} actionable | ${failures.length - actionable.length} known-hard`,
@@ -187,7 +186,7 @@ describe('Wrap debug matrix', () => {
       2,
     );
     const { commands } = await import('vitest/browser');
-    const out = `tests/wrap-report.${browserName}.json`;
+    const out = reportPath(`wrap-report.${browserName}.json`);
     await commands.writeFile(out, report);
     console.log(`Report written to ${out}`);
 

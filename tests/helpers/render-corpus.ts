@@ -3,12 +3,17 @@
  * font) and `tests/render.fonts.test.ts` (the 5-font matrix). Two files, not
  * one per font: Vitest's parallel iframes share one renderer thread, and each
  * iframe loads the whole font catalog again (6 shards measured slower than 1).
+ *
+ * `npm run update -- --project <browser> tests/render.test.ts
+ * tests/render.fonts.test.ts` re-records `tests/baselines.<browser>.json`:
+ * each run merges the keys it produced, in corpus order.
  */
 import { describe, it, expect } from 'vitest';
+import { commands } from 'vitest/browser';
 import { compareWrapping, WRAP_SKIPS } from './compare.ts';
 import { compareNativeRenders } from './native-compare.ts';
-import { loadBasicCases, loadMultiFontCss, FONT_VARIANTS, type BenchmarkCase } from './test-cases.ts';
-import { classifyBaselineResult, type BaselineEntry } from './baselines.ts';
+import { loadCorpus, FONT_VARIANTS, type BenchmarkCase, type CorpusEntry } from './test-cases.ts';
+import { classifyBaselineResult, mergeBaselines, type BaselineEntry } from './baselines.ts';
 import chromeBaselines from '../baselines.chrome.json';
 import firefoxBaselines from '../baselines.firefox.json';
 import webkitBaselines from '../baselines.webkit.json';
@@ -25,11 +30,8 @@ const baselineFiles: Record<string, Record<string, BaselineEntry>> = {
   webkit: webkitBaselines as Record<string, BaselineEntry>,
 };
 export const baselineMap = baselineFiles[browserName];
-
-/** Baseline key for a case, optionally with a font suffix. */
-export function baselineKey(caseName: string, fontName?: string): string {
-  return fontName ? `${caseName}@${fontName}` : caseName;
-}
+const BASELINE_FILE = `./tests/baselines.${browserName}.json`;
+export const UPDATE_MODE = import.meta.env.MODE === 'update';
 
 function formatResult(name: string, score: number, wrap: boolean, baseline?: BaselineEntry): string {
   const scoreDelta = baseline ? (score - baseline.score) : 0;
@@ -57,23 +59,34 @@ export async function runCase(
 /**
  * Score every case against its recorded baseline and fail on ANY unrecorded
  * change. In portable mode the cases still render and log; only the
- * environment-pinned contract is not gated.
+ * environment-pinned contract is not gated. In update mode the scores
+ * (rounded to 0.01) and wraps are recorded instead.
  */
-export async function gateBaselines(
-  cases: { key: string; tc: BenchmarkCase; css: string }[],
-): Promise<void> {
+export async function gateBaselines(cases: CorpusEntry[]): Promise<void> {
   const issues: string[] = [];
+  const produced: Record<string, BaselineEntry> = {};
   let totalScore = 0;
   for (const { key, tc, css } of cases) {
-    const baseline = PORTABLE_GATES_ONLY ? undefined : baselineMap[key];
+    const baseline = PORTABLE_GATES_ONLY || UPDATE_MODE ? undefined : baselineMap[key];
     const { score, wrap } = await runCase(tc, css);
     console.log(formatResult(key, score, wrap, baseline));
     totalScore += score;
-    if (!PORTABLE_GATES_ONLY) {
+    if (UPDATE_MODE) {
+      produced[key] = { score: Math.round(score * 100) / 100, wrap };
+    } else if (!PORTABLE_GATES_ONLY) {
       issues.push(...classifyBaselineResult(key, score, wrap, baseline, SCORE_TOLERANCE));
     }
   }
   console.log(`avg: ${(totalScore / cases.length).toFixed(1)}% over ${cases.length} cases`);
+  if (UPDATE_MODE) {
+    // Read the file, not the imported module: an earlier file or font in
+    // this run may have rewritten it.
+    const recorded = JSON.parse(await commands.readFile(BASELINE_FILE)) as Record<string, BaselineEntry>;
+    const keys = (await loadCorpus()).map((entry) => entry.key);
+    await commands.writeFile(BASELINE_FILE, JSON.stringify(mergeBaselines(keys, recorded, produced), null, 2) + '\n');
+    console.log(`Recorded ${cases.length} baselines in ${BASELINE_FILE}`);
+    return;
+  }
   expect(issues, `Baseline contract changed:\n  ${issues.join('\n  ')}`).toEqual([]);
 }
 
@@ -83,13 +96,7 @@ export function fontMatrixSuite(fontName: (typeof FONT_VARIANTS)[number]['name']
   describe(`Multi-font matrix: ${fontName}`, () => {
     // Cold WebKit native captures can take longer than five minutes on macOS.
     it('all cases (score + wrapping)', async () => {
-      const allCases = await loadBasicCases();
-      const multiFontCss = await loadMultiFontCss();
-      await gateBaselines(allCases.map((tc) => ({
-        key: baselineKey(tc.name, font.name),
-        tc,
-        css: `${multiFontCss}\n${tc.css}\nbody { font-family: ${font.family} !important; }`,
-      })));
+      await gateBaselines(await loadCorpus({ defaultFont: false, fonts: [font] }));
     }, 900_000);
   });
 }

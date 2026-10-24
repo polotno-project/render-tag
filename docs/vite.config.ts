@@ -1,11 +1,11 @@
 import { defineConfig, type Plugin } from 'vite';
 import { readFileSync } from 'node:fs';
-import path from 'path';
+import path from 'node:path';
 
 // The benchmark page imports the test corpus and with it every vendored face
 // under tests/fonts (11 MB of woff2). The deployed site takes the same pinned
 // package files from jsdelivr instead; `npm run dev` still serves tests/fonts.
-const FONTS = path.resolve(__dirname, '../tests/fonts');
+const FONTS = path.resolve(import.meta.dirname, '../tests/fonts');
 function fontsFromCdn(): Plugin {
   const manifest = JSON.parse(readFileSync(path.join(FONTS, 'MANIFEST.json'), 'utf8')) as {
     packages: Record<string, { version: string; dir: string; css: string[] }>;
@@ -28,22 +28,21 @@ function fontsFromCdn(): Plugin {
 
 export default defineConfig({
   plugins: [fontsFromCdn()],
-  root: path.resolve(__dirname),
+  root: path.resolve(import.meta.dirname),
   base: '/render-tag/',
   resolve: {
     alias: {
-      'render-tag/path': path.resolve(__dirname, '../src/path/index.ts'),
-      'render-tag': path.resolve(__dirname, '../src/index.ts'),
+      'render-tag/path': path.resolve(import.meta.dirname, '../src/path/index.ts'),
+      'render-tag': path.resolve(import.meta.dirname, '../src/index.ts'),
     },
   },
   build: {
     outDir: 'dist',
-    emptyOutDir: true,
     rollupOptions: {
       input: {
-        main: path.resolve(__dirname, 'index.html'),
-        benchmark: path.resolve(__dirname, 'benchmark.html'),
-        path: path.resolve(__dirname, 'path.html'),
+        main: path.resolve(import.meta.dirname, 'index.html'),
+        benchmark: path.resolve(import.meta.dirname, 'benchmark.html'),
+        path: path.resolve(import.meta.dirname, 'path.html'),
       },
     },
   },

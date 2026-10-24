@@ -14,8 +14,8 @@
  * markerΔrel = (lib.marker − dom.marker) − (lib.text − dom.text)  → pure marker
  * geometry error, independent of where the line sits.
  *
- * Run:    npx vitest run tests/list-marker-parity.test.ts
- * Report: tests/list-marker-report.chrome.html   (git-ignored, images + numbers)
+ * Run:    npx vitest run --project chromium tests/list-marker-parity.test.ts
+ * Report: tests/.out/list-marker-report.chrome.html   (git-ignored, images + numbers)
  */
 import { describe, it } from 'vitest';
 import { commands } from 'vitest/browser';
@@ -24,6 +24,7 @@ import { loadMultiFontCss } from './helpers/test-cases.ts';
 
 const PR = 2;
 import { browserName } from './helpers/browser-name.ts';
+import { reportPath } from './helpers/report-path.ts';
 
 // Canonical native-marker reset — mirrors @polotno/core wrapHtmlForRenderTag.
 const RESET = `<style>
@@ -169,9 +170,9 @@ describe('list-marker parity (canvas vs native DOM)', () => {
       <h1>List-marker parity: render-tag vs native Chrome DOM (${browserName})</h1>
       <p>Sorted worst-first by |marker Δ| <b>relative to its line</b> (line shift factored out).</p>
       ${sorted.map(cell).join('')}`;
-    const reportPath = `./tests/list-marker-report.${browserName}.html`;
-    await commands.writeFile(reportPath, report);
-    await commands.writeFile(`./tests/list-marker-table.${browserName}.txt`, table);
-    console.log('Report written:', reportPath);
+    const reportFile = reportPath(`list-marker-report.${browserName}.html`);
+    await commands.writeFile(reportFile, report);
+    await commands.writeFile(reportPath(`list-marker-table.${browserName}.txt`), table);
+    console.log('Report written:', reportFile);
   });
 });

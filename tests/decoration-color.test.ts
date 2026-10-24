@@ -8,26 +8,7 @@
 import { describe, it, expect } from 'vitest';
 import { render } from '../src/index.ts';
 import { expandShorthand } from '../src/css-resolver.ts';
-
-/**
- * Count pixels matching a color predicate across the entire canvas.
- * Skips transparent (a < 128) and near-white (r,g,b > 240) pixels.
- */
-function countColoredPixels(
-  canvas: HTMLCanvasElement,
-  predicate: (r: number, g: number, b: number) => boolean,
-): number {
-  const ctx = canvas.getContext('2d')!;
-  const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-  let count = 0;
-  for (let i = 0; i < data.length; i += 4) {
-    const r = data[i], g = data[i + 1], b = data[i + 2], a = data[i + 3];
-    if (a < 128) continue;
-    if (r > 240 && g > 240 && b > 240) continue;
-    if (predicate(r, g, b)) count++;
-  }
-  return count;
-}
+import { countColoredPixels } from './helpers/pixels.ts';
 
 describe('text-decoration color', () => {
   it('should render underline in red, not black', () => {

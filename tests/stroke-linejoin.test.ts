@@ -9,22 +9,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { render } from '../src/index.ts';
-
-function countMatching(
-  canvas: HTMLCanvasElement,
-  predicate: (r: number, g: number, b: number, a: number) => boolean,
-): number {
-  const ctx = canvas.getContext('2d')!;
-  const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-  let count = 0;
-  for (let i = 0; i < data.length; i += 4) {
-    if (predicate(data[i], data[i + 1], data[i + 2], data[i + 3])) count++;
-  }
-  return count;
-}
-
-const isRed = (r: number, g: number, b: number, a: number) =>
-  a > 200 && r > 150 && g < 80 && b < 80;
+import { countMatching, isOpaqueRed } from './helpers/pixels.ts';
 
 describe('stroke-linejoin rendering', () => {
   // Transparent fill + thick red stroke → red pixels ARE the stroke.
@@ -35,7 +20,7 @@ describe('stroke-linejoin rendering', () => {
 
   const redFor = (joinDecl: string): number => {
     const html = `<span style="${base} ${stroke} ${joinDecl}">M</span>`;
-    return countMatching(render({ html, width: 400, pixelRatio: 1 }).canvas, isRed);
+    return countMatching(render({ html, width: 400, pixelRatio: 1 }).canvas, isOpaqueRed);
   };
 
   it('miter join extends the corners beyond round (more stroke area)', () => {
