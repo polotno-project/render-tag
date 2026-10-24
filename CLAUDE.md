@@ -902,6 +902,8 @@ improvement." The Chrome baseline improved (bullets: ~8px→<1.3px vs native).
    each, plain words. Skip internal test/infra work. Credit external
    contributors and link fixed issues/PRs.
 2. `npm version patch --no-git-tag-version`; commit the bump + changelog
-   as `render-tag: vX.Y.Z`
-3. Push, `npm run build`, `npm publish` (no git tag — tagging stopped at
-   v0.1.26)
+   as `render-tag: vX.Y.Z`, then tag that commit annotated, as
+   `npm version` would: `git tag -a vX.Y.Z -m X.Y.Z`
+3. `git push origin master vX.Y.Z`, `npm run build`, `npm publish` from
+   that commit with a clean tree (npm records it as the version's
+   `gitHead`; every tag matches it)
