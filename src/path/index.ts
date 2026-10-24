@@ -13,7 +13,7 @@ import { glyphPaints, paintGlyphs } from '../render.js';
 import { fragmentBands, paintBand, type Band, type Pen } from '../decoration.js';
 import { parseLinearGradient } from '../gradient.js';
 import { PaintState, withDraw } from '../paint-state.js';
-import { paintTextShadows, shadowBounds, shadowsOf, textPaintBounds, transformBounds, unionBounds, withCanvasShadow, measurePaintBounds, type PaintBounds, type TextShadow } from '../shadow.js';
+import { paintTextShadows, shadowBounds, shadowsOf, textPaintBounds, transformBounds, unionBounds, withCanvasShadow, lazyPaintBounds, type PaintBounds, type TextShadow } from '../shadow.js';
 import { pathFromString, type PathLike } from './svg-path.js';
 import {
   flattenSegments,
@@ -86,13 +86,11 @@ export function layoutTextOnPath(config: LayoutTextOnPathConfig): TextOnPathLayo
       segments, path, ctx: measureCtx, align, textBaseline, fontMetrics,
       direction: tree.style.direction === 'rtl' ? 'rtl' : 'ltr',
     });
-    let paintBounds: PaintBounds | undefined;
+    const paintBounds = lazyPaintBounds(measureCtx,
+      (ctx) => pathPaintBounds(new PaintState(ctx, 1, false, fontMetrics), new Map(), result));
     const layout: TextOnPathLayout = {
       ...result,
-      get paintBounds() {
-        return paintBounds ??= measurePaintBounds(measureCtx,
-          () => pathPaintBounds(new PaintState(measureCtx, 1, false, fontMetrics), new Map(), result));
-      },
+      get paintBounds() { return paintBounds(); },
     };
     layoutFontMetrics.set(layout, fontMetrics);
     return layout;

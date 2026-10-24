@@ -12,7 +12,7 @@ import {
 import {
   abutsWithoutBreak, breakFlags, forEachHyphenPiece, measureAfter, needsSegmenter, segmenter, SegmentBuilder,
   SEG_NO_BREAK_BEFORE, SEG_RUN_SEAM, SEG_SOFT_HYPHEN, SEG_SPACE, SEG_TAB,
-  type Cumulative, type PreparedInline, type SegmentRefs, type TextRun,
+  type Cumulative, type PreparedInline, type TextRun,
 } from './segment.js';
 import { FlowItems, flowLines, LineFlow, widestLine } from './flow.js';
 
@@ -378,22 +378,8 @@ export function isFlexRow(style: ResolvedStyle): boolean {
 /** Min- or max-content width of an inline context: the real flow at 0 or at Infinity. */
 function inlineContentSize(session: LayoutSession, node: StyledNode, max: boolean): number {
   const prepared = preparedInline(session, node);
-  let refs = prepared.refs;
   let widths: number[] | undefined;
   if (!max) {
-    // CSS ignores `overflow-wrap:break-word` for min-content. One copy per
-    // source style: font state is keyed by style identity, and runs must glue.
-    const breaksWords = (r: SegmentRefs) =>
-      r.style.overflowWrap === 'break-word' && r.style.wordBreak !== 'break-all';
-    if (refs.some(breaksWords)) {
-      const neutralized = new Map<ResolvedStyle, ResolvedStyle>();
-      refs = refs.map((r) => {
-        if (!breaksWords(r)) return r;
-        let style = neutralized.get(r.style);
-        if (!style) neutralized.set(r.style, style = { ...r.style, overflowWrap: 'normal' });
-        return { ...r, style };
-      });
-    }
     // Prepared inline-blocks stand at max-content.
     for (const i of prepared.inlineBlocks) {
       const source = prepared.refs[prepared.ref[i]].inlineBlock!;
@@ -404,7 +390,7 @@ function inlineContentSize(session: LayoutSession, node: StyledNode, max: boolea
   const textIndent = intrinsicStyle(node.style).textIndent;
   // Blink's `LayoutUnit::FromFloatCeil`: a box shrunk to this width holds its content.
   return layoutUnitCeil(widestLine(flowLines(new LineFlow(
-    session, new FlowItems(prepared, refs, widths), max ? Infinity : 0, node.style.whiteSpace, textIndent)), textIndent));
+    session, new FlowItems(prepared, widths), max ? Infinity : 0, node.style.whiteSpace, textIndent, !max)), textIndent));
 }
 
 /**

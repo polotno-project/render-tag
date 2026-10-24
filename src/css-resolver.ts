@@ -1,4 +1,4 @@
-import type { BorderRadius, DecorationEntry, ResolvedStyle, StyledNode } from './types.js';
+import type { DecorationEntry, ResolvedStyle, StyledNode } from './types.js';
 import { INTEGER_PERCENT_LINE_HEIGHT } from './engine.js';
 import { bidiClass } from './bidi.js';
 import { parseDeclarationList, parseStylesheet } from './css-syntax.js';
@@ -94,13 +94,19 @@ const PERCENT_FIELDS: ReadonlySet<string> = new Set<PercentField>([
  */
 const OWN_PERCENT_FIELDS: ReadonlySet<PercentField> = new Set<PercentField>(['textIndent', 'gap']);
 
+/** Stored bases keep font metrics, never the callback that owns the measuring ctx. */
+interface PercentBasis extends LengthBasis {
+  fontStyle: null;
+  measure: undefined;
+}
+
 /**
  * Declarations behind a style's percentages, kept so layout can re-resolve them
  * where it decides the width (flex item, table cell, inline-block). Only on styles
  * that declared a percentage.
  */
 interface PercentLengths {
-  readonly basis: LengthBasis; // the element's basis, percentage aside
+  readonly basis: PercentBasis; // the element's basis, percentage aside
   readonly entries: Map<PercentField, PercentEntry>; // inherited entries carry the declarer's basis
   cb: number; // containing-block width the fields hold values for
   own?: number; // own content width the OWN_PERCENT_FIELDS hold values for
@@ -108,49 +114,78 @@ interface PercentLengths {
   intrinsicFor?: ResolvedStyle;
 }
 
-type PercentEntry = readonly [property: string, value: string, basis?: LengthBasis];
+type PercentEntry = readonly [property: string, value: string, basis?: PercentBasis];
 
 type InternalStyle = ResolvedStyle & PrivateStyleFields;
 
-/** Defaults for every field, private ones included, so all styles share one hidden class. */
-function defaultStyle(): ResolvedStyle {
+/** Initial values for the primitive fields inherited before the cascade. */
+const INHERITED_DEFAULTS = {
+  // The UA default font is serif (Times).
+  fontFamily: 'serif',
+  fontSize: 16,
+  fontWeight: 400,
+  fontStyle: 'normal',
+  fontVariantCaps: 'normal',
+  color: 'rgb(0, 0, 0)',
+  textAlign: 'start',
+  textAlignLast: 'auto',
+  textIndent: 0,
+  textTransform: 'none',
+  textShadow: 'none',
+  webkitTextStrokeWidth: 0,
+  webkitTextStrokeColor: '',
+  webkitTextFillColor: '',
+  paintOrder: 'normal',
+  strokeLinejoin: 'round',
+  letterSpacing: 0,
+  wordSpacing: 0,
+  fontKerning: 'auto',
+  verticalAlign: 'baseline',
+  whiteSpace: 'normal',
+  wordBreak: 'normal',
+  overflowWrap: 'normal',
+  direction: 'ltr',
+  listStyleType: 'disc',
+};
+
+/** Initialize inherited fields once; the cascade only needs to write overrides. */
+function defaultStyle(parent: typeof INHERITED_DEFAULTS = INHERITED_DEFAULTS): ResolvedStyle {
   const style: ResolvedStyle = {
-    // The UA default font is serif (Times).
-    fontFamily: 'serif',
-    fontSize: 16,
-    fontWeight: 400,
-    fontStyle: 'normal',
-    fontVariantCaps: 'normal',
-    color: 'rgb(0, 0, 0)',
-    textAlign: 'start',
-    textAlignLast: 'auto',
-    textIndent: 0,
-    textTransform: 'none',
+    fontFamily: parent.fontFamily,
+    fontSize: parent.fontSize,
+    fontWeight: parent.fontWeight,
+    fontStyle: parent.fontStyle,
+    fontVariantCaps: parent.fontVariantCaps,
+    color: parent.color,
+    textAlign: parent.textAlign,
+    textAlignLast: parent.textAlignLast,
+    textIndent: parent.textIndent,
+    textTransform: parent.textTransform,
     textDecorationLine: 'none',
     textDecorationStyle: 'solid',
     textDecorationColor: 'rgb(0, 0, 0)',
     textDecorations: [],
     textUnderlineOffset: null,
     textDecorationThickness: null,
-    textShadow: 'none',
-    webkitTextStrokeWidth: 0,
-    webkitTextStrokeColor: '',
+    textShadow: parent.textShadow,
+    webkitTextStrokeWidth: parent.webkitTextStrokeWidth,
+    webkitTextStrokeColor: parent.webkitTextStrokeColor,
     webkitTextStrokeImage: 'none',
-    webkitTextFillColor: '',
-    paintOrder: 'normal',
-    strokeLinejoin: 'round',
+    webkitTextFillColor: parent.webkitTextFillColor,
+    paintOrder: parent.paintOrder,
+    strokeLinejoin: parent.strokeLinejoin,
     webkitBackgroundClip: '',
     backgroundImage: 'none',
-    letterSpacing: 0,
-    wordSpacing: 0,
-    fontKerning: 'auto',
+    letterSpacing: parent.letterSpacing,
+    wordSpacing: parent.wordSpacing,
+    fontKerning: parent.fontKerning,
     lineHeight: 0,
-    verticalAlign: 'baseline',
-    whiteSpace: 'normal',
-    wordBreak: 'normal',
-    overflowWrap: 'normal',
+    verticalAlign: parent.verticalAlign,
+    whiteSpace: parent.whiteSpace,
+    wordBreak: parent.wordBreak,
+    overflowWrap: parent.overflowWrap,
     unicodeBidi: 'normal',
-    direction: 'ltr',
+    direction: parent.direction,
     // CSS's initial value; the UA table makes block elements blocks.
     display: 'inline',
     width: 0,
@@ -186,7 +221,7 @@ function defaultStyle(): ResolvedStyle {
     flexGrow: 0,
     flexShrink: 1,
     flexBasis: null,
-    listStyleType: 'disc',
+    listStyleType: parent.listStyleType,
     lineClamp: 0,
   };
   // Assigned, not computed keys: those lose V8's fast literal path.
@@ -701,7 +736,7 @@ const PROPERTY_FIELDS: Record<string, readonly (keyof InternalStyle)[]> = nullPr
   'flex-basis': ['flexBasis', FLEX_BASIS_KEYWORD], 'box-sizing': [BOX_SIZING],
 });
 
-/** The properties render-tag inherits (see `inheritFont` and `inheritFrom`). */
+/** The properties render-tag inherits (see `defaultStyle` and `inheritRelativeLengths`). */
 const INHERITED_PROPERTIES = new Set([
   'font-family', 'font-size', 'font-weight', 'font-style', 'font-variant-caps', 'color', 'text-align',
   'text-align-last', 'text-indent', 'text-transform', 'white-space', 'word-break', 'overflow-wrap',
@@ -746,8 +781,8 @@ function cssWideKeyword(property: string, value: string): string | null {
 }
 
 /**
- * Apply a CSS-wide keyword; an inherited property is just left unset for
- * `inheritFont`/`inheritFrom` to copy. Null for an unknown property.
+ * Apply a CSS-wide keyword; inherited properties reset to the parent, with
+ * font-relative lengths deferred until the final font is known. Null for an unknown property.
  */
 function applyKeyword(
   style: ResolvedStyle,
@@ -761,6 +796,8 @@ function applyKeyword(
   if (!fields) return null;
   const inherited = INHERITED_PROPERTIES.has(prop);
   if (inherited && keyword !== 'initial') {
+    // Font-relative lengths are re-derived after the cascade (`inheritRelativeLengths`).
+    for (const field of fields) (style as any)[field] = (parent as InternalStyle)[field];
     setProps.delete(prop);
     return prop;
   }
@@ -823,8 +860,12 @@ function trackPercent(
     return;
   }
   if (!table) {
-    table = internal[PERCENT_LENGTHS] = { basis: { ...env.b }, entries: new Map(), cb: cbWidth };
+    table = internal[PERCENT_LENGTHS] = {
+      basis: { ...env.b, fontStyle: null, measure: undefined }, entries: new Map(), cb: cbWidth,
+    };
   }
+  // A later percentage declaration may be the first to use ch/ex.
+  table.basis.fontUnits = env.b.fontUnits;
   table.entries.set(field as PercentField, [property, value]);
 }
 
@@ -1155,29 +1196,9 @@ function expandDeclaration(property: string, value: string): Longhand[] {
   return longhands;
 }
 
-/** Inherit the font properties, before any other declaration measures the font. */
-function inheritFont(child: ResolvedStyle, parent: ResolvedStyle, setProps: Set<string>): void {
-  if (!setProps.has('font-size')) child.fontSize = parent.fontSize;
-  if (!setProps.has('font-family')) child.fontFamily = parent.fontFamily;
-  if (!setProps.has('font-weight')) child.fontWeight = parent.fontWeight;
-  if (!setProps.has('font-style')) child.fontStyle = parent.fontStyle;
-  if (!setProps.has('font-variant-caps')) child.fontVariantCaps = parent.fontVariantCaps;
-}
-
-// Unrolled per field: a keyed copy over a table is megamorphic (was a quarter of resolve time).
-function inheritFrom(child: ResolvedStyle, parent: ResolvedStyle, setProps: Set<string>): void {
+// These inherited lengths depend on the final font, after font declarations.
+function inheritRelativeLengths(child: ResolvedStyle, parent: ResolvedStyle, setProps: Set<string>): void {
   const c = child as InternalStyle, p = parent as InternalStyle;
-  if (!setProps.has('color')) c.color = p.color;
-  if (!setProps.has('text-align')) c.textAlign = p.textAlign;
-  if (!setProps.has('text-align-last')) c.textAlignLast = p.textAlignLast;
-  if (!setProps.has('text-indent')) c.textIndent = p.textIndent;
-  if (!setProps.has('text-transform')) c.textTransform = p.textTransform;
-  if (!setProps.has('white-space')) c.whiteSpace = p.whiteSpace;
-  if (!setProps.has('word-break')) c.wordBreak = p.wordBreak;
-  if (!setProps.has('overflow-wrap')) c.overflowWrap = p.overflowWrap;
-  if (!setProps.has('direction')) c.direction = p.direction;
-  if (!setProps.has('letter-spacing')) c.letterSpacing = p.letterSpacing;
-  if (!setProps.has('word-spacing')) c.wordSpacing = p.wordSpacing;
   if (!setProps.has('line-height')) {
     const multiplier = p[LINE_HEIGHT_MULTIPLIER];
     if (multiplier !== undefined) {
@@ -1187,10 +1208,6 @@ function inheritFrom(child: ResolvedStyle, parent: ResolvedStyle, setProps: Set<
       c.lineHeight = p.lineHeight;
     }
   }
-  if (!setProps.has('text-shadow')) c.textShadow = p.textShadow;
-  if (!setProps.has('font-kerning')) c.fontKerning = p.fontKerning;
-  if (!setProps.has('list-style-type')) c.listStyleType = p.listStyleType;
-  if (!setProps.has('vertical-align')) c.verticalAlign = p.verticalAlign;
   if (!setProps.has('text-underline-offset')) {
     // A percentage re-resolves against the child's font size (Chrome-measured).
     const pct = p[UNDERLINE_OFFSET_PCT];
@@ -1201,11 +1218,6 @@ function inheritFrom(child: ResolvedStyle, parent: ResolvedStyle, setProps: Set<
       c.textUnderlineOffset = p.textUnderlineOffset;
     }
   }
-  if (!setProps.has('paint-order')) c.paintOrder = p.paintOrder;
-  if (!setProps.has('stroke-linejoin')) c.strokeLinejoin = p.strokeLinejoin;
-  if (!setProps.has('-webkit-text-stroke-width')) c.webkitTextStrokeWidth = p.webkitTextStrokeWidth;
-  if (!setProps.has('-webkit-text-stroke-color')) c.webkitTextStrokeColor = p.webkitTextStrokeColor;
-  if (!setProps.has('-webkit-text-fill-color')) c.webkitTextFillColor = p.webkitTextFillColor;
 }
 
 // ─── Main resolver ───────────────────────────────────────────────────
@@ -1534,15 +1546,19 @@ export function resolveStylesFromCSS(
   /** What `rem` resolves against: the root's font-size once it is known, the initial 16px before. */
   let rootFontSize = 16;
 
-  /** Lengths against `style`'s font; one object re-aimed per use (an element finishes before its children). */
+  /**
+   * Lengths against `style`'s font; one object re-aimed per use (an element finishes before its children).
+   * `fontUnits` is declared here so each stored copy (`PercentBasis`) keeps every field in-object.
+   */
   const basis: LengthBasis = {
-    em: 16, rem: 16, percent: NaN, viewport, fontStyle: null, measure: measureUnits,
+    em: 16, rem: 16, percent: NaN, viewport, fontStyle: null, measure: measureUnits, fontUnits: undefined,
   };
   function basisFor(style: ResolvedStyle, percent: number): LengthBasis {
     basis.em = style.fontSize;
     basis.rem = rootFontSize;
     basis.percent = percent;
     basis.fontStyle = style;
+    basis.fontUnits = undefined;
     return basis;
   }
   const env: DeclarationEnv = { b: basis, containerWidth, percent: false };
@@ -1579,7 +1595,7 @@ export function resolveStylesFromCSS(
   ): StyledNode {
     const ctx = matcher.context(el, parentCtx, tag);
 
-    const style = defaultStyle();
+    const style = defaultStyle(parentStyle);
     const setProps = new Set<string>();
 
     const matched: ProcessedRule[] = [];
@@ -1632,7 +1648,6 @@ export function resolveStylesFromCSS(
         setProps.add(d.property);
       }
     }
-    inheritFont(style, parentStyle, setProps);
     if (parentCtx === null) rootFontSize = htmlFontSize(matched);
     const elemFontSize = style.fontSize;
 
@@ -1688,7 +1703,7 @@ export function resolveStylesFromCSS(
       }
     }
 
-    inheritFrom(style, parentStyle, setProps);
+    inheritRelativeLengths(style, parentStyle, setProps);
     if (!setProps.has('text-indent')) inheritPercentages(style, parentStyle, cbWidth);
 
     // A none/hidden border style computes to width 0 (CSS Backgrounds 3).

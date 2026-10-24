@@ -5,7 +5,7 @@ import type {
 } from './types.js';
 import { buildLayoutTree, styleTree } from './layout.js';
 import { renderNode, getNodePaintBounds } from './render.js';
-import { measurePaintBounds, type PaintBounds } from './shadow.js';
+import { lazyPaintBounds } from './shadow.js';
 export type { PaintBounds } from './shadow.js';
 
 export type { RenderConfig, RenderResult, LayoutConfig, LayoutResult, DrawConfig, LayoutLine };
@@ -41,19 +41,10 @@ export function layout(config: LayoutConfig): LayoutResult {
   const tree = styleTree(html, measureCtx, width, { width, height: height || width });
   const { root, height: contentHeight, lines } =
     buildLayoutTree(measureCtx, tree, width, config.debug);
-  let paintBounds: PaintBounds | undefined;
-  // Released once measured, so a kept result does not pin the ctx.
-  let boundsCtx: CanvasRenderingContext2D | null = measureCtx;
+  const paintBounds = lazyPaintBounds(measureCtx, (ctx) => getNodePaintBounds(ctx, root));
   return {
     layoutRoot: root, height: height || contentHeight, lines,
-    get paintBounds() {
-      if (!paintBounds) {
-        const ctx = boundsCtx!;
-        paintBounds = measurePaintBounds(ctx, () => getNodePaintBounds(ctx, root));
-        boundsCtx = null;
-      }
-      return paintBounds;
-    },
+    get paintBounds() { return paintBounds(); },
   };
 }
 

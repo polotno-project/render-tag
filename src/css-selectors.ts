@@ -489,8 +489,7 @@ type ChainMemo = Map<ParsedSelector, Map<Element, boolean>[]>;
  */
 export class SelectorMatcher {
   private readonly positions = new Map<Element, Map<Element, Position>>();
-  private readonly siblingMemo: ChainMemo = new Map();
-  private readonly ancestorMemo: ChainMemo = new Map();
+  private readonly chainMemo: ChainMemo = new Map();
 
   /** The context of `el`, whose parent context is `parent`. */
   context(el: Element, parent: ElementContext | null, tagName = el.tagName.toLowerCase()): ElementContext {
@@ -505,43 +504,30 @@ export class SelectorMatcher {
   /** compounds[i] matched `ctx`; match the rest of the chain to its left. */
   private from(sel: ParsedSelector, i: number, ctx: ElementContext): boolean {
     if (i === sel.compounds.length - 1) return true;
-    const next = sel.compounds[i + 1];
-    switch (sel.combinators[i]) {
-      case '>': {
-        const parent = this.up(ctx);
-        return parent !== null && this.compound(next, parent) && this.from(sel, i + 1, parent);
-      }
-      case ' ':
-        return this.someEarlier(this.ancestorMemo, (c) => this.up(c), sel, i, ctx);
-      case '+': {
-        const prev = this.previous(ctx);
-        return prev !== null && this.compound(next, prev) && this.from(sel, i + 1, prev);
-      }
-      default:
-        return this.someEarlier(this.siblingMemo, (c) => this.previous(c), sel, i, ctx);
-    }
+    const combinator = sel.combinators[i];
+    if (combinator === ' ' || combinator === '~') return this.someEarlier(sel, i, ctx);
+    const earlier = this.earlier(ctx, combinator);
+    return earlier !== null && this.compound(sel.compounds[i + 1], earlier) && this.from(sel, i + 1, earlier);
   }
 
   /**
-   * `~` and descendant: does a context before `ctx` along `step` (earlier
+   * `~` and descendant: does a context before `ctx` along its combinator (earlier
    * sibling, or ancestor) match compounds[i + 1] and the chain left of it?
    * Walks only until a context whose own answer is known; every one walked
    * past gets the same answer recorded, keyed by `ctx.el` (the virtual html
    * is one shared context, keyed by its null element).
    */
-  private someEarlier(
-    table: ChainMemo, step: (c: ElementContext) => ElementContext | null,
-    sel: ParsedSelector, i: number, ctx: ElementContext,
-  ): boolean {
-    let perIndex = table.get(sel);
-    if (!perIndex) table.set(sel, perIndex = []);
+  private someEarlier(sel: ParsedSelector, i: number, ctx: ElementContext): boolean {
+    let perIndex = this.chainMemo.get(sel);
+    if (!perIndex) this.chainMemo.set(sel, perIndex = []);
     const memo = perIndex[i] ??= new Map();
     const known = memo.get(ctx.el);
     if (known !== undefined) return known;
     const next = sel.compounds[i + 1];
+    const combinator = sel.combinators[i];
     const walked: Element[] = [ctx.el];
     let result = false;
-    for (let s = step(ctx); s; s = step(s)) {
+    for (let s = this.earlier(ctx, combinator); s; s = this.earlier(s, combinator)) {
       if (this.compound(next, s) && this.from(sel, i + 1, s)) { result = true; break; }
       const answer = memo.get(s.el);
       if (answer !== undefined) { result = answer; break; }
@@ -551,13 +537,10 @@ export class SelectorMatcher {
     return result;
   }
 
-  private up(ctx: ElementContext): ElementContext | null {
+  private earlier(ctx: ElementContext, combinator: Combinator): ElementContext | null {
     if (ctx === VIRTUAL_HTML) return null;
-    return ctx.parent ?? VIRTUAL_HTML;
-  }
-
-  private previous(ctx: ElementContext): ElementContext | null {
-    if (ctx === VIRTUAL_HTML || !ctx.parent) return null;
+    if (combinator === ' ' || combinator === '>') return ctx.parent ?? VIRTUAL_HTML;
+    if (!ctx.parent) return null;
     const prev = ctx.el.previousElementSibling;
     return prev ? this.context(prev, ctx.parent) : null;
   }

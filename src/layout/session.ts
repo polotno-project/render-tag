@@ -39,6 +39,10 @@ export interface LayoutStats {
   segments: number;
   /** `Word` objects the line flow hands the emit pass, plus a clamp's ellipsis. */
   wordObjects: number;
+  /** Items `gluedRunWidth` read: linear in a word split across runs, never quadratic. */
+  glueSteps: number;
+  /** Characters `breakGluedChain` cut such a word into: only for a word that splits. */
+  chainCells: number;
 }
 
 // ── Canvas font helpers ──
@@ -80,6 +84,8 @@ export interface MeasureState {
   readonly letterSpacing: string;
   /** `measureText` widths under this state, by text. */
   readonly widths: Map<string, number>;
+  /** `Measurer.fontUnits`; shared by every percentage basis that snapshots them. */
+  units: { ch: number; ex: number } | undefined;
 }
 
 type FontBox = Readonly<{ ascent: number; descent: number }>;
@@ -121,7 +127,8 @@ export type TabStops = Readonly<{ interval: number; halfSpace: number }>;
 interface FontState {
   readonly measure: MeasureState;
   metrics: FontBox | undefined;
-  lineHeight: number | undefined;
+  computedLineHeight: number | undefined;
+  usedLineHeight: number | undefined;
   box: FontBox | undefined;
   tabStops: TabStops | undefined;
 }
@@ -187,12 +194,12 @@ export class Measurer {
    * `usedLineHeight` for a length.
    */
   lineHeight(style: ResolvedStyle): number {
-    const computed = this.computedLineHeight(style);
+    const fs = this.font(style);
+    if (fs.usedLineHeight !== undefined) return fs.usedLineHeight;
     const multiplier = lineHeightMultiplier(style);
-    if (multiplier !== undefined) {
-      return multipliedLineHeight(style.fontSize, multiplier);
-    }
-    return usedLineHeight(computed);
+    return fs.usedLineHeight = multiplier !== undefined
+      ? multipliedLineHeight(style.fontSize, multiplier)
+      : usedLineHeight(this.computedLineHeight(style));
   }
 
   /**
@@ -201,7 +208,7 @@ export class Measurer {
    */
   computedLineHeight(style: ResolvedStyle): number {
     const fs = this.font(style);
-    let lineHeight = fs.lineHeight;
+    let lineHeight = fs.computedLineHeight;
     if (lineHeight === undefined) {
       if (hasLineHeight(style)) {
         lineHeight = style.lineHeight;
@@ -209,7 +216,7 @@ export class Measurer {
         const { ascent, descent } = this.metrics(style);
         lineHeight = ascent + descent;
       }
-      fs.lineHeight = lineHeight;
+      fs.computedLineHeight = lineHeight;
     }
     return lineHeight;
   }
@@ -236,10 +243,13 @@ export class Measurer {
    */
   fontUnits(style: ResolvedStyle): { ch: number; ex: number } {
     const state = this.intern(buildCanvasFont(style), 'normal', '0px');
-    const ch = this.width(state, '0');
-    const ex = this.measureText(state, 'x').actualBoundingBoxAscent;
-    const half = style.fontSize / 2;
-    return { ch: ch > 0 ? ch : half, ex: ex > 0 ? ex : half };
+    if (!state.units) {
+      const ch = this.width(state, '0');
+      const ex = this.measureText(state, 'x').actualBoundingBoxAscent;
+      const half = style.fontSize / 2;
+      state.units = { ch: ch > 0 ? ch : half, ex: ex > 0 ? ex : half };
+    }
+    return state.units;
   }
 
   /** See `tabStopMetrics`. */
@@ -264,7 +274,8 @@ export class Measurer {
         measure: this.intern(
           buildCanvasFont(style), canvasKerning(style), formatLetterSpacing(style.letterSpacing)),
         metrics: undefined,
-        lineHeight: undefined,
+        computedLineHeight: undefined,
+        usedLineHeight: undefined,
         box: undefined,
         tabStops: undefined,
       };
@@ -277,7 +288,7 @@ export class Measurer {
     const key = font + '\0' + kerning + '\0' + letterSpacing;
     let state = this.states.get(key);
     if (!state) {
-      state = { font, kerning, letterSpacing, widths: new Map() };
+      state = { font, kerning, letterSpacing, widths: new Map(), units: undefined };
       this.states.set(key, state);
     }
     return state;

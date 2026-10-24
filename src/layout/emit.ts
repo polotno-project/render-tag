@@ -174,7 +174,7 @@ function singlePaintLine(
   if (words.length === 0 || justifying) return null;
   const first = words[0];
   for (const w of words) {
-    if (w.text === '' || w.isTab || isAtomicInlineBlock(w) || w.inlineBlockLayout ||
+    if (w.text === '' || w.isTab || isAtomicInlineBlock(w) ||
       w.refs.bidi !== first.refs.bidi || !sameBidiRun(first, w)) return null;
   }
   const text = words.map((w) => w.text).join('');
@@ -457,9 +457,9 @@ function flowInlineLines(
   const tabMetrics = m.tabStops(node.style);
   // The block's strut: the minimum height of every line box.
   const strutLineHeight = m.lineHeight(node.style);
-  const items = new FlowItems(prepared, prepared.refs, used?.widths, used?.layouts);
+  const items = new FlowItems(prepared, used?.widths, used?.layouts);
   const lines: PositionedLine[] = flowLines(new LineFlow(
-    session, items, contentWidth, node.style.whiteSpace, textIndent, tabMetrics, strutLineHeight,
+    session, items, contentWidth, node.style.whiteSpace, textIndent, false, tabMetrics, strutLineHeight,
   )).map((line) => ({
     words: line.items.map((i) => items.word(i)),
     totalWidth: line.totalWidth,
@@ -592,8 +592,12 @@ function lineBoxExtent(out: InlineEmit, words: readonly Word[]): { ascent: numbe
   const strutBox = m.leadedBox(blockStyle);
   let lineAscent = strutBox.ascent;
   let lineDescent = strutBox.descent;
+  let previousRefs: Word['refs'] | undefined;
   for (const word of words) {
     if (word.text === '') continue;
+    // Pieces of one run share its refs and its vertical extent; each atomic has refs of its own.
+    if (word.refs === previousRefs) continue;
+    previousRefs = word.refs;
     // A wrapper with no text of its own is still a box with its own line-height; its children
     // carry it as `parentStyle`. Added at its own shift, so it matches the box a direct-text
     // run of it brings. Positive shift is downward.
@@ -615,10 +619,6 @@ function lineBoxExtent(out: InlineEmit, words: readonly Word[]): { ascent: numbe
       const ib = word.inlineBlockLayout;
       ascent = ib.baselineOffset;
       descent = ib.marginBoxHeight - ib.baselineOffset;
-    } else if (atomic) {
-      const extra = inlineBlockExtra(atomic);
-      ascent += extra.top;
-      descent += extra.bottom;
     }
     const shift = atomic ? 0 : wordBaselineShift(out, word);
     if (ascent - shift > lineAscent) lineAscent = ascent - shift;
@@ -637,25 +637,15 @@ function wordBaselineShift(out: InlineEmit, word: Word): number {
 
 /** Emit an inline background box hanging off the line's baseline. */
 function emitInlineBox(
-  out: InlineEmit, style: ResolvedStyle, bx: number, bw: number, lineBaselineY: number, textWord?: Word,
+  out: InlineEmit, style: ResolvedStyle, bx: number, bw: number, lineBaselineY: number, textWord: Word,
 ): void {
-  // Height from the box's OWN font; an inline-block's content box is its line-height.
-  const { ascent: boxAscent, descent: boxDescent } =
-    style.display === 'inline-block'
-      ? out.session.measurer.leadedBox(style)
-      : out.session.measurer.metrics(style);
+  // Height from the inline box's OWN font; atomics use their inner layout instead.
+  const { ascent: boxAscent, descent: boxDescent } = out.session.measurer.metrics(style);
   const padTop = style.paddingTop + style.borderTopWidth;
   const padBottom = style.paddingBottom + style.borderBottomWidth;
   const boxHeight = boxAscent + boxDescent + padTop + padBottom;
-  // Every box hangs off the line's baseline, inline-blocks too, so it stays with its glyphs.
-  let baselineY = lineBaselineY;
-  // A shifted run's band moves by the same `wordBaselineShift` as its glyphs (not an
-  // inline-block's: its vertical-align is ignored).
-  if (textWord && style.display !== 'inline-block') {
-    if (isShiftedVAlign(textWord.refs.style.verticalAlign)) {
-      baselineY += wordBaselineShift(out, textWord);
-    }
-  }
+  // The box hangs off the line's baseline; a shifted band's glyphs move by the same amount.
+  const baselineY = lineBaselineY + wordBaselineShift(out, textWord);
   const boxY = baselineY - boxAscent - padTop;
   out.nodes.push({
     type: 'box', style, x: bx, y: boxY, width: bw, height: boxHeight,
@@ -677,7 +667,7 @@ function emitInlineBackgrounds(
   let boxTextWord: Word | undefined;
 
   for (const word of words) {
-    if (word.refs.boxOpen && word.refs.boxClose && word.text) {
+    if (isAtomicInlineBlock(word)) {
       if (currentBoxStyle) {
         if (boxTextWord) emitInlineBox(out, currentBoxStyle, boxStartX, scanX - boxStartX, lineBaselineY, boxTextWord);
         currentBoxStyle = undefined;
@@ -685,29 +675,23 @@ function emitInlineBackgrounds(
       }
       const s = word.refs.style;
       const boxX = scanX + s.marginLeft;
-      if (word.inlineBlockLayout) {
-        const ib = word.inlineBlockLayout;
-        const boxY = lineBaselineY - ib.baselineOffset + s.marginTop;
-        out.nodes.push({
-          type: 'box', style: s, x: boxX,
-          y: boxY,
-          width: s.borderLeftWidth + s.paddingLeft + ib.contentWidth +
-            s.paddingRight + s.borderRightWidth,
-          height: s.borderTopWidth + s.paddingTop + ib.contentHeight +
-            s.paddingBottom + s.borderBottomWidth,
-          tagName: 'span', children: [],
-          lineBoxes: ib.lineBoxes.map(line => ({
-            ...line,
-            x: line.x + boxX + s.borderLeftWidth + s.paddingLeft,
-            y: line.y + boxY + s.borderTopWidth + s.paddingTop,
-          })),
-        });
-      } else {
-        const textWidth = word.width - horizontalMargins(s) - horizontalFrame(s);
-        const boxW = s.borderLeftWidth + s.paddingLeft + textWidth +
-          s.paddingRight + s.borderRightWidth;
-        emitInlineBox(out, s, boxX, boxW, lineBaselineY, word);
-      }
+      // Every nonempty atomic receives an inner layout in `usedSegmentWidths`.
+      const ib = word.inlineBlockLayout!;
+      const boxY = lineBaselineY - ib.baselineOffset + s.marginTop;
+      out.nodes.push({
+        type: 'box', style: s, x: boxX,
+        y: boxY,
+        width: s.borderLeftWidth + s.paddingLeft + ib.contentWidth +
+          s.paddingRight + s.borderRightWidth,
+        height: s.borderTopWidth + s.paddingTop + ib.contentHeight +
+          s.paddingBottom + s.borderBottomWidth,
+        tagName: 'span', children: [],
+        lineBoxes: ib.lineBoxes.map(line => ({
+          ...line,
+          x: line.x + boxX + s.borderLeftWidth + s.paddingLeft,
+          y: line.y + boxY + s.borderTopWidth + s.paddingTop,
+        })),
+      });
       boxTextWord = undefined;
       scanX += word.width;
       continue;
@@ -768,34 +752,18 @@ function emitLineText(
     }
 
     // Atomic inline-block: position text inside the box (after margin + padding)
-    if (word.refs.boxOpen && word.refs.boxClose) {
+    if (isAtomicInlineBlock(word)) {
       const s = word.refs.style;
       const textX = curX + s.marginLeft + s.borderLeftWidth + s.paddingLeft;
-      if (word.inlineBlockLayout) {
-        const ib = word.inlineBlockLayout;
-        const contentY = lineBaselineY - ib.baselineOffset + s.marginTop +
-          s.borderTopWidth + s.paddingTop;
-        emitInlineBlockContent(out, ib, textX, contentY);
-        curX += word.width;
-        continue;
-      }
-      const m = out.session.measurer;
-      const textWidth = m.width(m.stateOf(word.refs.style), word.text);
-      registerTextNode(out, {
-        type: 'text',
-        text: word.text,
-        // An RTL run is anchored at its right edge (`PaintState.text` sets textAlign).
-        x: word.refs.style.direction === 'rtl' ? textX + textWidth : textX,
-        y: lineBaselineY,
-        width: textWidth,
-        style: word.refs.style,
-      }, word, lineTop);
+      const ib = word.inlineBlockLayout!;
+      const contentY = lineBaselineY - ib.baselineOffset + s.marginTop +
+        s.borderTopWidth + s.paddingTop;
+      emitInlineBlockContent(out, ib, textX, contentY);
       curX += word.width;
       continue;
     }
 
-    let baselineY = lineBaselineY;
-    if (isShiftedVAlign(word.refs.style.verticalAlign)) baselineY += wordBaselineShift(out, word);
+    const baselineY = lineBaselineY + wordBaselineShift(out, word);
     const effectiveWidth = word.width + (word.isSpace ? justifyExtraPerSpace : 0);
     // A bidi piece paints in its level's direction; an RTL one is anchored
     // at its right edge (`PaintState.text` sets textAlign).

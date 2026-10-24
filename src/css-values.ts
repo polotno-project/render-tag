@@ -22,7 +22,8 @@ export interface LengthBasis {
   percent: number; // px of 100%; NaN where a percentage is not allowed
   viewport: Viewport | null; // null (text on a path): viewport units are invalid
   fontStyle: ResolvedStyle | null; // the font `em`, `ch` and `ex` refer to
-  measure: ((style: ResolvedStyle) => FontUnits) | undefined; // undefined: ch/ex = 0.5em (CSS Values 4)
+  measure: ((style: ResolvedStyle) => FontUnits) | undefined; // absent with no fontUnits: 0.5em (CSS Values 4)
+  fontUnits?: FontUnits; // numeric ch/ex, filled only when a font-relative unit is used
 }
 
 /**
@@ -71,8 +72,10 @@ function unitToPx(n: number, unit: string, b: LengthBasis): number {
     case 'cm': return (n * 96) / 2.54;
     case 'mm': return (n * 96) / 25.4;
     case 'q': return (n * 96) / 101.6;
-    case 'ch': return n * (b.measure && b.fontStyle ? b.measure(b.fontStyle).ch : b.em / 2);
-    case 'ex': return n * (b.measure && b.fontStyle ? b.measure(b.fontStyle).ex : b.em / 2);
+    case 'ch': case 'ex': {
+      if (!b.fontUnits && b.measure && b.fontStyle) b.fontUnits = b.measure(b.fontStyle);
+      return n * (b.fontUnits ? b.fontUnits[unit] : b.em / 2);
+    }
   }
   const vp = b.viewport;
   // The small/large/dynamic variants equal the plain unit: a canvas has no

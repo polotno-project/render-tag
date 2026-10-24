@@ -19,7 +19,9 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { DOMParser as LinkedomDOMParser } from 'linkedom';
 import { layout, drawLayout, setDOMParser } from '../../src/index.ts';
 import { drawTextOnPath } from '../../src/path/index.ts';
+import { PaintState } from '../../src/paint-state.ts';
 import { recordingCtx } from '../helpers/recording-ctx.ts';
+import { styleFixture } from '../helpers/style-fixture.ts';
 
 afterAll(() => setDOMParser(null));
 
@@ -97,6 +99,44 @@ describe('paint state', () => {
     // One pair around the whole draw, none per run.
     expect(drawn('save')).toBe(1);
     expect(drawn('restore')).toBe(1);
+  });
+
+  it('re-establishes text state after a transform scope restores another style', () => {
+    for (const wrap of [(ctx: CanvasRenderingContext2D) => ctx, noSnapshot]) {
+      const rec = recordingCtx();
+      const style = styleFixture();
+      const other = { ...style, fontSize: 30, letterSpacing: 3, wordSpacing: 5, direction: 'rtl' as const };
+      const ps = new PaintState(wrap(rec.ctx));
+      ps.text(style);
+      ps.save();
+      ps.text(other);
+      ps.restore();
+      ps.text(other);
+      rec.ctx.fillText('after restore', 0, 20);
+      const expected = recordingCtx();
+      new PaintState(expected.ctx).text(other);
+      expected.ctx.fillText('after restore', 0, 20);
+      expect(rec.paints).toEqual(expected.paints);
+    }
+  });
+
+  it('reads styles changed between redraws', () => {
+    setDOMParser(new LinkedomDOMParser());
+    const rec = recordingCtx();
+    const result = layout({ html: 'text', width: 400, ctx: rec.ctx });
+    drawLayout({ layout: result, width: 400, ctx: rec.ctx, createCanvas: rec.createCanvas });
+    const original = rec.paints.slice();
+    Object.assign(result.layoutRoot.style, {
+      fontSize: 30, letterSpacing: 3, wordSpacing: 5, direction: 'rtl', fontKerning: 'none',
+      color: 'blue', textShadow: '7px 2px 1px green',
+    });
+    rec.paints.length = 0;
+    drawLayout({ layout: result, width: 400, ctx: rec.ctx, createCanvas: rec.createCanvas });
+    const expected = recordingCtx();
+    drawLayout({ layout: result, width: 400, ctx: expected.ctx, createCanvas: expected.createCanvas });
+    expect(rec.paints).toEqual(expected.paints);
+    expect(rec.paints).not.toEqual(original);
+    expect(rec.paints.some((op) => op.startsWith('drawImage('))).toBe(true);
   });
 
   it('hands the caller its ctx state back', () => {

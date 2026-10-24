@@ -6,8 +6,10 @@
  * measured characters, font, kerning and letter-spacing assignments,
  * fillText/save/restore calls, LayoutText runs, styled-tree style objects,
  * the passes that segment and measure an inline formatting context's text
- * (`layout.tokenizePasses`), the segments they produce and the per-word
- * objects layout allocates (`layout.wordObjects`),
+ * (`layout.tokenizePasses`), the segments they produce, the per-word
+ * objects layout allocates (`layout.wordObjects`), the glue a word split
+ * across runs reads and the characters it is cut into when it breaks
+ * (`layout.glueSteps`, `layout.chainCells`),
  * selector sibling steps, and the scratch canvases a text-shadow draw creates
  * through `createCanvas` (with the most pixels they held at once, counting a
  * canvas from creation until it is released at 0×0), identical on every
@@ -96,7 +98,21 @@ const FIXTURES: Record<string, Fixture> = {
     html: `<ol style="font-size:14px;margin:0">${Array.from({ length: 4000 }, (_, i) => `<li>Item ${i} with a few words</li>`).join('')}</ol>`,
     width: 400,
   },
+  // A word split across runs is one glued chain. Its glue is read once per wrap check, not
+  // once per piece (`layout.glueSteps` stays linear in the 200-piece word), and only a chain
+  // that breaks is cut into characters (`layout.chainCells`: the break-word one only).
+  'words split across runs': {
+    html: `<p style="font-size:16px;margin:0">` +
+      Array.from({ length: 400 }, (_, i) => `<b>${WORDS[i % WORDS.length][0]}</b>${WORDS[i % WORDS.length].slice(1)}`).join(' ') +
+      ` ${alternatingColors(200)} <span style="overflow-wrap:break-word">${alternatingColors(150)}</span></p>`,
+    width: 600,
+  },
 };
+
+/** One word of `n` letters, each in a run of its own colour. */
+function alternatingColors(n: number): string {
+  return Array.from({ length: n }, (_, i) => `<span style="color:${i % 2 ? 'red' : 'blue'}">${i % 2 ? 'b' : 'a'}</span>`).join('');
+}
 
 const PANGRAM = 'The quick brown <b>fox</b> jumps over the <i>lazy</i> dog. ';
 
@@ -181,7 +197,7 @@ function layoutStats(fixture: Fixture): LayoutStats {
   const tree = resolveStylesFromCSS(fragment, css, fixture.width, {
     viewport: { width: fixture.width, height: fixture.width },
   });
-  const stats: LayoutStats = { tokenizePasses: 0, segments: 0, wordObjects: 0 };
+  const stats: LayoutStats = { tokenizePasses: 0, segments: 0, wordObjects: 0, glueSteps: 0, chainCells: 0 };
   buildLayoutTree(rec.ctx, tree, fixture.width, undefined, stats);
   return stats;
 }
@@ -211,6 +227,8 @@ function count(fixture: Fixture): Counters {
     'layout.tokenizePasses': work.tokenizePasses,
     'layout.segments': work.segments,
     'layout.wordObjects': work.wordObjects,
+    'layout.glueSteps': work.glueSteps,
+    'layout.chainCells': work.chainCells,
     'draw.measureText': drawn('measureText'),
     'draw.fontSets': drawn('set:font'),
     'draw.fillText': drawn('fillText'),

@@ -1066,6 +1066,23 @@ describe('Layout logic (mocked measureText)', () => {
       expect(minContentWidth('AAAAA BBBBB', { overflowWrap: 'break-word' })).toBe(50);
     });
 
+    it.each(['normal', 'break-word'] as const)('word-break: break-all lowers min-content with overflow-wrap: %s', overflowWrap => {
+      expect(minContentWidth('AAAAA BBBBB', { wordBreak: 'break-all', overflowWrap })).toBe(10);
+    });
+
+    it.each(['normal', 'break-all'] as const)('min-content keeps cross-style word-break: %s', wordBreak => {
+      const style = { overflowWrap: 'break-word' as const, wordBreak };
+      expect(flexRow([block('div', [
+        textNode('AA', style), inline('b', [textNode('AAA', style)], style),
+      ], { flexBasis: 0, ...style })])).toEqual([wordBreak === 'break-all' ? 10 : 50]);
+    });
+
+    it('a zero-width final flow still uses overflow-wrap: break-word', () => {
+      const style = { overflowWrap: 'break-word' as const };
+      expect(getLines(doLayout(block('div', [textNode('abc', style)], style), 0)))
+        .toEqual(['a', 'b', 'c']);
+    });
+
     it('white-space: nowrap makes min-content the whole line', () => {
       expect(minContentWidth('AAAAA BBBBB', { whiteSpace: 'nowrap' })).toBe(110);
     });
@@ -2549,6 +2566,16 @@ describe('Blink line paint snap', () => {
 
 // Blink keeps a line-height on its 1/64px LayoutUnit grid, rounded down — the
 // pitch the DOM steps lines by (LAYOUT_UNIT_LINE_HEIGHT). Node selects Blink.
+describe('a CSS-wide keyword on line-height', () => {
+  it('a later inherit replaces an earlier number, its multiplier included', () => {
+    const ys = collectTexts(layout({
+      html: '<div style="line-height:40px"><p style="margin:0;line-height:1.5;line-height:inherit">aaa bbb</p></div>',
+      width: 35, ctx: mockCtx(),
+    }).layoutRoot).filter((t) => t.text.trim()).map((t) => t.y);
+    expect(ys[1] - ys[0]).toBe(40);
+  });
+});
+
 describe('Blink LayoutUnit line-height', () => {
   const baselines = (style: string) =>
     collectTexts(layout({ html: `<p style="margin:0;${style}">aaa bbb ccc</p>`, width: 35, ctx: mockCtx() }).layoutRoot)
@@ -2893,6 +2920,26 @@ describe('Box model: box-sizing, shrink-to-fit, percentages', () => {
       expect(textX(`<div style="width:300px;text-indent:10%"><div style="width:100px">ab</div></div>`, 'ab')).toBe(10);
     });
 
+    it('a re-resolved percentage keeps the ch/ex of the font that declared it', () => {
+      // ch = half the font size, ex = a quarter: the declarer's 20px font, not the child's 40px.
+      const ctx = mockCtx();
+      const measure = ctx.measureText.bind(ctx);
+      ctx.measureText = (text) => {
+        const size = parseFloat(ctx.font);
+        return { ...measure(text), width: text.length * size / 2, actualBoundingBoxAscent: size / 4 };
+      };
+      const { layoutRoot } = layout({
+        html: '<div style="font-size:20px;width:50%;padding-left:calc(5% + 2ch);text-indent:clamp(1ex, 10% + 1ch, 8ex)">' +
+          '<div style="width:50%;font-size:40px;padding-left:max(2ex, 5%)">text</div></div>',
+        width: 400, ctx,
+      });
+      const text = collectTexts(layoutRoot)[0];
+      // Parent padding 40 + child padding 20 + inherited indent (10% of 100 + 10).
+      expect(text.x).toBe(80);
+      expect(text.style.textIndent).toBe(20);
+      expect(text.style.paddingLeft).toBe(20);
+    });
+
     it('an inline-block inheriting a text-indent percentage sizes without it, then indents by it', () => {
       // Max-content "bb cc" = 50 with the indent cyclic (0); laid out at 50,
       // the 5px indent (10% of 50) pushes "cc" onto a second line — the DOM
@@ -2935,6 +2982,43 @@ describe('Box model: box-sizing, shrink-to-fit, percentages', () => {
       expect(texts.length).toBeGreaterThan(0);
       for (const text of texts) expect(text).not.toContain('\uFFFC');
       expect(texts).toContain('go Active now');
+    });
+
+    const atomic = (text: string, style = '') => `<span style="display:inline-block;${style}">${text}</span>`;
+
+    // Emit reads every nonempty atomic's inner layout: a path that dropped it would throw.
+    it.each([
+      ['nested', `a ${atomic(`b ${atomic('\u4E2D\u6587\u5B57', 'width:20px')} c`)} d`],
+      ['bidi', `<p dir="rtl">\u0642\u0628\u0644 ${atomic('one <b>\u05E9\u05EA\u05D9\u05D9\u05DD</b> three')} \u0628\u0639\u062F</p>`],
+      ['clamp', `<div style="-webkit-line-clamp:1">a ${atomic('bb cc')} d ee ff</div>`],
+      ['hidden content', `a ${atomic('<span style="display:none">hidden</span>', 'padding:3px')} b`],
+      ['tabs and splits', atomic('ab\t\u65E5\u672C\u8A9E abcdefghij', 'white-space:pre-wrap;overflow-wrap:break-word;width:40px')],
+    ])('a nonempty atomic lays out through %s, its text never U+FFFC', (_, html) => {
+      for (const width of [45, 150]) {
+        const result = layout({ html, width, ctx: mockCtx() });
+        expect(result.lines.map((line) => line.text).join('\n')).not.toContain('\uFFFC');
+        expect(collectTexts(result.layoutRoot).map((node) => node.text).join('')).not.toContain('\uFFFC');
+      }
+    });
+
+    it.each(['10px', '10%'])('an empty atomic keeps its opening edge at padding-left %s without growing the strut', (padding) => {
+      const html = `<div style="font-size:16px;line-height:16px">a${atomic('',
+        `padding-left:${padding};padding-top:30px;padding-bottom:40px;line-height:100px;border-left:2px solid`)}b</div>`;
+      const result = layout({ html, width: 100, ctx: mockCtx() });
+      expect(collectTexts(result.layoutRoot).map(({ text, x, y }) => ({ text, x, y })))
+        .toEqual([{ text: 'a', x: 0, y: 12 }, { text: 'b', x: 22, y: 12 }]);
+      expect(result.height).toBe(16);
+      expect(result.lines.map((line) => line.text)).toEqual(['ab']);
+      expect(result.lines[0].bounds).toEqual({ x: 0, y: 0, width: 32, height: 16 });
+    });
+
+    it('a clamp after an atomic emits the atomic\'s real inner text', () => {
+      const result = layout({
+        html: `<div style="line-height:16px;-webkit-line-clamp:1">a ${atomic('bb')} cc dd</div>`,
+        width: 70, ctx: mockCtx(),
+      });
+      expect(result.lines.map((line) => line.text)).toEqual(['a bb\u2026']);
+      expect(collectTexts(result.layoutRoot).map((node) => node.text).join('')).toBe('a bb\u2026');
     });
   });
 

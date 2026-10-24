@@ -336,8 +336,12 @@ export function isCJKCode(code: number): boolean {
   );
 }
 
+const NON_ASCII_OR_CONTROL = /[^\x20-\x7E]/;
+
 /** Split into grapheme clusters; code points when Intl.Segmenter is unavailable. */
 export function graphemes(text: string): string[] {
+  // Every printable ASCII character is a whole cluster; controls include the CRLF pair.
+  if (!NON_ASCII_OR_CONTROL.test(text)) return text.split('');
   const seg = segmenter('grapheme');
   if (!seg) return [...text];
   const out: string[] = [];
@@ -384,6 +388,8 @@ export function abutsWithoutBreak(out: SegmentBuilder, at: number): boolean {
     (out.flags[at - 1] & SEG_SPACE) || !prev.trim() ||
     prevRefs.boxOpen || prevRefs.boxClose
   ) return false;
+  // Printable ASCII cannot contain a CJK/emoji cluster or a segmenter script.
+  if (!NON_ASCII_OR_CONTROL.test(first) && !NON_ASCII_OR_CONTROL.test(prev)) return true;
   // Glue only ordinary text: CJK, emoji and segmenter scripts break at any element edge.
   // Graphemes, not code units or points: a VS16 emoji (❤️ = U+2764 U+FE0F) must read as emoji.
   const firstChar = firstGrapheme(first);

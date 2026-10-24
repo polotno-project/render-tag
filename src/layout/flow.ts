@@ -3,7 +3,7 @@
 import type { ResolvedStyle } from '../types.js';
 import { LAYOUT_UNIT_LINE_FIT } from '../engine.js';
 import { layoutUnit } from './util.js';
-import { inlineBlockExtra, type LayoutSession, type Measurer, type MeasureState, type TabStops } from './session.js';
+import { type LayoutSession, type Measurer, type MeasureState, type TabStops } from './session.js';
 import {
   forEachHyphenPiece, graphemes, isAtomicInlineBlock, isCJKCode, isEmojiCluster, MEASURE_CONTEXT,
   SEG_CJK, SEG_CLOSING_PUNCT, SEG_EMOJI, SEG_HARD_BREAK, SEG_INHERITED, SEG_NO_BREAK_BEFORE, SEG_OPENING_PUNCT,
@@ -56,17 +56,14 @@ export class FlowItems {
   private readonly pieceWidth: number[] = [];
   private readonly pieceFlags: number[] = [];
   private readonly pieceRefs: SegmentRefs[] = [];
-  /** The segment a piece was cut from (its inline-block), or -1. */
-  private readonly pieceSource: number[] = [];
   private textOnlyRefs: Map<SegmentRefs, SegmentRefs> | undefined;
 
   /**
-   * `refs` and `widths` stand in for the prepared ones (min-content neutralizes
-   * `overflow-wrap`; `usedSegmentWidths` sizes inline-blocks and percentage padding).
+   * `widths` stands in for the prepared widths when a pass sizes inline-blocks or
+   * percentage padding (`usedSegmentWidths`).
    */
   constructor(
     readonly prepared: PreparedInline,
-    private readonly refsTable: readonly SegmentRefs[] = prepared.refs,
     private readonly widths: readonly number[] = prepared.width,
     private readonly inlineBlocks?: ReadonlyMap<number, InlineBlockLayout>,
   ) {
@@ -92,18 +89,16 @@ export class FlowItems {
   }
 
   refs(i: number): SegmentRefs {
-    return i < this.base ? this.refsTable[this.prepared.ref[i]] : this.pieceRefs[i - this.base];
+    return i < this.base ? this.prepared.refs[this.prepared.ref[i]] : this.pieceRefs[i - this.base];
   }
 
   inlineBlockLayout(i: number): InlineBlockLayout | undefined {
-    if (!this.inlineBlocks) return undefined;
-    return this.inlineBlocks.get(i < this.base ? i : this.pieceSource[i - this.base]);
+    return this.inlineBlocks?.get(i);
   }
 
-  /** A piece of item `from`: its flags, refs and inline-block, a text and width of its own. */
+  /** A text split or tab advance: atomics stay whole, at their prepared index. */
   cut(from: number, text: string, width: number): number {
-    return this.add(text, width, this.flags(from) & SEG_INHERITED, this.refs(from),
-      from < this.base ? from : this.pieceSource[from - this.base]);
+    return this.add(text, width, this.flags(from) & SEG_INHERITED, this.refs(from));
   }
 
   /**
@@ -123,7 +118,7 @@ export class FlowItems {
       };
       this.textOnlyRefs.set(from, refs);
     }
-    return this.add(text, width, 0, refs, -1);
+    return this.add(text, width, 0, refs);
   }
 
   /** Item `i` as the emit pass reads it. */
@@ -140,12 +135,11 @@ export class FlowItems {
     };
   }
 
-  private add(text: string, width: number, flags: number, refs: SegmentRefs, source: number): number {
+  private add(text: string, width: number, flags: number, refs: SegmentRefs): number {
     this.pieceText.push(text);
     this.pieceWidth.push(width);
     this.pieceFlags.push(flags | textFlags(text));
     this.pieceRefs.push(refs);
-    this.pieceSource.push(source);
     return this.base + this.pieceText.length - 1;
   }
 }
@@ -183,30 +177,24 @@ function lineMeasureState(
  * applies and it is too wide; `null` when it stays whole. `emergency` marks the break-word
  * last resort, which the caller treats unlike ordinary CJK/emoji opportunities.
  */
-function splitSegment(
-  session: LayoutSession,
-  items: FlowItems,
-  index: number,
-  contentWidth: number,
-): { texts: string[]; widths: number[]; emergency: boolean } | null {
+function splitSegment(flow: LineFlow, index: number): { texts: string[]; widths: number[]; emergency: boolean } | null {
+  const { items, m } = flow;
+  const contentWidth = flow.budget();
   const flags = items.flags(index);
   const style = items.refs(index).style;
   const hasCJK = (flags & SEG_CJK) !== 0;
   const hasEmoji = (flags & SEG_EMOJI) !== 0;
 
-  const needsBreak = items.width(index) > contentWidth &&
-    (style.overflowWrap === 'break-word' || style.wordBreak === 'break-all');
+  const breaking = flow.wordBreaking(style);
+  const needsBreak = items.width(index) > contentWidth && breaking !== 'none';
 
   if (!hasCJK && !hasEmoji && !needsBreak) return null;
 
-  // break-word is the last resort; CJK/emoji and `word-break: break-all` are ordinary
-  // opportunities.
-  const emergency = needsBreak && !hasCJK && !hasEmoji &&
-    style.wordBreak !== 'break-all';
+  // CJK/emoji are ordinary opportunities, like `break-all`.
+  const emergency = needsBreak && !hasCJK && !hasEmoji && breaking === 'last-resort';
 
   // Each character is measured after its left context (`MEASURE_CONTEXT`); positions below
   // are in the context's coordinates, so a restart shifts them together.
-  const m = session.measurer;
   const state = m.stateOf(style);
   const text = items.text(index);
   // By grapheme when emoji are present, so clusters never split.
@@ -308,13 +296,16 @@ function cannotStartLine(cls: BreakBefore): boolean {
  * punctuation, a closing box edge, a word continued across runs. It wraps with the word
  * before it ("Music Experie" + "nce" wraps whole).
  */
-function gluedRunWidth(items: FlowItems, from: number): number {
+function gluedRunWidth(flow: LineFlow, from: number): number {
+  const { items, session } = flow;
   const count = items.prepared.count;
   let total = 0;
-  for (let index = from; index < count; index++) {
+  let index = from;
+  for (; index < count; index++) {
     if (!cannotStartLine(breakBefore(items, index))) break;
     total += items.width(index);
   }
+  if (session.stats) session.stats.glueSteps += index - from;
   return total;
 }
 
@@ -359,11 +350,11 @@ function headGlueWidth(
     if (nextText && !flow.isSpace(nextIndex)) {
       // Only the next segment's first BREAKABLE unit stays with the padding: the whole word, or
       // one character for CJK / break-word.
-      const split = nextText.length > 1 ? splitSegment(flow.session, items, nextIndex, flow.budget()) : null;
+      const split = nextText.length > 1 ? splitSegment(flow, nextIndex) : null;
       headExtra += split ? split.widths[0] : items.width(nextIndex);
       if (!split || split.texts.length === 1) {
         // Plus the word's own tail: `(<span>p50</span>,` never breaks inside word, edge and comma.
-        headExtra += gluedRunWidth(items, nextIndex + 1);
+        headExtra += gluedRunWidth(flow, nextIndex + 1);
       }
     }
   }
@@ -384,6 +375,9 @@ export class LineFlow {
   /** `pre`, `pre-wrap` and `break-spaces` preserve leading and trailing white space. */
   readonly preservesWhitespace: boolean;
   private readonly keepsSpaceOnlyLines: boolean;
+  /** The segment `gluedTail` last read, and its width. */
+  private tailOf = -1;
+  private tailWidth = 0;
 
   constructor(
     readonly session: LayoutSession,
@@ -391,6 +385,7 @@ export class LineFlow {
     readonly contentWidth: number,
     private readonly whiteSpace: string,
     private readonly textIndent: number,
+    private readonly minContent: boolean,
     private readonly tabMetrics?: TabStops,
     private readonly strutLineHeight = 0,
   ) {
@@ -419,6 +414,28 @@ export class LineFlow {
    */
   budget(): number {
     return layoutUnit(this.contentWidth) - layoutUnit(this.lineStart()) + LINE_FIT_TOLERANCE;
+  }
+
+  /**
+   * How a too-wide word may break: `anywhere` (`word-break: break-all`, an ordinary
+   * opportunity), `last-resort` (`overflow-wrap: break-word`, which CSS ignores for
+   * min-content) or `none`.
+   */
+  wordBreaking(style: ResolvedStyle): 'none' | 'anywhere' | 'last-resort' {
+    if (style.wordBreak === 'break-all') return 'anywhere';
+    return !this.minContent && style.overflowWrap === 'break-word' ? 'last-resort' : 'none';
+  }
+
+  /**
+   * `gluedRunWidth` after `segment`, read once per segment and only on demand: continuation
+   * pieces never ask, and reading the rest of the chain for each of them is quadratic.
+   */
+  gluedTail(segment: number): number {
+    if (this.tailOf !== segment) {
+      this.tailOf = segment;
+      this.tailWidth = gluedRunWidth(this, segment + 1);
+    }
+    return this.tailWidth;
   }
 
   isSpace(i: number): boolean {
@@ -536,22 +553,6 @@ function softHyphenAdvance(m: Measurer, style: ResolvedStyle): number {
   return m.width(m.stateOf(style), '-');
 }
 
-/** Item `i`'s demand on its line's height. */
-function itemLineHeight(flow: LineFlow, i: number): number {
-  const refs = flow.items.refs(i);
-  let lineHeight = flow.m.lineHeight(refs.style);
-  // Inline-block elements expand line height with their vertical padding+margin
-  const inlineBlockLayout = flow.items.inlineBlockLayout(i);
-  if (inlineBlockLayout) {
-    lineHeight = Math.max(lineHeight, inlineBlockLayout.marginBoxHeight);
-  } else if (refs.boxStyle && refs.boxStyle.display === 'inline-block') {
-    // Clamped at 0: negative margins shrink the box, never the line.
-    const extra = inlineBlockExtra(refs.boxStyle);
-    lineHeight += Math.max(0, extra.top + extra.bottom);
-  }
-  return lineHeight;
-}
-
 /**
  * The ONE line breaker: the layout runs it at the used width, min-content at 0 and
  * max-content at Infinity. Phases: `breakBefore`, glue, `splitSegment`, `breakGluedChain`,
@@ -561,7 +562,8 @@ export function flowLines(flow: LineFlow): FlowLine[] {
   const items = flow.items;
   const count = items.prepared.count;
   for (let i = 0; i < count; i++) {
-    const lineHeight = itemLineHeight(flow, i);
+    // Only a line with no words keeps this height (`emitLine`); the rest get `lineBoxExtent`.
+    const lineHeight = flow.m.lineHeight(items.refs(i).style);
     if (items.flags(i) & SEG_HARD_BREAK) {
       flow.forcedBreak(lineHeight);
       continue;
@@ -602,28 +604,30 @@ function gluedChainEnd(items: FlowItems, start: number): number {
  */
 function breakGluedChain(flow: LineFlow, start: number, end: number): boolean {
   const { items, m } = flow;
-  const startStyle = items.refs(start).style;
-  const breakWord = startStyle.overflowWrap === 'break-word' || startStyle.wordBreak === 'break-all';
   let combined = 0;
   for (let j = start; j <= end; j++) combined += items.width(j);
-  // Flatten into characters, each keeping its segment's refs: style, paint declarers and
-  // `parentStyle` (a split vertical-align run must shift against its real parent).
+  if (flow.line.totalWidth + combined <= flow.budget()) return false;
+  const breakWord = flow.wordBreaking(items.refs(start).style) !== 'none';
+  let combinedText = '';
+  for (let j = start; j <= end; j++) combinedText += items.text(j);
+  // Hyphen break opportunities (same rule as the single-word hyphen path).
+  const segTexts: string[] = [];
+  if (combinedText) forEachHyphenPiece(combinedText, 0, combinedText.length, (p) => segTexts.push(p));
+  const hyphenMode = segTexts.length > 1;
+  // A hyphen breaks whenever the unit does not fit; break-word only when it cannot fit a
+  // whole line.
+  const enter = hyphenMode || (breakWord && combined > flow.budget());
+  if (!enter) return false;
+
+  // Only a chain that splits needs characters, each keeping its segment's refs: style,
+  // paint declarers and `parentStyle` (a vertical-align run shifts against its real parent).
   type Cell = { ch: string; refs: SegmentRefs };
   const cells: Cell[] = [];
   for (let j = start; j <= end; j++) {
     const refs = items.refs(j);
     for (const ch of items.text(j)) cells.push({ ch, refs });
   }
-  const combinedText = cells.map((c) => c.ch).join('');
-  // Hyphen break opportunities (same rule as the single-word hyphen path).
-  const segTexts: string[] = [];
-  if (combinedText) forEachHyphenPiece(combinedText, 0, combinedText.length, (p) => segTexts.push(p));
-  const hyphenMode = segTexts.length > 1;
-  const fitsLine = flow.line.totalWidth + combined <= flow.budget();
-  // A hyphen breaks whenever the unit does not fit; break-word only when it cannot fit a
-  // whole line.
-  const enter = !fitsLine && (hyphenMode || (breakWord && combined > flow.budget()));
-  if (!enter) return false;
+  if (flow.session.stats) flow.session.stats.chainCells += cells.length;
 
   // Atomic units for breaking: hyphen segments, else the whole chain.
   const segs: Cell[][] = [];
@@ -696,7 +700,7 @@ function placeSegment(flow: LineFlow, segment: number, lineHeight: number): void
   let pieceEnd = segment + 1;
   let emergency = false;
   if (!flow.isSpace(segment) && items.text(segment).length > 1) {
-    const split = splitSegment(flow.session, items, segment, flow.budget());
+    const split = splitSegment(flow, segment);
     if (split) {
       emergency = split.emergency;
       for (let k = 0; k < split.texts.length; k++) {
@@ -712,9 +716,8 @@ function placeSegment(flow: LineFlow, segment: number, lineHeight: number): void
   // layout does; ordinary splits fill the current line.
   if (emergency && flow.holds(SEG_SPACE, 0)) flow.wrap();
 
-  const gluedTailWidth = gluedRunWidth(items, segment + 1);
   for (let piece = pieceStart; piece < pieceEnd; piece++) {
-    placePiece(flow, segment, piece, pieceStart, pieceEnd, gluedTailWidth, lineHeight);
+    placePiece(flow, segment, piece, pieceStart, pieceEnd, lineHeight);
   }
 }
 
@@ -723,29 +726,23 @@ function placeSegment(flow: LineFlow, segment: number, lineHeight: number): void
  * overflows (unless no line may start at it), then place it.
  */
 function placePiece(
-  flow: LineFlow, segment: number, piece: number, pieceStart: number, pieceEnd: number,
-  gluedTailWidth: number, lineHeight: number,
+  flow: LineFlow, segment: number, piece: number, pieceStart: number, pieceEnd: number, lineHeight: number,
 ): void {
   const { items, m, session } = flow;
   const pieceFlags = items.flags(piece);
-  const isLastPiece = piece === pieceEnd - 1;
-  const tail = trailingGlueWidth(items, piece, pieceEnd, gluedTailWidth);
   // Closing punctuation, a closing edge and a word continuation stay with the word before.
   const glued = cannotStartLine(breakBefore(items, piece, piece !== pieceStart)) &&
     flow.line.items.length > 0 && !flow.endsWithSpace();
-  const headExtra = headGlueWidth(flow, segment, piece, isLastPiece, gluedTailWidth);
-
-  // Chrome breaks at a soft hyphen only if the prefix PLUS its '-' fits: reserve it.
-  let shReserve = 0;
-  if (pieceFlags & SEG_SOFT_HYPHEN) {
-    shReserve = softHyphenAdvance(m, items.refs(piece).style);
-  }
-
   const pieceWidth = items.width(piece);
-  const candidateLineWidth = flow.line.totalWidth + pieceWidth +
-    shReserve + tail + headExtra;
 
   if (!(pieceFlags & SEG_SPACE) && !glued && flow.line.items.length > 0) {
+    const gluedTailWidth = flow.gluedTail(segment);
+    const tail = trailingGlueWidth(items, piece, pieceEnd, gluedTailWidth);
+    const headExtra = headGlueWidth(flow, segment, piece, piece === pieceEnd - 1, gluedTailWidth);
+    // Chrome breaks at a soft hyphen only if the prefix PLUS its '-' fits: reserve it.
+    const shReserve = pieceFlags & SEG_SOFT_HYPHEN
+      ? softHyphenAdvance(m, items.refs(piece).style) : 0;
+    const candidateLineWidth = flow.line.totalWidth + pieceWidth + shReserve + tail + headExtra;
     const overflow = candidateLineWidth - flow.budget();
     // Under 1px over, the summed advances may be wrong: re-measure.
     if (overflow > 0 && (overflow >= 1 || knifeEdgeOverflows(flow, piece, tail, headExtra))) {

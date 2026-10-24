@@ -146,24 +146,24 @@ function coloredBands(
 }
 
 /** Paint a fragment in engine order: under/overlines, glyphs, line-throughs.
- * `originals` are the layout nodes behind `runs` (a batched run is a copy). */
+ * Batched runs retain their head's LINE_TOP; `head` anchors shadow insertion. */
 function paintFragment(
   ps: PaintState,
   runs: LayoutText[],
-  originals: LayoutText[],
   gradientFill: CanvasGradient | string | null | undefined,
   strokeGradient: CanvasGradient | null | undefined,
-  beforeText: BeforeText | undefined,
+  beforeText?: BeforeText,
+  head = runs[0],
 ): void {
-  if (beforeText) for (const original of originals) beforeText(ps.ctx, original);
+  beforeText?.(ps.ctx, head);
   const paints = textPaints(ps, runs[0], gradientFill, strokeGradient);
   const bands = runs[0].style.textDecorations.length
-    ? coloredBands(ps, runs, paintLineSnap(originals[0]), paints)
+    ? coloredBands(ps, runs, paintLineSnap(runs[0]), paints)
     : [];
   for (const { band, color } of bands) if (band.line !== 'line-through') paintBand(ps, band, color);
-  runs.forEach((run, i) => {
+  runs.forEach(run => {
     ps.text(run.style);
-    paintGlyphs(ps, run.style, run.text, run.x, run.y + paintLineSnap(originals[i]), paints);
+    paintGlyphs(ps, run.style, run.text, run.x, run.y + paintLineSnap(run), paints);
   });
   for (const { band, color } of bands) if (band.line === 'line-through') paintBand(ps, band, color);
 }
@@ -171,30 +171,31 @@ function paintFragment(
 const ORDINARY_SHAPING_TEXT =
   /^[\p{Script=Latin}\p{Script=Cyrillic}\p{Script=Greek}\p{Mark}\p{Number}\p{Punctuation}\p{Separator}]+$/u;
 
-function canShapeAsRun(node: LayoutText): boolean {
-  const { style } = node;
-  return style.direction === 'ltr' &&
-    style.textAlign !== 'justify' &&
-    style.textDecorations.length === 0 &&
-    style.webkitTextStrokeWidth === 0 &&
-    !node.clip && !node.strokeImage &&
-    ORDINARY_SHAPING_TEXT.test(node.text);
+/** `runs` is one `sameTextFragment`: one style for all of them. */
+function canShapeAsRun(runs: LayoutText[]): boolean {
+  const { style } = runs[0];
+  if (style.direction !== 'ltr' || style.textAlign === 'justify' ||
+    style.textDecorations.length !== 0 || style.webkitTextStrokeWidth !== 0) return false;
+  return runs.every((node) => !node.clip && !node.strokeImage && ORDINARY_SHAPING_TEXT.test(node.text));
 }
 
-/** Called before each text fragment's paint, with each of its runs. */
+/** Called before each text fragment's paint, with its original head. */
 type BeforeText = (ctx: CanvasRenderingContext2D, node: LayoutText) => void;
 
-/** Visit the runs one fillText paints, each merged run with its first original. */
+/**
+ * Visit the runs one fillText paints, each merged run with its first original. `runs` is
+ * one `sameTextFragment` (one style, one baseline, no seam), so only adjacency splits it.
+ */
 function forEachBatch(runs: LayoutText[], visit: (run: LayoutText, head: LayoutText) => void): void {
   for (let i = 0; i < runs.length; i++) {
     const head = runs[i];
+    const first = i;
     let text = head.text, width = head.width;
-    while (i + 1 < runs.length && runs[i + 1].style === head.style && !startsMeasuredRun(runs[i + 1]) &&
-      runs[i + 1].y === head.y && Math.abs(runs[i + 1].x - (head.x + width)) <= 0.01) {
+    while (i + 1 < runs.length && Math.abs(runs[i + 1].x - (head.x + width)) <= 0.01) {
       text += runs[i + 1].text;
       width += runs[++i].width;
     }
-    visit({ ...head, text, width }, head);
+    visit(i === first ? head : { ...head, text, width }, head);
   }
 }
 
@@ -216,13 +217,13 @@ function blockStrokePaint(ps: PaintState, box: LayoutBox): CanvasGradient | null
 /**
  * Group a box's text children into the fragments `paintFragment` paints. On
  * Blink a plain fragment paints one fillText per measured run (`forEachBatch`),
- * which keeps shaping across its spaces; `originals` are the layout nodes
+ * which keeps shaping across its spaces; `head` is the original first node
  * behind `runs` (a merged run is a copy).
  */
 function forEachFragment(
   children: LayoutNode[],
   visitBox: (box: LayoutBox) => void,
-  visitText: (runs: LayoutText[], originals: LayoutText[]) => void,
+  visitText: (runs: LayoutText[], head: LayoutText) => void,
 ): void {
   for (let i = 0; i < children.length;) {
     const child = children[i];
@@ -235,8 +236,8 @@ function forEachFragment(
     while (j < children.length && children[j].type === 'text' &&
       sameTextFragment(children[j - 1] as LayoutText, children[j] as LayoutText)) j++;
     const runs = children.slice(i, j) as LayoutText[];
-    if (BLINK_TEXT_RUN_SHAPING && runs.every(canShapeAsRun)) forEachBatch(runs, (run, head) => visitText([run], [head]));
-    else visitText(runs, runs);
+    if (BLINK_TEXT_RUN_SHAPING && canShapeAsRun(runs)) forEachBatch(runs, (run, head) => visitText([run], head));
+    else visitText(runs, child);
     i = j;
   }
 }
@@ -287,7 +288,7 @@ function renderBox(
     } else {
       ctx.strokeRect(box.x + w / 2, box.y + w / 2, box.width - w, box.height - w);
     }
-  } else {
+  } else if (style.borderTopWidth || style.borderRightWidth || style.borderBottomWidth || style.borderLeftWidth) {
     const borders: [side: 'Top' | 'Right' | 'Bottom' | 'Left', x1: number, y1: number, x2: number, y2: number][] = [
       ['Top', box.x, box.y + style.borderTopWidth / 2, box.x + box.width, box.y + style.borderTopWidth / 2],
       ['Right', box.x + box.width - style.borderRightWidth / 2, box.y, box.x + box.width - style.borderRightWidth / 2, box.y + box.height],
@@ -314,18 +315,17 @@ function renderBox(
 
   forEachFragment(box.children,
     child => renderBox(ps, child, gradientFill, strokeGradient, beforeText),
-    (runs, originals) => paintFragment(ps, runs, originals, gradientFill, strokeGradient, beforeText));
+    (runs, head) => paintFragment(ps, runs, gradientFill, strokeGradient, beforeText, head));
 }
 
 function paintNode(ps: PaintState, node: LayoutNode, beforeText?: BeforeText): void {
-  if (node.type === 'text') paintFragment(ps, [node], [node], null, null, beforeText);
+  if (node.type === 'text') paintFragment(ps, [node], null, null, beforeText);
   else renderBox(ps, node, null, null, beforeText);
 }
 
 /** A shadowed fragment and the declaring blocks whose paints its mask re-resolves. */
 interface ShadowFragment {
   runs: LayoutText[];
-  originals: LayoutText[];
   /** Outermost first. */
   clips: readonly LayoutBox[];
   stroke: LayoutBox | null;
@@ -351,16 +351,16 @@ function collectShadowPasses(root: LayoutNode): ShadowPasses {
   if (!castsTextShadow(root)) return passes;
   const parsed = new Map<ResolvedStyle, { shadows: TextShadow[]; key: string }>();
   let first: LayoutText | undefined;
-  const fragment = (runs: LayoutText[], originals: LayoutText[], clips: readonly LayoutBox[], stroke: LayoutBox | null) => {
-    for (const run of originals) first ??= run;
+  const fragment = (runs: LayoutText[], head: LayoutText, clips: readonly LayoutBox[], stroke: LayoutBox | null) => {
+    first ??= head;
     const { style } = runs[0];
     const entry = shadowsOf(parsed, style);
     if (!entry.shadows.length) return;
-    let groups = passes.get(first!);
-    if (!groups) passes.set(first!, groups = new Map());
+    let groups = passes.get(first);
+    if (!groups) passes.set(first, groups = new Map());
     let group = groups.get(entry.key);
     if (!group) groups.set(entry.key, group = { fragments: [], shadows: entry.shadows });
-    group.fragments.push({ runs, originals, clips, stroke });
+    group.fragments.push({ runs, clips, stroke });
   };
   const box = (node: LayoutBox, clips: readonly LayoutBox[], stroke: LayoutBox | null) => {
     const { style } = node;
@@ -371,9 +371,9 @@ function collectShadowPasses(root: LayoutNode): ShadowPasses {
     if (hasStrokeImage(style)) stroke = node;
     forEachFragment(node.children,
       child => box(child, clips, stroke),
-      (runs, originals) => fragment(runs, originals, clips, stroke));
+      (runs, head) => fragment(runs, head, clips, stroke));
   };
-  if (root.type === 'text') fragment([root], [root], [], null);
+  if (root.type === 'text') fragment([root], root, [], null);
   else box(root, [], null);
   return passes;
 }
@@ -383,20 +383,18 @@ function paintShadowFragment(ps: PaintState, fragment: ShadowFragment): void {
   let fill: CanvasGradient | string | null = null;
   for (const block of fragment.clips) fill = blockClipPaint(ps, block) ?? fill;
   const stroke = fragment.stroke ? blockStrokePaint(ps, fragment.stroke) : null;
-  paintFragment(ps, fragment.runs, fragment.originals, fill, stroke, undefined);
+  paintFragment(ps, fragment.runs, fill, stroke);
 }
 
 /** Measured through `ps`, which keeps the ctx state the paint may share. */
-function foregroundBounds(
-  ps: PaintState, node: LayoutNode, original: LayoutNode = node,
-): PaintBounds {
+function foregroundBounds(ps: PaintState, node: LayoutNode): PaintBounds {
   if (node.type === 'box') {
     let bounds = { x: node.x, y: node.y, width: node.width, height: node.height };
-    const add = (child: LayoutNode, original?: LayoutNode) => { bounds = unionBounds(bounds, foregroundBounds(ps, child, original)); };
-    forEachFragment(node.children, add, (runs, originals) => runs.forEach((run, i) => add(run, originals[i])));
+    const add = (child: LayoutNode) => { bounds = unionBounds(bounds, foregroundBounds(ps, child)); };
+    forEachFragment(node.children, add, runs => runs.forEach(add));
     return bounds;
   }
-  const y = node.y + paintLineSnap(original as LayoutText);
+  const y = node.y + paintLineSnap(node);
   ps.text(node.style);
   let bounds = textPaintBounds(ps.ctx, node.text, node.style, node.x, y, node.width, node.style.direction === 'rtl');
   if (node.lineBaselineY !== undefined) {
@@ -408,7 +406,7 @@ function foregroundBounds(
 /** A group's fragments with their foreground ink, measured once. */
 function shadowPieces(ps: PaintState, group: ShadowGroup): (ShadowFragment & ShadowPiece)[] {
   for (const fragment of group.fragments) {
-    fragment.bounds ??= fragment.runs.map((run, i) => foregroundBounds(ps, run, fragment.originals[i])).reduce(unionBounds);
+    fragment.bounds ??= fragment.runs.map(run => foregroundBounds(ps, run)).reduce(unionBounds);
   }
   return group.fragments as (ShadowFragment & ShadowPiece)[];
 }

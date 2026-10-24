@@ -10,7 +10,9 @@
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { DOMParser as LinkedomDOMParser } from 'linkedom';
 import { layout, setDOMParser } from '../../src/index.ts';
+import { layoutTextOnPath } from '../../src/path/index.ts';
 import { mockCtx } from '../helpers/mock-ctx.ts';
+import { recordingCtx } from '../helpers/recording-ctx.ts';
 
 beforeAll(() => setDOMParser(new LinkedomDOMParser()));
 afterAll(() => setDOMParser(null));
@@ -36,11 +38,12 @@ it('2000 layouts leave no heap behind', () => {
   expect(growth).toBeLessThan(8 * 1024 * 1024);
 });
 
-it('a kept result releases its ctx after paintBounds is read', async () => {
+/** Keep the result `make` returns, read its `paintBounds`, and expect the ctx collected. */
+async function expectCtxReleased(make: (ctx: CanvasRenderingContext2D) => { paintBounds: unknown }) {
   const results: unknown[] = [];
   const held = ((): WeakRef<object> => {
     const ctx = mockCtx();
-    const result = layout({ html: PARAGRAPH, width: 400, ctx });
+    const result = make(ctx);
     void result.paintBounds;
     results.push(result);
     return new WeakRef(ctx);
@@ -52,4 +55,28 @@ it('a kept result releases its ctx after paintBounds is read', async () => {
   }
   expect(held.deref()).toBeUndefined();
   expect(results).toHaveLength(1);
+}
+
+it.each([
+  ['plain text', PARAGRAPH],
+  ['percentage width', '<div style="width:50%">text</div>'],
+  ['mixed font units', '<div style="width:calc(50% + 2ch + 1ex)">text</div>'],
+  ['inherited indent', '<div style="width:50%;text-indent:calc(10% + 2ch + 1ex)"><div style="width:50%;font-size:30px">text</div></div>'],
+  ['flex percentages', '<div style="display:flex;gap:10%"><div style="flex:1;padding-left:calc(5% + 1ch)">text</div><div>other</div></div>'],
+])('a kept result with %s releases its ctx after paintBounds is read', (_, html) =>
+  expectCtxReleased((ctx) => layout({ html, width: 400, ctx })));
+
+it('a kept text-on-path result releases its ctx after paintBounds is read', () =>
+  expectCtxReleased((ctx) => layoutTextOnPath({
+    html: '<p style="font-size:16px">Text <b>on</b> a path, 2ch <span style="padding:0 1ch">wide</span></p>',
+    path: 'M0,100 Q500,0 1000,100', ctx,
+  })));
+
+it('percentage-only styles do not measure font units', () => {
+  const rec = recordingCtx();
+  layout({
+    html: '<div style="width:50%;padding:10%;text-indent:20%"><div style="width:50%"></div></div>',
+    width: 400, ctx: rec.ctx,
+  });
+  expect(rec.counts.calls.measureText ?? 0).toBe(0);
 });

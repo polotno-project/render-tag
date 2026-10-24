@@ -13,7 +13,7 @@ import { parseHTML } from '../../src/parse.ts';
 import { isTransparent, resolveStylesFromCSS, type ResolveOptions } from '../../src/css-resolver.ts';
 import { setDOMParser } from '../../src/dom.ts';
 import { shadowsOf } from '../../src/shadow.ts';
-import type { StyledNode } from '../../src/types.ts';
+import type { ResolvedStyle, StyledNode } from '../../src/types.ts';
 
 afterAll(() => setDOMParser(null));
 
@@ -216,6 +216,89 @@ describe('CSS-wide keywords', () => {
   it('a unitless line-height inherited explicitly stays a factor', () => {
     const p = el('<div style="font-size:10px;line-height:2"><p style="font-size:20px;line-height:3px;line-height:inherit">x</p></div>', 'p');
     expect(p.style.lineHeight).toBe(40);
+  });
+});
+
+describe('inherited properties', () => {
+  const INHERITED_DECLARATIONS: [string, keyof ResolvedStyle, string][] = [
+    ['font-family', 'fontFamily', 'monospace'],
+    ['font-size', 'fontSize', '23px'],
+    ['font-weight', 'fontWeight', '300'],
+    ['font-style', 'fontStyle', 'italic'],
+    ['font-variant-caps', 'fontVariantCaps', 'small-caps'],
+    ['color', 'color', 'red'],
+    ['text-align', 'textAlign', 'right'],
+    ['text-align-last', 'textAlignLast', 'center'],
+    ['text-indent', 'textIndent', '17px'],
+    ['text-transform', 'textTransform', 'uppercase'],
+    ['white-space', 'whiteSpace', 'pre-wrap'],
+    ['word-break', 'wordBreak', 'break-all'],
+    ['overflow-wrap', 'overflowWrap', 'anywhere'],
+    ['direction', 'direction', 'rtl'],
+    ['letter-spacing', 'letterSpacing', '3px'],
+    ['word-spacing', 'wordSpacing', '4px'],
+    ['text-shadow', 'textShadow', '2px 3px red'],
+    ['font-kerning', 'fontKerning', 'none'],
+    ['list-style-type', 'listStyleType', 'square'],
+    ['vertical-align', 'verticalAlign', 'super'],
+    ['paint-order', 'paintOrder', 'stroke fill'],
+    ['stroke-linejoin', 'strokeLinejoin', 'bevel'],
+    ['-webkit-text-stroke-width', 'webkitTextStrokeWidth', '2px'],
+    ['-webkit-text-stroke-color', 'webkitTextStrokeColor', 'blue'],
+    ['-webkit-text-fill-color', 'webkitTextFillColor', 'green'],
+  ];
+
+  it.each(INHERITED_DECLARATIONS)('%s keeps cascade order and resets earlier declarations', (property, field, value) => {
+    const tree = root(`<div style="${property}:${value}">` +
+      `<span>x</span><span style="${property}:initial">x</span>` +
+      ['inherit', 'unset', 'revert', 'revert-layer'].map(keyword =>
+        `<span style="${property}:initial;${property}:${keyword}">x</span>`).join('') +
+      `<span style="${property}:inherit;${property}:initial">x</span></div>`);
+    const parent = tree.children[0];
+    const [implicit, initial, ...rest] = parent.children;
+    expect(implicit.style[field]).toEqual(parent.style[field]);
+    expect(initial.style[field]).not.toEqual(parent.style[field]);
+    for (const inherited of rest.slice(0, -1)) expect(inherited.style[field]).toEqual(parent.style[field]);
+    expect(rest.at(-1)!.style[field]).toEqual(initial.style[field]);
+  });
+
+  it('UA declarations override inheritance and explicit inheritance overrides the UA', () => {
+    const parent = root('<div style="font-weight:300;font-style:normal;color:red">' +
+      '<b>x</b><b style="font-weight:inherit">x</b><i>x</i><i style="font-style:unset">x</i>' +
+      '<a href="#">x</a><a href="#" style="color:inherit">x</a></div>').children[0];
+    expect(parent.children.map(n => [n.style.fontWeight, n.style.fontStyle, n.style.color])).toEqual([
+      [700, 'normal', 'red'], [300, 'normal', 'red'], [300, 'italic', 'red'],
+      [300, 'normal', 'red'], [300, 'normal', '#0000ee'], [300, 'normal', 'red'],
+    ]);
+  });
+
+  it('font-relative inherited lengths use the final child font', () => {
+    const parent = root('<div style="font-size:12px;line-height:1.5;text-underline-offset:20%">' +
+      '<span style="line-height:4px;line-height:inherit;text-underline-offset:1px;' +
+      'text-underline-offset:inherit;font-size:30px">x</span></div>').children[0];
+    expect(parent.children[0].style).toMatchObject({ fontSize: 30, lineHeight: 45, textUnderlineOffset: 6 });
+  });
+
+  it('inherit after an own percentage hands children the parent\'s length (all three engines)', () => {
+    const p = root('<div style="font-size:10px;text-underline-offset:3px">' +
+      '<p style="text-underline-offset:20%;text-underline-offset:inherit"><span style="font-size:40px">x</span></p></div>')
+      .children[0].children[0];
+    expect(p.children[0].style.textUnderlineOffset).toBe(3);
+  });
+
+  it('element styles and decoration arrays remain distinct, with shared declarer entries', () => {
+    const parent = root('<u style="color:red"><span>one</span><span>two</span></u>').children[0];
+    const [one, two] = parent.children;
+    expect(one.style).not.toBe(parent.style);
+    expect(two.style).not.toBe(one.style);
+    expect(one.children[0].style).toBe(one.style);
+    expect(one.style.textDecorations).not.toBe(parent.style.textDecorations);
+    expect(two.style.textDecorations).not.toBe(one.style.textDecorations);
+    expect(one.style.textDecorations[0]).toBe(parent.style.textDecorations[0]);
+    expect(one.style.textDecorations[0].declarer).toBe(parent.style);
+    one.style.textDecorations.length = 0;
+    expect(two.style.textDecorations).toHaveLength(1);
+    expect(parent.style.textDecorations).toHaveLength(1);
   });
 });
 
@@ -493,6 +576,23 @@ describe('selectors', () => {
     expect(pick('h2 ~ p { color: red }', '<p>z</p><h2>t</h2><p>a</p><span>s</span><p>b</p>')).toEqual([K, R, R]);
     expect(pick('h2+p{color:red}', '<h2>t</h2><p>a</p>')).toEqual([R]);
     expect(pick('div>p:first-child{color:red}', LIST)).toEqual([R, K, K, K, K]);
+  });
+
+  it('mixed combinator chains keep successful and failed searches local to their ancestry', () => {
+    const html = '<article>' +
+      '<section><h2>before</h2><p><span>a</span><span>b</span></p></section>' +
+      '<i class="seed"></i>' +
+      '<section><h2>after</h2> \n<!-- gap --><p><span>c</span><b><span>d</span></b></p><p><span>e</span></p></section>' +
+      '<div><section><h2>nested</h2><p><span>f</span></p></section></div>' +
+      '<section><h2>later</h2><p><span>g</span></p></section></article>' +
+      '<article><section><h2>other</h2><p><span>h</span><span>i</span></p></section></article>';
+    const css = 'html > body > article .seed ~ section > h2 + p span { color: red }';
+    expect(pick(css, html, 'span')).toEqual([K, K, R, R, K, K, R, K, K]);
+  });
+
+  it.each(['+', '~'])('neither the root nor virtual html has a %s sibling', (combinator) => {
+    expect(pick(`html ${combinator} body p { color: red }`, LIST)).toEqual([K, K, K, K, K]);
+    expect(pick(`* ${combinator} html > body p { color: red }`, LIST)).toEqual([K, K, K, K, K]);
   });
 
   it('specificity: ids, then classes/attributes/pseudo-classes, then types', () => {

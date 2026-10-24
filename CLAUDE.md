@@ -105,9 +105,9 @@ HTML string + CSS → parseHTML (DOMParser) → resolveStylesFromCSS (pure CSS p
   `BOX_SIZING`) are SYMBOL keys, assigned after the `defaultStyle()` literal.
 - **Cascade order** (`cascadeOrder`): UA defaults (`TAG_DEFAULTS`) < `<font>`
   hints < sheet normal < `style=""` normal < sheet `!important` < `style=""`
-  `!important`. `FONT_PROPERTIES` resolve and inherit first (`inheritFont`),
-  so em/ch/ex see the final font. CSS-wide keywords are handled once
-  (`applyKeyword`, `PROPERTY_FIELDS`), never stored as strings.
+  `!important`. `defaultStyle(parent)` initializes inherited fields, then
+  `FONT_PROPERTIES` resolve first so em/ch/ex see the final font. CSS-wide
+  keywords are handled once (`applyKeyword`, `PROPERTY_FIELDS`), never stored as strings.
 - **An invalid value is IGNORED**, never written as 0. A unitless non-zero
   length is invalid. Strings are validated (`css-validate.ts`): keywords
   against their allowed set and stored lower-cased; colors, images,
@@ -131,7 +131,10 @@ HTML string + CSS → parseHTML (DOMParser) → resolveStylesFromCSS (pure CSS p
   `body`'s), %, absolute units, viewport units (`layout()`'s `width` x
   `height`; no height → width; ignored on a path), ch, ex,
   `calc()`/`min()`/`max()`/`clamp()`. ch/ex come from `Measurer.fontUnits`
-  (ex = ink ascent of `x`); without a ctx both are 0.5em.
+  (ex = ink ascent of `x`, once per font per call); without a ctx both are
+  0.5em. A stored percentage basis (`PercentBasis`) keeps the measured ch/ex
+  numbers, never the measuring callback, so a kept result does not pin the
+  ctx (`tests/node/memory.test.ts`).
 - **Selectors are an allowlist** (`css-selectors.ts`): VALID but unsupported
   (`:has()`, `::before`, form states) never matches, that member only;
   INVALID drops the whole list (Selectors 4). Dynamic states never match.
@@ -342,8 +345,7 @@ image update flakes them, move that gate behind the flag too.
   `baselines.firefox.json` gates only locally: CI runs portable (the
   contract is skipped), and the lane became runnable on the maintainer's Mac
   in October 2026 (`firefoxLaunch` in vitest.config.ts), when it was
-  re-recorded there. The two ubuntu-pinned Gecko parity rows (engine
-  divergence ratchet) still fail on the Mac.
+  re-recorded there.
 - Reference renderer: native browser screenshot (`tests/helpers/native-dom-command.ts`)
 - Line membership comes from `extractDomLines` (per-character `Range` rects
   for a word that wraps mid-word). **Take the LAST rect, never the first**: at
@@ -471,7 +473,8 @@ Neither gate is environment-pinned, so CI runs both at full strictness.
 - **`perf-counters.test.ts`** — exact work counts on its fixtures:
   measureText calls and characters, `ctx.font` sets, fillText/save/restore
   per draw, LayoutText count, styled-tree size, and layout's own work
-  (inline preparation passes, segments, `Word` objects) through
+  (inline preparation passes, segments, `Word` objects, and the glue reads
+  and character cuts of a word split across runs) through
   `buildLayoutTree`'s internal `stats` sink.
   `tests/perf-counters-baseline.json` is a ratchet: UP fails as a
   regression, DOWN fails until promoted with
@@ -665,8 +668,8 @@ Both intrinsic sizes are the SAME line flow at a different width:
 `inlineContentSize` runs `flowLines` at 0 for min-content and at `Infinity`
 for max-content, over the same `PreparedInline` the layout then flows, and
 takes the widest line. Never give them their own break rules. The one
-deliberate difference: min-content neutralizes `overflow-wrap: break-word`
-per run (a copied `SegmentRefs`), because CSS ignores it when sizing. The
+deliberate difference: min-content mode makes `LineFlow.wordBreaking` ignore
+`overflow-wrap: break-word`; `word-break: break-all` still applies. The
 first line carries `text-indent` in both (a percentage one at 0).
 
 The memo (`session.minContent`/`maxContent`, `contentSize`) holds
@@ -819,7 +822,8 @@ oracle's visual-order count (0 in both lanes).
   tab stops are derived once per style per call and held in the measurer,
   never on the style. Nothing measured survives the call (fonts load between
   calls), except each result's font metrics (`layoutFontMetrics`), which
-  paint reads for decorations. Derived styles are copied once per source
+  paint reads for decorations, and the ch/ex a stored percentage basis
+  re-resolves with. Derived styles are copied once per source
   style, not per word.
 - **Bounded cumulative context.** A word's width is `w(context + word) -
   w(context)`, keeping kerning across the space. The context restarts at the

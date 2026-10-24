@@ -49,9 +49,28 @@ export interface PaintBounds { x: number; y: number; width: number; height: numb
 type Matrix = Pick<DOMMatrix, 'a' | 'b' | 'c' | 'd' | 'e' | 'f'>;
 type Paint = (ctx: CanvasRenderingContext2D) => void;
 
+/**
+ * A result's lazy `paintBounds`: measured on the first read, then the ctx is released so a
+ * kept result does not pin it.
+ */
+export function lazyPaintBounds(
+  ctx: CanvasRenderingContext2D, measure: (ctx: CanvasRenderingContext2D) => PaintBounds,
+): () => PaintBounds {
+  let held: CanvasRenderingContext2D | null = ctx;
+  let bounds: PaintBounds | undefined;
+  return () => {
+    if (!bounds) {
+      const c = held!;
+      bounds = measurePaintBounds(c, () => measure(c));
+      held = null;
+    }
+    return bounds;
+  };
+}
+
 /** Measure layout-owned paint independently of the caller's current drawing
  * state. A shared layout context may have been reused since layout completed. */
-export function measurePaintBounds(ctx: CanvasRenderingContext2D, measure: () => PaintBounds): PaintBounds {
+function measurePaintBounds(ctx: CanvasRenderingContext2D, measure: () => PaintBounds): PaintBounds {
   ctx.save();
   ctx.textAlign = 'left'; ctx.direction = 'ltr';
   ctx.letterSpacing = '0px'; ctx.wordSpacing = '0px'; ctx.miterLimit = 10;
@@ -85,14 +104,14 @@ export function unionBounds(a: PaintBounds, b: PaintBounds): PaintBounds {
 }
 
 export function transformBounds(bounds: PaintBounds, m: Matrix): PaintBounds {
-  const xs: number[] = [], ys: number[] = [];
-  for (const x of [bounds.x, bounds.x + bounds.width]) {
-    for (const y of [bounds.y, bounds.y + bounds.height]) {
-      xs.push(m.a * x + m.c * y + m.e);
-      ys.push(m.b * x + m.d * y + m.f);
-    }
-  }
-  return { x: Math.min(...xs), y: Math.min(...ys), width: Math.max(...xs) - Math.min(...xs), height: Math.max(...ys) - Math.min(...ys) };
+  const x0 = bounds.x, x1 = x0 + bounds.width;
+  const y0 = bounds.y, y1 = y0 + bounds.height;
+  const ax = m.a * x0 + m.c * y0 + m.e, ay = m.b * x0 + m.d * y0 + m.f;
+  const bx = m.a * x0 + m.c * y1 + m.e, by = m.b * x0 + m.d * y1 + m.f;
+  const cx = m.a * x1 + m.c * y0 + m.e, cy = m.b * x1 + m.d * y0 + m.f;
+  const dx = m.a * x1 + m.c * y1 + m.e, dy = m.b * x1 + m.d * y1 + m.f;
+  const x = Math.min(ax, bx, cx, dx), y = Math.min(ay, by, cy, dy);
+  return { x, y, width: Math.max(ax, bx, cx, dx) - x, height: Math.max(ay, by, cy, dy) - y };
 }
 
 /** Conservative ink bounds with the same context state used to paint the text.

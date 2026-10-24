@@ -22,6 +22,15 @@ type Paint = string | CanvasGradient;
 const NO_DASH: readonly number[] = [];
 const COVERAGE = '#000';
 
+/** The text state a style writes, derived once per style per draw. */
+interface TextState {
+  readonly font: string;
+  readonly kerning: CanvasFontKerning;
+  readonly letterSpacing: string;
+  readonly wordSpacing: string;
+  readonly rtl: boolean;
+}
+
 export class PaintState {
   private readonly known: Partial<Record<Key, unknown>> = {
     // Assumed: only decorations change dash or cap, and `finish()` resets them.
@@ -29,7 +38,7 @@ export class PaintState {
     lineCap: 'butt',
   };
   private readonly scopes: Key[][] = [];
-  private readonly fonts = new Map<ResolvedStyle, string>();
+  private readonly texts = new Map<ResolvedStyle, TextState>();
   private readonly gradients = new Map<string, CanvasGradient | null>();
   private readonly writerId = nextCtxWriterId();
 
@@ -43,13 +52,20 @@ export class PaintState {
   ) {}
 
   fontBox(style: ResolvedStyle): { ascent: number; descent: number } {
-    return this.fontMetrics?.get(this.fontOf(style)) ?? getFontMetrics(this.ctx, style);
+    return this.fontMetrics?.get(this.textState(style).font) ?? getFontMetrics(this.ctx, style);
   }
 
-  private fontOf(style: ResolvedStyle): string {
-    let font = this.fonts.get(style);
-    if (font === undefined) this.fonts.set(style, font = buildCanvasFont(style));
-    return font;
+  private textState(style: ResolvedStyle): TextState {
+    let state = this.texts.get(style);
+    if (!state) {
+      state = {
+        font: buildCanvasFont(style), kerning: canvasKerning(style),
+        letterSpacing: formatLetterSpacing(style.letterSpacing),
+        wordSpacing: `${style.wordSpacing || 0}px`, rtl: style.direction === 'rtl',
+      };
+      this.texts.set(style, state);
+    }
+    return state;
   }
 
   private set(key: Key, value: unknown): void {
@@ -70,19 +86,20 @@ export class PaintState {
       const known = this.known;
       known.font = known.fontKerning = known.letterSpacing = known.wordSpacing = undefined;
     }
-    this.set('font', this.fontOf(style));
-    this.set('fontKerning', canvasKerning(style));
-    this.set('letterSpacing', formatLetterSpacing(style.letterSpacing));
+    const t = this.textState(style);
+    this.set('font', t.font);
+    this.set('fontKerning', t.kerning);
+    this.set('letterSpacing', t.letterSpacing);
   }
 
   /** Everything a block run's text calls read; alignment is written for LTR too. */
   text(style: ResolvedStyle): void {
     this.font(style);
-    this.set('wordSpacing', `${style.wordSpacing || 0}px`);
+    const t = this.textState(style);
+    this.set('wordSpacing', t.wordSpacing);
     this.set('textBaseline', 'alphabetic');
-    const rtl = style.direction === 'rtl';
-    this.set('direction', rtl ? 'rtl' : 'ltr');
-    this.set('textAlign', rtl ? 'right' : 'left');
+    this.set('direction', t.rtl ? 'rtl' : 'ltr');
+    this.set('textAlign', t.rtl ? 'right' : 'left');
   }
 
   /** Path glyphs: placed at their own origin, baseline handled by the caller. */

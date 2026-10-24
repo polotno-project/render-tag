@@ -10,6 +10,14 @@ describe('graphemes', () => {
     expect(graphemes('')).toEqual([]);
   });
 
+  it('keeps CRLF as one cluster beside printable ASCII', () => {
+    expect(graphemes('a\r\nb')).toEqual(['a', '\r\n', 'b']);
+  });
+
+  it('keeps combining marks and emoji attached beside printable ASCII', () => {
+    expect(graphemes('e\u0301! A👩🏽‍💻 B❤️')).toEqual(['e\u0301', '!', ' ', 'A', '👩🏽‍💻', ' ', 'B', '❤️']);
+  });
+
   it('keeps surrogate pairs together (emoji 😀)', () => {
     const out = graphemes('a😀b');
     expect(out).toEqual(['a', '😀', 'b']);
