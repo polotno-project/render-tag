@@ -54,6 +54,7 @@ const FIREFOX_LANE = [
   'tests/paint-bounds.test.ts',
   'tests/box-model-parity.test.ts',
   'tests/gradient-parity.test.ts',
+  'tests/list-marker-geometry.test.ts',
 ];
 
 const WEBKIT_LANE = [

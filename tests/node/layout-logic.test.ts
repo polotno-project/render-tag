@@ -1438,6 +1438,22 @@ describe('Layout logic (mocked measureText)', () => {
       expect(marker.style.fontSize).toBe(8);
     });
 
+    it.each([
+      ['a number', 'decimal', '1.', [700, 'italic']],
+      ['a bullet (Chrome\'s synthetic disc)', 'disc', '•', [400, 'normal']],
+    ] as const)('%s marker in a bold italic li paints as %j', (_name, listStyleType, text, expected) => {
+      const li: StyledNode = {
+        element: null,
+        tagName: 'li',
+        style: defaultStyle({ display: 'list-item', fontWeight: 700, fontStyle: 'italic', listStyleType }),
+        children: [textNode('Item')],
+        textContent: null,
+        listMarker: text,
+      };
+      const marker = collectTexts(doLayout(block('div', [block('ol', [li])]), 200)).find(t => t.text === text)!;
+      expect([marker.style.fontWeight, marker.style.fontStyle]).toEqual(expected);
+    });
+
     it('measures the marker at the ::marker font, not the li font', () => {
       // `getFontMetrics` used to leave `ctx.font` on the face it measured, so
       // on a COLD cache the marker was measured on the li's face instead of

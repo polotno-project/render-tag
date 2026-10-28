@@ -344,7 +344,8 @@ For tighter DOM/canvas parity, drop these into your input HTML:
 /* Chrome gives <code>/<pre> a smaller monospace default; canvas cannot replicate it. */
 code, pre, kbd, samp { font-family: inherit; font-size: inherit; }
 
-/* Firefox's ::marker adds ~1.5px per <li>; render-tag draws markers itself. */
+/* Firefox's ::marker adds ~1.5px per <li>. This hides list markers in the DOM
+   and in render-tag alike: drop it if you need them. */
 li::marker { content: none; font-size: 0; line-height: 0; }
 
 /* Firefox's canvas kerning drifts on emoji; disable it on emoji-bearing text. */

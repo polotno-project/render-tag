@@ -31,9 +31,10 @@ HTML string + CSS → parseHTML (DOMParser) → resolveStylesFromCSS (pure CSS p
   `layoutFontMetrics` (a WeakMap keyed by results; a run's line top is a
   symbol property, `LINE_TOP`, like `RUN_SEAM`), the `claimCtx` writer token
   (a number, holds no reference), and the stateless `Intl.Segmenter`s. Layout
-  never touches the DOM. `paintBounds` and `drawLayout` are reentrant too, and
-  a result paints the same after a later `layout()` on a ctx with other font
-  metrics. A kept result never pins the caller's ctx (`lazyPaintBounds`,
+  never touches the DOM; the one canvas it makes is `Measurer.inkBox`'s
+  scratch. `paintBounds` and `drawLayout` are reentrant too, and a result
+  paints the same after a later `layout()` on a ctx with other font metrics.
+  A kept result never pins the caller's ctx (`lazyPaintBounds`,
   `tests/node/memory.test.ts`).
 - **Inline content: prepare once per call, flow per pass, then emit.**
   `preparedInline` segments and measures an inline formatting context ONCE
@@ -341,6 +342,12 @@ job.
   `letterSpacing` TOGETHER and zeroes a stray `ctx.wordSpacing`. Never set
   those on the ctx by hand in layout code. Layout reaches it as
   `session.measurer`; leaf helpers take `m`.
+- **Ink extents come from `m.inkBox(state, text)`**, never raw
+  `actualBoundingBox*`: WebKit's box always holds the origin and the advance
+  and Gecko's sits ~1px off, so outside Blink it paints the text on a
+  supersampled scratch canvas and reads the pixels (`INK_BOX_FROM_PAINT`,
+  `tests/list-marker-geometry.test.ts`). `ex` still reads the ascent of `x`
+  from `measureText`: WebKit reports an ink top above the baseline right.
 - **`claimCtx`**: a numeric writer token shared by `Measurer` and
   `PaintState`. A writer re-writes its whole state when another wrote the ctx
   since its last use, so a nested `layout()` cannot move the font under it.
@@ -443,7 +450,9 @@ the change is wrong or a gate is environment-pinned and belongs behind
   keyed per platform (`firefox` = the ubuntu CI runner, `firefox-darwin` =
   the Mac).
 - Bullet discs are Chrome-sized in every engine (`block.ts`), a deliberate
-  Chrome-first residual in the Firefox and WebKit baselines.
+  Chrome-first residual in the Firefox and WebKit baselines. The corpus reset
+  hides `::marker`, so `Large display list markers` is the one pixel case with
+  markers; `list-marker-geometry` gates the disc itself in every lane.
 
 ### Node tier-0 (in `npm test`, full strictness in CI)
 

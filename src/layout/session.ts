@@ -2,9 +2,10 @@
 // state lives here: `layoutFontMetrics`, the `claimCtx` token, the symbols.
 import type { StyledNode, LayoutText, ResolvedStyle, LayoutLine } from '../types.js';
 import { LINE_HEIGHT_MULTIPLIER } from '../css-resolver.js';
+import { createFallbackMeasureCtx } from '../dom.js';
 import {
-  APP_UNIT_LINE_HEIGHT, BLINK_SUPER_SUB, FLOORS_LINE_BASELINE, LAYOUT_UNIT_LINE_HEIGHT, SNAPS_LINE_PAINT,
-  TRUNCATES_LINE_HEIGHT,
+  APP_UNIT_LINE_HEIGHT, BLINK_SUPER_SUB, FLOORS_LINE_BASELINE, INK_BOX_FROM_PAINT, LAYOUT_UNIT_LINE_HEIGHT,
+  SNAPS_LINE_PAINT, TRUNCATES_LINE_HEIGHT,
 } from '../engine.js';
 import type { PreparedInline } from './segment.js';
 
@@ -86,9 +87,14 @@ export interface MeasureState {
   readonly widths: Map<string, number>;
   /** `Measurer.fontUnits`; shared by every percentage basis that snapshots them. */
   units: { ch: number; ex: number } | undefined;
+  /** `Measurer.inkBox` results under this state, by text. */
+  inks: Map<string, InkBox> | undefined;
 }
 
 type FontBox = Readonly<{ ascent: number; descent: number }>;
+
+/** Ink extents from the pen origin, signed like `TextMetrics`' `actualBoundingBox*`. */
+type InkBox = Readonly<{ ascent: number; descent: number; left: number; right: number }>;
 
 /**
  * Font metrics each result was laid out with, keyed by the result (a `layoutRoot` or a path
@@ -140,6 +146,8 @@ export class Measurer {
   private readonly fonts = new Map<ResolvedStyle, FontState>();
   /** This measurer's `claimCtx` id. */
   private readonly writerId = nextCtxWriterId();
+  /** The canvas `inkBox` paints on. */
+  private readback: CanvasRenderingContext2D | undefined;
 
   /**
    * Clears the ctx's word-spacing: spaces carry it in their own measured width.
@@ -172,6 +180,31 @@ export class Measurer {
   measureText(state: MeasureState, text: string): TextMetrics {
     this.use(state);
     return this.ctx.measureText(text);
+  }
+
+  /**
+   * The ink extents of `text` under `state`, once per call. Where `measureText`'s box is not
+   * the painted ink (`INK_BOX_FROM_PAINT`), they are read off the painted text.
+   */
+  inkBox(state: MeasureState, text: string): InkBox {
+    const inks = state.inks ??= new Map();
+    let ink = inks.get(text);
+    if (!ink) {
+      const m = this.measureText(state, text);
+      ink = {
+        ascent: m.actualBoundingBoxAscent ?? 0,
+        descent: m.actualBoundingBoxDescent ?? 0,
+        left: m.actualBoundingBoxLeft ?? 0,
+        right: m.actualBoundingBoxRight ?? m.width,
+      };
+      if (INK_BOX_FROM_PAINT) {
+        // Null once the canvas memory cap is hit (iOS).
+        const readback = this.readback ??= createFallbackMeasureCtx(true);
+        if (readback) ink = paintedInkBox(readback, state, text, ink) ?? ink;
+      }
+      inks.set(text, ink);
+    }
+    return ink;
   }
 
   /** The font's ascent and descent (font bounding box). */
@@ -288,7 +321,7 @@ export class Measurer {
     const key = font + '\0' + kerning + '\0' + letterSpacing;
     let state = this.states.get(key);
     if (!state) {
-      state = { font, kerning, letterSpacing, widths: new Map(), units: undefined };
+      state = { font, kerning, letterSpacing, widths: new Map(), units: undefined, inks: undefined };
       this.states.set(key, state);
     }
     return state;
@@ -297,14 +330,75 @@ export class Measurer {
   /** Write `state` to the ctx — all of it, but only what differs. */
   private use(state: MeasureState): void {
     if (claimCtx(this.writerId)) this.current = null;
-    const prev = this.current;
-    if (prev === state) return;
-    const ctx = this.ctx;
-    if (prev?.font !== state.font) ctx.font = state.font;
-    if (prev?.kerning !== state.kerning) ctx.fontKerning = state.kerning;
-    if (prev?.letterSpacing !== state.letterSpacing) ctx.letterSpacing = state.letterSpacing;
+    if (this.current === state) return;
+    writeMeasureState(this.ctx, state, this.current);
     this.current = state;
   }
+}
+
+/** Write `state` to `ctx`: what differs from `prev`, or all of it. */
+function writeMeasureState(ctx: CanvasRenderingContext2D, state: MeasureState, prev: MeasureState | null): void {
+  if (prev?.font !== state.font) ctx.font = state.font;
+  if (prev?.kerning !== state.kerning) ctx.fontKerning = state.kerning;
+  if (prev?.letterSpacing !== state.letterSpacing) ctx.letterSpacing = state.letterSpacing;
+}
+
+/**
+ * Device pixels `paintedInkBox` gives the longer side of the box it reads. WebKit's
+ * antialiased edges sit ~0.6px outside the outline: at 256 a Roboto `•` read 1.1% tall,
+ * at 512 within 0.2% of its outline (0.56ms a probe).
+ */
+const INK_PROBE_PIXELS = 512;
+/** CSS px `paintedInkBox` reads around the measured box: Gecko's is ~1px off the ink. */
+const INK_PROBE_MARGIN = 2;
+
+/**
+ * The ink extents of `text` read off its paint on `ctx`, around `measured` (`measureText`'s
+ * box, within `INK_PROBE_MARGIN` of the ink). A pixel at least half covered is ink. Null
+ * when the pixels show no ink inside the margin.
+ */
+function paintedInkBox(
+  ctx: CanvasRenderingContext2D,
+  state: MeasureState,
+  text: string,
+  measured: InkBox,
+): InkBox | null {
+  // How far the read area reaches from the pen origin.
+  const reachLeft = Math.max(measured.left, 0) + INK_PROBE_MARGIN;
+  const reachRight = Math.max(measured.right, 0) + INK_PROBE_MARGIN;
+  const reachUp = Math.max(measured.ascent, 0) + INK_PROBE_MARGIN;
+  const reachDown = Math.max(measured.descent, 0) + INK_PROBE_MARGIN;
+  const scale = INK_PROBE_PIXELS / Math.max(reachLeft + reachRight, reachUp + reachDown);
+  const originX = Math.ceil(reachLeft * scale);
+  const originY = Math.ceil(reachUp * scale);
+  // Resizing clears the canvas and resets its state.
+  ctx.canvas.width = originX + Math.ceil(reachRight * scale);
+  ctx.canvas.height = originY + Math.ceil(reachDown * scale);
+  writeMeasureState(ctx, state, null);
+  ctx.setTransform(scale, 0, 0, scale, originX, originY);
+  ctx.fillText(text, 0, 0);
+  const { data, width, height } = ctx.getImageData(0, 0, ctx.canvas.width, ctx.canvas.height);
+  // WebKit caps the memory of live canvases, collected or not.
+  ctx.canvas.width = ctx.canvas.height = 0;
+  let left = width, top = height, right = 0, bottom = 0;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (data[(y * width + x) * 4 + 3] < 128) continue;
+      if (x < left) left = x;
+      if (x >= right) right = x + 1;
+      if (y < top) top = y;
+      bottom = y + 1;
+    }
+  }
+  // Ink at the edge is clipped, or the readback is not the paint (Firefox's fingerprinting
+  // protection reads opaque white).
+  if (right <= left || left === 0 || top === 0 || right === width || bottom === height) return null;
+  return {
+    ascent: (originY - top) / scale,
+    descent: (bottom - originY) / scale,
+    left: (originX - left) / scale,
+    right: (right - originX) / scale,
+  };
 }
 
 /** A font's ascent and descent, from any TextMetrics measured in it. */

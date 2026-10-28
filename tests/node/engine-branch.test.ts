@@ -21,6 +21,7 @@ const FIREFOX =
 const SAFARI =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15';
 const JSDOM = 'Mozilla/5.0 (darwin) AppleWebKit/537.36 (KHTML, like Gecko) jsdom/30.0.1';
+const HAPPY_DOM = 'Mozilla/5.0 (X11; Darwin arm64) AppleWebKit/537.36 (KHTML, like Gecko) HappyDOM/21.0.4';
 const NODE = 'Node.js/25.6.1';
 
 function stubUA(userAgent: string | null): void {
@@ -144,6 +145,7 @@ describe('engine branch', () => {
     ['Chrome', CHROME, 'blink'],
     ['headless Chrome', HEADLESS, 'blink'],
     ['jsdom', JSDOM, 'blink'],
+    ['happy-dom', HAPPY_DOM, 'blink'],
     ['Node', NODE, 'blink'],
     ['no navigator', null, 'blink'],
     ['Firefox', FIREFOX, 'gecko'],

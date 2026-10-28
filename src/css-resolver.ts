@@ -1773,7 +1773,9 @@ export function resolveStylesFromCSS(
     if (tag === 'li' && matchedMarker.length > 0) {
       if (matchedMarker.length > 1) matchedMarker.sort(byCascadeOrder);
 
+      // The marker starts as a copy of the <li>, its parent.
       const scratch = { ...style } as ResolvedStyle;
+      const markerProps = new Set<string>();
       const markerCount = cascadeOrder(NO_DECLARATIONS, matchedMarker, NO_DECLARATIONS, order, orderInline);
       for (let i = 0; i < markerCount; i++) {
         const m = order[i];
@@ -1785,14 +1787,16 @@ export function resolveStylesFromCSS(
           }
           continue;
         }
-        // The marker starts as a copy of the <li>: inherit/unset change nothing.
-        if (cssWideKeyword(m.property, m.value)) continue;
-        if (FONT_PROPERTIES.has(m.property)) {
-          applyFontDeclaration(scratch, m.property, m.value, style, basisFor(style, style.fontSize));
+        const property = physical(m.property, style.direction);
+        const keyword = cssWideKeyword(property, m.value);
+        if (keyword) {
+          applyKeyword(scratch, style, property, keyword, markerProps, concreteColors);
+        } else if (FONT_PROPERTIES.has(property)) {
+          applyFontDeclaration(scratch, property, m.value, style, basisFor(style, style.fontSize));
         } else {
           basisFor(style, cbWidth);
           env.containerWidth = cbWidth;
-          applyDeclaration(scratch, physical(m.property, parentStyle.direction), m.value, env);
+          applyDeclaration(scratch, property, m.value, env);
         }
       }
       for (const k of MARKER_FIELDS) if (scratch[k] !== style[k]) (markerStyle ??= {} as any)[k] = scratch[k];

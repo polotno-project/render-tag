@@ -2,12 +2,12 @@
  * The engine whose rules to follow, from the UA alone (layout never touches the
  * DOM). Blink is the default, so a server-side render matches
  * headless Chrome. Gecko is the only engine with a real `Gecko/<date>` token.
- * Safari is AppleWebKit without `Chrome/` and without `jsdom/` (jsdom borrows
+ * Safari is AppleWebKit without `Chrome/`, `jsdom/` or `HappyDOM/` (both borrow
  * WebKit's UA); `Chrome/` has no word boundary because of `HeadlessChrome/`.
  */
 const UA = typeof navigator === 'undefined' ? '' : navigator.userAgent;
 export const ENGINE: 'blink' | 'webkit' | 'gecko' = /\bGecko\/\d/.test(UA) ? 'gecko'
-  : /AppleWebKit/.test(UA) && !/Chrome\/\d/.test(UA) && !/\bjsdom\//.test(UA) ? 'webkit' : 'blink';
+  : /AppleWebKit/.test(UA) && !/Chrome\/\d/.test(UA) && !/\b(jsdom|HappyDOM)\//.test(UA) ? 'webkit' : 'blink';
 
 // One flag per engine question, even where two select the same engines today:
 // never gate one rule on another's flag.
@@ -63,6 +63,13 @@ export const MARKER_LINE_WITHOUT_CONTENT = ENGINE === 'blink';
  */
 export const MIN_HEIGHT_END_MARGINS: 'drop' | 'collapse' | 'contain' =
   ENGINE === 'gecko' ? 'contain' : ENGINE === 'webkit' ? 'collapse' : 'drop';
+
+/** `measureText`'s ink box is not the painted ink, so `Measurer.inkBox` reads the
+ * pixels. WebKit's always holds the pen origin and the advance, whatever the
+ * textBaseline, textAlign or letterSpacing: `•` (Roboto 100px, ink 47.4 up,
+ * -26.2 down, -6.8 left, 26.7 right) reads 47.4 / 0 / 0 / 33.7. Gecko's sits
+ * ~1px right of the ink at any size. list-marker-geometry. */
+export const INK_BOX_FROM_PAINT = ENGINE !== 'blink';
 
 /** Blink lays line-heights on its 1/64px LayoutUnit grid: a number floors the
  * product, a length rounds to nearest, the half-leading truncates.

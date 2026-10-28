@@ -608,6 +608,23 @@ describe('selectors', () => {
     expect(li.style.color).toBe('rgb(0, 0, 0)');
   });
 
+  it('a CSS-wide keyword on ::marker undoes an earlier ::marker declaration', () => {
+    const li = el(
+      '<style>li::marker { content: none; font-size: 0; color: red } ' +
+      'li::marker { content: normal; font-size: inherit; color: unset }</style>' +
+      '<ul style="font-size: 20px"><li>a</li></ul>',
+      'li',
+    );
+    expect(li.markerHidden).toBeUndefined();
+    expect(li.markerStyle).toBeUndefined();
+    expect(li.style.fontSize).toBe(20);
+  });
+
+  it('::marker logical properties follow the <li> direction', () => {
+    const li = el('<style>li::marker { padding-inline-end: 5px }</style><ul><li dir="rtl">a</li></ul>', 'li');
+    expect(li.markerStyle).toEqual({ paddingLeft: 5 });
+  });
+
   it('an INVALID member drops the whole selector list; an unsupported one only itself', () => {
     // Selectors 4 §3.1: a list with one invalid selector is invalid. `:hover`,
     // `::before` and `*|p` are valid (they just never match here); `:foo`,

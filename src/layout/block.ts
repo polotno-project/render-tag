@@ -484,7 +484,12 @@ export function addListMarker(
   const style = node.style;
   // `markerStyle` holds only the fields `::marker` rules changed.
   const ms = node.markerStyle;
-  const markerStyleObj: ResolvedStyle = ms ? { ...style, ...ms } : style;
+  const isBullet = BULLET_MARKERS.has(style.listStyleType);
+  let markerStyleObj: ResolvedStyle = ms ? { ...style, ...ms } : style;
+  // A bullet stands in for Chrome's synthetic disc, which no weight or slant changes.
+  if (isBullet && (markerStyleObj.fontWeight !== 400 || markerStyleObj.fontStyle !== 'normal')) {
+    markerStyleObj = { ...markerStyleObj, fontWeight: 400, fontStyle: 'normal' };
+  }
 
   // The marker measures in its own style, as it is painted.
   const m = session.measurer;
@@ -496,7 +501,6 @@ export function addListMarker(
 
   const markerWidth = m.width(markerState, node.listMarker);
   const isRTL = style.direction === 'rtl';
-  const isBullet = BULLET_MARKERS.has(style.listStyleType);
   // Marker gap, matching Chrome: a bullet's ink ends 7px + ascent/3 before the content,
   // centered ascent/3 above the baseline; a text marker ("1.") is one space advance away.
   // `::marker` padding-inline-end overrides the gap.
@@ -512,20 +516,19 @@ export function addListMarker(
   const boxRightEdge = box.x + box.width;
   if (isBullet) {
     const { ascent } = m.metrics(markerStyleObj);
-    const ink = m.measureText(markerState, node.listMarker);
+    const ink = m.inkBox(markerState, node.listMarker);
     // Blink's marker unit (a 2/3-ascent box, half-filled): disc diameter, gap and centering.
     const markerUnit = ascent / 3;
     const gap = explicitGap !== undefined ? explicitGap : 7 + markerUnit;
     // Chrome paints a SYNTHETIC disc, larger than the font's '•' (Roboto ~0.22em vs ~0.31em):
     // scale the glyph so its ink height is markerUnit, keeping it a text node.
-    const inkH = (ink.actualBoundingBoxAscent ?? 0) + (ink.actualBoundingBoxDescent ?? 0);
+    const inkH = ink.ascent + ink.descent;
     const scale = inkH > 0 ? markerUnit / inkH : 1;
-    const inkRight = (ink.actualBoundingBoxRight ?? markerWidth) * scale;
-    const inkLeft = (ink.actualBoundingBoxLeft ?? 0) * scale;
-    const glyphInkCenter =
-      (((ink.actualBoundingBoxAscent ?? 0) - (ink.actualBoundingBoxDescent ?? 0)) / 2) * scale;
+    const inkRight = ink.right * scale;
+    const inkLeft = ink.left * scale;
+    const glyphInkCenter = ((ink.ascent - ink.descent) / 2) * scale;
     if (isRTL) {
-      // actualBoundingBoxLeft is positive when ink extends left of origin
+      // ink.left is positive when ink extends left of origin
       markerX = boxRightEdge + gap + inkLeft;
     } else {
       markerX = contentStartX - gap - inkRight;
@@ -559,7 +562,7 @@ export function addListMarker(
     y: markerY,
     width: markerDrawWidth,
     // One spread: the marker's own style object (the paint-runs seam logic keys on identity).
-    style: { ...markerStyleObj, fontSize: markerFontSize, textDecorationLine: 'none', textDecorations: [], fontWeight: ms?.fontWeight ?? 400, fontStyle: ms?.fontStyle ?? 'normal', direction: markerDirection },
+    style: { ...markerStyleObj, fontSize: markerFontSize, textDecorationLine: 'none', textDecorations: [], direction: markerDirection },
   };
   // The marker sits on the item's first line, whose top is the content top.
   (marker as PrivateText)[LINE_TOP] = box.y + style.borderTopWidth + style.paddingTop;
