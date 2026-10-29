@@ -284,6 +284,41 @@ const listMarker: Family = {
   },
 };
 
+/** A bullet's ink: `measureText`'s box (rt, which Blink layout trusts) against its paint (dom),
+ * read at 8x with a half-cover threshold, in px from the pen origin. */
+const markerInk: Family = {
+  name: 'marker-ink',
+  rule: 'INK_BOX_FROM_PAINT',
+  fields: ['ascent', 'descent', 'left', 'right'], tol: 1 / 8,
+  get inputs() {
+    return cross(PINNED, cross([16, 40, 120], ['•', '○', '■'])).map(
+      ([f, [size, glyph]]) => ({ font: f.font, family: f.family, size, glyph }),
+    );
+  },
+  measure({ family, size, glyph }) {
+    const scale = 8, half = Number(size);
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 2 * half * scale;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
+    ctx.scale(scale, scale);
+    ctx.font = `${size}px ${family}`;
+    ctx.fillText(String(glyph), half, half);
+    const m = ctx.measureText(String(glyph));
+    const side = canvas.width;
+    const { data } = ctx.getImageData(0, 0, side, side);
+    let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
+    for (let y = 0; y < side; y++) for (let x = 0; x < side; x++) {
+      if (data[(y * side + x) * 4 + 3] < 128) continue;
+      left = Math.min(left, x); top = Math.min(top, y);
+      right = Math.max(right, x + 1); bottom = Math.max(bottom, y + 1);
+    }
+    return {
+      dom: [half - top / scale, bottom / scale - half, half - left / scale, right / scale - half],
+      rt: [m.actualBoundingBoxAscent, m.actualBoundingBoxDescent, m.actualBoundingBoxLeft, m.actualBoundingBoxRight],
+    };
+  },
+};
+
 const nestedInlineBlock: Family = {
   name: 'inline-block-nested',
   rule: 'inline-block height inside an inline-block (lineBoxExtent)',
@@ -344,6 +379,7 @@ const FAMILIES: Family[] = [
   marginMinHeight,
   marginEmptyBlock,
   listMarker,
+  markerInk,
   nestedInlineBlock,
   decorationBand,
 ];
