@@ -153,7 +153,13 @@ function describe(value: unknown): string {
   return typeof value;
 }
 
-export function recordingCtx(width = 800, height = 800): RecordingCtx {
+/** `false`: a canvas that keeps the property but never applies it (Safari before 18.4,
+ * node-canvas; a PDF proxy without word-spacing), its scratch canvases too. */
+export interface CanvasSpacing { letterSpacing?: boolean; wordSpacing?: boolean }
+
+export function recordingCtx(
+  width = 800, height = 800, { letterSpacing = true, wordSpacing = true }: CanvasSpacing = {},
+): RecordingCtx {
   const counts: CtxCounts = { calls: {}, measuredChars: 0 };
   const count = (name: string) => { counts.calls[name] = (counts.calls[name] ?? 0) + 1; };
 
@@ -182,7 +188,11 @@ export function recordingCtx(width = 800, height = 800): RecordingCtx {
       },
       measureText(text: string) {
         counts.measuredChars += text.length;
-        const w = stateWidth(state, text);
+        const w = stateWidth({
+          ...state,
+          ...(!letterSpacing && { letterSpacing: '0px' }),
+          ...(!wordSpacing && { wordSpacing: '0px' }),
+        }, text);
         const size = parseFloat(/(\d+(?:\.\d+)?)px/.exec(String(state.font))?.[1] ?? '10');
         return {
           width: w,

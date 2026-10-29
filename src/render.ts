@@ -1,16 +1,21 @@
 import type { ShadowOptions, LayoutNode, LayoutBox, LayoutText, ResolvedStyle, TextUnit, TextUnitPaint } from './types.js';
 import {
+  graphemes,
   hasStrokeImage,
   hasTextClip,
   layoutFontMetrics,
+  letterSpaced,
   paintLineSnap,
   hasVisibleBorder, paintsBoxBackground,
   RUN_PIECES,
+  shapesAsRun,
   startsMeasuredRun,
   textEdges,
+  wordSpacingIn,
   type UnitPiece,
   type UnitRun,
 } from './layout.js';
+import { overrideContent, rtlOverride, textLevels, visualOrder } from './bidi.js';
 import { isOpaque, isTransparent, paintOrderHasStrokeFirst } from './css-resolver.js';
 import {
   hasCanvasShadow, hasTextShadow, paintTextShadows, shadowBounds, shadowsOf, textPaintBounds, transformBounds, unionBounds,
@@ -108,15 +113,84 @@ function textPaints(
   return glyphPaints(ps, node.style, inlineClip ?? gradientFill ?? null, inlineStroke ?? strokeGradient ?? null);
 }
 
-/** Fill and stroke `text` at (x, y) with `paints`, in the style's paint order. */
+/** Text and the x its own fillText takes, in its own direction (`PaintState.direction`) if set. */
+export interface TextPiece { readonly text: string; readonly x: number; readonly rtl?: boolean }
+
+/** Fill, then stroke (or the style's paint order) every piece on baseline `y` with `paints`. */
 export function paintGlyphs(
-  ps: PaintState, style: ResolvedStyle, text: string, x: number, y: number, paints: TextPaints,
+  ps: PaintState, style: ResolvedStyle, pieces: readonly TextPiece[], y: number, paints: TextPaints,
 ): void {
-  const { ctx } = ps;
-  const fill = () => { if (paints.fill) { ps.fill(paints.fill); ctx.fillText(text, x, y); } };
-  const stroke = () => { if (paints.stroked) { ps.textStroke(style, paints.strokeImage); ctx.strokeText(text, x, y); } };
+  const each = (op: 'fillText' | 'strokeText') => {
+    for (const { text, x, rtl } of pieces) {
+      if (rtl !== undefined) ps.direction(rtl);
+      ps.ctx[op](text, x, y);
+    }
+  };
+  const fill = () => { if (paints.fill) { ps.fill(paints.fill); each('fillText'); } };
+  const stroke = () => { if (paints.stroked) { ps.textStroke(style, paints.strokeImage); each('strokeText'); } };
   if (paintOrderHasStrokeFirst(style.paintOrder)) { stroke(); fill(); }
   else { fill(); stroke(); }
+}
+
+/**
+ * `run` cut where the `spacing` the ctx leaves to render-tag goes (`PaintState.text`), never
+ * inside a shaped run or across a level, each piece where a spacing ctx paints it: in
+ * Canvas's own bidi order, each spacing on its glyph's visual right (Chrome, LTR and RTL
+ * alike), so a cut comes after a spaced glyph left to right and before one right to left.
+ * Each piece paints in its level's direction: its own paragraph, so no space of it moves.
+ * `slice`: only the pieces that reach it (`paintPieces`).
+ */
+function spacedPieces(
+  ps: PaintState, run: LayoutText, spacing: { letter: number; word: number }, slice?: UnitPiece[],
+): TextPiece[] {
+  const rtl = run.style.direction === 'rtl';
+  // An RTL override (`overriddenText`) runs right to left as written; its pieces keep the controls.
+  const content = overrideContent(run.text);
+  const text = content ?? run.text;
+  const wrap = content === null ? (s: string) => s : rtlOverride;
+  // In its level's direction, as its piece paints: a trailing space stays at its level.
+  const measure = (s: string, level: number) => ps.measure(run.style, wrap(s), level % 2 === 1);
+  const levels = content !== null ? new Uint8Array(text.length).fill(1) : textLevels(text, rtl);
+  const clusters = graphemes(text);
+  const spaced = letterSpaced(clusters);
+  const pieces: { start: number; end: number; level: number; extra: number; own: number; advance: number }[] = [];
+  let at = 0, shapedBefore = false;
+  clusters.forEach((g, k) => {
+    const extra = (spaced[k] ? spacing.letter : 0) + wordSpacingIn(g, spacing.word);
+    const shaped = shapesAsRun(g);
+    const level = levels[at];
+    const last = pieces[pieces.length - 1];
+    if (last?.level === level && (!(level % 2 ? extra : last.extra) || (shapedBefore && shaped))) {
+      last.end = at + g.length;
+      last.extra += extra;
+    } else {
+      pieces.push({ start: at, end: at + g.length, level, extra, own: 0, advance: 0 });
+    }
+    shapedBefore = shaped;
+    at += g.length;
+  });
+  // Each piece's advance after the one before it at its level: kerning is pairwise, and a
+  // whole-prefix measure would be quadratic in the run.
+  let width = 0;
+  pieces.forEach((p, i) => {
+    const before = pieces[i - 1];
+    p.own = measure(text.slice(p.start, p.end), p.level);
+    p.advance = before?.level === p.level ? measure(text.slice(before.start, p.end), p.level) - before.own : p.own;
+    width += p.advance + p.extra;
+  });
+  // Left to right in Canvas's order, painted in reading order. Its spacing and an RTL glyph's
+  // kerning lie on its right, an LTR glyph's kerning on its left.
+  const out: TextPiece[] = [];
+  let left = rtl ? run.x - width : run.x;
+  for (const k of visualOrder(pieces.map((p) => p.level))) {
+    const p = pieces[k];
+    const pieceRtl = p.level % 2 === 1;
+    const from = left + (pieceRtl ? 0 : p.advance - p.own);
+    left += p.advance + p.extra;
+    if (slice && !reachesSlice(slice, from, from + p.own, run.style.fontSize)) continue;
+    out[k] = { text: wrap(text.slice(p.start, p.end)), x: pieceRtl ? from + p.own : from, rtl: pieceRtl };
+  }
+  return out.filter(Boolean);
 }
 
 /** One text fragment: same style, no measured-run seam, same baseline, touching. */
@@ -164,8 +238,9 @@ function paintRuns(
     clipToSlice(ps, slice!, left, right, !paints.stroked && typeof paints.fill === 'string' && isOpaque(paints.fill));
   }
   for (const run of glyphs) {
-    ps.text(run.style);
-    paintGlyphs(ps, run.style, run.text, run.x, run.y + paintLineSnap(run), paints);
+    const spacing = ps.text(run.style);
+    paintGlyphs(ps, run.style, spacing ? spacedPieces(ps, run, spacing, sliceGlyphs ? slice : undefined) : [run],
+      run.y + paintLineSnap(run), paints);
   }
   if (sliceGlyphs) ps.restore();
   if (bands) paintBands(ps, bands, true, left, right, slice);
@@ -458,10 +533,7 @@ export function renderNode(
 ): void {
   const scale = options.pixelRatio ?? 1;
   const fontMetrics = layoutFontMetrics.get(node);
-  // A tracker for a scratch layer: pooled canvases are reused within a draw.
-  const layerState = (target: CanvasRenderingContext2D, coverage = false) =>
-    new PaintState(target, scale, coverage, fontMetrics);
-  withDraw(ctx, options, scale, fontMetrics, (stateOf, pool) => {
+  withDraw(ctx, options, scale, fontMetrics, (stateOf, pool, layerState) => {
     const paintTextUnit = options.paintTextUnit;
     if (paintTextUnit) {
       const painter = (ps: PaintState) => new UnitPainter(ps, pool, layerState, paintTextUnit);
@@ -661,6 +733,12 @@ function relativeTo(base: Matrix, m: Matrix): Matrix | null {
   };
 }
 
+/** Whether ink from `left` to `right` reaches the pieces' slices: it may overhang its advance
+ * into a neighbour's, so an em past it. */
+function reachesSlice(pieces: readonly UnitPiece[], left: number, right: number, em: number): boolean {
+  return pieces.some(piece => piece.right > left - em && piece.left < right + em);
+}
+
 /** A unit's pieces of one fragment (`paintRuns`): bands keep the whole fragment's geometry,
  * so dashes and waves keep their phase, clipped to the unit's slice. */
 function paintPieces(
@@ -675,12 +753,7 @@ function paintPieces(
   let glyphs: LayoutText[] = batched ? [] : source;
   if (batched) forEachBatch(source, run => glyphs.push(run));
   if (shaped) {
-    // A glyph's ink may overhang its advance into a neighbour's slice: reach an em past it.
-    glyphs = glyphs.filter(run => {
-      const [l, r] = textEdges(run);
-      const em = run.style.fontSize;
-      return pieces.some(piece => piece.right > l - em && piece.left < r + em);
-    });
+    glyphs = glyphs.filter(run => reachesSlice(pieces, ...textEdges(run), run.style.fontSize));
   }
   paintRuns(ps, fragment.runs, glyphs, fill && paints.fill ? { ...paints, fill, recolor: fill } : paints,
     sliced ? pieces : undefined, shaped);

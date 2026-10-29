@@ -65,6 +65,8 @@ const WEBKIT_LANE = [
   'tests/text-shadow-coverage.test.ts',
   // Not Gecko: its one-fillText RTL line paints off the layout's word advances (file header).
   'tests/text-units-parity.test.ts',
+  // Not Gecko: its own spacing is not Chrome's, which the fallback follows (file header).
+  'tests/canvas-spacing-parity.test.ts',
 ];
 
 // Firefox capture pages load fixture assets from an opaque origin, so the

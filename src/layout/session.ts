@@ -7,7 +7,7 @@ import {
   APP_UNIT_LINE_HEIGHT, BLINK_SUPER_SUB, FLOORS_LINE_BASELINE, INK_BOX_FROM_PAINT, LAYOUT_UNIT_LINE_HEIGHT,
   SNAPS_LINE_PAINT, TRUNCATES_LINE_HEIGHT,
 } from '../engine.js';
-import type { PreparedInline } from './segment.js';
+import { graphemes, letterSpaced, type PreparedInline } from './segment.js';
 
 /**
  * Everything one `buildLayoutTree` call owns, threaded down as `session`. Layout keeps no
@@ -63,6 +63,25 @@ export function formatLetterSpacing(value: number): string {
   return Number.isFinite(value) && value !== 0 ? `${value}px` : '0px';
 }
 
+/**
+ * Which spacings `ctx` applies itself, asked of its own `measureText`: Safari before 18.4,
+ * Chrome before 99, Firefox before 115 and node-canvas (which keeps both properties) apply
+ * neither, so render-tag adds them. Leaves both at 0px.
+ */
+export function canvasSpacing(ctx: CanvasRenderingContext2D): { letter: boolean; word: boolean } {
+  claimCtx(SPACING_PROBE);
+  ctx.letterSpacing = '0px';
+  ctx.wordSpacing = '0px';
+  const plain = ctx.measureText('H H').width;
+  ctx.letterSpacing = '10px';
+  const letter = ctx.measureText('H H').width > plain;
+  ctx.letterSpacing = '0px';
+  ctx.wordSpacing = '10px';
+  const word = ctx.measureText('H H').width > plain;
+  ctx.wordSpacing = '0px';
+  return { letter, word };
+}
+
 /** Build a canvas font string. Not memoized: callers keep it per style object. */
 export function buildCanvasFont(style: ResolvedStyle): string {
   const parts: string[] = [];
@@ -114,6 +133,7 @@ export type FontMetricsTable = Map<string, FontBox>;
  */
 let lastCtxWriter = 0;
 let ctxWriterIds = 0;
+const SPACING_PROBE = nextCtxWriterId();
 
 /** A fresh writer id for `claimCtx`. */
 export function nextCtxWriterId(): number {
@@ -151,6 +171,8 @@ export class Measurer {
   private readonly writerId = nextCtxWriterId();
   /** The canvas `inkBox` paints on. */
   private readback: CanvasRenderingContext2D | undefined;
+  /** Whether the ctx applies `letterSpacing` itself, asked once a width needs it. */
+  private appliesLetterSpacing: boolean | undefined;
 
   /**
    * Clears the ctx's word-spacing: spaces carry it in their own measured width.
@@ -169,18 +191,25 @@ export class Measurer {
     return this.font(style).measure;
   }
 
-  /** Width of `text` under `state`, measured once per call. */
+  /**
+   * Width of `text` under `state`, measured once per call. On a ctx that ignores
+   * `letterSpacing` (`canvasSpacing`), plus the spacing per `letterSpaced`.
+   */
   width(state: MeasureState, text: string): number {
     let width = state.widths.get(text);
     if (width === undefined) {
-      width = this.measureText(state, text).width;
+      const spacing = parseFloat(state.letterSpacing);
+      // Asked before measuring: asking writes the ctx's spacing.
+      const added = spacing && !(this.appliesLetterSpacing ??= canvasSpacing(this.ctx).letter)
+        ? spacing * letterSpaced(graphemes(text)).filter(Boolean).length : 0;
+      width = this.measureText(state, text).width + added;
       state.widths.set(text, width);
     }
     return width;
   }
 
-  /** Uncached — for one-off strings and ink metrics. */
-  measureText(state: MeasureState, text: string): TextMetrics {
+  /** Uncached, for ink metrics: its `width` is not `width`'s on a ctx that ignores letterSpacing. */
+  private measureText(state: MeasureState, text: string): TextMetrics {
     this.use(state);
     return this.ctx.measureText(text);
   }

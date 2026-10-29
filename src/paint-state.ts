@@ -1,6 +1,6 @@
 import type { ResolvedStyle, ShadowOptions } from './types.js';
 import {
-  buildCanvasFont, canvasKerning, claimCtx, formatLetterSpacing, getFontMetrics, nextCtxWriterId,
+  buildCanvasFont, canvasKerning, canvasSpacing, claimCtx, formatLetterSpacing, getFontMetrics, nextCtxWriterId,
   type FontMetricsTable,
 } from './layout.js';
 import { parseLinearGradient } from './gradient.js';
@@ -27,10 +27,19 @@ const COVERAGE = '#000';
 interface TextState {
   readonly font: string;
   readonly kerning: CanvasFontKerning;
+  /** As written: 0px for the spacing the ctx does not apply, which render-tag places. */
   readonly letterSpacing: string;
   readonly wordSpacing: string;
   readonly rtl: boolean;
+  /** The spacing render-tag places itself (`spacedPieces`); null when the ctx applies it all. */
+  readonly unapplied: { letter: number; word: number } | null;
+  /** `PaintState.measure` results under this state. */
+  widths: Map<string, number> | undefined;
 }
+
+/** Which spacings a ctx applies itself (`canvasSpacing`): one answer for every canvas of one
+ * factory, so a draw's scratch canvases ask once. */
+interface CanvasSupport { spacing?: { letter: boolean; word: boolean } }
 
 export class PaintState {
   private known: Partial<Record<Key, unknown>> = {
@@ -50,6 +59,7 @@ export class PaintState {
     readonly coverage = false,
     /** Layout's metrics (`layoutFontMetrics`); misses are measured on this ctx. */
     private readonly fontMetrics?: FontMetricsTable,
+    private readonly support: CanvasSupport = {},
   ) {}
 
   fontBox(style: ResolvedStyle): { ascent: number; descent: number } {
@@ -59,10 +69,15 @@ export class PaintState {
   private textState(style: ResolvedStyle): TextState {
     let state = this.texts.get(style);
     if (!state) {
+      const letter = style.letterSpacing || 0, word = style.wordSpacing || 0;
+      // Asked before a spacing is written: asking writes both and claims the ctx.
+      const applies = letter || word ? this.support.spacing ??= canvasSpacing(this.ctx) : undefined;
+      const unapplied = { letter: applies?.letter === false ? letter : 0, word: applies?.word === false ? word : 0 };
       state = {
         font: buildCanvasFont(style), kerning: canvasKerning(style),
-        letterSpacing: formatLetterSpacing(style.letterSpacing),
-        wordSpacing: `${style.wordSpacing || 0}px`, rtl: style.direction === 'rtl',
+        letterSpacing: formatLetterSpacing(unapplied.letter ? 0 : letter),
+        wordSpacing: `${unapplied.word ? 0 : word}px`, rtl: style.direction === 'rtl',
+        unapplied: unapplied.letter || unapplied.word ? unapplied : null, widths: undefined,
       };
       this.texts.set(style, state);
     }
@@ -82,25 +97,44 @@ export class PaintState {
 
   /** Width-affecting state, from the same helpers `Measurer` uses. */
   font(style: ResolvedStyle): void {
-    // Another writer touched the ctx: forget what it writes.
+    const t = this.textState(style);
+    // Another writer touched the ctx (the spacing probe too): forget what it writes.
     if (claimCtx(this.writerId)) {
       const known = this.known;
       known.font = known.fontKerning = known.letterSpacing = known.wordSpacing = undefined;
     }
-    const t = this.textState(style);
     this.set('font', t.font);
     this.set('fontKerning', t.kerning);
     this.set('letterSpacing', t.letterSpacing);
   }
 
-  /** Everything a block run's text calls read; alignment is written for LTR too. */
-  text(style: ResolvedStyle): void {
+  /** Width of `text` in `direction(rtl)`, under the rest of what `text(style)` wrote, once per draw. */
+  measure(style: ResolvedStyle, text: string, rtl: boolean): number {
+    const widths = this.textState(style).widths ??= new Map();
+    const key = (rtl ? 'r' : 'l') + text;
+    let width = widths.get(key);
+    if (width === undefined) {
+      this.direction(rtl);
+      widths.set(key, width = this.ctx.measureText(text).width);
+    }
+    return width;
+  }
+
+  /** Everything a block run's text calls read; alignment is written for LTR too. Returns the
+   * spacing the ctx does not apply itself, which render-tag places (`spacedPieces`). */
+  text(style: ResolvedStyle): { letter: number; word: number } | null {
     this.font(style);
     const t = this.textState(style);
     this.set('wordSpacing', t.wordSpacing);
     this.set('textBaseline', 'alphabetic');
-    this.set('direction', t.rtl ? 'rtl' : 'ltr');
-    this.set('textAlign', t.rtl ? 'right' : 'left');
+    this.direction(t.rtl);
+    return t.unapplied;
+  }
+
+  /** Canvas's base direction, aligned so a fillText's x is its start edge. */
+  direction(rtl: boolean): void {
+    this.set('direction', rtl ? 'rtl' : 'ltr');
+    this.set('textAlign', rtl ? 'right' : 'left');
   }
 
   /** Path glyphs: placed at their own origin, baseline handled by the caller. */
@@ -176,19 +210,27 @@ export class PaintState {
 export function withDraw(
   ctx: CanvasRenderingContext2D, options: ShadowOptions, scale: number,
   fontMetrics: FontMetricsTable | undefined,
-  draw: (stateOf: (target: CanvasRenderingContext2D) => PaintState, pool: ScratchPool | null) => void,
+  draw: (
+    stateOf: (target: CanvasRenderingContext2D) => PaintState, pool: ScratchPool | null,
+    /** A new tracker for a pooled canvas, reused within a draw. */
+    layerState: (target: CanvasRenderingContext2D, coverage?: boolean) => PaintState,
+  ) => void,
 ): void {
   const states = new Map<CanvasRenderingContext2D, PaintState>();
+  // One factory makes every pooled canvas: they share whether they apply spacing.
+  const scratch: CanvasSupport = {};
+  const layerState = (target: CanvasRenderingContext2D, coverage = false) =>
+    new PaintState(target, scale, coverage, fontMetrics, scratch);
   const stateOf = (target: CanvasRenderingContext2D) => {
     let ps = states.get(target);
-    if (!ps) states.set(target, ps = new PaintState(target, scale, false, fontMetrics));
+    if (!ps) states.set(target, ps = target === ctx ? new PaintState(target, scale, false, fontMetrics) : layerState(target));
     return ps;
   };
   const pool = options.renderShadows === false ? null : new ScratchPool(ctx, options.createCanvas);
   ctx.save();
   try {
-    if (pool) draw(stateOf, pool);
-    else withoutCanvasShadow(ctx, () => draw(stateOf, null));
+    if (pool) draw(stateOf, pool, layerState);
+    else withoutCanvasShadow(ctx, () => draw(stateOf, null, layerState));
   } finally {
     pool?.dispose();
     for (const ps of states.values()) ps.finish();

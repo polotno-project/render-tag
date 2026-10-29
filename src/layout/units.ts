@@ -5,7 +5,7 @@
 import type {
   LayoutBox, LayoutLineBox, LayoutText, TextUnit, TextUnitLevel,
 } from '../types.js';
-import { levelRuns, overrideContent, visualOrder } from '../bidi.js';
+import { levelRuns, overrideContent, rtlOverride, visualOrder } from '../bidi.js';
 import {
   CLAMP_ELLIPSIS, INLINE_BLOCK, LINE_BASELINE, LINE_BOX, LIST_MARKER, RUN_LEVELS, RUN_PIECES, SPACE_WRAP,
   type LayoutSession, type PrivateLineBox, type PrivateText,
@@ -420,7 +420,7 @@ function cutRun(session: LayoutSession, run: LayoutText, claims: { unit: TextUni
       const before = width(text.slice(span.start, a));
       const through = width(text.slice(span.start, b));
       // An RTL override's piece keeps the run's controls, as Canvas must apply them.
-      const piece = overridden ? text[0] + text.slice(a, b) + text[text.length - 1] : text.slice(a, b);
+      const piece = overridden ? rtlOverride(text.slice(a, b)) : text.slice(a, b);
       const w = width(piece);
       // An RTL span runs leftward from its right edge.
       const left = span.rtl ? span.edge - through : span.edge + before;

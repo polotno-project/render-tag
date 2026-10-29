@@ -4,7 +4,7 @@
 import type { ResolvedStyle, StyledNode } from '../types.js';
 import { Measurer, type FontMetricsTable, type MeasureState, graphemes as splitGraphemes, hasStrokeImage, hasTextClip, shapesAsRun, transformTextRuns } from '../layout.js';
 import {
-  BidiTextBuilder, bidiContextFor, lineLevels, mayNeedBidi, resolveBidi, visualOrder,
+  BidiTextBuilder, bidiContextFor, textLevels, visualOrder,
   type BidiContext,
 } from '../bidi.js';
 import type { PathLike, Point } from './svg-path.js';
@@ -205,9 +205,7 @@ export function layoutGlyphsOnPath(input: LayoutInput): LayoutOutput {
   builder.enter(null);
   // The controls an RTL context opens are themselves RTL triggers.
   const rtl = input.direction === 'rtl';
-  const levels = rtl || mayNeedBidi(builder.text)
-    ? lineLevels(resolveBidi(builder.text, rtl ? 1 : 0), 0, builder.text.length)
-    : new Uint8Array(builder.text.length);
+  const levels = textLevels(builder.text, rtl);
   const logical: PreGlyph[] = [];
   let measuredWholeWidth = 0;
   let maxLineHeight = 0;
@@ -221,7 +219,7 @@ export function layoutGlyphsOnPath(input: LayoutInput): LayoutOutput {
       m, state, seg, levels.subarray(starts[i], starts[i] + seg.text.length));
     if (segGlyphs.length === 0) return;
     for (const g of segGlyphs) logical.push(g);
-    measuredWholeWidth += m.measureText(state, seg.text).width;
+    measuredWholeWidth += m.width(state, seg.text);
   });
   // UAX #9 L2: placements in visual order, across segments.
   const preGlyphs = visualOrder(logical.map((g) => g.level)).map((i) => logical[i]);

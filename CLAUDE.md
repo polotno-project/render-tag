@@ -22,7 +22,8 @@ map: this file holds only what no single file tells you.
   element's object: copy it (`{ ...style, x }`). Style identity does not mean
   "same text node" (`startsMeasuredRun`).
 - **Measure through the call's `Measurer`, paint through `PaintState`.** Font,
-  kerning, letter- and word-spacing are never set on the ctx by hand.
+  kerning, letter- and word-spacing are never set on the ctx by hand;
+  `canvasSpacing`'s probe claims the ctx (`claimCtx`) as any other writer does.
   `PaintState` writes only on change and never relies on `restore` (some
   proxies do not snapshot state).
 - **Keep the public boundary Canvas-shaped.** Vector consumers draw through it

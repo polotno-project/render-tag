@@ -508,6 +508,12 @@ export function visualOrder(levels: ArrayLike<number>): number[] {
   return order;
 }
 
+/** The levels Canvas gives one fillText's `text` in direction `rtl` (after L1). */
+export function textLevels(text: string, rtl: boolean): Uint8Array {
+  return rtl || mayNeedBidi(text) ? lineLevels(resolveBidi(text, rtl ? 1 : 0), 0, text.length)
+    : new Uint8Array(text.length);
+}
+
 /** Any character that can make a paragraph need reordering (R, AL, AN, RTL controls). */
 const RTL_TRIGGER = /[֐-ࣿיִ-﷿ﹰ-﻿‏‫‮⁧⁨؜\u{10800}-\u{10FFF}\u{1E800}-\u{1EFFF}]/u;
 export function mayNeedBidi(text: string): boolean {
@@ -556,7 +562,12 @@ export function overridesRtl(context: BidiContext | null | undefined): boolean {
  * that render-tag reversed). Anything else as is.
  */
 export function overriddenText(text: string, context: BidiContext | null | undefined): string {
-  return overridesRtl(context) ? RLO + text + PDF : text;
+  return overridesRtl(context) ? rtlOverride(text) : text;
+}
+
+/** `text` wrapped in an RTL override's controls, as `overriddenText` sends it to Canvas. */
+export function rtlOverride(text: string): string {
+  return RLO + text + PDF;
 }
 
 /** The text `overriddenText` wrapped, or null when `text` is not wrapped. */

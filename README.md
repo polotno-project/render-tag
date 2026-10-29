@@ -287,6 +287,8 @@ drawLayout({ layout: result, width: 400, ctx: outputCtx, createCanvas });
 
 Without injection, functions throw with guidance. Layout never touches the DOM, so nothing else is needed on Node. `render-tag/path` works the same way (`layoutTextOnPath` already takes `ctx`; it re-exports `setDOMParser`).
 
+A context that ignores `letterSpacing` and `wordSpacing` (node-canvas, Safari before 18.4) still gets both: render-tag notices from its `measureText` and places the glyphs itself, spaced as Chrome's canvas spaces them.
+
 ## Shadows
 
 `text-shadow` paints behind the combined text fill, stroke and decorations.
@@ -348,7 +350,9 @@ this option alone does not preserve the appearance of shadowed text.
 
 Text under an RTL `unicode-bidi: bidi-override` (`<bdo dir="rtl">`) arrives
 wrapped in U+202E…U+202C, as Canvas applies the override itself: honour the
-controls in your bidi pass and draw them invisible.
+controls in your bidi pass and draw them invisible. On a proxy whose `measureText`
+ignores `letterSpacing` or `wordSpacing`, render-tag places the pieces of a run
+itself, each with its own `direction`.
 
 Unsupported proxies fail with guidance when shadows are enabled. Exporters
 remain responsible for matching fonts, opacity, blending and effect placement

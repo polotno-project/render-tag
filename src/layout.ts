@@ -10,7 +10,7 @@ import { addListMarker, layoutBlock } from './layout/block.js';
 import { buildTextUnits } from './layout/units.js';
 
 export {
-  buildCanvasFont, canvasKerning, claimCtx, formatLetterSpacing, getFontMetrics, isShiftedVAlign,
+  buildCanvasFont, canvasKerning, canvasSpacing, claimCtx, formatLetterSpacing, getFontMetrics, isShiftedVAlign,
   layoutFontMetrics, lineBaselineOffset, Measurer, nextCtxWriterId, paintLineSnap, startsMeasuredRun,
   tabStopMetrics,
   type FontMetricsTable, type LayoutStats, type MeasureState,
@@ -18,7 +18,7 @@ export {
 export {
   hasStrokeImage, hasTextClip, hasVisibleBorder, paintsBoxBackground, sameDecorationBand, textEdges, transformTextRuns,
 } from './layout/util.js';
-export { graphemes, shapesAsRun } from './layout/segment.js';
+export { graphemes, letterSpaced, shapesAsRun, wordSpacingIn } from './layout/segment.js';
 export { RUN_PIECES } from './layout/session.js';
 export type { UnitPiece, UnitRun } from './layout/units.js';
 

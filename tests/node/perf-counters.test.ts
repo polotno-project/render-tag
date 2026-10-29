@@ -37,7 +37,7 @@ import { parseHTML } from '../../src/parse.ts';
 import { resolveStylesFromCSS } from '../../src/css-resolver.ts';
 import { buildLayoutTree, type LayoutStats } from '../../src/layout.ts';
 import type { StyledNode } from '../../src/types.ts';
-import { recordingCtx } from '../helpers/recording-ctx.ts';
+import { recordingCtx, type CanvasSpacing } from '../helpers/recording-ctx.ts';
 import { collectTexts } from '../helpers/layout-tree.ts';
 import { generateLargeHTML } from '../helpers/large-doc.ts';
 
@@ -51,7 +51,7 @@ const WORDS = ('Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do 
   'nisi ut aliquip ex ea commodo consequat.').split(' ');
 const CJK = '日本語のテキストを、ブラウザと同じ規則で折り返す。「括弧」と（丸括弧）も禁則処理の対象です！';
 
-interface Fixture { html: string; width: number; pixelRatio?: number }
+interface Fixture { html: string; width: number; pixelRatio?: number; canvas?: CanvasSpacing }
 
 const FIXTURES: Record<string, Fixture> = {
   'long paragraph (2000 words)': {
@@ -106,6 +106,21 @@ const FIXTURES: Record<string, Fixture> = {
       Array.from({ length: 400 }, (_, i) => `<b>${WORDS[i % WORDS.length][0]}</b>${WORDS[i % WORDS.length].slice(1)}`).join(' ') +
       ` ${alternatingColors(200)} <span style="overflow-wrap:break-word">${alternatingColors(150)}</span></p>`,
     width: 600,
+  },
+  // Letter-spacing on a ctx that applies it: a draw asks the ctx and its scratch layers once
+  // each whether they apply spacing, not once per shadow layer.
+  'letter-spaced text-shadow (20 paragraphs)': {
+    html: `<div style="font:16px sans-serif;letter-spacing:1px">` + Array.from({ length: 20 }, (_, i) =>
+      `<p style="text-shadow:${i % 3}px 1px 2px red">${i}: ${WORDS.slice(0, 12).join(' ')}</p>`).join('') + '</div>',
+    width: 600,
+  },
+  // A ctx without letter- and word-spacing paints a run glyph by glyph: its measuring must
+  // stay linear in the run (`draw.measuredChars`), and one nowrap line is one Blink run.
+  'letter-spaced line on a ctx without spacing': {
+    html: `<p style="font-size:16px;margin:0;letter-spacing:1px;word-spacing:2px;white-space:nowrap">` +
+      `${Array.from({ length: 1000 }, (_, i) => WORDS[i % WORDS.length]).join(' ')}</p>`,
+    width: 600,
+    canvas: { letterSpacing: false, wordSpacing: false },
   },
 };
 
@@ -192,7 +207,7 @@ function countSiblingSteps<T>(sample: Element, fn: () => T): [T, number] {
  * as `layout()` resolves them for these fixtures (none uses ch/ex).
  */
 function layoutStats(fixture: Fixture): LayoutStats {
-  const rec = recordingCtx(fixture.width, 100000);
+  const rec = recordingCtx(fixture.width, 100000, fixture.canvas);
   const { fragment, css } = parseHTML(fixture.html);
   const tree = resolveStylesFromCSS(fragment, css, fixture.width, {
     viewport: { width: fixture.width, height: fixture.width },
@@ -203,7 +218,7 @@ function layoutStats(fixture: Fixture): LayoutStats {
 }
 
 function count(fixture: Fixture): Counters {
-  const rec = recordingCtx(fixture.width, 100000);
+  const rec = recordingCtx(fixture.width, 100000, fixture.canvas);
   const result = layout({ html: fixture.html, width: fixture.width, ctx: rec.ctx });
   const afterLayout = { calls: { ...rec.counts.calls }, measuredChars: rec.counts.measuredChars };
   const pixelRatio = fixture.pixelRatio ?? 1;
@@ -230,6 +245,7 @@ function count(fixture: Fixture): Counters {
     'layout.glueSteps': work.glueSteps,
     'layout.chainCells': work.chainCells,
     'draw.measureText': drawn('measureText'),
+    'draw.measuredChars': rec.counts.measuredChars - afterLayout.measuredChars,
     'draw.fontSets': drawn('set:font'),
     'draw.fillText': drawn('fillText'),
     'draw.save': drawn('save'),

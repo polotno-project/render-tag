@@ -231,6 +231,28 @@ export function wordSpacingIn(text: string, spacing: number): number {
   return n * spacing;
 }
 
+// The cursive scripts Chrome's canvas leaves unspaced (measured; not Adlam, Sogdian,
+// Manichaean or Thaana), and the shared characters that may belong to them.
+const CURSIVE = /^[\p{scx=Arabic}\p{scx=Syriac}\p{scx=Nko}\p{scx=Mongolian}\p{scx=Mandaic}\p{scx=Hanifi_Rohingya}\p{scx=Phags_Pa}]/u;
+const SHARED = /^[\p{sc=Common}\p{sc=Inherited}]/u;
+const IGNORABLE = /^\p{Default_Ignorable_Code_Point}+$/u;
+
+/**
+ * Per grapheme: does letter-spacing follow it, as Chrome's canvas spaces? Not after
+ * default-ignorables (U+200B, U+00AD, bidi controls) or a cursive script. A shared character
+ * of one (tatweel, the Arabic comma, U+202F) follows the last script before it, cursive when
+ * there is none. Beside Arabic, Chrome also leaves a space unspaced in some fonts (Roboto,
+ * kerned) but not others; not modelled.
+ */
+export function letterSpaced(clusters: readonly string[]): boolean[] {
+  let cursive: boolean | undefined;
+  return clusters.map((g) => {
+    if (IGNORABLE.test(g)) return false;
+    if (!SHARED.test(g)) return !(cursive = CURSIVE.test(g));
+    return !(CURSIVE.test(g) && cursive !== false);
+  });
+}
+
 /**
  * Segment text's advance as it paints: an RTL override wrapped (`overriddenText`), plus its
  * `word-spacing`. Every measure of segment text goes through it, or `measureAfter` in context.

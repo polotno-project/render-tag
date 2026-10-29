@@ -189,7 +189,7 @@ export function drawTextOnPathLayout(config: DrawTextOnPathLayoutConfig): void {
   const fontMetrics = layoutFontMetrics.get(layout);
 
   const cache: InkCache = new Map();
-  withDraw(ctx, config, 1, fontMetrics, (stateOf, pool) => {
+  withDraw(ctx, config, 1, fontMetrics, (stateOf, pool, layerState) => {
     if (!pool) {
       const ps = stateOf(ctx);
       drawBackgrounds(ps, layout.glyphs, tb);
@@ -204,7 +204,7 @@ export function drawTextOnPathLayout(config: DrawTextOnPathLayoutConfig): void {
       for (const group of groups.values()) {
         paintTextShadows(target, groupPieces(measure, cache, group, tb), group.shadows, (mask, inside) => {
           // The tile's glyphs only; a decorated span whole, so its dash phase holds.
-          const maskState = new PaintState(mask, 1, true, fontMetrics);
+          const maskState = layerState(mask, true);
           const visible = new Set(inside.map(p => p.glyph));
           for (const span of new Set(inside.map(p => p.span))) paintRuns(maskState, span, layout.textWidth, tb, visible);
         }, pool);
@@ -374,7 +374,7 @@ function drawGlyphs(
     const baseY = baselineLocalY(tb, g.ascent, g.descent);
     const paints = glyphPaints(ps, g.style, clipPaintFor(ctx, g, textWidth, baseY), strokePaintFor(ctx, g, textWidth, baseY));
     enterFrame(ps, base, g);
-    paintGlyphs(ps, g.style, g.char, 0, baseY, paints);
+    paintGlyphs(ps, g.style, [{ text: g.char, x: 0 }], baseY, paints);
     if (!base) ps.restore();
   }
   exitFrames(ctx, base);
