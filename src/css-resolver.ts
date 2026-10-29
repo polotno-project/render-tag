@@ -1728,7 +1728,9 @@ export function resolveStylesFromCSS(
         set.add(field);
       }
     }
-    if (!setProps.has('text-decoration-color') || style.textDecorationColor.toLowerCase() === 'currentcolor') {
+    const decorationFollowsText = !setProps.has('text-decoration-color') ||
+      style.textDecorationColor.toLowerCase() === 'currentcolor';
+    if (decorationFollowsText) {
       const strokeColor = style.webkitTextStrokeColor || style.color;
       style.textDecorationColor = style.webkitTextStrokeWidth > 0 && !isTransparent(strokeColor)
         ? strokeColor
@@ -1747,12 +1749,14 @@ export function resolveStylesFromCSS(
     if (style.textDecorationLine && style.textDecorationLine !== 'none') {
       for (const d of style.textDecorationLine.split(/\s+/)) {
         if (d && d !== 'none') {
-          ownEntries.push({
+          const entry: DecorationEntry = {
             line: d,
             color: style.textDecorationColor,
             style: style.textDecorationStyle,
             declarer: style,
-          });
+          };
+          if (decorationFollowsText) entry.currentColor = true;
+          ownEntries.push(entry);
         }
       }
     }

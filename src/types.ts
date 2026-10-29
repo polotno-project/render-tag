@@ -100,22 +100,29 @@ export interface TextUnit {
 /** One `paintTextUnit` call: set canvas state on `ctx`, then `draw()`. */
 export interface TextUnitPaint {
   unit: TextUnit;
-  /** The draw's ctx, saved before the call and restored after it. */
+  /** The ctx to paint on, saved before the call and restored after it: the draw's, or
+   * the scratch layer its shadow is cast from. Change its transform relatively
+   * (`translate`, `rotate`, `scale`), not with `setTransform`. */
   ctx: CanvasRenderingContext2D;
   /**
-   * What this call paints: the unit's shadows (`shadow`: its text-shadows and the
-   * ctx's own shadow, before any text of its paint region; every unit gets this call
-   * while shadows render) or its glyphs, strokes and decorations (`text`). A unit is
-   * called once per phase for each paint region it spans.
+   * What this call paints: the unit's CSS text-shadows (`shadow`, before any text of
+   * its paint region; only a unit with one gets this call) or its glyphs, strokes and
+   * decorations (`text`). A unit is called once per phase for each paint region it
+   * spans, and again when the ctx has a shadow: to find where it lands, and to cast it.
    */
   phase: 'shadow' | 'text';
   /**
    * Paint the unit's part of this phase under the ctx's current state. Not calling
    * it hides the unit; calling it again paints it again. `fill` replaces the glyph
-   * fill (solid or background-clip:text); text without one (transparent, outline
-   * only) stays unfilled. Strokes, decorations and shadows keep theirs.
+   * fill (solid or background-clip:text) and the color of the unit's decorations that
+   * take the text's color (`DecorationEntry.currentColor`); text without a fill
+   * (transparent, outline only) keeps its colors. Strokes, explicitly colored
+   * decorations and shadows keep theirs. `slice` paints the unit's part of its shaped
+   * run instead of its own glyphs: the run clipped to the unit's slice, so units at rest
+   * paint exactly as `drawLayout`, ligatures and contextual forms included; moving, a
+   * ligature's parts move apart.
    */
-  draw(override?: { fill?: string | CanvasGradient }): void;
+  draw(override?: { fill?: string | CanvasGradient; slice?: boolean }): void;
 }
 
 export interface LayoutResult {
@@ -186,6 +193,8 @@ export interface DecorationEntry {
   /** 'underline' | 'line-through' | 'overline' */
   line: string;
   color: string;
+  /** `color` is the declarer's text color (no `text-decoration-color`, or `currentColor`). */
+  currentColor?: true;
   /** 'solid' | 'double' | 'dotted' | 'dashed' | 'wavy' */
   style: string;
   /** The declaring element's style (by identity): it sets the band's thickness

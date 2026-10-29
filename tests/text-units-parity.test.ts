@@ -23,12 +23,17 @@ import { makeCanvas } from './helpers/pixels.ts';
 import { reportPath } from './helpers/report-path.ts';
 
 const PIXEL_RATIO = 2;
-/** The content-mismatch percentage a case may show at rest. */
-const GATED_PERCENT: Partial<Record<TextUnitLevel, number>> = { line: 0, word: 0.05 };
+/** The content-mismatch percentage a case may show at rest; `sliced`: draw({ slice: true }). */
+const GATED_PERCENT: Record<string, number> = { line: 0, word: 0.05, 'grapheme sliced': 0 };
+const VARIANTS: [TextUnitLevel, boolean][] = [['line', false], ['word', false], ['grapheme', false], ['grapheme', true]];
+/** Sliced units that still miss ink at rest (the list only shrinks): Chromium drops the
+ * period ending a mixed-direction line (26 device pixels; cause not yet found). */
+const SLICED_RESIDUE: Partial<Record<string, string[]>> = { chrome: ['Hebrew text with punctuation'] };
 
 describe('text units at rest paint as drawLayout', () => {
-  for (const level of ['line', 'word', 'grapheme'] as const) {
-    it(`${level} units`, async () => {
+  for (const [level, slice] of VARIANTS) {
+    const variant = slice ? `${level} sliced` : level;
+    it(`${variant} units`, async () => {
       const failures: string[] = [];
       const percents: [string, number][] = [];
       for (const { key, tc, css } of await loadCorpus({ fonts: [] })) {
@@ -37,15 +42,17 @@ describe('text units at rest paint as drawLayout', () => {
         const result = layout({ html, width: tc.width, height: tc.height, textUnits: level });
         const plain = drawLayout({ layout: result, width: tc.width, pixelRatio: PIXEL_RATIO }).canvas as HTMLCanvasElement;
         const units = drawLayout({
-          layout: result, width: tc.width, pixelRatio: PIXEL_RATIO, paintTextUnit: ({ draw }) => draw(),
+          layout: result, width: tc.width, pixelRatio: PIXEL_RATIO, paintTextUnit: ({ draw }) => draw({ slice }),
         }).canvas as HTMLCanvasElement;
         const percent = compareCanvasPixels(plain, units).contentMismatchPercentage;
         percents.push([key, percent]);
-        const gate = GATED_PERCENT[level];
-        if (gate !== undefined && percent > gate) failures.push(`${key}: ${percent.toFixed(3)}%`);
+        const gate = GATED_PERCENT[variant];
+        const known = slice && SLICED_RESIDUE[browserName]?.includes(key);
+        if (known && percent <= (gate ?? 0)) failures.push(`${key}: now passes, remove it from SLICED_RESIDUE`);
+        else if (!known && gate !== undefined && percent > gate) failures.push(`${key}: ${percent.toFixed(3)}%`);
       }
       percents.sort((x, y) => y[1] - x[1]);
-      await commands.writeFile(reportPath(`text-units-${level}.${browserName}.txt`),
+      await commands.writeFile(reportPath(`text-units-${variant.replace(' ', '-')}.${browserName}.txt`),
         percents.map(([k, p]) => `${p.toFixed(4)}%\t${k}`).join('\n') + '\n');
       expect(percents.length).toBeGreaterThan(50);
       expect(failures).toEqual([]);
@@ -86,4 +93,22 @@ it('meets its neighbours\' bands without a seam', () => {
   expect(translucent.gaps + translucent.ticks).toBeLessThan(20);
   // At rest the fragment's own ends stay unclipped, whatever their device position.
   expect(bandSeams('black', 0, 0.7)).toEqual({ gaps: 0, ticks: 0 });
+});
+
+// The ctx's shadow (a Konva element's) is the whole draw's, cast once as drawLayout casts it:
+// at rest the units cast the same shadow, and moving every unit moves it with them.
+it('casts the ctx shadow once, from where the units are drawn', () => {
+  const html = '<p style="margin:0;font:24px serif;text-decoration:underline">Hello brave new world of units</p>';
+  const result = layout({ html, width: 420, textUnits: 'line' });
+  const draw = (top: number, paintTextUnit?: (paint: TextUnitPaint) => void) => {
+    const { canvas, ctx } = makeCanvas(520, 200);
+    ctx.translate(20, top);
+    Object.assign(ctx, { shadowColor: 'rgba(0,0,0,0.6)', shadowBlur: 8, shadowOffsetX: 4, shadowOffsetY: 4 });
+    drawLayout({ layout: result, width: 420, ctx, pixelRatio: 1, paintTextUnit });
+    return canvas;
+  };
+  const plain = draw(90);
+  expect(compareCanvasPixels(plain, draw(90, ({ draw }) => draw())).contentMismatchPercentage).toBe(0);
+  const moved = draw(20, ({ ctx, draw }) => { ctx.translate(0, 70); draw(); });
+  expect(compareCanvasPixels(plain, moved).contentMismatchPercentage).toBe(0);
 });

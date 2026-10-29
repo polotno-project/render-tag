@@ -318,12 +318,12 @@ describe('text units: paint', () => {
     });
   }
 
-  it('calls the painter once per unit in reading order, shadow phase first', () => {
+  it('calls the painter once per unit in reading order, a text-shadow\'s phase first', () => {
     const html = '<div style="font:20px serif"><p style="margin:0;text-shadow:2px 2px 3px red">Hello brave</p><p style="margin:0">world</p></div>';
     const result = layout({ html, width: 300, ctx: recordingCtx(300, 400).ctx, textUnits: 'word' });
     const calls: string[] = [];
     drawn(result, 300, ({ unit, phase, draw }) => { calls.push(`${phase}:${unit.text}`); draw(); });
-    expect(calls).toEqual(['shadow:Hello', 'shadow:brave', 'shadow:world', 'text:Hello', 'text:brave', 'text:world']);
+    expect(calls).toEqual(['shadow:Hello', 'shadow:brave', 'text:Hello', 'text:brave', 'text:world']);
     calls.length = 0;
     drawn(result, 300, ({ unit, phase, draw }) => { calls.push(`${phase}:${unit.text}`); draw(); }, false);
     expect(calls).toEqual(['text:Hello', 'text:brave', 'text:world']);
@@ -378,6 +378,38 @@ describe('text units: paint', () => {
     expect(hollow.some(p => p.startsWith('fillText('))).toBe(false);
   });
 
+  it('recolors with fill the unit\'s decorations that take the text color, not an explicit one', () => {
+    const html = '<p style="margin:0;font:20px serif;text-decoration:underline">Hello ' +
+      '<span style="text-decoration:line-through;text-decoration-color:blue">brave</span> world</p>';
+    const result = layout({ html, width: 300, ctx: recordingCtx(300, 400).ctx, textUnits: 'word' });
+    const bands = (fill?: string) => drawn(result, 300, ({ unit, draw }) => draw(unit.text === 'brave' ? { fill } : undefined))
+      .paints.filter(p => !p.startsWith('fillText('));
+    const red = (paints: string[]) => paints.filter(p => /(fill|stroke)Style="red"/.test(p));
+    expect(red(bands())).toEqual([]);
+    const karaoke = bands('red');
+    // The paragraph's underline in brave's slice (with the space it paints), not under its
+    // neighbours; brave's own blue line-through stays.
+    const [brave, world] = ['brave', 'world'].map(t => result.textUnits!.find(u => u.text === t)!);
+    expect(red(karaoke).length).toBeGreaterThan(0);
+    for (const op of red(karaoke)) {
+      const from = Number(/moveTo\(([\d.-]+)/.exec(op)![1]);
+      const clip = /rect\(([\d.-]+),[\d.-]+,([\d.-]+)/.exec(op);
+      const to = clip ? Number(clip[1]) + Number(clip[2]) : Number(/lineTo\(([\d.-]+)/.exec(op)![1]);
+      expect(Math.max(from, clip ? -Infinity : from), op).toBeGreaterThanOrEqual(brave.x - 0.5);
+      expect(to, op).toBeLessThanOrEqual(world.x + 0.5);
+    }
+    expect(karaoke.some(p => /(fill|stroke)Style="blue"/.test(p))).toBe(true);
+  });
+
+  it('slices the shaped run on request: each unit paints its run, clipped to its slice', () => {
+    const result = layout({ html: '<p style="margin:0;font:20px serif">fine</p>', width: 300, ctx: recordingCtx(300, 400).ctx, textUnits: 'grapheme' });
+    const fills = (slice?: boolean) => drawn(result, 300, ({ draw }) => draw({ slice })).paints.filter(p => p.startsWith('fillText('));
+    expect(fills().map(p => /fillText\("([^"]*)"/.exec(p)![1])).toEqual(['f', 'i', 'n', 'e']);
+    const sliced = fills(true);
+    expect(sliced.map(p => /fillText\("([^"]*)"/.exec(p)![1])).toEqual(['fine', 'fine', 'fine', 'fine']);
+    for (const fill of sliced) expect(fill).toMatch(/clip=\[".*rect\(/);
+  });
+
   it('clips a decoration band to the unit, so a hidden word leaves a gap', () => {
     const html = '<p style="margin:0;font:20px serif;text-decoration:underline">Hello brave world</p>';
     const result = layout({ html, width: 300, ctx: recordingCtx(300, 400).ctx, textUnits: 'word' });
@@ -402,37 +434,46 @@ describe('text units: paint', () => {
     expect(images.map(p => /globalAlpha=([\d.]+)/.exec(p.slice(p.lastIndexOf(' | ')))![1])).toEqual(['1', '0.5', '1']);
   });
 
-  it('casts a canvas shadow once per draw, never per glyph', () => {
+  it('holds off a shadow the callback sets: only the whole draw casts the ctx\'s', () => {
     const result = layout({ html: PARITY_CASES.plain, width: 300, ctx: recordingCtx(300, 400).ctx, textUnits: 'word' });
     const rec = drawn(result, 300, ({ unit, ctx, draw }) => {
       if (unit.text === 'brave') { ctx.shadowColor = 'blue'; ctx.shadowBlur = 5; }
       draw();
     });
-    expect(rec.paints.filter(p => p.startsWith('drawImage('))).toHaveLength(1);
+    expect(rec.paints.some(p => p.startsWith('drawImage('))).toBe(false);
     for (const fill of rec.paints.filter(p => p.startsWith('fillText('))) expect(fill).not.toContain('shadowColor="blue"');
   });
 
   it('strokes a canvas-shadow layer solid whatever dash the callback set', () => {
     const html = '<p style="margin:0;font:20px serif;text-decoration:underline wavy">Hello brave</p>';
     const result = layout({ html, width: 300, ctx: recordingCtx(300, 400).ctx, textUnits: 'word' });
-    const rec = drawn(result, 300, ({ ctx, draw }) => {
-      ctx.setLineDash([3, 3]); ctx.shadowColor = 'blue'; ctx.shadowBlur = 5;
+    const rec = recordingCtx(300, 400);
+    Object.assign(rec.ctx, { shadowColor: 'blue', shadowBlur: 5 });
+    drawLayout({ layout: result, width: 300, ctx: rec.ctx, createCanvas: rec.createCanvas, paintTextUnit: ({ ctx, draw }) => {
+      ctx.setLineDash([3, 3]);
       draw();
-    });
+    } });
     const layers = rec.paints.filter(p => p.startsWith('drawImage('));
     expect(layers.length).toBeGreaterThan(0);
     for (const layer of layers) expect(layer).not.toContain('dash=3,3');
     expect(rec.paints.filter(p => p.startsWith('stroke(')).some(p => p.endsWith('dash=3,3'))).toBe(false);
   });
 
-  it('casts a shadow set on the ctx before any unit\'s text, one per unit', () => {
+  // As `drawLayout` casts it: one shadow from the whole draw, its layer sized by a dry pass
+  // over the callbacks, so it reaches a unit the callback moved.
+  it('casts a shadow set on the ctx once, from where the units are drawn', () => {
     const result = layout({ html: PARITY_CASES.plain, width: 300, ctx: recordingCtx(300, 400).ctx, textUnits: 'word' });
     const rec = recordingCtx(300, 400);
     Object.assign(rec.ctx, { shadowColor: 'blue', shadowBlur: 4, shadowOffsetX: 3 });
-    drawLayout({ layout: result, width: 300, ctx: rec.ctx, createCanvas: rec.createCanvas, paintTextUnit: identity });
+    drawLayout({ layout: result, width: 300, ctx: rec.ctx, createCanvas: rec.createCanvas, paintTextUnit: ({ unit, ctx, draw }) => {
+      if (unit.index === result.textUnits!.length - 1) ctx.translate(0, 120);
+      draw();
+    } });
     const ops = rec.paints.map(p => p.slice(0, p.indexOf('(')));
-    expect(ops.filter(op => op === 'drawImage')).toHaveLength(result.textUnits!.length);
-    expect(ops.lastIndexOf('drawImage')).toBeLessThan(ops.indexOf('fillText'));
+    expect(ops.filter(op => op === 'drawImage')).toHaveLength(1);
+    expect(ops.indexOf('drawImage')).toBeLessThan(ops.indexOf('fillText'));
+    const [, layerHeight] = /canvas\(\d+x\d+\)\{drawImage\(canvas\(\d+x(\d+)\)/.exec(rec.paints.find(p => p.startsWith('drawImage('))!)!;
+    expect(Number(layerHeight)).toBeGreaterThan(120);
   });
 
   it('paints no shadow inside a callback under renderShadows: false', () => {

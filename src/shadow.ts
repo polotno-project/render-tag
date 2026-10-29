@@ -46,7 +46,7 @@ export function shadowsOf(
 }
 
 export interface PaintBounds { x: number; y: number; width: number; height: number }
-type Matrix = Pick<DOMMatrix, 'a' | 'b' | 'c' | 'd' | 'e' | 'f'>;
+export type Matrix = Pick<DOMMatrix, 'a' | 'b' | 'c' | 'd' | 'e' | 'f'>;
 type Paint = (ctx: CanvasRenderingContext2D) => void;
 
 /**
@@ -306,22 +306,7 @@ function castShadow(
 export function withCanvasShadow(
   ctx: CanvasRenderingContext2D, bounds: () => PaintBounds, paint: Paint, pool: ScratchPool,
 ): void {
-  if (castCanvasShadow(ctx, bounds, paint, pool)) withoutCanvasShadow(ctx, paint);
-  else paint(ctx);
-}
-
-/** The caller's ctx casts a shadow. */
-export function hasCanvasShadow(ctx: CanvasRenderingContext2D): boolean {
-  // The numbers first: reading `shadowColor` serializes a string.
-  return (ctx.shadowBlur > 0 || ctx.shadowOffsetX !== 0 || ctx.shadowOffsetY !== 0) &&
-    !isTransparent(ctx.shadowColor);
-}
-
-/** Cast the caller's shadow from `paint`'s rendering, without the rendering; false with no shadow. */
-export function castCanvasShadow(
-  ctx: CanvasRenderingContext2D, bounds: () => PaintBounds, paint: Paint, pool: ScratchPool,
-): boolean {
-  if (!hasCanvasShadow(ctx)) return false;
+  if (!hasCanvasShadow(ctx)) { paint(ctx); return; }
   const color = ctx.shadowColor;
   requireShadowContext(ctx);
   const source = layer(ctx, bounds(), ctx.getTransform(), paint, pool);
@@ -340,7 +325,14 @@ export function castCanvasShadow(
     // A drawing-command proxy may not save its emulated shadow properties.
     ctx.shadowColor = color;
   }
-  return true;
+  withoutCanvasShadow(ctx, paint);
+}
+
+/** The caller's ctx casts a shadow. */
+export function hasCanvasShadow(ctx: CanvasRenderingContext2D): boolean {
+  // The numbers first: reading `shadowColor` serializes a string.
+  return (ctx.shadowBlur > 0 || ctx.shadowOffsetX !== 0 || ctx.shadowOffsetY !== 0) &&
+    !isTransparent(ctx.shadowColor);
 }
 
 /** Pixels per shadow tile: a small blur margin per tile, a few-MB mask. */

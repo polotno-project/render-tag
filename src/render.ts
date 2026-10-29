@@ -12,7 +12,10 @@ import {
   type UnitRun,
 } from './layout.js';
 import { isOpaque, isTransparent, paintOrderHasStrokeFirst } from './css-resolver.js';
-import { castCanvasShadow, hasCanvasShadow, hasTextShadow, paintTextShadows, shadowBounds, shadowsOf, textPaintBounds, unionBounds, withCanvasShadow, withoutCanvasShadow, type PaintBounds, type ScratchPool, type ShadowPiece, type TextShadow } from './shadow.js';
+import {
+  hasCanvasShadow, hasTextShadow, paintTextShadows, shadowBounds, shadowsOf, textPaintBounds, transformBounds, unionBounds,
+  withCanvasShadow, withoutCanvasShadow, type Matrix, type PaintBounds, type ScratchPool, type ShadowPiece, type TextShadow,
+} from './shadow.js';
 import { PaintState, withDraw } from './paint-state.js';
 import { fragmentBands, paintBand, type Band } from './decoration.js';
 import { BLINK_TEXT_RUN_SHAPING, STROKE_CASTS_TEXT_SHADOW } from './engine.js';
@@ -67,6 +70,8 @@ export interface TextPaints {
   stroked: boolean;
   /** The --rt-text-stroke-image gradient, over the stroke color. */
   strokeImage: CanvasGradient | null;
+  /** A text unit's `fill` override: the color of its `currentColor` decorations too. */
+  recolor?: CanvasGradient | string;
 }
 
 /**
@@ -129,7 +134,7 @@ function coloredBands(
   const lineBaseline = head.lineBaselineY === undefined ? undefined : head.lineBaselineY + snap;
   const bands: { band: Band; color: string | CanvasGradient }[] = [];
   for (const { band, deco } of fragmentBands(ps, head.style, left, right - left, head.y + snap, snap, lineBaseline)) {
-    const color = isTransparent(deco.color) ? paints.clip : deco.color;
+    const color = deco.currentColor && paints.recolor ? paints.recolor : isTransparent(deco.color) ? paints.clip : deco.color;
     if (color) bands.push({ band, color });
   }
   return bands;
@@ -141,22 +146,28 @@ function coloredBands(
  */
 function paintRuns(
   ps: PaintState, runs: LayoutText[], glyphs: LayoutText[], paints: TextPaints, slice?: UnitPiece[],
+  sliceGlyphs = false,
 ): void {
   let bands: { band: Band; color: string | CanvasGradient }[] | null = null;
   let left = Infinity, right = -Infinity;
-  if (runs[0].style.textDecorations.length) {
+  const decorated = runs[0].style.textDecorations.length > 0;
+  if (decorated || sliceGlyphs) {
     for (const run of runs) {
       const [l, r] = textEdges(run);
       if (l < left) left = l;
       if (r > right) right = r;
     }
-    bands = coloredBands(ps, runs[0], left, right, paintLineSnap(runs[0]), paints);
   }
+  if (decorated) bands = coloredBands(ps, runs[0], left, right, paintLineSnap(runs[0]), paints);
   if (bands) paintBands(ps, bands, false, left, right, slice);
+  if (sliceGlyphs) {
+    clipToSlice(ps, slice!, left, right, !paints.stroked && typeof paints.fill === 'string' && isOpaque(paints.fill));
+  }
   for (const run of glyphs) {
     ps.text(run.style);
     paintGlyphs(ps, run.style, run.text, run.x, run.y + paintLineSnap(run), paints);
   }
+  if (sliceGlyphs) ps.restore();
   if (bands) paintBands(ps, bands, true, left, right, slice);
 }
 
@@ -440,8 +451,7 @@ export function getNodePaintBounds(
 }
 
 /** Insert CSS shadows before their text without reordering background paints.
- * The caller's canvas shadow belongs to the completed result (per unit with
- * `paintTextUnit`). */
+ * The caller's canvas shadow belongs to the completed result, text units included. */
 export function renderNode(
   ctx: CanvasRenderingContext2D, node: LayoutNode,
   options: ShadowOptions & { pixelRatio?: number; paintTextUnit?: (paint: TextUnitPaint) => void } = {},
@@ -452,7 +462,13 @@ export function renderNode(
   const layerState = (target: CanvasRenderingContext2D, coverage = false) =>
     new PaintState(target, scale, coverage, fontMetrics);
   withDraw(ctx, options, scale, fontMetrics, (stateOf, pool) => {
-    if (options.paintTextUnit) return new UnitPainter(stateOf(ctx), pool, layerState, options.paintTextUnit).draw(node);
+    const paintTextUnit = options.paintTextUnit;
+    if (paintTextUnit) {
+      const painter = (ps: PaintState) => new UnitPainter(ps, pool, layerState, paintTextUnit);
+      if (!pool) return painter(stateOf(ctx)).draw(node);
+      return withCanvasShadow(ctx, () => painter(stateOf(ctx)).bounds(node),
+        target => painter(target === ctx ? stateOf(ctx) : layerState(target)).draw(node), pool);
+    }
     if (!pool) return paintNode(stateOf(ctx), node);
     const passes = collectShadowPasses(node);
     const measure = stateOf(ctx);
@@ -477,12 +493,16 @@ export function renderNode(
 /** One unit's part of a paint region: per fragment, its pieces in reading order and whether
  * the fragment paints in Blink's batches (`canShapeAsRun`). */
 type UnitShare = { fragment: TextFragment; pieces: UnitPiece[]; batched: boolean }[];
+/** What a callback's `draw()` asks for (`TextUnitPaint.draw`). */
+type UnitDraw = Parameters<TextUnitPaint['draw']>[0] & {};
+/** A paint region's units in reading order, and the runs no unit claims (white space only). */
+type Region = { units: [TextUnit, UnitShare][]; unclaimed: TextFragment[] };
 
 /**
  * Paints a layout made with text units: the paint walk (`walkPaintRegions`), but a paint
  * region's text (everything between two box surfaces) is held, then painted unit by unit
- * through the caller's callback: every unit's shadows (text-shadows and the ctx's own, from
- * the unit's paint), then every unit's text. Box surfaces paint in place.
+ * through the caller's callback: every unit's text-shadows, then every unit's text. Box
+ * surfaces paint in place. The ctx's own shadow is the whole draw's (`renderNode`).
  */
 class UnitPainter {
   private readonly held: TextFragment[] = [];
@@ -496,19 +516,58 @@ class UnitPainter {
   ) {}
 
   draw(root: LayoutNode): void {
-    walkPaintRegions(root, false, box => {
-      this.flush();
-      this.withCanvasShadow(() => box, ps => paintSurface(ps, box));
-    }, fragment => this.held.push(fragment));
-    this.flush();
+    this.walk(root, box => paintSurface(this.ps, box), region => this.paintRegion(region));
   }
 
-  /** Paint the held region: shadows of every unit, then text of every unit. */
-  private flush(): void {
+  /**
+   * What the draw paints, in layout px, where each callback puts its unit: a dry pass whose
+   * `draw()` records the unit's ink and text-shadows under the callback's transform. Clipped
+   * to the canvas, with room for the shadow to reach in.
+   */
+  bounds(root: LayoutNode): PaintBounds {
+    const { ps } = this;
+    const base = ps.ctx.getTransform();
+    let out: PaintBounds | undefined;
+    const add = (bounds: PaintBounds) => { out = out ? unionBounds(out, bounds) : bounds; };
+    this.walk(root, add, ({ units, unclaimed }) => {
+      for (const [unit, share] of units) {
+        const groups = this.textShadows(share);
+        const ink = [...groups.values()]
+          .map(({ shadows, items }) => shadowBounds(items.map(item => item.bounds).reduce(unionBounds), shadows))
+          .reduce(unionBounds, this.inkOf(share));
+        this.call(unit, 'text', () => {
+          const placed = relativeTo(base, ps.ctx.getTransform());
+          if (placed) add(transformBounds(ink, placed));
+        });
+      }
+      for (const fragment of unclaimed) add(fragment.runs.map(run => foregroundBounds(ps, run)).reduce(unionBounds));
+    });
+    const canvas = (ps.ctx as { canvas?: { width: number; height: number } }).canvas;
+    const toLayout = relativeTo(base, { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 });
+    if (!out || !canvas?.width || !toLayout) return out ?? { x: 0, y: 0, width: 0, height: 0 };
+    const reach = Math.abs(ps.ctx.shadowOffsetX) + Math.abs(ps.ctx.shadowOffsetY) + ps.ctx.shadowBlur * 2;
+    const view = transformBounds(
+      { x: -reach, y: -reach, width: canvas.width + reach * 2, height: canvas.height + reach * 2 }, toLayout);
+    const x = Math.max(out.x, view.x), y = Math.max(out.y, view.y);
+    return {
+      x, y,
+      width: Math.max(0, Math.min(out.x + out.width, view.x + view.width) - x),
+      height: Math.max(0, Math.min(out.y + out.height, view.y + view.height) - y),
+    };
+  }
+
+  /** The paint walk: `surface` at each box surface, `region` for the text held before it. */
+  private walk(root: LayoutNode, surface: (box: LayoutBox) => void, region: (region: Region) => void): void {
+    walkPaintRegions(root, false, box => {
+      this.flush(region);
+      surface(box);
+    }, fragment => this.held.push(fragment));
+    this.flush(region);
+  }
+
+  private flush(region: (region: Region) => void): void {
     if (!this.held.length) return;
-    const { ps, pool } = this;
     const shares = new Map<TextUnit, UnitShare>();
-    // Runs no unit claims (white space only): painted in place, after the units.
     const unclaimed: TextFragment[] = [];
     for (const fragment of this.held) {
       const loose = fragment.runs.filter(run => !(run as UnitRun)[RUN_PIECES]);
@@ -524,46 +583,45 @@ class UnitPainter {
       }
     }
     this.held.length = 0;
-    const units = [...shares].sort(([a], [b]) => a.index - b.index);
-    // A shadow phase for every unit: a callback may set the ctx shadow itself.
-    if (pool) for (const [unit, share] of units) this.call(unit, 'shadow', () => this.drawShadows(share, pool));
+    region({ units: [...shares].sort(([a], [b]) => a.index - b.index), unclaimed });
+  }
+
+  /** Every unit's text-shadows, then every unit's text, then the unclaimed white space. */
+  private paintRegion({ units, unclaimed }: Region): void {
+    const { ps, pool } = this;
+    if (pool) {
+      for (const [unit, share] of units) {
+        const groups = this.textShadows(share);
+        if (groups.size) this.call(unit, 'shadow', draw => this.withoutOwnShadow(() => this.castTextShadows(groups, pool, draw)));
+      }
+    }
     for (const [unit, share] of units) {
-      this.call(unit, 'text', fill => {
-        const paint = () => { for (const entry of share) paintPieces(ps, entry, fill); };
-        if (hasCanvasShadow(ps.ctx)) withoutCanvasShadow(ps.ctx, paint);
-        else paint();
-      });
+      this.call(unit, 'text', draw => this.withoutOwnShadow(() => { for (const entry of share) paintPieces(ps, entry, draw); }));
     }
     // The callbacks' restores undid what render-tag wrote inside them.
     ps.forget();
-    for (const fragment of unclaimed) {
-      this.withCanvasShadow(() => fragment.runs.map(run => foregroundBounds(ps, run)).reduce(unionBounds),
-        target => paintTextFragment(target, fragment));
-    }
+    for (const fragment of unclaimed) paintTextFragment(ps, fragment);
   }
 
   /** The caller's callback, in a save/restore; each draw forgets what render-tag knew of the ctx. */
-  private call(unit: TextUnit, phase: 'shadow' | 'text', draw: (fill?: string | CanvasGradient) => void): void {
+  private call(unit: TextUnit, phase: 'shadow' | 'text', draw: (override?: UnitDraw) => void): void {
     const { ps } = this;
     ps.ctx.save();
     try {
-      this.paint({ unit, ctx: ps.ctx, phase, draw: (override) => { ps.forget(); draw(override?.fill); } });
+      this.paint({ unit, ctx: ps.ctx, phase, draw: (override) => { ps.forget(); draw(override); } });
     } finally {
       ps.ctx.restore();
     }
   }
 
-  /** `paint` on the ctx, its canvas shadow (if any) cast from it alone. */
-  private withCanvasShadow(bounds: () => PaintBounds, paint: (ps: PaintState) => void): void {
-    const { ps, pool } = this;
-    // Without a pool, `withDraw` already holds the ctx shadow off.
-    if (!pool) return paint(ps);
-    withCanvasShadow(ps.ctx, bounds, target => paint(target === ps.ctx ? ps : this.layerState(target)), pool);
+  /** `paint` without a shadow the callback set: only the whole draw casts the ctx's own. */
+  private withoutOwnShadow(paint: () => void): void {
+    if (hasCanvasShadow(this.ps.ctx)) withoutCanvasShadow(this.ps.ctx, paint);
+    else paint();
   }
 
-  /** A unit's text-shadows, and the ctx's own shadow cast from the unit's whole paint. */
-  private drawShadows(share: UnitShare, pool: ScratchPool): void {
-    const { ps } = this;
+  /** A share's text-shadow groups, by shadow list. */
+  private textShadows(share: UnitShare) {
     const groups = new Map<string, { shadows: TextShadow[]; items: (ShadowPiece & UnitShare[number])[] }>();
     for (const entry of share) {
       const { shadows, key } = shadowsOf(this.shadowCache, entry.fragment.runs[0].style);
@@ -572,23 +630,16 @@ class UnitPainter {
       if (!group) groups.set(key, group = { shadows, items: [] });
       group.items.push({ ...entry, bounds: this.inkOf([entry]) });
     }
-    const cast = (target: PaintState) => {
-      for (const { shadows, items } of groups.values()) {
-        paintTextShadows(target.ctx, items, shadows, (mask, inside) => {
-          const coverage = this.layerState(mask, true);
-          for (const item of inside) paintPieces(coverage, item);
-        }, pool);
-      }
-    };
-    const bounds = () => [...groups.values()]
-      .map(({ shadows, items }) => shadowBounds(items.map(item => item.bounds).reduce(unionBounds), shadows))
-      .reduce(unionBounds, this.inkOf(share));
-    castCanvasShadow(ps.ctx, bounds, target => {
-      const layer = this.layerState(target);
-      cast(layer);
-      for (const entry of share) paintPieces(layer, entry);
-    }, pool);
-    if (groups.size) withoutCanvasShadow(ps.ctx, () => cast(ps));
+    return groups;
+  }
+
+  private castTextShadows(groups: ReturnType<UnitPainter['textShadows']>, pool: ScratchPool, draw?: UnitDraw): void {
+    for (const { shadows, items } of groups.values()) {
+      paintTextShadows(this.ps.ctx, items, shadows, (mask, inside) => {
+        const coverage = this.layerState(mask, true);
+        for (const item of inside) paintPieces(coverage, item, { slice: draw?.slice });
+      }, pool);
+    }
   }
 
   /** The ink of a share's pieces (layout px). */
@@ -597,16 +648,42 @@ class UnitPainter {
   }
 }
 
+/** `m` in the coordinates of `base` (base⁻¹ · m); null when `base` collapses. */
+function relativeTo(base: Matrix, m: Matrix): Matrix | null {
+  const det = base.a * base.d - base.b * base.c;
+  if (!det) return null;
+  const a = base.d / det, b = -base.b / det, c = -base.c / det, d = base.a / det;
+  const e = (base.c * base.f - base.d * base.e) / det, f = (base.b * base.e - base.a * base.f) / det;
+  return {
+    a: a * m.a + c * m.b, b: b * m.a + d * m.b,
+    c: a * m.c + c * m.d, d: b * m.c + d * m.d,
+    e: a * m.e + c * m.f + e, f: b * m.e + d * m.f + f,
+  };
+}
+
 /** A unit's pieces of one fragment (`paintRuns`): bands keep the whole fragment's geometry,
  * so dashes and waves keep their phase, clipped to the unit's slice. */
-function paintPieces(ps: PaintState, { fragment, pieces, batched }: UnitShare[number], fill?: string | CanvasGradient): void {
+function paintPieces(
+  ps: PaintState, { fragment, pieces, batched }: UnitShare[number], { fill, slice }: UnitDraw = {},
+): void {
   const paints = textPaints(ps, fragment.runs[0], ...blockPaints(ps, fragment));
   const unit = pieces[0].unit;
   const sliced = !fragment.runs.every(run => (run as UnitRun)[RUN_PIECES]?.every(piece => piece.unit === unit));
-  const own = pieces.filter(piece => !piece.space).map(piece => piece.run);
-  const glyphs: LayoutText[] = batched ? [] : own;
-  if (batched) forEachBatch(own, run => glyphs.push(run));
-  paintRuns(ps, fragment.runs, glyphs, fill && paints.fill ? { ...paints, fill } : paints, sliced ? pieces : undefined);
+  // `slice`: the fragment's shaped runs as drawLayout paints them, cut to the unit's slice.
+  const shaped = slice === true && sliced;
+  const source = shaped ? fragment.runs : pieces.filter(piece => !piece.space).map(piece => piece.run);
+  let glyphs: LayoutText[] = batched ? [] : source;
+  if (batched) forEachBatch(source, run => glyphs.push(run));
+  if (shaped) {
+    // A glyph's ink may overhang its advance into a neighbour's slice: reach an em past it.
+    glyphs = glyphs.filter(run => {
+      const [l, r] = textEdges(run);
+      const em = run.style.fontSize;
+      return pieces.some(piece => piece.right > l - em && piece.left < r + em);
+    });
+  }
+  paintRuns(ps, fragment.runs, glyphs, fill && paints.fill ? { ...paints, fill, recolor: fill } : paints,
+    sliced ? pieces : undefined, shaped);
 }
 
 /**

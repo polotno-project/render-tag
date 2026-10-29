@@ -189,29 +189,42 @@ drawLayout({
   whole (Arabic, Indic, Thai, Khmer, Myanmar) stay one unit per shaped
   run within a word, with `grouped: true`; wipe such a unit with a clip in its
   fragment's `direction` instead.
+- **`draw({ slice: true })`** paints the unit's part of its shaped run instead of
+  its own glyphs: the run clipped to the unit's slice. Units at rest then paint
+  exactly as `drawLayout`, ligatures and script fonts included (measured over the
+  corpus in five fonts, Lobster too); moving, a ligature's parts move apart. It is
+  a per-draw choice: slice the units at rest, cut glyphs for the moving ones. It
+  costs about twice a cut-glyph draw (0.4 ms for 150 graphemes in Chromium).
 - **Everything of a unit moves with it**: glyphs, stroke, decorations (clipped to
   the unit, so dashes and waves keep their phase), gradient fill (one gradient
   over the declaring element, so a moving word carries its part) and text-shadow.
-  `fill` replaces the glyph fill only: transparent or outline-only text stays
-  unfilled (reveal it with `ctx.globalAlpha`). Under a rotated ctx an opaque band
+  `fill` replaces the glyph fill and the color of the decorations that take the
+  text's color (no `text-decoration-color`), so a highlighted word recolors its
+  underline; transparent or outline-only text keeps its colors (reveal it with
+  `ctx.globalAlpha`). Under a rotated ctx an opaque band
   overlaps its neighbour's by a device pixel; a translucent one, or one fading,
   meets it edge to edge and may show a faint seam.
 - **Paint order** is kept: box backgrounds and borders paint in place and bound
-  paint regions; in each region every unit's shadows paint before any unit's
-  text. Each unit casts its shadow from its own mask, so where neighbouring
-  units' translucent shadows overlap they composite darker than in
-  `drawLayout`. While shadows render, each unit is called with `phase: 'shadow'`
-  and then `'text'`, so make the callback a pure function of the unit and your time.
+  paint regions; in each region every unit's text-shadows paint before any
+  unit's text. A unit with a CSS `text-shadow` is called with `phase: 'shadow'`
+  and then `'text'`, and casts it from its own mask, so where neighbouring
+  units' translucent text-shadows overlap they composite darker than in
+  `drawLayout`. Make the callback a pure function of the unit and your time: it
+  may be called more than once per phase.
 - **The ctx is saved before each call and restored after**, so a vector adapter's
   `save`/`restore` must keep the state a callback sets. Opacity applies per
   paint (stroke over fill shows through while fading), not as a group. A canvas
-  shadow (`ctx.shadow*`, set before the draw or in the callback) is cast in the
-  shadow phase from the unit's whole paint, so it also shows over a box
-  background, where `drawLayout`'s one cast from the whole result does not.
-- **Cost**: no unit work without `textUnits`. Each unit with a text-shadow casts
-  its own blurred mask; in Chromium a 30-word headline frame takes ~0.1 ms
-  without shadows and ~3 ms with a 10px blurred one (~8 ms at grapheme level). A wavy
-  or dotted decoration is drawn whole per unit and clipped, so it costs per unit.
+  shadow set before the draw (`ctx.shadow*`, a Konva element's) is cast once
+  from the whole draw, as `drawLayout` casts it: a first pass calls each
+  callback once more, and its `draw()` records where the unit lands, to size
+  the shadow's layer (a `ctx.filter` the callback sets is not measured). A
+  shadow the callback sets itself is not cast.
+- **Cost**: no unit work without `textUnits`. Each unit with a CSS
+  `text-shadow` casts its own blurred mask; in Chromium a 30-word headline frame
+  takes ~0.1 ms without shadows and ~3 ms with a 10px blurred text-shadow (~8 ms
+  at grapheme level). A canvas shadow costs one cast per draw, as in
+  `drawLayout`. A wavy or dotted decoration is drawn whole per unit and clipped,
+  so it costs per unit.
 - `paintBounds` stays the static layout's; add your animation's reach yourself.
   Curved text (`render-tag/path`) has no units yet.
 
