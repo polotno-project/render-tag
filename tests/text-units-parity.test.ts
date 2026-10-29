@@ -61,6 +61,20 @@ describe('text units at rest paint as drawLayout', () => {
   }
 });
 
+// Arial kerns a space into a following "A", "Y" or "T" (-0.88px at 16px): Blink's one fillText
+// per batch pulls the word left, so a word painted on its own must start there too.
+it('words and lines at rest start where a kerned space puts them', () => {
+  const html = '<p style="margin:0;font:16px Arial">Grammatik und Aussprache. Yes We Try A Very Tall Village</p>';
+  for (const level of ['word', 'line'] as const) {
+    const result = layout({ html, width: 600, textUnits: level });
+    const plain = drawLayout({ layout: result, width: 600, pixelRatio: PIXEL_RATIO }).canvas as HTMLCanvasElement;
+    const units = drawLayout({
+      layout: result, width: 600, pixelRatio: PIXEL_RATIO, paintTextUnit: ({ draw }) => draw(),
+    }).canvas as HTMLCanvasElement;
+    expect(compareCanvasPixels(plain, units).contentMismatchPercentage, level).toBeLessThanOrEqual(GATED_PERCENT.word);
+  }
+});
+
 /**
  * Units at rest against `drawLayout` over one underline, glyphs transparent (rotated glyphs drawn
  * one by one rasterize apart from the whole run's). A gap is a band pixel lighter than the

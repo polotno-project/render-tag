@@ -739,6 +739,18 @@ function reachesSlice(pieces: readonly UnitPiece[], left: number, right: number,
   return pieces.some(piece => piece.right > left - em && piece.left < right + em);
 }
 
+/**
+ * `run` (`head` on) painted on its own where drawLayout's batch over the fragment paints it
+ * (`forEachBatch`). After an adjacent run the batch kerns into it (Arial pulls an "A" 0.88px
+ * toward a space at 16px), and layout counts that in its width: it ends where layout ends it.
+ */
+function batchPlaced(ps: PaintState, runs: LayoutText[], run: LayoutText, head: LayoutText): LayoutText {
+  const before = runs[runs.indexOf(head) - 1];
+  // A spacing ctx only: on one without, render-tag places the run's pieces (`spacedPieces`).
+  if (!before || Math.abs(before.x + before.width - head.x) > 0.01 || ps.text(run.style)) return run;
+  return { ...run, x: run.x + run.width - ps.measure(run.style, run.text, false) };
+}
+
 /** A unit's pieces of one fragment (`paintRuns`): bands keep the whole fragment's geometry,
  * so dashes and waves keep their phase, clipped to the unit's slice. */
 function paintPieces(
@@ -751,7 +763,7 @@ function paintPieces(
   const shaped = slice === true && sliced;
   const source = shaped ? fragment.runs : pieces.filter(piece => !piece.space).map(piece => piece.run);
   let glyphs: LayoutText[] = batched ? [] : source;
-  if (batched) forEachBatch(source, run => glyphs.push(run));
+  if (batched) forEachBatch(source, (run, head) => glyphs.push(shaped ? run : batchPlaced(ps, fragment.runs, run, head)));
   if (shaped) {
     glyphs = glyphs.filter(run => reachesSlice(pieces, ...textEdges(run), run.style.fontSize));
   }
