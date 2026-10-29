@@ -347,18 +347,19 @@ function writeMeasureState(ctx: CanvasRenderingContext2D, state: MeasureState, p
 }
 
 /**
- * Device pixels `paintedInkBox` gives the longer side of the box it reads. WebKit's
- * antialiased edges sit ~0.6px outside the outline: at 256 a Roboto `•` read 1.1% tall,
- * at 512 within 0.2% of its outline (0.56ms a probe).
+ * Device pixels `paintedInkBox` gives the longer side of the box it reads. Each edge is
+ * where coverage crosses one half, interpolated between pixels: at 256 within 0.8% of a
+ * 512px read (WebKit's antialiased edges sit ~0.6px outside the outline), for a quarter
+ * of the readback.
  */
-const INK_PROBE_PIXELS = 512;
+const INK_PROBE_PIXELS = 256;
 /** CSS px `paintedInkBox` reads around the measured box: Gecko's is ~1px off the ink. */
 const INK_PROBE_MARGIN = 2;
 
 /**
  * The ink extents of `text` read off its paint on `ctx`, around `measured` (`measureText`'s
- * box, within `INK_PROBE_MARGIN` of the ink). A pixel at least half covered is ink. Null
- * when the pixels show no ink inside the margin.
+ * box, within `INK_PROBE_MARGIN` of the ink). Null when the pixels show no ink inside the
+ * margin.
  */
 function paintedInkBox(
   ctx: CanvasRenderingContext2D,
@@ -383,25 +384,42 @@ function paintedInkBox(
   const { data, width, height } = ctx.getImageData(0, 0, ctx.canvas.width, ctx.canvas.height);
   // WebKit caps the memory of live canvases, collected or not.
   ctx.canvas.width = ctx.canvas.height = 0;
-  let left = width, top = height, right = 0, bottom = 0;
+  // The most covered pixel of each column and row.
+  const columns = new Uint8Array(width);
+  const rows = new Uint8Array(height);
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
-      if (data[(y * width + x) * 4 + 3] < 128) continue;
-      if (x < left) left = x;
-      if (x >= right) right = x + 1;
-      if (y < top) top = y;
-      bottom = y + 1;
+      const alpha = data[(y * width + x) * 4 + 3];
+      if (alpha > columns[x]) columns[x] = alpha;
+      if (alpha > rows[y]) rows[y] = alpha;
     }
   }
+  const left = halfCoverEdge(columns, 1), right = halfCoverEdge(columns, -1);
+  const top = halfCoverEdge(rows, 1), bottom = halfCoverEdge(rows, -1);
   // Ink at the edge is clipped, or the readback is not the paint (Firefox's fingerprinting
   // protection reads opaque white).
-  if (right <= left || left === 0 || top === 0 || right === width || bottom === height) return null;
+  if (left === null || right === null || top === null || bottom === null || right <= left ||
+    columns[0] >= 128 || columns[width - 1] >= 128 || rows[0] >= 128 || rows[height - 1] >= 128) return null;
   return {
-    ascent: (originY - top) / scale,
-    descent: (bottom - originY) / scale,
+    ascent: (originY - top!) / scale,
+    descent: (bottom! - originY) / scale,
     left: (originX - left) / scale,
     right: (right - originX) / scale,
   };
+}
+
+/** Where coverage first crosses one half walking in from the start (`step` 1) or the end
+ * (`step` -1), interpolated between pixels; null with no such pixel. */
+function halfCoverEdge(coverage: Uint8Array, step: 1 | -1): number | null {
+  const n = coverage.length;
+  for (let k = 0; k < n; k++) {
+    const i = step === 1 ? k : n - 1 - k;
+    if (coverage[i] < 128) continue;
+    const outside = coverage[i - step] ?? 0;
+    const t = (coverage[i] - 127.5) / (coverage[i] - outside || 1);
+    return step === 1 ? i + 0.5 - t : i + 0.5 + t;
+  }
+  return null;
 }
 
 /** A font's ascent and descent, from any TextMetrics measured in it. */
