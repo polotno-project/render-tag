@@ -16,7 +16,7 @@ export {
   type FontMetricsTable, type LayoutStats, type MeasureState,
 } from './layout/session.js';
 export {
-  hasStrokeImage, hasTextClip, paintsBoxBackground, sameDecorationBand, textEdges, transformTextRuns,
+  hasStrokeImage, hasTextClip, hasVisibleBorder, paintsBoxBackground, sameDecorationBand, textEdges, transformTextRuns,
 } from './layout/util.js';
 export { graphemes, shapesAsRun } from './layout/segment.js';
 export { RUN_PIECES } from './layout/session.js';

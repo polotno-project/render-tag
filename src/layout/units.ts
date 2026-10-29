@@ -5,9 +5,9 @@
 import type {
   LayoutBox, LayoutLineBox, LayoutText, TextUnit, TextUnitLevel,
 } from '../types.js';
-import { levelRuns, visualOrder } from '../bidi.js';
+import { levelRuns, overrideContent, visualOrder } from '../bidi.js';
 import {
-  CLAMP_ELLIPSIS, INLINE_BLOCK, LINE_BASELINE, LINE_BOX, LIST_MARKER, RUN_LEVELS, RUN_PIECES, RUN_REVERSED, SPACE_WRAP,
+  CLAMP_ELLIPSIS, INLINE_BLOCK, LINE_BASELINE, LINE_BOX, LIST_MARKER, RUN_LEVELS, RUN_PIECES, SPACE_WRAP,
   type LayoutSession, type PrivateLineBox, type PrivateText,
 } from './session.js';
 import {
@@ -148,8 +148,13 @@ function partsWords(box: PrivateLineBox): boolean {
 function atomicText(runs: PrivateText[]): string {
   return runs.map((run, i) => {
     const before = runs[i - 1]?.[LINE_BOX];
-    return before && before !== run[LINE_BOX] && partsWords(before) ? ' ' + run.text : run.text;
+    return before && before !== run[LINE_BOX] && partsWords(before) ? ' ' + readingText(run) : readingText(run);
   }).join('');
+}
+
+/** A run's text without an RTL override's controls (`overriddenText`). */
+function readingText(run: PrivateText): string {
+  return overrideContent(run.text) ?? run.text;
 }
 
 // ── Units ──
@@ -170,7 +175,7 @@ function lineDrafts(entries: Entry[], lines: LineInfo[]): Draft[] {
     claims.push({ entry: i, start: 0, end: WHOLE, space: false });
     if (entry.type === 'marker') markers[entry.line].push(entry.run.text);
     else if (entry.type === 'atomic') unit.text += atomicText(entry.runs);
-    else unit.text += entry.run[RUN_REVERSED] ? graphemes(entry.run.text).reverse().join('') : entry.run.text;
+    else unit.text += readingText(entry.run);
   });
   drafts.forEach(({ unit }, line) => {
     unit.text = [...markers[line], unit.text.trim()].filter(Boolean).join(' ');
@@ -200,19 +205,9 @@ function streamDrafts(
   let text = '';
   const owner: number[] = [];
   const offset: number[] = [];
-  const push = (chars: string, entry: number, reversed?: true) => {
-    if (!reversed) {
-      text += chars;
-      for (let k = 0; k < chars.length; k++) { owner.push(entry); offset.push(k); }
-      return;
-    }
-    // An RTL override's run paints its graphemes reversed: read them back.
-    let end = chars.length;
-    for (const g of graphemes(chars).reverse()) {
-      end -= g.length;
-      text += g;
-      for (let k = 0; k < g.length; k++) { owner.push(entry); offset.push(end + k); }
-    }
+  const push = (chars: string, entry: number, shift = 0) => {
+    text += chars;
+    for (let k = 0; k < chars.length; k++) { owner.push(entry); offset.push(k + shift); }
   };
   let previousLine = -1;
   for (let i = from; i < to; i++) {
@@ -227,20 +222,17 @@ function streamDrafts(
     if (previousLine >= 0 && entry.line !== previousLine && partsWords(lines[previousLine].box)) push(SEPARATOR, -1);
     previousLine = entry.line;
     if (entry.type === 'atomic') push(TOKEN, i);
-    else push(entry.run.text, i, entry.run[RUN_REVERSED]);
+    // An RTL override's text sits inside its opening control.
+    else push(readingText(entry.run), i, readingText(entry.run) === entry.run.text ? 0 : 1);
   }
 
   /** Claim `[a, b)` of the stream for `draft`, entry by entry. */
   const claim = (draft: Draft, a: number, b: number, space: boolean) => {
     for (let k = a; k < b;) {
       if (owner[k] < 0) { k++; continue; }
-      // A reversed run's offsets fall: claim from the lowest to the highest.
-      let end = k, lo = offset[k], hi = offset[k];
-      for (; end < b && owner[end] === owner[k]; end++) {
-        lo = Math.min(lo, offset[end]);
-        hi = Math.max(hi, offset[end]);
-      }
-      draft.claims.push({ entry: owner[k], start: lo, end: hi + 1, space });
+      let end = k;
+      while (end < b && owner[end] === owner[k]) end++;
+      draft.claims.push({ entry: owner[k], start: offset[k], end: offset[end - 1] + 1, space });
       k = end;
     }
   };
@@ -326,8 +318,8 @@ function graphemeSpans(text: string, owner: number[], a: number, b: number): [nu
 
 // ── Pieces and geometry ──
 
-/** A unit's visible extent on one line. */
-interface Extent { unit: TextUnit; line: number; left: number; right: number; rtl: boolean }
+/** A unit's stretch of a line; `box` places it (a list marker's own, else the line's). */
+interface Extent { unit: TextUnit; line: number; box: PrivateLineBox; left: number; right: number; rtl: boolean }
 
 function placePieces(
   session: LayoutSession, entries: Entry[], lines: LineInfo[], drafts: Draft[], byLine: boolean,
@@ -336,12 +328,13 @@ function placePieces(
   for (const { unit, claims } of drafts) for (const claim of claims) (byEntry[claim.entry] ??= []).push({ unit, claim });
   const extents: Extent[] = [];
   const onLine: UnitPiece[][] = lines.map(() => []);
-  const add = (run: UnitRun, piece: UnitPiece, line: number, extent = !piece.space) => {
+  const add = (run: PrivateText & UnitRun, piece: UnitPiece, line: number, extent = !piece.space) => {
     (run[RUN_PIECES] ??= []).push(piece);
     onLine[line].push(piece);
-    // An RTL override paints left to right but reads right to left.
-    const rtl = piece.run.style.direction === 'rtl' || (run as PrivateText)[RUN_REVERSED] === true;
-    if (extent) extents.push({ unit: piece.unit, line, left: piece.left, right: piece.right, rtl });
+    const rtl = piece.run.style.direction === 'rtl';
+    // A marker keeps its item's first line for reading order but sits on its own line box.
+    const box = run[LIST_MARKER] ?? lines[line].box;
+    if (extent) extents.push({ unit: piece.unit, line, box, left: piece.left, right: piece.right, rtl });
   };
   // In stream order, so each run's pieces are in reading order. A break is never claimed.
   byEntry.forEach((list, i) => {
@@ -350,7 +343,10 @@ function placePieces(
       // One unit claims an inline-block; its extent is the box.
       const [{ unit }] = list;
       for (const run of entry.runs) add(run, wholePiece(unit, run, false), entry.line, false);
-      extents.push({ unit, line: entry.line, left: entry.box.x, right: entry.box.x + entry.box.width, rtl: entry.box.style.direction === 'rtl' });
+      extents.push({
+        unit, line: entry.line, box: lines[entry.line].box, left: entry.box.x, right: entry.box.x + entry.box.width,
+        rtl: entry.box.style.direction === 'rtl',
+      });
     } else if (list.length === 1 && (byLine || !entry.run[RUN_LEVELS])) {
       // A stream's text is all claimed: a run's one claim is all of it. A word over two
       // levels is cut so its fragments keep their directions.
@@ -408,18 +404,23 @@ function levelSpans(run: PrivateText, width: (s: string) => number) {
 function cutRun(session: LayoutSession, run: LayoutText, claims: { unit: TextUnit; claim: Claim }[]): UnitPiece[] {
   const m = session.measurer;
   const state = m.stateOf(run.style);
-  const spacing = run.style.wordSpacing || 0;
-  const width = (s: string) => m.width(state, s) + wordSpacingIn(s, spacing);
+  const width = (s: string) => m.width(state, s) + wordSpacingIn(s, run.style.wordSpacing);
   const text = run.text;
+  const overridden = overrideContent(text) !== null;
   const spans = levelSpans(run, width);
   const pieces: UnitPiece[] = [];
+  // Claims and spans are both in text order: sweep them together.
+  let first = 0;
   for (const { unit, claim } of claims) {
-    for (const span of spans) {
+    while (first < spans.length - 1 && spans[first].end <= claim.start) first++;
+    for (let s = first; s < spans.length && spans[s].start < claim.end; s++) {
+      const span = spans[s];
       const a = Math.max(claim.start, span.start), b = Math.min(claim.end, span.end);
       if (a >= b) continue;
       const before = width(text.slice(span.start, a));
       const through = width(text.slice(span.start, b));
-      const piece = text.slice(a, b);
+      // An RTL override's piece keeps the run's controls, as Canvas must apply them.
+      const piece = overridden ? text[0] + text.slice(a, b) + text[text.length - 1] : text.slice(a, b);
       const w = width(piece);
       // An RTL span runs leftward from its right edge.
       const left = span.rtl ? span.edge - through : span.edge + before;
@@ -446,10 +447,10 @@ function cutRun(session: LayoutSession, run: LayoutText, claims: { unit: TextUni
 function setGeometry(drafts: Draft[], extents: Extent[], lines: LineInfo[], byLine: boolean): void {
   let previous: Extent | undefined;
   for (const e of extents.sort((a, b) => a.line - b.line || a.left - b.left)) {
-    const { box } = lines[e.line];
+    const { box } = e;
     const direction = byLine ? lines[e.line].direction : e.rtl ? 'rtl' : 'ltr';
     const last = e.unit.fragments.at(-1);
-    if (last && previous?.unit === e.unit && previous.line === e.line && last.direction === direction) {
+    if (last && previous?.unit === e.unit && previous.box === box && last.direction === direction) {
       last.width = Math.max(last.x + last.width, e.right) - last.x;
     } else {
       e.unit.fragments.push({

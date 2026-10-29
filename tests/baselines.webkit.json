@@ -832,7 +832,7 @@
     "wrap": true
   },
   "Bidi override with bdo@Roboto": {
-    "score": 0.07,
+    "score": 0,
     "wrap": true
   },
   "Japanese text mixed scripts@Roboto": {
@@ -1188,7 +1188,7 @@
     "wrap": true
   },
   "Bidi override with bdo@Playfair Display": {
-    "score": 2.51,
+    "score": 0,
     "wrap": true
   },
   "Japanese text mixed scripts@Playfair Display": {
@@ -1544,7 +1544,7 @@
     "wrap": true
   },
   "Bidi override with bdo@Merriweather": {
-    "score": 6.23,
+    "score": 2.81,
     "wrap": true
   },
   "Japanese text mixed scripts@Merriweather": {
@@ -1900,7 +1900,7 @@
     "wrap": true
   },
   "Bidi override with bdo@Lobster": {
-    "score": 3.44,
+    "score": 0,
     "wrap": true
   },
   "Japanese text mixed scripts@Lobster": {

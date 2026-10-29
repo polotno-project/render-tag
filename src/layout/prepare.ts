@@ -3,15 +3,15 @@
 // max-content width, which prepares its own content.
 import type { StyledNode, ResolvedStyle } from '../types.js';
 import { anonymousBlockStyle, borderBoxSize, contentBoxSize, intrinsicStyle } from '../css-resolver.js';
-import { bidiContextFor, type BidiContext } from '../bidi.js';
+import { bidiContextFor, overridesRtl, type BidiContext } from '../bidi.js';
 import type { LayoutSession } from './session.js';
 import {
   hasOnlyInlineChildren, hasStrokeImage, hasTextClip, hasVisibleBoxStyles, horizontalFrame,
   horizontalMargins, isInline, layoutUnitCeil, transformTextRuns,
 } from './util.js';
 import {
-  abutsWithoutBreak, breakFlags, forEachHyphenPiece, inlineEdgeWidth, measureAfter, needsSegmenter, overriddenText, segmenter,
-  SegmentBuilder, wordSpacingIn,
+  abutsWithoutBreak, breakFlags, forEachHyphenPiece, inlineEdgeWidth, measureAfter, needsSegmenter,
+  segmentAdvance, segmenter, SegmentBuilder,
   SEG_NO_BREAK_BEFORE, SEG_RUN_SEAM, SEG_SOFT_HYPHEN, SEG_SPACE, SEG_TAB,
   type Cumulative, type PreparedInline, type TextRun,
 } from './segment.js';
@@ -149,7 +149,6 @@ function prepareString(
   }
 
   const state = m.stateOf(run.style);
-  const spacing = run.style.wordSpacing || 0;
   const n = text.length;
 
   // `pre-line` collapses spaces and tabs (its newlines were split off in prepareInline).
@@ -160,6 +159,8 @@ function prepareString(
   if (isPreserve) {
     // Space runs, single tabs and the text between them, split after hyphens.
     const tabStopInterval = m.width(state, ' ') * 8; // CSS default: 8 spaces
+    const plain = !run.style.wordSpacing && !overridesRtl(run.bidi);
+    const width = (w: string) => plain ? m.width(state, w) : segmentAdvance(m, state, w, run);
     let i = 0;
     while (i < n) {
       const code = text.charCodeAt(i);
@@ -173,10 +174,10 @@ function prepareString(
       if (code === 32) {
         while (j < n && text.charCodeAt(j) === 32) j++;
         const w = text.slice(i, j);
-        out.push(w, m.width(state, w) + wordSpacingIn(w, spacing), SEG_SPACE, ref);
+        out.push(w, width(w), SEG_SPACE, ref);
       } else {
         while (j < n && text.charCodeAt(j) !== 32 && text.charCodeAt(j) !== 9) j++;
-        forEachHyphenPiece(text, i, j, (w) => out.push(w, m.width(state, overriddenText(w, run.bidi)) + wordSpacingIn(w, spacing), breakFlags(w), ref));
+        forEachHyphenPiece(text, i, j, (w) => out.push(w, width(w), breakFlags(w), ref));
       }
       i = j;
     }
@@ -193,12 +194,12 @@ function prepareString(
       if (wordSeg) {
         for (const seg of wordSeg.segment(w)) {
           const s = seg.segment;
-          out.push(s, measureAfter(m, state, cum, overriddenText(s, run.bidi)) + wordSpacingIn(s, spacing), breakFlags(s), ref);
+          out.push(s, measureAfter(m, state, cum, s, run), breakFlags(s), ref);
         }
         return;
       }
     }
-    const width = measureAfter(m, state, cum, overriddenText(w, run.bidi)) + wordSpacingIn(w, spacing);
+    const width = measureAfter(m, state, cum, w, run);
     if (session.debug) {
       // Measured alone for the debug callback only.
       const directWidth = m.width(state, w);
@@ -215,7 +216,7 @@ function prepareString(
     let j = i + 1;
     if (isCollapsibleSpace(text.charCodeAt(i))) {
       while (j < n && isCollapsibleSpace(text.charCodeAt(j))) j++;
-      out.push(' ', measureAfter(m, state, cum, ' ') + spacing, SEG_SPACE, ref);
+      out.push(' ', measureAfter(m, state, cum, ' ', run), SEG_SPACE, ref);
       i = j;
       continue;
     }

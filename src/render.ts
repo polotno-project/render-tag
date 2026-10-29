@@ -4,7 +4,7 @@ import {
   hasTextClip,
   layoutFontMetrics,
   paintLineSnap,
-  paintsBoxBackground,
+  hasVisibleBorder, paintsBoxBackground,
   RUN_PIECES,
   startsMeasuredRun,
   textEdges,
@@ -380,11 +380,7 @@ function walkPaintRegions(
 ): void {
   const box = (node: LayoutBox, clips: readonly LayoutBox[], stroke: LayoutBox | null) => {
     const { style } = node;
-    if (paintsBoxBackground(style) ||
-      (style.borderTopWidth > 0 && style.borderTopStyle !== 'none') ||
-      (style.borderRightWidth > 0 && style.borderRightStyle !== 'none') ||
-      (style.borderBottomWidth > 0 && style.borderBottomStyle !== 'none') ||
-      (style.borderLeftWidth > 0 && style.borderLeftStyle !== 'none')) surface(node);
+    if (paintsBoxBackground(style) || hasVisibleBorder(style)) surface(node);
     if (hasTextClip(style)) clips = [...clips, node];
     if (hasStrokeImage(style)) stroke = node;
     forEachFragment(node.children, child => box(child, clips, stroke),

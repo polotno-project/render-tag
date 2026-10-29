@@ -121,10 +121,13 @@ export function stateWidth(state: Record<string, unknown>, text: string): number
   const kern = state.fontKerning !== 'none';
   let width = 0;
   let prev = -1;
-  for (const ch of text) {
+  // Canvas applies an RTL override (RLO…PDF) itself: its letters kern in visual order.
+  const visual = text.replace(/\u202E([^\u202C]*)\u202C?/g, (_, inner: string) => [...inner].reverse().join(''));
+  for (const ch of visual) {
     const cp = ch.codePointAt(0)!;
-    // Combining marks and joiners are zero-advance, as in a real font.
-    const zero = (cp >= 0x300 && cp <= 0x36f) || cp === 0x200b || cp === 0x200c || cp === 0x200d || cp === 0xfe0f || cp === 0xad;
+    // Combining marks, joiners and bidi controls are zero-advance, as in a real font.
+    const zero = (cp >= 0x300 && cp <= 0x36f) || cp === 0x200b || cp === 0x200c || cp === 0x200d || cp === 0xfe0f ||
+      cp === 0xad || (cp >= 0x202a && cp <= 0x202e);
     if (!zero) width += size * (0.42 + ((cp * 37) % 13) * 0.025) * face;
     width += letterSpacing;
     if (cp === 0x20) width += wordSpacing;

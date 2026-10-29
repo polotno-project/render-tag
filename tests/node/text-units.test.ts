@@ -113,6 +113,12 @@ describe('text units: layout', () => {
     ]);
     expect(units(html, 'grapheme').map(u => [u.text, u.x])).toEqual([['x', 0], ['a', 60], ['b', 50], ['c', 30], ['d', 20], ['y', 80]]);
     expect(units(`${P}<bdo dir="rtl">abc de</bdo></p>`, 'line').map(u => u.text)).toEqual(['abc de']);
+    // From the logical text emit keeps, not from the painted one: reversing graphemes twice
+    // regroups regional indicators (ABC paints CAB, which segments as CA B).
+    expect(units(`${P}a <span style="display:inline-block"><bdo dir="rtl">abc de</bdo></span></p>`, 'word')
+      .map(u => u.text)).toEqual(['a', 'abc de']);
+    expect(units(`${P}<bdo dir="rtl">\u{1F1E6}\u{1F1E7}\u{1F1E8}</bdo></p>`, 'grapheme').map(u => u.text))
+      .toEqual(['\u{1F1E6}\u{1F1E7}', '\u{1F1E8}']);
   });
 
   it('splits a word whose bidi pieces another word separates', () => {
@@ -195,6 +201,13 @@ describe('text units: layout', () => {
     // An empty item's line is its marker's own: the item's strut, not the disc's centre.
     const [marker] = units('<ul style="margin:0;padding-left:40px;font:10px serif"><li></li></ul>', 'word');
     expect([marker.fragments[0].baseline, marker.height]).toEqual([12, 16]);
+    // A marker reads with its item's first line but sits where it paints, on its own line box.
+    const padded = '<ul style="margin:0;padding-left:40px;font:10px serif"><li><div style="padding-top:100px">text</div></li></ul>';
+    for (const level of ['word', 'line'] as const) {
+      const all = units(padded, level);
+      expect([all[0].fragments[0].baseline, all[0].fragments[0].y], level).toEqual([12, 0]);
+      expect(all.at(-1)!.fragments.at(-1)!.baseline, level).toBe(112);
+    }
   });
 
   it('marks a line-clamp ellipsis at grapheme level and keeps it in its word', () => {

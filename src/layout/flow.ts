@@ -2,12 +2,13 @@
 // A flow never writes to the prepared content; what it cuts is a piece in its own `FlowItems`.
 import type { ResolvedStyle } from '../types.js';
 import { LAYOUT_UNIT_LINE_FIT } from '../engine.js';
+import { overridesRtl } from '../bidi.js';
 import { layoutUnit } from './util.js';
 import { type LayoutSession, type Measurer, type MeasureState, type TabStops } from './session.js';
 import {
   forEachHyphenPiece, graphemes, isAtomicInlineBlock, isCJKCode, isEmojiCluster, MEASURE_CONTEXT,
   SEG_CJK, SEG_CLOSING_PUNCT, SEG_EMOJI, SEG_HARD_BREAK, SEG_INHERITED, SEG_NO_BREAK_BEFORE, SEG_OPENING_PUNCT,
-  SEG_RUN_SEAM, SEG_SOFT_HYPHEN, SEG_SPACE, SEG_TAB, textFlags, wordSpacingIn,
+  SEG_RUN_SEAM, SEG_SOFT_HYPHEN, SEG_SPACE, SEG_TAB, segmentAdvance, textFlags, wordSpacingIn,
   type InlineBlockLayout, type PositionedLine, type PreparedInline, type SegmentRefs, type Word,
 } from './segment.js';
 
@@ -183,7 +184,8 @@ function splitSegment(flow: LineFlow, index: number): { texts: string[]; widths:
   const { items, m } = flow;
   const contentWidth = flow.budget();
   const flags = items.flags(index);
-  const style = items.refs(index).style;
+  const refs = items.refs(index);
+  const style = refs.style;
   const hasCJK = (flags & SEG_CJK) !== 0;
   const hasEmoji = (flags & SEG_EMOJI) !== 0;
 
@@ -217,14 +219,14 @@ function splitSegment(flow: LineFlow, index: number): { texts: string[]; widths:
 
   for (const char of chars) {
     if (measuredText.length > MEASURE_CONTEXT && previous) {
-      const restart = m.width(state, previous);
+      const restart = segmentAdvance(m, state, previous, refs);
       currentStartWidth -= measuredWidth - restart;
       measuredText = previous;
       measuredWidth = restart;
     }
     previous = char;
     const nextMeasuredText = measuredText + char;
-    const nextMeasuredWidth = m.width(state, nextMeasuredText);
+    const nextMeasuredWidth = segmentAdvance(m, state, nextMeasuredText, refs);
     const charWidth = nextMeasuredWidth - measuredWidth;
 
     // Each emoji cluster and CJK character is a piece of its own: a break opportunity.
@@ -654,13 +656,13 @@ function breakGluedChain(flow: LineFlow, start: number, end: number): boolean {
       let curW = 0;
       while (i < cs.length && cs[i].refs.style === st) {
         const ch = cs[i].ch;
-        const candW = m.width(state, cur + ch);
+        const candW = segmentAdvance(m, state, cur + ch, refs);
         if (chars && flow.line.totalWidth + candW > flow.budget() &&
             (flow.line.items.length > 0 || cur)) {
           if (cur) flow.place(items.textOf(refs, cur, curW), curW, lh);
           flow.wrap();
           cur = ch;
-          curW = m.width(state, ch);
+          curW = segmentAdvance(m, state, ch, refs);
         } else {
           cur += ch;
           curW = candW;
@@ -677,10 +679,10 @@ function breakGluedChain(flow: LineFlow, start: number, end: number): boolean {
     let w = 0;
     let i = 0;
     while (i < cs.length) {
-      const st = cs[i].refs.style;
+      const refs = cs[i].refs;
       let txt = '';
-      while (i < cs.length && cs[i].refs.style === st) { txt += cs[i].ch; i++; }
-      w += m.width(m.stateOf(st), txt);
+      while (i < cs.length && cs[i].refs.style === refs.style) { txt += cs[i].ch; i++; }
+      w += segmentAdvance(m, m.stateOf(refs.style), txt, refs);
     }
     return w;
   };
@@ -796,6 +798,8 @@ function knifeEdgeOverflows(flow: LineFlow, piece: number, tail: number, headExt
   for (let k = 0; k <= lineItems.length; k++) {
     const i = k < lineItems.length ? lineItems[k] : piece;
     const itemText = items.text(i);
+    // An RTL override paints as its own wrapped pieces, not as this one string: trust the sum.
+    if (overridesRtl(items.refs(i).bidi)) return true;
     if (!itemText || items.refs(i).inlineBlock) {
       markerWidth += items.width(i);
     } else if (flow.isSpace(i) && m.stateOf(items.refs(i).style) !== state) {

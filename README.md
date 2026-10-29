@@ -333,6 +333,10 @@ shadow canvases, and keeps foreground commands and layout unchanged. It requires
 no image or transform-query APIs. The adapter must provide the omitted effects;
 this option alone does not preserve the appearance of shadowed text.
 
+Text under an RTL `unicode-bidi: bidi-override` (`<bdo dir="rtl">`) arrives
+wrapped in U+202E…U+202C, as Canvas applies the override itself: honour the
+controls in your bidi pass and draw them invisible.
+
 Unsupported proxies fail with guidance when shadows are enabled. Exporters
 remain responsible for matching fonts, opacity, blending and effect placement
 across formats. No separate shadow-layer or preparation API is required.

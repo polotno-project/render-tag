@@ -1748,13 +1748,23 @@ describe('Layout logic (mocked measureText)', () => {
   // ─── Bidi override (bdo) ─────────────────────────────────────────────
 
   describe('Bidi override', () => {
+    // An RTL override reaches Canvas wrapped in RLO…PDF, which Canvas applies; this is
+    // Canvas's order (UAX #9 over the run text in its direction), controls dropped.
+    const painted = (t: LayoutText) => {
+      const own = resolveBidi(t.text, t.style.direction === 'rtl' ? 1 : 0);
+      return visualOrder(lineLevels(own, 0, t.text.length)).map(i => t.text[i]).join('').replace(/[\u202A-\u202E]/g, '');
+    };
+    const visual = (texts: LayoutText[]) =>
+      [...texts].sort((p, q) => p.y - q.y || p.x - q.x).map(painted).join('|');
+
     it('bdo dir=rtl reverses character order', () => {
       const tree = block('div', [
         inline('bdo', [textNode('abcdef', { direction: 'rtl', unicodeBidi: 'bidi-override' })],
           { direction: 'rtl', unicodeBidi: 'bidi-override' }),
       ]);
       const texts = collectTexts(doLayout(tree, 200));
-      expect(texts.map(t => t.text).join('')).toBe('fedcba');
+      expect(texts.map(t => [t.text, t.style.direction])).toEqual([['\u202Eabcdef\u202C', 'rtl']]);
+      expect(visual(texts)).toBe('fedcba');
     });
 
     it('bidi-override reverses run order and text across styled children', () => {
@@ -1766,23 +1776,33 @@ describe('Layout logic (mocked measureText)', () => {
           textNode('ef', { direction: 'rtl', unicodeBidi: 'bidi-override' }),
         ], { direction: 'rtl', unicodeBidi: 'bidi-override' }),
       ]);
-      const texts = collectTexts(doLayout(tree, 200)).sort((p, q) => p.x - q.x);
-      expect(texts.map(t => t.text).join('')).toBe('fedcba');
-      // The bold run carries "dc"
-      expect(texts.find(t => t.style.fontWeight === 700)!.text).toBe('dc');
+      const texts = collectTexts(doLayout(tree, 200));
+      expect(visual(texts).replace(/\|/g, '')).toBe('fedcba');
+      expect(painted(texts.find(t => t.style.fontWeight === 700)!)).toBe('dc');
     });
 
-    // Chrome's DOM: lines break in logical order, then each line reverses.
-    it('reverses each line after breaking, grapheme by grapheme', () => {
-      const visual = (html: string, width: number) => {
-        const result = layout({ html, width, ctx: mockCtx() });
-        const texts = collectTexts(result.layoutRoot).sort((p, q) => p.y - q.y || p.x - q.x);
-        return { lines: result.lines.map(l => l.text), visual: texts.map(t => t.text).join('|') };
-      };
-      expect(visual('<p><bdo dir="rtl">abc def ghi jkl</bdo></p>', 75)).toEqual({
-        lines: ['abc def', 'ghi jkl'], visual: 'fed cba|lkj ihg',
-      });
-      expect(visual('<p><bdo dir="rtl">ae\u0301b</bdo></p>', 200).visual).toBe('be\u0301a');
+    // Chrome's DOM: lines break in logical order, then each line reverses; Canvas keeps a
+    // grapheme whole.
+    it('reverses each line after breaking', () => {
+      const result = layout({ html: '<p><bdo dir="rtl">abc def ghi jkl</bdo></p>', width: 75, ctx: mockCtx() });
+      expect(result.lines.map(l => l.text)).toEqual(['abc def', 'ghi jkl']);
+      expect(visual(collectTexts(result.layoutRoot))).toBe('fed cba|lkj ihg');
+      const mark = collectTexts(layout({ html: '<p><bdo dir="rtl">ae\u0301b</bdo></p>', width: 200, ctx: mockCtx() }).layoutRoot);
+      expect(mark.map(t => t.text)).toEqual(['\u202Eae\u0301b\u202C']);
+    });
+
+    // recording-ctx kerns "ag" but not "ga". A later piece is measured after its left
+    // context, like any split; the first has none, so it is exactly as wide as it paints.
+    it('measures a split override as it paints, reversed', () => {
+      const html = '<p style="margin:0;font:20px serif;overflow-wrap:break-word"><bdo dir="rtl">agagagagag</bdo></p>';
+      for (const width of [45, 63, 81]) {
+        const rec = recordingCtx(300, 400);
+        const texts = collectTexts(layout({ html, width, ctx: rec.ctx }).layoutRoot);
+        const first = texts.reduce((top, t) => (t.y < top.y ? t : top));
+        expect(texts.length, `${width}`).toBeGreaterThan(1);
+        rec.ctx.font = buildCanvasFont(first.style);
+        expect(first.width, `${width} ${first.text}`).toBeCloseTo(rec.ctx.measureText(first.text).width, 6);
+      }
     });
 
     it('bdo without rtl leaves order unchanged', () => {
@@ -1827,6 +1847,13 @@ describe('Layout logic (mocked measureText)', () => {
         .filter((t) => t.text.trim()).map((t) => [t.text.trim(), t.x]));
       expect(xs('<p style="white-space:pre-wrap;word-spacing:20px">a  <b>b</b></p>')).toEqual({ a: 0, b: 70 });
       expect(xs('<p style="word-spacing:20px">a&nbsp;b <b>c</b></p>')).toEqual({ 'a b': 0, c: 80 });
+    });
+
+    it('keeps a no-break space\'s word-spacing in a word split to fit', () => {
+      const html = '<p style="margin:0;word-spacing:20px;word-break:break-all">aa&nbsp;bb&nbsp;cc</p>';
+      const texts = collectTexts(layout({ html, width: 55, ctx: mockCtx() }).layoutRoot);
+      expect(texts.length).toBeGreaterThan(1);
+      for (const t of texts) expect(t.width, t.text).toBe(10 * t.text.length + 20 * t.text.split(' ').length - 20);
     });
   });
 

@@ -1,7 +1,7 @@
 // The inline data model: text runs, segments and their flags, and what a text earns on
 // its own (CJK, emoji, kinsoku, the measuring context). Read by every pass; leaf module.
 import type { StyledNode, LayoutNode, ResolvedStyle, LayoutLine, LayoutLineBox } from '../types.js';
-import { bidiClass, overridesRtl, type BidiContext } from '../bidi.js';
+import { bidiClass, overriddenText, type BidiContext } from '../bidi.js';
 import type { Measurer, MeasureState } from './session.js';
 
 // ── Inline text run types ──
@@ -183,11 +183,15 @@ const OPEN_BRACKET = /\p{Ps}/u;
 const CLOSE_BRACKET = /\p{Pe}/u;
 const LETTER = /\p{L}/u;
 
-/** The width `piece` adds after what `cum` holds; appends it. */
-export function measureAfter(m: Measurer, state: MeasureState, cum: Cumulative, piece: string): number {
+/** The width `piece` adds after what `cum` holds, as it paints (`segmentAdvance`, in context);
+ * appends it. */
+export function measureAfter(
+  m: Measurer, state: MeasureState, cum: Cumulative, piece: string, refs: SegmentRefs,
+): number {
+  const painted = overriddenText(piece, refs.bidi);
   const isSpace = piece === ' ';
   if (!isSpace && cum.word > 0 &&
-      (cum.text.length > MEASURE_CONTEXT || (isSimpleScript(piece) && isSimpleScript(cum.text)))) {
+      (cum.text.length > MEASURE_CONTEXT || (isSimpleScript(painted) && isSimpleScript(cum.text)))) {
     const start = contextStart(cum.text, cum.word);
     if (start > 0) {
       cum.text = cum.text.slice(start);
@@ -196,9 +200,9 @@ export function measureAfter(m: Measurer, state: MeasureState, cum: Cumulative, 
   }
   const before = cum.width;
   if (!isSpace) cum.word = cum.text.length;
-  cum.text += piece;
+  cum.text += painted;
   cum.width = m.width(state, cum.text);
-  return cum.width - before;
+  return cum.width - before + wordSpacingIn(piece, refs.style.wordSpacing);
 }
 
 // ── Prepared inline content ──
@@ -225,6 +229,14 @@ export function wordSpacingIn(text: string, spacing: number): number {
     if (c === 0x20 || c === 0xA0) n++;
   }
   return n * spacing;
+}
+
+/**
+ * Segment text's advance as it paints: an RTL override wrapped (`overriddenText`), plus its
+ * `word-spacing`. Every measure of segment text goes through it, or `measureAfter` in context.
+ */
+export function segmentAdvance(m: Measurer, state: MeasureState, text: string, refs: SegmentRefs): number {
+  return m.width(state, overriddenText(text, refs.bidi)) + wordSpacingIn(text, refs.style.wordSpacing);
 }
 
 /** Collapsible or preserved whitespace; a space's width carries word-spacing. */
@@ -393,14 +405,6 @@ export function graphemes(text: string): string[] {
   return out;
 }
 
-/**
- * Text under an RTL override (`overridesRtl`) as it paints, graphemes reversed, and so as
- * it is measured: the engine shapes the run right to left, so kerning and ligatures form
- * between visual neighbours. Anything else as is.
- */
-export function overriddenText(text: string, bidi: BidiContext | null | undefined): string {
-  return overridesRtl(bidi) ? graphemes(text).reverse().join('') : text;
-}
 
 const EMOJI_PICTOGRAPHIC = /\p{Extended_Pictographic}/u;
 /** The characters `isEmojiCluster` can be true for: a cheap check before segmenting. */
@@ -422,7 +426,9 @@ export function isEmojiCluster(s: string): boolean {
 
 // ── Break opportunities ──
 
-/** Punctuation that cannot start a line — stays with the preceding word. */
+/** Punctuation that cannot start a line — stays with the preceding word. Measured against
+ * Chrome's DOM (`水×5 <char> 水×7`); small kana and `ー` stay out: `line-break: auto` breaks
+ * before them. */
 const TRAILING_PUNCT = /^[,.\;:!?\)\]\}'"»›」』】〕〉》”、。・！），：；？၊-၏។-៖៘-៚]+$/;
 /** Punctuation that cannot end a line — stays with the following word. */
 const OPENING_PUNCT = /^[\(\[\{«‹“‘「『【〔〈《（]+$/;

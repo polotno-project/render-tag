@@ -63,6 +63,9 @@ function canvasRuns(html: string): LayoutText[] {
   return collectTexts(result.layoutRoot).filter((t) => t.text.trim());
 }
 
+/** Paints a glyph: not white space, not a bidi control (an RTL override's RLO…PDF). */
+const isGlyph = (c: string) => c.trim() !== '' && !/[\u202A-\u202E]/.test(c);
+
 function canvasOrder(runs: LayoutText[]): string {
   const glyphs: Glyph[] = [];
   for (const run of runs) {
@@ -73,7 +76,7 @@ function canvasOrder(runs: LayoutText[]): string {
     // the engine's own reordering for a single-paint line (CANVAS_BIDI_LINE).
     const own = resolveBidi(run.text, rtl ? 1 : 0);
     const chars = visualOrder(lineLevels(own, 0, run.text.length))
-      .map((i) => run.text[i]).filter((c) => c.trim());
+      .map((i) => run.text[i]).filter(isGlyph);
     // Positions inside a run only order it; spacing them evenly is enough.
     chars.forEach((c, i) => glyphs.push({ c, x: left + (i + 0.5) * (run.width / chars.length) }));
   }
@@ -118,9 +121,14 @@ const CASES: Record<string, string> = {
   // ˈ is Bidi_Class ON though General_Category Lm: it must not read as L.
   'a modifier letter and digits in a span between Hebrew letters':
     '<p dir="rtl">א<span style="color:red">ˈ12</span>ב</p>',
-  // An RTL override paints its letters reversed, a styled child included.
+  // An RTL override paints its letters reversed, a styled child included; RTL letters
+  // too, which Canvas would reorder again if layout reversed them itself.
   'an RTL bdo across a styled child in an English line':
     '<p>x <bdo dir="rtl">abc <b>def</b> 12</bdo> y</p>',
+  'Hebrew and Latin in an RTL bdo':
+    '<p>x <bdo dir="rtl">\u05D0\u05D1\u05D2 def</bdo> y</p>',
+  'Arabic in an RTL bdo':
+    '<p>x <bdo dir="rtl">\u0643\u062A\u0627\u0628 \u062C\u0645\u064A\u0644</bdo> y</p>',
   // X10: the digits' sos comes from the embedding's explicit level, not the
   // level its Hebrew letter resolved to.
   'digits after an LTR embed around a Hebrew letter':
@@ -139,7 +147,7 @@ describe('Bidi visual order parity (DOM Range rects)', () => {
       for (const run of runs) {
         const left = run.style.direction === 'rtl' ? run.x - run.width : run.x;
         const right = left + run.width;
-        const chars = [...run.text].filter((c) => c.trim());
+        const chars = [...run.text].filter(isGlyph);
         let domLeft = Infinity;
         let domRight = -Infinity;
         for (const c of chars) {
@@ -157,8 +165,9 @@ describe('Bidi visual order parity (DOM Range rects)', () => {
         }
         // A side that ends in a space has no glyph there to compare.
         const rtl = run.style.direction === 'rtl';
-        const spaceLeft = rtl ? /\s$/.test(run.text) : /^\s/.test(run.text);
-        const spaceRight = rtl ? /^\s/.test(run.text) : /\s$/.test(run.text);
+        const shown = run.text.replace(/[\u202A-\u202E]/g, '');
+        const spaceLeft = rtl ? /\s$/.test(shown) : /^\s/.test(shown);
+        const spaceRight = rtl ? /^\s/.test(shown) : /\s$/.test(shown);
         if (!spaceLeft) {
           expect(Math.abs(left - domLeft), `${name}: "${run.text}" left`).toBeLessThan(EXTENT_TOLERANCE);
         }

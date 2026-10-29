@@ -9,6 +9,7 @@
  */
 
 export const CHAR_WIDTH = 10;
+const BIDI_CONTROLS = /[\u200E\u200F\u202A-\u202E\u2066-\u2069]/g;
 
 export function mockCtx(charWidth = CHAR_WIDTH): CanvasRenderingContext2D {
   const ctx = {
@@ -20,7 +21,9 @@ export function mockCtx(charWidth = CHAR_WIDTH): CanvasRenderingContext2D {
     textBaseline: 'alphabetic' as CanvasTextBaseline,
     measureText(text: string) {
       const ls = parseFloat((ctx as any).letterSpacing) || 0;
-      const width = text.length * charWidth + text.length * ls;
+      // Bidi controls (an RTL override's RLO…PDF) draw nothing.
+      const n = text.replace(BIDI_CONTROLS, '').length;
+      const width = n * charWidth + n * ls;
       return {
         width,
         actualBoundingBoxAscent: 12,

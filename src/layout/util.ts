@@ -84,12 +84,15 @@ export function sameDecorationBand(a: DecorationEntry, b: DecorationEntry): bool
 }
 
 export function hasVisibleBoxStyles(style: ResolvedStyle): boolean {
-  if (!isTransparent(style.backgroundColor)) return true;
-  if (style.borderTopWidth > 0 && style.borderTopStyle !== 'none') return true;
-  if (style.borderRightWidth > 0 && style.borderRightStyle !== 'none') return true;
-  if (style.borderBottomWidth > 0 && style.borderBottomStyle !== 'none') return true;
-  if (style.borderLeftWidth > 0 && style.borderLeftStyle !== 'none') return true;
-  return false;
+  return !isTransparent(style.backgroundColor) || hasVisibleBorder(style);
+}
+
+/** Any border side paints. Direct reads: paint asks for every box. */
+export function hasVisibleBorder(style: ResolvedStyle): boolean {
+  return (style.borderTopWidth > 0 && style.borderTopStyle !== 'none') ||
+    (style.borderRightWidth > 0 && style.borderRightStyle !== 'none') ||
+    (style.borderBottomWidth > 0 && style.borderBottomStyle !== 'none') ||
+    (style.borderLeftWidth > 0 && style.borderLeftStyle !== 'none');
 }
 
 /** `background-clip:text` with a visible background (gradient or color): the glyphs it

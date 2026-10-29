@@ -550,6 +550,20 @@ export function overridesRtl(context: BidiContext | null | undefined): boolean {
   return !!context && context.open.endsWith(RLO);
 }
 
+/**
+ * Text as Canvas must receive it, to measure and to paint: under an RTL override wrapped in
+ * RLO…PDF, so Canvas applies the override itself (its own bidi would reorder RTL letters
+ * that render-tag reversed). Anything else as is.
+ */
+export function overriddenText(text: string, context: BidiContext | null | undefined): string {
+  return overridesRtl(context) ? RLO + text + PDF : text;
+}
+
+/** The text `overriddenText` wrapped, or null when `text` is not wrapped. */
+export function overrideContent(text: string): string | null {
+  return text.length > 1 && text[0] === RLO && text[text.length - 1] === PDF ? text.slice(1, -1) : null;
+}
+
 /** Builds a paragraph's text wrapped in its contexts' control characters (CSS Writing Modes 3 §2.4.2). */
 export class BidiTextBuilder {
   text = '';
