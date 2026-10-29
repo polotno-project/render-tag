@@ -2,6 +2,18 @@
 
 Only the interesting, user-visible changes. Full detail lives in the git history.
 
+## 0.4.0 — 2026-10-29
+
+- Animate text by line, word or letter: `layout({ textUnits })` cuts the laid-out text into units, and `drawLayout({ paintTextUnit })` paints each one under its own canvas state, with its gradient, stroke, decorations and shadow. See the [live examples](https://polotno.com/render-tag/#motion).
+- Draw list bullets at Chrome's size and position in every browser: they were about half size and too high in WebKit, and 1.5px off in Firefox. Bold and italic lists keep a full-size bullet, and numbers follow the item's weight and style.
+- Lay out bulleted lists up to 2.5× faster in Firefox and 1.5× faster in WebKit.
+- Apply the horizontal margins of inline elements, and their padding and borders even when they paint no background, as browsers do.
+- `word-spacing` now also widens preserved spaces and no-break spaces, as browsers do.
+- Fix `<bdo dir="rtl">` and `unicode-bidi: bidi-override`: wrapped text is reordered per line, combining marks and emoji stay whole, and Hebrew and Arabic no longer paint mirrored. Vector adapters receive such text wrapped in U+202E…U+202C.
+- Place Hebrew on a path letter by letter, so it follows the curve.
+- Draw bordered boxes about twice as fast.
+- Keep `letter-spacing` and `word-spacing` on canvases that ignore `ctx.letterSpacing` and `ctx.wordSpacing` (Safari before 18.4, node-canvas, Chrome before 99, Firefox before 115): render-tag now measures and places the spacing itself, as Chrome spaces it, so spaced text no longer loses its spacing or runs past a right-aligned box there.
+
 ## 0.3.3 — 2026-10-24
 
 - Lay out and draw faster with fewer allocations: plain ASCII text skips Unicode segmentation, a word split across many inline styles lays out in linear time instead of quadratic, and drawing derives each style's text state once per draw.
