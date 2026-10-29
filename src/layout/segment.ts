@@ -1,7 +1,7 @@
 // The inline data model: text runs, segments and their flags, and what a text earns on
 // its own (CJK, emoji, kinsoku, the measuring context). Read by every pass; leaf module.
 import type { StyledNode, LayoutNode, ResolvedStyle, LayoutLine, LayoutLineBox } from '../types.js';
-import { bidiClass, type BidiContext } from '../bidi.js';
+import { bidiClass, overridesRtl, type BidiContext } from '../bidi.js';
 import type { Measurer, MeasureState } from './session.js';
 
 // ── Inline text run types ──
@@ -22,6 +22,8 @@ export interface TextRun {
   boxOpen?: ResolvedStyle;
   /** Marks the end of an inline box */
   boxClose?: ResolvedStyle;
+  /** The edge is the box's margin, outside its padding and border and its background. */
+  margin?: true;
   /** Nearest inline ancestor-or-self declaring background-clip:text + background */
   clipStyle?: ResolvedStyle;
   /** Nearest inline ancestor-or-self declaring --rt-text-stroke-image */
@@ -204,6 +206,27 @@ export function measureAfter(m: Measurer, state: MeasureState, cum: Cumulative, 
 /** What a segment shares with its run: the run itself, one per run, referenced by index. */
 export type SegmentRefs = Readonly<Omit<TextRun, 'text' | 'wordBoundaryBefore'>>;
 
+/** An inline box edge's width (`boxOpen` the left, `boxClose` the right) from `style`. */
+export function inlineEdgeWidth(refs: SegmentRefs, style: ResolvedStyle): number {
+  if (refs.boxOpen) return refs.margin ? style.marginLeft : style.paddingLeft + style.borderLeftWidth;
+  return refs.margin ? style.marginRight : style.paddingRight + style.borderRightWidth;
+}
+
+/**
+ * The `word-spacing` `text` adds: one per U+0020 and U+00A0, the word separators every
+ * engine's DOM widens (measured; not U+3000, U+2009 or U+1361). Measuring writes no
+ * `ctx.wordSpacing`, so every measured width adds this.
+ */
+export function wordSpacingIn(text: string, spacing: number): number {
+  if (!spacing) return 0;
+  let n = 0;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    if (c === 0x20 || c === 0xA0) n++;
+  }
+  return n * spacing;
+}
+
 /** Collapsible or preserved whitespace; a space's width carries word-spacing. */
 export const SEG_SPACE = 1 << 0;
 /** A preserved tab: its width is a placeholder until the flow reaches a stop. */
@@ -368,6 +391,15 @@ export function graphemes(text: string): string[] {
   const out: string[] = [];
   for (const s of seg.segment(text)) out.push(s.segment);
   return out;
+}
+
+/**
+ * Text under an RTL override (`overridesRtl`) as it paints, graphemes reversed, and so as
+ * it is measured: the engine shapes the run right to left, so kerning and ligatures form
+ * between visual neighbours. Anything else as is.
+ */
+export function overriddenText(text: string, bidi: BidiContext | null | undefined): string {
+  return overridesRtl(bidi) ? graphemes(text).reverse().join('') : text;
 }
 
 const EMOJI_PICTOGRAPHIC = /\p{Extended_Pictographic}/u;

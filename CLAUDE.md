@@ -333,11 +333,15 @@ job.
   `isolate-override`; `dir="auto"` takes the first strong character.
 - **Paint direction follows the bidi LEVEL**, never the inherited CSS
   `direction`: every emitted run gets `withDirection(level parity)`. An RTL
-  override is reversed in `collectTextRuns` and enters as an LTR override.
+  override is RLO to UAX #9 and reorders per line, after breaking; its pieces
+  paint and measure as `overriddenText` (graphemes reversed, left to right:
+  the engine shapes the run right to left).
 - Each line is cut into level-uniform pieces, ordered by L2, painted in the
   level's direction. Adjacent pieces of one non-zero level and one paint
-  merge; level-0 words never merge. Padding markers are placed around each
-  box's leftmost/rightmost piece, not reordered as characters.
+  merge; level-0 words never merge. Edge markers (an inline's margin, then
+  its padding + border, `inlineEdgeWidth`) are placed around each box's
+  leftmost/rightmost piece, not reordered as characters. A margin edge
+  belongs to the enclosing box, so the box's own background skips it.
 - Nodes are placed left to right, then EMITTED in logical order (`emitKeys`).
 - `CANVAS_BIDI_LINE`: a line in ONE paint whose levels Canvas resolves the
   same from the line text stays ONE run, so Canvas shapes it as the layout
@@ -350,7 +354,8 @@ job.
   `m.measureText(state, text)` (uncached). It writes font, `fontKerning` and
   `letterSpacing` TOGETHER and zeroes a stray `ctx.wordSpacing`. Never set
   those on the ctx by hand in layout code. Layout reaches it as
-  `session.measurer`; leaf helpers take `m`.
+  `session.measurer`; leaf helpers take `m`. Every measured width adds
+  `wordSpacingIn` (U+0020 and U+00A0, collapsible or preserved).
 - **Ink extents come from `m.inkBox(state, text)`**, never raw
   `actualBoundingBox*`: WebKit's box always holds the origin and the advance
   and Gecko's sits ~1px off, so outside Blink it paints the text on a

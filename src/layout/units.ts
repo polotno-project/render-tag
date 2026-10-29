@@ -7,12 +7,12 @@ import type {
 } from '../types.js';
 import { levelRuns, visualOrder } from '../bidi.js';
 import {
-  CLAMP_ELLIPSIS, INLINE_BLOCK, LINE_BASELINE, LINE_BOX, LIST_MARKER, RUN_LEVELS, RUN_PIECES, SPACE_WRAP,
+  CLAMP_ELLIPSIS, INLINE_BLOCK, LINE_BASELINE, LINE_BOX, LIST_MARKER, RUN_LEVELS, RUN_PIECES, RUN_REVERSED, SPACE_WRAP,
   type LayoutSession, type PrivateLineBox, type PrivateText,
 } from './session.js';
 import {
   breakFlags, graphemes, needsSegmenter, SEG_CJK, SEG_CLOSING_PUNCT, SEG_OPENING_PUNCT, segmenter, shapesAsRun,
-  textFlags,
+  textFlags, wordSpacingIn,
 } from './segment.js';
 import { textEdges, withDirection } from './util.js';
 
@@ -169,7 +169,8 @@ function lineDrafts(entries: Entry[], lines: LineInfo[]): Draft[] {
     const { unit, claims } = drafts[entry.line];
     claims.push({ entry: i, start: 0, end: WHOLE, space: false });
     if (entry.type === 'marker') markers[entry.line].push(entry.run.text);
-    else unit.text += entry.type === 'text' ? entry.run.text : atomicText(entry.runs);
+    else if (entry.type === 'atomic') unit.text += atomicText(entry.runs);
+    else unit.text += entry.run[RUN_REVERSED] ? graphemes(entry.run.text).reverse().join('') : entry.run.text;
   });
   drafts.forEach(({ unit }, line) => {
     unit.text = [...markers[line], unit.text.trim()].filter(Boolean).join(' ');
@@ -199,9 +200,19 @@ function streamDrafts(
   let text = '';
   const owner: number[] = [];
   const offset: number[] = [];
-  const push = (chars: string, entry: number) => {
-    text += chars;
-    for (let k = 0; k < chars.length; k++) { owner.push(entry); offset.push(k); }
+  const push = (chars: string, entry: number, reversed?: true) => {
+    if (!reversed) {
+      text += chars;
+      for (let k = 0; k < chars.length; k++) { owner.push(entry); offset.push(k); }
+      return;
+    }
+    // An RTL override's run paints its graphemes reversed: read them back.
+    let end = chars.length;
+    for (const g of graphemes(chars).reverse()) {
+      end -= g.length;
+      text += g;
+      for (let k = 0; k < g.length; k++) { owner.push(entry); offset.push(end + k); }
+    }
   };
   let previousLine = -1;
   for (let i = from; i < to; i++) {
@@ -215,16 +226,21 @@ function streamDrafts(
     if (entry.type === 'atomic' && !atomicText(entry.runs).trim()) continue;
     if (previousLine >= 0 && entry.line !== previousLine && partsWords(lines[previousLine].box)) push(SEPARATOR, -1);
     previousLine = entry.line;
-    push(entry.type === 'atomic' ? TOKEN : entry.run.text, i);
+    if (entry.type === 'atomic') push(TOKEN, i);
+    else push(entry.run.text, i, entry.run[RUN_REVERSED]);
   }
 
   /** Claim `[a, b)` of the stream for `draft`, entry by entry. */
   const claim = (draft: Draft, a: number, b: number, space: boolean) => {
     for (let k = a; k < b;) {
       if (owner[k] < 0) { k++; continue; }
-      let end = k;
-      while (end < b && owner[end] === owner[k]) end++;
-      draft.claims.push({ entry: owner[k], start: offset[k], end: offset[end - 1] + 1, space });
+      // A reversed run's offsets fall: claim from the lowest to the highest.
+      let end = k, lo = offset[k], hi = offset[k];
+      for (; end < b && owner[end] === owner[k]; end++) {
+        lo = Math.min(lo, offset[end]);
+        hi = Math.max(hi, offset[end]);
+      }
+      draft.claims.push({ entry: owner[k], start: lo, end: hi + 1, space });
       k = end;
     }
   };
@@ -323,7 +339,9 @@ function placePieces(
   const add = (run: UnitRun, piece: UnitPiece, line: number, extent = !piece.space) => {
     (run[RUN_PIECES] ??= []).push(piece);
     onLine[line].push(piece);
-    if (extent) extents.push({ unit: piece.unit, line, left: piece.left, right: piece.right, rtl: piece.run.style.direction === 'rtl' });
+    // An RTL override paints left to right but reads right to left.
+    const rtl = piece.run.style.direction === 'rtl' || (run as PrivateText)[RUN_REVERSED] === true;
+    if (extent) extents.push({ unit: piece.unit, line, left: piece.left, right: piece.right, rtl });
   };
   // In stream order, so each run's pieces are in reading order. A break is never claimed.
   byEntry.forEach((list, i) => {
@@ -390,13 +408,8 @@ function levelSpans(run: PrivateText, width: (s: string) => number) {
 function cutRun(session: LayoutSession, run: LayoutText, claims: { unit: TextUnit; claim: Claim }[]): UnitPiece[] {
   const m = session.measurer;
   const state = m.stateOf(run.style);
-  // Paint sets the style's word-spacing on the ctx; measuring does not.
   const spacing = run.style.wordSpacing || 0;
-  const width = (s: string) => {
-    let w = m.width(state, s);
-    if (spacing) for (const ch of s) if (ch === ' ') w += spacing;
-    return w;
-  };
+  const width = (s: string) => m.width(state, s) + wordSpacingIn(s, spacing);
   const text = run.text;
   const spans = levelSpans(run, width);
   const pieces: UnitPiece[] = [];

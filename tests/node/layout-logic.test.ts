@@ -1766,10 +1766,23 @@ describe('Layout logic (mocked measureText)', () => {
           textNode('ef', { direction: 'rtl', unicodeBidi: 'bidi-override' }),
         ], { direction: 'rtl', unicodeBidi: 'bidi-override' }),
       ]);
-      const texts = collectTexts(doLayout(tree, 200));
+      const texts = collectTexts(doLayout(tree, 200)).sort((p, q) => p.x - q.x);
       expect(texts.map(t => t.text).join('')).toBe('fedcba');
       // The bold run carries "dc"
       expect(texts.find(t => t.style.fontWeight === 700)!.text).toBe('dc');
+    });
+
+    // Chrome's DOM: lines break in logical order, then each line reverses.
+    it('reverses each line after breaking, grapheme by grapheme', () => {
+      const visual = (html: string, width: number) => {
+        const result = layout({ html, width, ctx: mockCtx() });
+        const texts = collectTexts(result.layoutRoot).sort((p, q) => p.y - q.y || p.x - q.x);
+        return { lines: result.lines.map(l => l.text), visual: texts.map(t => t.text).join('|') };
+      };
+      expect(visual('<p><bdo dir="rtl">abc def ghi jkl</bdo></p>', 75)).toEqual({
+        lines: ['abc def', 'ghi jkl'], visual: 'fed cba|lkj ihg',
+      });
+      expect(visual('<p><bdo dir="rtl">ae\u0301b</bdo></p>', 200).visual).toBe('be\u0301a');
     });
 
     it('bdo without rtl leaves order unchanged', () => {
@@ -1806,6 +1819,14 @@ describe('Layout logic (mocked measureText)', () => {
       ]);
       const root = doLayout(tree, 119.5);
       expect(getLines(root)).toEqual(['aa bb', 'cc']);
+    });
+
+    // Every engine's DOM widens each U+0020 and U+00A0, collapsible or preserved.
+    it('widens every preserved space and every no-break space', () => {
+      const xs = (html: string) => Object.fromEntries(collectTexts(layout({ html, width: 400, ctx: mockCtx() }).layoutRoot)
+        .filter((t) => t.text.trim()).map((t) => [t.text.trim(), t.x]));
+      expect(xs('<p style="white-space:pre-wrap;word-spacing:20px">a  <b>b</b></p>')).toEqual({ a: 0, b: 70 });
+      expect(xs('<p style="word-spacing:20px">a&nbsp;b <b>c</b></p>')).toEqual({ 'a b': 0, c: 80 });
     });
   });
 
@@ -3048,6 +3069,46 @@ describe('Box model: box-sizing, shrink-to-fit, percentages', () => {
         `<div style="display:flex;width:300px;gap:10%">` +
         `<div style="${bg(1)}flex:none">a</div><div style="${bg(2)}flex:none">b</div></div>`);
       expect(geometry(boxes.get(2))).toMatchObject({ x: 40 });
+    });
+  });
+
+  // Chrome's DOM, probed: the same positions in 12px monospace.
+  describe('inline margins and padding', () => {
+    /** Each text node's x by its text (an RTL node's x is its right edge). */
+    const xs = (html: string, width = 400) => Object.fromEntries(collectTexts(
+      layout({ html: `<div style="${ROOT}">${html}</div>`, width, ctx: mockCtx() }).layoutRoot,
+    ).filter((t) => t.text.trim()).map((t) => [t.text, t.x]));
+
+    it('padding moves the content whether or not the box paints', () => {
+      expect(xs('<p>a<span style="padding:0 20px">b</span>c</p>')).toEqual({ a: 0, b: 30, c: 60 });
+    });
+
+    it('margins move the content and lie outside the box\'s background', () => {
+      expect(xs('<p>a<span style="margin:0 20px">b</span>c</p>')).toEqual({ a: 0, b: 30, c: 60 });
+      expect(xs('<p>a<span style="margin-left:-5px">b</span>c</p>')).toEqual({ a: 0, b: 5, c: 15 });
+      expect(xs('<p>a<span style="margin-left:5%">b</span>c</p>')).toEqual({ a: 0, b: 30, c: 40 });
+      const box = marked(`<p>a<span style="${bg(1)}margin:0 7px;padding:0 5px;border:3px solid">b</span>c</p>`).get(1)!;
+      expect([box.x, box.width]).toEqual([17, 26]);
+    });
+
+    it('a nested box\'s margin lies on its parent\'s background', () => {
+      const { layoutRoot } = layout({
+        html: `<p>a<span style="${bg(1)}">x<span style="${bg(2)}margin:0 10px">b</span>y</span>c</p>`, width: 400, ctx: mockCtx(),
+      });
+      const bands = (n: number) => collectInlineBoxes(layoutRoot)
+        .filter((b) => b.style.backgroundColor === `rgb(${n},0,1)`).map((b) => [b.x, b.x + b.width]);
+      expect(bands(1)).toEqual([[10, 30], [40, 60]]);
+      expect(bands(2)).toEqual([[30, 40]]);
+    });
+
+    it('margins open the box\'s first fragment and close its last', () => {
+      expect(xs('<p>aaaa <span style="margin:0 30px">bbbb cccc</span> dd</p>', 150))
+        .toEqual({ aaaa: 0, bbbb: 80, cccc: 0, dd: 80 });
+    });
+
+    it('margin-left stays on the left in RTL', () => {
+      expect(xs('<p dir="rtl">א<span style="margin-left:20px;margin-right:5px">ב</span>ג</p>'))
+        .toEqual({ 'א': 400, 'ב': 385, 'ג': 355 });
     });
   });
 

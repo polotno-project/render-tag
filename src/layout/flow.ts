@@ -7,7 +7,7 @@ import { type LayoutSession, type Measurer, type MeasureState, type TabStops } f
 import {
   forEachHyphenPiece, graphemes, isAtomicInlineBlock, isCJKCode, isEmojiCluster, MEASURE_CONTEXT,
   SEG_CJK, SEG_CLOSING_PUNCT, SEG_EMOJI, SEG_HARD_BREAK, SEG_INHERITED, SEG_NO_BREAK_BEFORE, SEG_OPENING_PUNCT,
-  SEG_RUN_SEAM, SEG_SOFT_HYPHEN, SEG_SPACE, SEG_TAB, textFlags,
+  SEG_RUN_SEAM, SEG_SOFT_HYPHEN, SEG_SPACE, SEG_TAB, textFlags, wordSpacingIn,
   type InlineBlockLayout, type PositionedLine, type PreparedInline, type SegmentRefs, type Word,
 } from './segment.js';
 
@@ -804,7 +804,7 @@ function knifeEdgeOverflows(flow: LineFlow, piece: number, tail: number, headExt
       markerWidth += items.width(i);
     } else {
       text += itemText;
-      if (flow.isSpace(i)) markerWidth += items.refs(i).style.wordSpacing;
+      markerWidth += wordSpacingIn(itemText, items.refs(i).style.wordSpacing);
     }
   }
   if (items.flags(piece) & SEG_SOFT_HYPHEN) text += '-';

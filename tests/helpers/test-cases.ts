@@ -2130,6 +2130,16 @@ export async function loadBoxModelCases(): Promise<BoxModelCase[]> {
       name: 'inline-block with percent padding inside',
       html: `<span style="${m(1)}${ib}">ab <span style="background:#fde68a;padding-left:20%">cd</span> ef</span>`,
     },
+    // An inline's margin, border and padding move what follows, painted or not;
+    // its background covers the border box, not the margin.
+    { name: 'inline padding without a background', html: `<div>a<span style="padding:0 20px">b</span><span style="${m(1)}">c</span></div>` },
+    { name: 'inline margins outside the background', html: `<div>a<span style="${m(1)}margin:0 7px;${frame}">b</span><span style="${m(2)}">c</span></div>` },
+    { name: 'negative and percent inline margins', html: `<div>a<span style="margin-left:-5px">b</span><span style="${m(1)}margin-left:5%">c</span></div>` },
+    { name: 'nested inline margins', html: `<div>a<span style="margin:0 10px"><span style="margin:0 5px">b</span></span><span style="${m(1)}">c</span></div>` },
+    // word-spacing widens each preserved space and each no-break space before the box.
+    { name: 'word-spacing on preserved spaces', html: `<div style="white-space:pre-wrap;word-spacing:20px">a  <span style="${m(1)}">b</span></div>` },
+    { name: 'word-spacing on a no-break space', html: `<div style="word-spacing:20px">a&nbsp;b <span style="${m(1)}">c</span></div>` },
+    { name: 'inline margins in RTL', html: `<div dir="rtl"><span style="${m(1)}">a</span><span style="margin-left:20px;margin-right:5px">b</span>c</div>` },
     {
       // Declared cell widths size their columns; when every column is declared
       // and they fall short, the table's spare width is shared in proportion.

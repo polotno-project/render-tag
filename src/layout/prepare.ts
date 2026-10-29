@@ -6,11 +6,12 @@ import { anonymousBlockStyle, borderBoxSize, contentBoxSize, intrinsicStyle } fr
 import { bidiContextFor, type BidiContext } from '../bidi.js';
 import type { LayoutSession } from './session.js';
 import {
-  appendAll, hasOnlyInlineChildren, hasStrokeImage, hasTextClip, hasVisibleBoxStyles, horizontalFrame,
+  hasOnlyInlineChildren, hasStrokeImage, hasTextClip, hasVisibleBoxStyles, horizontalFrame,
   horizontalMargins, isInline, layoutUnitCeil, transformTextRuns,
 } from './util.js';
 import {
-  abutsWithoutBreak, breakFlags, forEachHyphenPiece, measureAfter, needsSegmenter, segmenter, SegmentBuilder,
+  abutsWithoutBreak, breakFlags, forEachHyphenPiece, inlineEdgeWidth, measureAfter, needsSegmenter, overriddenText, segmenter,
+  SegmentBuilder, wordSpacingIn,
   SEG_NO_BREAK_BEFORE, SEG_RUN_SEAM, SEG_SOFT_HYPHEN, SEG_SPACE, SEG_TAB,
   type Cumulative, type PreparedInline, type TextRun,
 } from './segment.js';
@@ -49,8 +50,10 @@ function collectTextRuns(node: StyledNode): TextRun[] {
     // Nearest clip / stroke-image declarer: those properties do not inherit.
     const newClipStyle = inline && hasTextClip(n.style) ? n.style : clipStyle;
     const newStrokeImageStyle = inline && hasStrokeImage(n.style) ? n.style : strokeImageStyle;
-    const hasHorizSpacing = isBox && (n.style.paddingLeft > 0 || n.style.paddingRight > 0 ||
+    // Inline-axis margin, border and padding move the content whether or not the box paints.
+    const hasHorizSpacing = inline && (n.style.paddingLeft > 0 || n.style.paddingRight > 0 ||
       n.style.borderLeftWidth > 0 || n.style.borderRightWidth > 0);
+    const hasMargins = inline && (n.style.marginLeft !== 0 || n.style.marginRight !== 0);
 
     if (isInlineBlock) {
       // An inline-block is one atomic run, sized from its own content. Its text is U+FFFC, what
@@ -73,15 +76,12 @@ function collectTextRuns(node: StyledNode): TextRun[] {
       return;
     }
 
-    // An RTL bidi-override reverses each descendant run's characters and the runs' order.
-    const ub = n.style.unicodeBidi;
-    const overrideRtl = (ub === 'bidi-override' || ub === 'isolate-override') &&
-      n.style.direction === 'rtl';
-    const overrideStart = runs.length;
-    // The element's bidi context (CSS Writing Modes 3 §2.4.2); a reversed RTL override is an
-    // LTR override to the bidi algorithm.
-    const childBidi = bidiContextFor(ub, overrideRtl ? 'ltr' : n.style.direction, bidi);
+    // The element's bidi context (CSS Writing Modes 3 §2.4.2). An RTL override is reordered
+    // per line, after breaking, like any RTL text (`emitLineText`).
+    const childBidi = bidiContextFor(n.style.unicodeBidi, n.style.direction, bidi);
 
+    // A margin lies outside the box's background: its edge belongs to the enclosing box.
+    if (hasMargins) runs.push({ text: '', style: n.style, boxStyle, boxOpen: n.style, margin: true, bidi });
     if (hasHorizSpacing) {
       runs.push({ text: '', style: n.style, boxStyle: newBoxStyle, boxOpen: n.style, bidi });
     }
@@ -99,19 +99,7 @@ function collectTextRuns(node: StyledNode): TextRun[] {
     if (hasHorizSpacing) {
       runs.push({ text: '', style: n.style, boxStyle: newBoxStyle, boxClose: n.style, bidi });
     }
-
-    if (overrideRtl && runs.length > overrideStart) {
-      const seg = runs.splice(overrideStart);
-      for (const r of seg) {
-        if (r.text) {
-          r.text = [...r.text].reverse().join('');
-          // Now in visual order: paint left to right.
-          r.style = { ...r.style, direction: 'ltr' };
-        }
-      }
-      seg.reverse();
-      appendAll(runs, seg);
-    }
+    if (hasMargins) runs.push({ text: '', style: n.style, boxStyle, boxClose: n.style, margin: true, bidi });
   }
 
   // The block itself is the parent every top-level run measures against.
@@ -161,6 +149,7 @@ function prepareString(
   }
 
   const state = m.stateOf(run.style);
+  const spacing = run.style.wordSpacing || 0;
   const n = text.length;
 
   // `pre-line` collapses spaces and tabs (its newlines were split off in prepareInline).
@@ -184,10 +173,10 @@ function prepareString(
       if (code === 32) {
         while (j < n && text.charCodeAt(j) === 32) j++;
         const w = text.slice(i, j);
-        out.push(w, m.width(state, w), SEG_SPACE, ref);
+        out.push(w, m.width(state, w) + wordSpacingIn(w, spacing), SEG_SPACE, ref);
       } else {
         while (j < n && text.charCodeAt(j) !== 32 && text.charCodeAt(j) !== 9) j++;
-        forEachHyphenPiece(text, i, j, (w) => out.push(w, m.width(state, w), breakFlags(w), ref));
+        forEachHyphenPiece(text, i, j, (w) => out.push(w, m.width(state, overriddenText(w, run.bidi)) + wordSpacingIn(w, spacing), breakFlags(w), ref));
       }
       i = j;
     }
@@ -204,12 +193,12 @@ function prepareString(
       if (wordSeg) {
         for (const seg of wordSeg.segment(w)) {
           const s = seg.segment;
-          out.push(s, measureAfter(m, state, cum, s), breakFlags(s), ref);
+          out.push(s, measureAfter(m, state, cum, overriddenText(s, run.bidi)) + wordSpacingIn(s, spacing), breakFlags(s), ref);
         }
         return;
       }
     }
-    const width = measureAfter(m, state, cum, w);
+    const width = measureAfter(m, state, cum, overriddenText(w, run.bidi)) + wordSpacingIn(w, spacing);
     if (session.debug) {
       // Measured alone for the debug callback only.
       const directWidth = m.width(state, w);
@@ -226,7 +215,7 @@ function prepareString(
     let j = i + 1;
     if (isCollapsibleSpace(text.charCodeAt(i))) {
       while (j < n && isCollapsibleSpace(text.charCodeAt(j))) j++;
-      out.push(' ', measureAfter(m, state, cum, ' ') + (run.style.wordSpacing || 0), SEG_SPACE, ref);
+      out.push(' ', measureAfter(m, state, cum, ' ') + spacing, SEG_SPACE, ref);
       i = j;
       continue;
     }
@@ -265,13 +254,13 @@ function prepareInline(session: LayoutSession, runs: TextRun[]): PreparedInline 
       continue;
     }
 
-    // Inline box edge (padding + border), or an empty inline-block's opening edge. A
-    // percentage padding is 0 until `usedSegmentWidths`.
+    // Inline box edge (margin, or padding + border), or an empty inline-block's opening edge.
+    // A percentage is 0 until `usedSegmentWidths`; a negative margin pulls the next item back.
     const edge = run.boxOpen ?? run.boxClose;
     if (edge) {
       const box = intrinsicStyle(edge);
-      const pad = run.boxOpen ? box.paddingLeft + box.borderLeftWidth : box.paddingRight + box.borderRightWidth;
-      if (pad > 0 || box !== edge) {
+      const pad = inlineEdgeWidth(run, box);
+      if (pad !== 0 || box !== edge) {
         if (box !== edge) out.percentEdges.push(out.count);
         out.push('', pad, 0, out.addRefs(run));
       }

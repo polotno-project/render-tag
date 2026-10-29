@@ -213,9 +213,7 @@ drawLayout({
   without shadows and ~3 ms with a 10px blurred one (~8 ms at grapheme level). A wavy
   or dotted decoration is drawn whole per unit and clipped, so it costs per unit.
 - `paintBounds` stays the static layout's; add your animation's reach yourself.
-  Curved text (`render-tag/path`) has no units yet. Inside `<bdo>` or
-  `unicode-bidi: bidi-override`, units follow the painted order and their `text`
-  reads as painted.
+  Curved text (`render-tag/path`) has no units yet.
 
 ## Text on path: `render-tag/path`
 

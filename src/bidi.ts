@@ -544,6 +544,12 @@ export function bidiContextFor(
   }
 }
 
+/** Text in `context` is forced right to left: its innermost context is an RTL override (any
+ * nested embedding or isolate resets the override, UAX #9 X2-X5c). */
+export function overridesRtl(context: BidiContext | null | undefined): boolean {
+  return !!context && context.open.endsWith(RLO);
+}
+
 /** Builds a paragraph's text wrapped in its contexts' control characters (CSS Writing Modes 3 §2.4.2). */
 export class BidiTextBuilder {
   text = '';

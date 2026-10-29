@@ -63,7 +63,7 @@ const WEBKIT_LANE = [
   'tests/decoration-shape-parity.test.ts',
   'tests/decoration-position-parity.test.ts',
   'tests/text-shadow-coverage.test.ts',
-  // Not Gecko: its canvas orders some one-fillText bidi lines unlike the layout (file header).
+  // Not Gecko: its one-fillText RTL line paints off the layout's word advances (file header).
   'tests/text-units-parity.test.ts',
 ];
 

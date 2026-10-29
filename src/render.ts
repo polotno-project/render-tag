@@ -17,12 +17,6 @@ import { PaintState, withDraw } from './paint-state.js';
 import { fragmentBands, paintBand, type Band } from './decoration.js';
 import { BLINK_TEXT_RUN_SHAPING, STROKE_CASTS_TEXT_SHADOW } from './engine.js';
 
-function hasBorder(style: ResolvedStyle, side: 'Top' | 'Right' | 'Bottom' | 'Left'): boolean {
-  const width = style[`border${side}Width` as keyof ResolvedStyle] as number;
-  const borderStyle = style[`border${side}Style` as keyof ResolvedStyle] as string;
-  return width > 0 && borderStyle !== 'none';
-}
-
 /**
  * Corner radii [TL, TR, BR, BL] for `roundRect`, or null when all square.
  * Percentages resolve per axis; overlapping radii shrink uniformly
@@ -277,14 +271,13 @@ function paintSurface(ps: PaintState, box: LayoutBox): void {
   // double a translucent color at the corners. Per-side borders on rounded
   // corners stay straight lines (rare, and per-corner color joins are not
   // reproducible with strokes).
-  const uniformBorder = hasBorder(style, 'Top') &&
-    (['Right', 'Bottom', 'Left'] as const).every((side) =>
-      style[`border${side}Width`] === style.borderTopWidth &&
-      style[`border${side}Style`] === style.borderTopStyle &&
-      style[`border${side}Color`] === style.borderTopColor);
+  const w = style.borderTopWidth, line = style.borderTopStyle, color = style.borderTopColor;
+  const uniformBorder = w > 0 && line !== 'none' &&
+    style.borderRightWidth === w && style.borderBottomWidth === w && style.borderLeftWidth === w &&
+    style.borderRightStyle === line && style.borderBottomStyle === line && style.borderLeftStyle === line &&
+    style.borderRightColor === color && style.borderBottomColor === color && style.borderLeftColor === color;
   if (uniformBorder) {
-    const w = style.borderTopWidth;
-    ps.stroke(style.borderTopColor, w);
+    ps.stroke(color, w);
     if (radii) {
       ctx.beginPath();
       ctx.roundRect(
@@ -296,18 +289,16 @@ function paintSurface(ps: PaintState, box: LayoutBox): void {
       ctx.strokeRect(box.x + w / 2, box.y + w / 2, box.width - w, box.height - w);
     }
   } else if (style.borderTopWidth || style.borderRightWidth || style.borderBottomWidth || style.borderLeftWidth) {
-    const borders: [side: 'Top' | 'Right' | 'Bottom' | 'Left', x1: number, y1: number, x2: number, y2: number][] = [
-      ['Top', box.x, box.y + style.borderTopWidth / 2, box.x + box.width, box.y + style.borderTopWidth / 2],
-      ['Right', box.x + box.width - style.borderRightWidth / 2, box.y, box.x + box.width - style.borderRightWidth / 2, box.y + box.height],
-      ['Bottom', box.x, box.y + box.height - style.borderBottomWidth / 2, box.x + box.width, box.y + box.height - style.borderBottomWidth / 2],
-      ['Left', box.x + style.borderLeftWidth / 2, box.y, box.x + style.borderLeftWidth / 2, box.y + box.height],
+    const { borderTopWidth: t, borderRightWidth: r, borderBottomWidth: b, borderLeftWidth: l } = style;
+    const borders: [width: number, line: string, color: string, x1: number, y1: number, x2: number, y2: number][] = [
+      [t, style.borderTopStyle, style.borderTopColor, box.x, box.y + t / 2, box.x + box.width, box.y + t / 2],
+      [r, style.borderRightStyle, style.borderRightColor, box.x + box.width - r / 2, box.y, box.x + box.width - r / 2, box.y + box.height],
+      [b, style.borderBottomStyle, style.borderBottomColor, box.x, box.y + box.height - b / 2, box.x + box.width, box.y + box.height - b / 2],
+      [l, style.borderLeftStyle, style.borderLeftColor, box.x + l / 2, box.y, box.x + l / 2, box.y + box.height],
     ];
-    for (const [side, x1, y1, x2, y2] of borders) {
-      if (!hasBorder(style, side)) continue;
-      ps.stroke(
-        style[`border${side}Color` as keyof ResolvedStyle] as string,
-        style[`border${side}Width` as keyof ResolvedStyle] as number,
-      );
+    for (const [width, sideLine, sideColor, x1, y1, x2, y2] of borders) {
+      if (!(width > 0 && sideLine !== 'none')) continue;
+      ps.stroke(sideColor, width);
       ctx.beginPath();
       ctx.moveTo(x1, y1);
       ctx.lineTo(x2, y2);

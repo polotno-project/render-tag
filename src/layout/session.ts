@@ -430,10 +430,12 @@ export const LINE_BOX: unique symbol = Symbol('lineBox');
 /** A single-paint bidi run's own levels (`singlePaintLine`) when any differs from the paragraph's,
  * which it paints in. Unstamped, a run is one level in its `style.direction`. */
 export const RUN_LEVELS: unique symbol = Symbol('runLevels');
+/** An RTL override's run: its text is its graphemes reversed, as it paints (`overriddenText`). */
+export const RUN_REVERSED: unique symbol = Symbol('runReversed');
 export type PrivateText = LayoutText & {
   [LINE_TOP]?: number; [RUN_SEAM]?: true; [LIST_MARKER]?: PrivateLineBox; [CLAMP_ELLIPSIS]?: true;
   [INLINE_BLOCK]?: { box: LayoutBox; line: LayoutLineBox }; [LINE_BOX]?: LayoutLineBox;
-  [RUN_LEVELS]?: Uint8Array;
+  [RUN_LEVELS]?: Uint8Array; [RUN_REVERSED]?: true;
 };
 /** A run's text-unit pieces (`buildTextUnits`), set only on a layout made with text units. */
 export const RUN_PIECES: unique symbol = Symbol('runPieces');

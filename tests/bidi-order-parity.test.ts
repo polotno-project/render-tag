@@ -118,6 +118,9 @@ const CASES: Record<string, string> = {
   // ˈ is Bidi_Class ON though General_Category Lm: it must not read as L.
   'a modifier letter and digits in a span between Hebrew letters':
     '<p dir="rtl">א<span style="color:red">ˈ12</span>ב</p>',
+  // An RTL override paints its letters reversed, a styled child included.
+  'an RTL bdo across a styled child in an English line':
+    '<p>x <bdo dir="rtl">abc <b>def</b> 12</bdo> y</p>',
   // X10: the digits' sos comes from the embedding's explicit level, not the
   // level its Hebrew letter resolved to.
   'digits after an LTR embed around a Hebrew letter':

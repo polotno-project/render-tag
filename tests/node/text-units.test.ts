@@ -106,6 +106,15 @@ describe('text units: layout', () => {
     expect(letters.map(u => [u.text, u.grouped, u.x])).toEqual([['ש', false, 390], ['ל', false, 380], ['ו', false, 370], ['ם', false, 360]]);
   });
 
+  it('reads an RTL override in reading order where it paints reversed', () => {
+    const html = `${P}x <bdo dir="rtl">ab <b>cd</b></bdo> y</p>`;
+    expect(units(html, 'word').map(u => [u.text, u.x, u.fragments[0].direction])).toEqual([
+      ['x', 0, 'ltr'], ['ab', 50, 'rtl'], ['cd', 20, 'rtl'], ['y', 80, 'ltr'],
+    ]);
+    expect(units(html, 'grapheme').map(u => [u.text, u.x])).toEqual([['x', 0], ['a', 60], ['b', 50], ['c', 30], ['d', 20], ['y', 80]]);
+    expect(units(`${P}<bdo dir="rtl">abc de</bdo></p>`, 'line').map(u => u.text)).toEqual(['abc de']);
+  });
+
   it('splits a word whose bidi pieces another word separates', () => {
     // LTR paragraph: "abc" | "דהו" | "אבג" — the next word sits between the first word's pieces.
     const words = units(`${P}abcאבג דהו</p>`, 'word');

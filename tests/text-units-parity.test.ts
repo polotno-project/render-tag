@@ -7,8 +7,9 @@
  * repeats or misplaces paint (a lost underline or gradient, a glyph twice). Exact operation
  * parity at line level is gated in tests/node/text-units.test.ts. The grapheme level is
  * reported, not gated: a cut breaks ligatures, which changes real glyphs. Firefox is not a
- * lane: Gecko's canvas orders some one-fillText bidi lines unlike the layout ("Numbers and
- * currency in RTL"), so its plain draw differs where units follow the layout.
+ * lane (measured on a Mac): Gecko's one-fillText RTL line paints its glyphs off the layout's
+ * word advances ("Numbers and currency in RTL": 0.58% at word level, the order matching its
+ * DOM), and its clip antialiasing leaves a few seam pixels on a rotated opaque band.
  *
  *   npx vitest run --project chromium tests/text-units-parity.test.ts
  */

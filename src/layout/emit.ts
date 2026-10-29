@@ -3,10 +3,10 @@
 import type { StyledNode, LayoutBox, LayoutNode, LayoutText, ResolvedStyle, LayoutLine, LayoutLineBox } from '../types.js';
 import { isTransparent, resolvePercentages } from '../css-resolver.js';
 import { CANVAS_BIDI_LINE } from '../engine.js';
-import { BidiTextBuilder, levelRuns, lineLevels, mayNeedBidi, resolveBidi, visualOrder } from '../bidi.js';
+import { BidiTextBuilder, levelRuns, lineLevels, mayNeedBidi, overridesRtl, resolveBidi, visualOrder } from '../bidi.js';
 import {
   CLAMP_ELLIPSIS, INLINE_BLOCK, inlineBlockExtra, isShiftedVAlign, LINE_BASELINE, LINE_BOX, LINE_TOP,
-  RUN_LEVELS, RUN_SEAM, SPACE_WRAP, verticalAlignShift,
+  RUN_LEVELS, RUN_REVERSED, RUN_SEAM, SPACE_WRAP, verticalAlignShift,
   type LayoutSession, type Measurer, type PrivateLineBox, type PrivateText,
 } from './session.js';
 import {
@@ -14,7 +14,7 @@ import {
   textEdges, withDirection,
 } from './util.js';
 import {
-  isAtomicInlineBlock, type InlineBlockLayout, type PositionedLine, type PreparedInline, type Word,
+  inlineEdgeWidth, isAtomicInlineBlock, overriddenText, type InlineBlockLayout, type PositionedLine, type PreparedInline, type Word,
 } from './segment.js';
 import { clampLines, clampSpent, FlowItems, flowLines, LineFlow, type LineClampState } from './flow.js';
 import { inlineBlockContentWidth, takePreparedInline } from './prepare.js';
@@ -33,9 +33,7 @@ function usedSegmentWidths(
   const widths = prepared.width.slice();
   for (const i of prepared.percentEdges) {
     const refs = prepared.refs[prepared.ref[i]];
-    widths[i] = refs.boxOpen
-      ? refs.boxOpen.paddingLeft + refs.boxOpen.borderLeftWidth
-      : refs.boxClose!.paddingRight + refs.boxClose!.borderRightWidth;
+    widths[i] = inlineEdgeWidth(refs, refs.boxOpen ?? refs.boxClose!);
   }
   let layouts: Map<number, InlineBlockLayout> | undefined;
   for (const i of prepared.inlineBlocks) {
@@ -121,7 +119,8 @@ function resolveLineBidi(
 
 /** Can two visually adjacent pieces of one level paint as ONE fillText? */
 function sameBidiRun(a: Word, b: Word): boolean {
-  return a.refs.boxStyle === b.refs.boxStyle && a.refs.clipStyle === b.refs.clipStyle &&
+  return overridesRtl(a.refs.bidi) === overridesRtl(b.refs.bidi) &&
+    a.refs.boxStyle === b.refs.boxStyle && a.refs.clipStyle === b.refs.clipStyle &&
     a.refs.strokeImageStyle === b.refs.strokeImageStyle && a.refs.parentStyle === b.refs.parentStyle &&
     sameGlyphPaint(a.refs.style, b.refs.style);
 }
@@ -717,7 +716,7 @@ function emitInlineBackgrounds(
 }
 
 /** Record a text node's stamps and paint declarers for the passes after layout. */
-function registerTextNode(out: InlineEmit, node: PrivateText, word: Word, line: LayoutLineBox): void {
+function registerTextNode(out: InlineEmit, node: PrivateText, word: Word, line: LayoutLineBox, reversed: boolean): void {
   out.nodes.push(node);
   node[LINE_TOP] = line.y;
   if (word.runSeam) node[RUN_SEAM] = true;
@@ -725,6 +724,7 @@ function registerTextNode(out: InlineEmit, node: PrivateText, word: Word, line: 
     node[LINE_BOX] = line;
     if (word.levels) node[RUN_LEVELS] = word.levels;
     if (word.ellipsis) node[CLAMP_ELLIPSIS] = true;
+    if (reversed) node[RUN_REVERSED] = true;
   }
   if (word.refs.clipStyle) out.clipRuns.set(node, word.refs.clipStyle);
   if (word.refs.strokeImageStyle) out.strokeImageRuns.set(node, word.refs.strokeImageStyle);
@@ -774,12 +774,15 @@ function emitLineText(
     const baselineY = lineBaselineY + wordBaselineShift(out, word);
     const effectiveWidth = word.width + (word.isSpace ? justifyExtraPerSpace : 0);
     // A bidi piece paints in its level's direction; an RTL one is anchored
-    // at its right edge (`PaintState.text` sets textAlign).
-    const rtlPiece = levels !== null && levels[wordIndex] % 2 === 1;
+    // at its right edge (`PaintState.text` sets textAlign). Canvas would order an RTL
+    // override's letters by their own direction: it paints them reversed, left to right.
+    const rtl = levels !== null && levels[wordIndex] % 2 === 1;
+    const reversed = rtl && overridesRtl(word.refs.bidi);
+    const rtlPiece = rtl && !reversed;
 
     const node: PrivateText = {
       type: 'text',
-      text: word.text,
+      text: reversed ? overriddenText(word.text, word.refs.bidi) : word.text,
       x: rtlPiece ? curX + effectiveWidth : curX,
       y: baselineY,
       width: effectiveWidth,
@@ -790,7 +793,7 @@ function emitLineText(
     // Only when vertical-align moved this run off the line — an
     // underline from an unshifted declarer still hangs off the line.
     if (baselineY !== lineBaselineY) node.lineBaselineY = lineBaselineY;
-    registerTextNode(out, node, word, line);
+    registerTextNode(out, node, word, line, reversed);
 
     curX += effectiveWidth;
   }
