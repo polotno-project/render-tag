@@ -23,6 +23,15 @@ const SAFARI =
 const JSDOM = 'Mozilla/5.0 (darwin) AppleWebKit/537.36 (KHTML, like Gecko) jsdom/30.0.1';
 const HAPPY_DOM = 'Mozilla/5.0 (X11; Darwin arm64) AppleWebKit/537.36 (KHTML, like Gecko) HappyDOM/21.0.4';
 const NODE = 'Node.js/25.6.1';
+const LINUX_HEADLESS =
+  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/145.0.7632.6 Safari/537.36';
+const WINDOWS =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36';
+const ANDROID =
+  'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Mobile Safari/537.36';
+const CHROME_OS =
+  'Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36';
+const JSDOM_LINUX = 'Mozilla/5.0 (linux) AppleWebKit/537.36 (KHTML, like Gecko) jsdom/30.0.1';
 
 function stubUA(userAgent: string | null): void {
   vi.resetModules();
@@ -82,6 +91,27 @@ describe('engine branch', () => {
     ['Safari', SAFARI, false],
   ] as const)('%s paints a single-paint bidi line as one run: %s -> %s', async (_name, ua, expected) => {
     expect((await engineUnder(ua)).CANVAS_BIDI_LINE).toBe(expected);
+  });
+
+  // Only macOS Blink reports a glyph's painted ink in measureText; elsewhere it
+  // rounds the box to whole pixels (engine-probe marker-ink, CI). Without a
+  // browser (Node, jsdom, HappyDOM) there is no canvas to read the paint from.
+  it.each([
+    ['Chrome', CHROME, false],
+    ['headless Chrome', HEADLESS, false],
+    ['headless Chrome on Linux', LINUX_HEADLESS, true],
+    ['Chrome on Windows', WINDOWS, true],
+    ['Chrome on Android', ANDROID, true],
+    ['Chrome on ChromeOS', CHROME_OS, true],
+    ['jsdom', JSDOM, false],
+    ['jsdom on Linux', JSDOM_LINUX, false],
+    ['HappyDOM', HAPPY_DOM, false],
+    ['Node', NODE, false],
+    ['no navigator', null, false],
+    ['Firefox', FIREFOX, true],
+    ['Safari', SAFARI, true],
+  ] as const)('%s reads a bullet\'s ink off its paint: %s -> %s', async (_name, ua, expected) => {
+    expect((await engineUnder(ua)).INK_BOX_FROM_PAINT).toBe(expected);
   });
 
   // Margins leaving a block with a min-height: three engine answers. Gecko's

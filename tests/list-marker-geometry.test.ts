@@ -4,7 +4,8 @@
  * inner edge sits 7px + ascent/3 from the content (`addListMarker`). A
  * self-check against layout's own numbers, so it gates every lane: WebKit's
  * clamped ink box (`INK_BOX_FROM_PAINT`) drew it half size and raised, Gecko's
- * shifted one 1.5px off the text.
+ * shifted one 1.5px off the text, and Blink's whole-pixel one outside macOS
+ * (CI's ubuntu) up to 1.6px.
  *
  * Run: npx vitest run --project webkit tests/list-marker-geometry.test.ts
  */

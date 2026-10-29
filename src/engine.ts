@@ -68,8 +68,12 @@ export const MIN_HEIGHT_END_MARGINS: 'drop' | 'collapse' | 'contain' =
  * pixels. WebKit's always holds the pen origin and the advance, whatever the
  * textBaseline, textAlign or letterSpacing: `•` (Roboto 100px, ink 47.4 up,
  * -26.2 down, -6.8 left, 26.7 right) reads 47.4 / 0 / 0 / 33.7. Gecko's sits
- * ~1px right of the ink at any size. list-marker-geometry. */
-export const INK_BOX_FROM_PAINT = ENGINE !== 'blink';
+ * ~1px right of the ink at any size. Blink's is the ink only on macOS; Linux and
+ * Windows round it to whole pixels (`•` Roboto 120px reads 56 / -31 / -8 / 33 for
+ * 56.9 / -31.4 / -8.1 / 32), so does every Blink platform but macOS identify.
+ * Node and jsdom have no canvas to read. engine-probe marker-ink (CI),
+ * list-marker-geometry. */
+export const INK_BOX_FROM_PAINT = ENGINE !== 'blink' || /\b(Windows|Linux|CrOS)\b/.test(UA);
 
 /** Blink lays line-heights on its 1/64px LayoutUnit grid: a number floors the
  * product, a length rounds to nearest, the half-leading truncates.
