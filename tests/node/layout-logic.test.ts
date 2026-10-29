@@ -164,6 +164,21 @@ describe('Layout logic (mocked measureText)', () => {
     });
   });
 
+  // ─── Preserved spaces keep the kerning across them ──────────────────
+
+  describe('Preserved white space measures in context', () => {
+    // Arial kerns a space into a following "A" (-0.88px at 16px, measured in Chrome, which
+    // places it so under every white-space). The recording ctx kerns " A" too.
+    it.each(['pre', 'pre-wrap', 'break-spaces'])('%s lays single-spaced words out as normal does', (whiteSpace) => {
+      const runs = (ws: string) => {
+        const { ctx } = recordingCtx(600, 200);
+        const result = layout({ html: `<p style="margin:0;font:16px Arial;white-space:${ws}">und Aussprache Yes</p>`, width: 600, ctx });
+        return collectTexts(result.layoutRoot).map(t => [t.text, +t.x.toFixed(6), +t.width.toFixed(6)]);
+      };
+      expect(runs(whiteSpace)).toEqual(runs('normal'));
+    });
+  });
+
   // ─── Whitespace-only node between inline siblings ──────────────────
 
   describe('Inter-inline whitespace with newline', () => {

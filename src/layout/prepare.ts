@@ -3,7 +3,7 @@
 // max-content width, which prepares its own content.
 import type { StyledNode, ResolvedStyle } from '../types.js';
 import { anonymousBlockStyle, borderBoxSize, contentBoxSize, intrinsicStyle } from '../css-resolver.js';
-import { bidiContextFor, overridesRtl, type BidiContext } from '../bidi.js';
+import { bidiContextFor, type BidiContext } from '../bidi.js';
 import type { LayoutSession } from './session.js';
 import {
   hasOnlyInlineChildren, hasStrokeImage, hasTextClip, hasVisibleBoxStyles, horizontalFrame,
@@ -11,7 +11,7 @@ import {
 } from './util.js';
 import {
   abutsWithoutBreak, breakFlags, forEachHyphenPiece, inlineEdgeWidth, measureAfter, needsSegmenter,
-  segmentAdvance, segmenter, SegmentBuilder,
+  segmenter, SegmentBuilder,
   SEG_NO_BREAK_BEFORE, SEG_RUN_SEAM, SEG_SOFT_HYPHEN, SEG_SPACE, SEG_TAB,
   type Cumulative, type PreparedInline, type TextRun,
 } from './segment.js';
@@ -157,16 +157,19 @@ function prepareString(
     run.style.whiteSpace === 'break-spaces';
 
   if (isPreserve) {
-    // Space runs, single tabs and the text between them, split after hyphens.
+    // Space runs, single tabs and the text between them, split after hyphens; measured in
+    // context as collapsed text is, so a space's kerning into the next word counts (Arial
+    // " A": -0.88px at 16px in Chrome's DOM under every white-space). A tab restarts it.
     const tabStopInterval = m.width(state, ' ') * 8; // CSS default: 8 spaces
-    const plain = !run.style.wordSpacing && !overridesRtl(run.bidi);
-    const width = (w: string) => plain ? m.width(state, w) : segmentAdvance(m, state, w, run);
+    const cum: Cumulative = cumState ?? { text: '', width: 0, word: 0 };
     let i = 0;
     while (i < n) {
       const code = text.charCodeAt(i);
       if (code === 9) {
         // A placeholder: the flow resolves a tab against the tab stops.
         out.push('\t', tabStopInterval, SEG_SPACE | SEG_TAB, ref);
+        cum.text = '';
+        cum.width = cum.word = 0;
         i++;
         continue;
       }
@@ -174,10 +177,10 @@ function prepareString(
       if (code === 32) {
         while (j < n && text.charCodeAt(j) === 32) j++;
         const w = text.slice(i, j);
-        out.push(w, width(w), SEG_SPACE, ref);
+        out.push(w, measureAfter(m, state, cum, w, run), SEG_SPACE, ref);
       } else {
         while (j < n && text.charCodeAt(j) !== 32 && text.charCodeAt(j) !== 9) j++;
-        forEachHyphenPiece(text, i, j, (w) => out.push(w, width(w), breakFlags(w), ref));
+        forEachHyphenPiece(text, i, j, (w) => out.push(w, measureAfter(m, state, cum, w, run), breakFlags(w), ref));
       }
       i = j;
     }

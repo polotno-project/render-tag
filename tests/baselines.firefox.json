@@ -1140,7 +1140,7 @@
     "wrap": true
   },
   "Whitespace handling pre-wrap vs normal@Playfair Display": {
-    "score": 0.66,
+    "score": 0.52,
     "wrap": true
   },
   "Deeply nested inline styles@Playfair Display": {
@@ -1216,7 +1216,7 @@
     "wrap": true
   },
   "Pre-wrap preserved whitespace@Playfair Display": {
-    "score": 9.37,
+    "score": 0.57,
     "wrap": true
   },
   "Soft hyphens and zero-width spaces@Playfair Display": {
@@ -1432,7 +1432,7 @@
     "wrap": true
   },
   "Pre-wrap tabs and hard breaks@Playfair Display": {
-    "score": 1.56,
+    "score": 0.57,
     "wrap": true
   },
   "Simple paragraph@Merriweather": {
@@ -1496,7 +1496,7 @@
     "wrap": true
   },
   "Whitespace handling pre-wrap vs normal@Merriweather": {
-    "score": 11.23,
+    "score": 7.18,
     "wrap": true
   },
   "Deeply nested inline styles@Merriweather": {

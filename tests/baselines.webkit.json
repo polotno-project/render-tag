@@ -1216,7 +1216,7 @@
     "wrap": true
   },
   "Pre-wrap preserved whitespace@Playfair Display": {
-    "score": 2.85,
+    "score": 0,
     "wrap": true
   },
   "Soft hyphens and zero-width spaces@Playfair Display": {
@@ -1496,7 +1496,7 @@
     "wrap": true
   },
   "Whitespace handling pre-wrap vs normal@Merriweather": {
-    "score": 5.62,
+    "score": 0.91,
     "wrap": true
   },
   "Deeply nested inline styles@Merriweather": {
