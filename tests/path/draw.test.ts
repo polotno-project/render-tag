@@ -505,11 +505,13 @@ describe('drawTextOnPath (integration)', () => {
       path: 'M0,50 L800,50',
       align: 'left',
     });
-    // Visual left to right: the bold second word, the space, the first word.
-    expect(layout.glyphs.map((g) => g.char)).toEqual([
-      '\u05E2\u05D5\u05DC\u05DD', ' ', '\u05E9\u05DC\u05D5\u05DD',
-    ]);
+    // Visual left to right, letter by letter (Hebrew does not join): the bold second word
+    // reversed, the space, the first word reversed.
+    expect(layout.glyphs.map((g) => g.char).join('')).toBe(
+      '\u05DD\u05DC\u05D5\u05E2 \u05DD\u05D5\u05DC\u05E9');
+    expect(layout.glyphs.every((g) => !g.shaped)).toBe(true);
     expect(layout.glyphs[0].style.fontWeight).toBe(700);
+    expect(layout.glyphs[5].style.fontWeight).not.toBe(700);
   });
 
   it('Thai is also recognised as a shaping script', () => {

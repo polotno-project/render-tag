@@ -2,6 +2,7 @@
 import type { StyledNode, LayoutText, ResolvedStyle, DecorationEntry } from '../types.js';
 import { isTransparent, resolvePercentages } from '../css-resolver.js';
 import { LAYOUT_UNIT_LINE_FIT } from '../engine.js';
+import type { LayoutSession } from './session.js';
 
 /**
  * Apply text-transform per run, keeping CSS word context across style boundaries: a later
@@ -106,6 +107,14 @@ export function hasStrokeImage(style: ResolvedStyle): boolean {
 /** A box background painted as a box: background-clip:text clips it to glyphs instead. */
 export function paintsBoxBackground(style: ResolvedStyle): boolean {
   return !isTransparent(style.backgroundColor) && style.webkitBackgroundClip !== 'text';
+}
+
+/** `style` with `direction` set; one shared copy per style, so pieces of a run batch by identity. */
+export function withDirection(session: LayoutSession, style: ResolvedStyle, direction: 'ltr' | 'rtl'): ResolvedStyle {
+  if (style.direction === direction) return style;
+  let copy = session.flippedDirection.get(style);
+  if (!copy) session.flippedDirection.set(style, copy = { ...style, direction });
+  return copy;
 }
 
 /** A run's left and right edges (an RTL run's x is its right edge). */

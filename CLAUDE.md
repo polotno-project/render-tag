@@ -18,11 +18,12 @@ HTML string + CSS → parseHTML (DOMParser) → resolveStylesFromCSS (pure CSS p
   `src/layout/`): `session.ts` (the call's state, `Measurer`, engine
   line-height rules, the deliberate module state), `util.ts` (helpers more
   than one phase reads), `segment.ts` (runs, segments and flags,
-  CJK/emoji/kinsoku), `prepare.ts` (`preparedInline` and intrinsic sizes),
-  `flow.ts` (the line breaker, clamp), `emit.ts` (bidi reordering, lines to
+  CJK/emoji/kinsoku), `flow.ts` (the line breaker, clamp), `prepare.ts`
+  (`preparedInline` and intrinsic sizes), `emit.ts` (bidi reordering, lines to
   nodes), `flex.ts`, `block.ts` (margin collapsing, block/table/flex layout,
-  list marker). Imports point only DOWN that order: a helper two phases need
-  goes in `util.ts` or `session.ts`, never into a value import cycle.
+  list marker), `units.ts` (text units, after layout). Imports point only
+  DOWN that order: a helper two phases need goes in `util.ts` or
+  `session.ts`, never into a value import cycle.
 - **Layout is reentrant: one `LayoutSession` per `buildLayoutTree` call**,
   threaded down as `session`. It owns the call's `Measurer`, debug callback,
   lines, min/max-content caches, anonymous flex items and prepared inline
@@ -62,6 +63,12 @@ HTML string + CSS → parseHTML (DOMParser) → resolveStylesFromCSS (pure CSS p
   runs `flowInlineLines` → `clampLines` → `emitLine` (`alignedLineStart`,
   `lineBoxExtent`, bidi, `emitInlineBackgrounds`, `emitLineText`). A new break
   or glue rule goes INTO these; never re-derive it at a call site.
+- **Text units ride the one paint walk.** `units.ts` cuts runs into pieces
+  (`RUN_PIECES`) from emit's stamps (`LINE_BOX`, `RUN_LEVELS`, `INLINE_BLOCK`);
+  `UnitPainter` paints them through `walkPaintRegions` and `paintRuns`, so a
+  paint feature added there reaches units too. Write a new stamp only when
+  `session.units`: more run shapes slowed the plain `drawLayout` ~20%. Gates:
+  `tests/node/text-units.test.ts`, `tests/text-units-parity.test.ts`.
 - **Vector consumers exist** (README's PDF adapter contract,
   `tests/node/vector-shadows.test.ts`). Keep the public boundary
   Canvas-shaped: shadow images use `drawImage`; foreground retains drawing
@@ -82,7 +89,9 @@ HTML string + CSS → parseHTML (DOMParser) → resolveStylesFromCSS (pure CSS p
   a property only when the value changes and never relies on `restore` (some
   proxies do not snapshot state). One `save`/`restore` pair per draw; use
   `ps.save()`/`ps.restore()` only for a transform or clip (values written
-  inside are forgotten). Font, kerning and letter-spacing come from the
+  inside are forgotten). The exception is text units: each `paintTextUnit`
+  call runs in a ctx `save`/`restore` that must undo the caller's state, then
+  `forget()`. Font, kerning and letter-spacing come from the
   helpers `Measurer` uses (`tests/node/paint-state.test.ts`).
 
 ## CSS resolver
@@ -175,7 +184,7 @@ The mechanism (keep new paint features on it):
 - **Fragment geometry** — the paint spans the DECLARING element's fragment, not each
   word: `assignInlineFragmentBoxes` (per-line fragment box → `LayoutText.clip`/
   `.strokeImage`) in layout; `assignFragmentRanges` (natural-offset range) on path.
-  Block declarers span their border box, threaded down `renderBox` at render time.
+  Block declarers span their border box, threaded down `walkPaintRegions` at render time.
 - **Precedence** (both renderers must agree): nearest declarer wins; an inherited clip
   paint shows only when the run's own fill is transparent; a transparent decoration
   over clip-painted text paints the band with the clip paint (never skip it);
@@ -190,9 +199,9 @@ When touching this area, run `gradient-clip-inline-nested`,
 
 - **One band per text fragment** (one text node's pieces, contiguous on one
   line), not per word or per declarer: dashes fit and waves keep phase across
-  a fragment's spaces and restart at the next text node. `renderBox` groups
-  with `sameTextFragment`; `paintFragment` paints underline/overline, glyphs,
-  then line-through.
+  a fragment's spaces and restart at the next text node. `forEachFragment`
+  groups with `sameTextFragment`; `paintRuns` paints underline/overline,
+  glyphs, then line-through.
 - **No decoration crosses into an atomic inline** (`ATOMIC_INLINE`, CSS Text
   Decoration 3 §2.1): the ancestor's band leaves a gap there.
 - **The painter follows `ENGINE`.** Blink and WebKit shapes and positions are

@@ -54,6 +54,17 @@ export interface RecordingCtx {
   createCanvas: CanvasFactory;
 }
 
+/** The fillText calls of a recorded paint, as [text, x, y]. */
+export function fillTexts(paints: string[]): [string, number, number][] {
+  return paints
+    .filter((p) => p.startsWith('fillText('))
+    .map((p) => {
+      const m = /^fillText\((".*?"),(-?[\d.e+-]+),(-?[\d.e+-]+)/.exec(p);
+      if (!m) throw new Error(`unparsed paint: ${p}`);
+      return [JSON.parse(m[1]) as string, Number(m[2]), Number(m[3])];
+    });
+}
+
 /** A fresh, browser-default canvas state. */
 function defaultState(): Record<string, unknown> {
   return {

@@ -8,9 +8,10 @@ import { ScratchPool, withoutCanvasShadow } from './shadow.js';
 
 // Writes each ctx property only on change (a save/restore per run is a q/Q on
 // a PDF proxy) and never relies on `restore` to put a value back. Another
-// writer during a draw must go through the tracker, restore the value, or
-// `claimCtx` (as a nested `layout()` does). Values written inside save() are
-// forgotten at restore() and written again on next use.
+// writer during a draw must go through the tracker, restore the value,
+// `claimCtx` (as a nested `layout()` does) or be followed by `forget()` (a
+// `paintTextUnit` callback). Values written inside save() are forgotten at
+// restore() and written again on next use.
 
 type Key =
   | 'font' | 'fontKerning' | 'letterSpacing' | 'wordSpacing'
@@ -32,7 +33,7 @@ interface TextState {
 }
 
 export class PaintState {
-  private readonly known: Partial<Record<Key, unknown>> = {
+  private known: Partial<Record<Key, unknown>> = {
     // Assumed: only decorations change dash or cap, and `finish()` resets them.
     lineDash: '',
     lineCap: 'butt',
@@ -156,6 +157,11 @@ export class PaintState {
   restore(): void {
     this.ctx.restore();
     for (const key of this.scopes.pop() ?? []) delete this.known[key];
+  }
+
+  /** Forget everything: another writer (a `paintTextUnit` callback) may have written anything. */
+  forget(): void {
+    this.known = {};
   }
 
   /** Reset dash and cap for a ctx whose restore may not. */

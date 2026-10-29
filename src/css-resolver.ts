@@ -18,16 +18,22 @@ const ELEMENT_NODE = 1;
 const TEXT_NODE = 3;
 
 /** Memoized like `isColor`: paint asks once per painted fragment and shadow pass. */
-export const isTransparent: (color: string) => boolean = memoized(checkTransparent);
+export const isTransparent: (color: string) => boolean = memoized((color) => colorAlpha(color) <= 0);
+/** No alpha below 1 written: what a text unit's band overlap may paint twice unseen. */
+export const isOpaque: (color: string) => boolean = memoized((color) => colorAlpha(color) >= 1);
 
-function checkTransparent(color: string): boolean {
-  if (!color) return true;
-  const value = color.trim().toLowerCase();
-  if (!value || value === 'transparent' || /^#(?:[\da-f]{3}0|[\da-f]{6}00)$/.test(value)) return true;
-  // Literal comma or slash alpha only; color-mix() and the like are not evaluated.
+/** A color's written alpha: hex, or a literal comma or slash alpha; 1 when none is written.
+ * NaN when unreadable (color-mix(), calc(), a relative color's inherited alpha are not
+ * evaluated): neither transparent nor opaque. */
+function colorAlpha(color: string): number {
+  const value = (color || '').trim().toLowerCase();
+  if (!value || value === 'transparent') return 0;
+  const hex = value.match(/^#(?:[\da-f]{3}([\da-f])|[\da-f]{6}([\da-f]{2}))$/);
+  if (hex) return parseInt(hex[1] ? hex[1] + hex[1] : hex[2], 16) / 255;
   const alpha = value.match(/^(?:rgba?|hsla?)\([^,()]+,[^,()]+,[^,()]+,\s*([^,()\s]+)\s*\)$/)?.[1]
     ?? value.match(/^[a-z-]+\([^()]*\/\s*([^()\s]+)\s*\)$/)?.[1];
-  return alpha !== undefined && Number(alpha.replace(/%$/, '')) <= 0;
+  if (alpha !== undefined) return alpha.endsWith('%') ? Number(alpha.slice(0, -1)) / 100 : Number(alpha);
+  return /^(?:[a-z]+|#[\da-f]{3}|#[\da-f]{6}|(?:rgba?|hsla?|hwb|(?:ok)?l(?:ab|ch)|color)\((?!\s*from\b)[^()]*\))$/.test(value) ? 1 : NaN;
 }
 
 /** A shorthand's longhand, or one declaration as the cascade applies it. */

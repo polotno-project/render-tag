@@ -179,11 +179,10 @@ describe('layoutGlyphsOnPath', () => {
       ctx: mockCtx(),
       align: 'left',
     });
-    expect(out.glyphs.map(g => g.char)).toEqual([
-      '\u05E2\u05D5\u05DC\u05DD', ' ', '\u05E9\u05DC\u05D5\u05DD',
-    ]);
-    expect(out.glyphs[0].style.fontWeight).toBe(700);
-    expect(out.glyphs.map(g => g.x)).toEqual([0, 40, 50]);
+    // Letter by letter: Hebrew does not join.
+    expect(out.glyphs.map(g => g.char).join('')).toBe('\u05DD\u05DC\u05D5\u05E2 \u05DD\u05D5\u05DC\u05E9');
+    expect(out.glyphs.map(g => g.style.fontWeight === 700)).toEqual([true, true, true, true, false, false, false, false, false]);
+    expect(out.glyphs.map(g => g.x)).toEqual([0, 10, 20, 30, 40, 50, 60, 70, 80]);
   });
 
   it('an RTL word between LTR words is reversed in place', () => {
@@ -194,7 +193,7 @@ describe('layoutGlyphsOnPath', () => {
       align: 'left',
     });
     expect(out.glyphs.map(g => g.char)).toEqual([
-      'a', 'b', ' ', '\u05D2\u05D3', ' ', '\u05D0\u05D1', ' ', 'c', 'd',
+      'a', 'b', ' ', '\u05D3', '\u05D2', ' ', '\u05D1', '\u05D0', ' ', 'c', 'd',
     ]);
   });
 

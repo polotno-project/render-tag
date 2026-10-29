@@ -20,6 +20,10 @@ import type {
   ResolvedStyle,
   DecorationEntry,
   BorderRadius,
+  TextUnit,
+  TextUnitFragment,
+  TextUnitLevel,
+  TextUnitPaint,
 } from '../../src/index.ts';
 import { mockCtx, CHAR_WIDTH } from '../helpers/mock-ctx.ts';
 
@@ -48,7 +52,10 @@ it('names the layout node types', () => {
   const box = { children: [node] } as unknown as LayoutBox;
   const deco: DecorationEntry[] = [];
   const radius: BorderRadius = { pct: 50 };
-  expect([box, deco, radius]).toBeDefined();
+  const level: TextUnitLevel = 'grapheme';
+  const unit = { fragments: [{} as TextUnitFragment] } as unknown as TextUnit;
+  const paint = ({ draw }: TextUnitPaint) => draw();
+  expect([box, deco, radius, level, unit, paint]).toBeDefined();
 });
 
 afterAll(() => setDOMParser(null));

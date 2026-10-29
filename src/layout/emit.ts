@@ -1,16 +1,17 @@
 // The final flow's lines become nodes: bidi reordering, alignment, line boxes, inline
 // backgrounds, text nodes and the paint-declarer fragment boxes.
-import type { StyledNode, LayoutNode, LayoutText, ResolvedStyle, LayoutLine, LayoutLineBox } from '../types.js';
+import type { StyledNode, LayoutBox, LayoutNode, LayoutText, ResolvedStyle, LayoutLine, LayoutLineBox } from '../types.js';
 import { isTransparent, resolvePercentages } from '../css-resolver.js';
 import { CANVAS_BIDI_LINE } from '../engine.js';
-import { BidiTextBuilder, lineLevels, mayNeedBidi, resolveBidi, visualOrder } from '../bidi.js';
+import { BidiTextBuilder, levelRuns, lineLevels, mayNeedBidi, resolveBidi, visualOrder } from '../bidi.js';
 import {
-  inlineBlockExtra, isShiftedVAlign, LINE_TOP, RUN_SEAM, verticalAlignShift,
-  type LayoutSession, type Measurer, type PrivateText,
+  CLAMP_ELLIPSIS, INLINE_BLOCK, inlineBlockExtra, isShiftedVAlign, LINE_BASELINE, LINE_BOX, LINE_TOP,
+  RUN_LEVELS, RUN_SEAM, SPACE_WRAP, verticalAlignShift,
+  type LayoutSession, type Measurer, type PrivateLineBox, type PrivateText,
 } from './session.js';
 import {
   appendAll, createsLineBox, horizontalFrame, horizontalMargins, resolveChildPercentages, sameDecorationBand,
-  textEdges,
+  textEdges, withDirection,
 } from './util.js';
 import {
   isAtomicInlineBlock, type InlineBlockLayout, type PositionedLine, type PreparedInline, type Word,
@@ -118,14 +119,6 @@ function resolveLineBidi(
   });
 }
 
-/** `style` with `direction` set; one shared copy per style, so pieces of a run batch by identity. */
-function withDirection(session: LayoutSession, style: ResolvedStyle, direction: 'ltr' | 'rtl'): ResolvedStyle {
-  if (style.direction === direction) return style;
-  let copy = session.flippedDirection.get(style);
-  if (!copy) session.flippedDirection.set(style, copy = { ...style, direction });
-  return copy;
-}
-
 /** Can two visually adjacent pieces of one level paint as ONE fillText? */
 function sameBidiRun(a: Word, b: Word): boolean {
   return a.refs.boxStyle === b.refs.boxStyle && a.refs.clipStyle === b.refs.clipStyle &&
@@ -187,7 +180,11 @@ function singlePaintLine(
     at += lv.length;
   }
   return {
-    words: [{ ...first, text, width: words.reduce((sum, w) => sum + w.width, 0), isSpace: false }],
+    words: [{
+      ...first, text, width: words.reduce((sum, w) => sum + w.width, 0), isSpace: false,
+      ellipsis: words[words.length - 1].ellipsis,
+      levels: ownLevels.some((level) => level !== paragraphLevel) ? ownLevels : undefined,
+    }],
     levels: [paragraphLevel],
     keys: [0],
   };
@@ -218,14 +215,7 @@ function bidiLineItems(
       levels.push(-1); // a marker: resolved below
       return;
     }
-    let start = 0;
-    const cuts: Array<[number, number]> = [];
-    for (let i = 1; i <= lv.length; i++) {
-      if (i === lv.length || lv[i] !== lv[start]) {
-        cuts.push([start, i]);
-        start = i;
-      }
-    }
+    const cuts = levelRuns(lv);
     if (cuts.length === 1 || isAtomicInlineBlock(word)) {
       items.push(word);
       levels.push(lv[0]);
@@ -330,6 +320,7 @@ function bidiLineItems(
         // The flow's own advances (measured with context), not a fresh measure of the joined text.
         width: run.reduce((sum, w) => sum + w.width, 0),
         isSpace: run.every((w) => w.isSpace),
+        ellipsis: run[run.length - 1].ellipsis,
       });
     }
     outLevels.push(level);
@@ -465,6 +456,7 @@ function flowInlineLines(
     totalWidth: line.totalWidth,
     lineHeight: line.lineHeight,
     endedByHardBreak: line.endedByHardBreak,
+    spaceWrap: line.spaceWrap,
   }));
   if (session.stats) for (const line of lines) session.stats.wordObjects += line.words.length;
   // Content with no words can still make a line box (an empty inline with
@@ -555,9 +547,6 @@ function emitLine(
     }
   }
 
-  emitInlineBackgrounds(out, emitWords, curX, lineBaselineY, justifyExtraPerSpace);
-  emitLineText(out, emitWords, emitLevels, emitKeys, curX, y, lineBaselineY, justifyExtraPerSpace);
-
   // Justified lines fill lineMaxWidth.
   const lineWidth =
     align === 'justify' && justifyExtraPerSpace > 0
@@ -577,8 +566,15 @@ function emitLine(
       height: lineBoxHeight,
     },
   };
+  const lineBox: PrivateLineBox = { ...emittedLine.bounds, endedByHardBreak: !!line.endedByHardBreak };
+  if (out.session.units) {
+    lineBox[LINE_BASELINE] = lineBaselineY;
+    if (line.spaceWrap) lineBox[SPACE_WRAP] = true;
+  }
+  emitInlineBackgrounds(out, emitWords, curX, lineBox, lineBaselineY, justifyExtraPerSpace);
+  emitLineText(out, emitWords, emitLevels, emitKeys, curX, lineBox, lineBaselineY, justifyExtraPerSpace);
   out.lines.push(emittedLine);
-  out.lineBoxes.push({ ...emittedLine.bounds, endedByHardBreak: !!line.endedByHardBreak });
+  out.lineBoxes.push(lineBox);
   return lineBoxHeight;
 }
 
@@ -658,7 +654,8 @@ function emitInlineBox(
  * style (when it holds text), one per atomic inline-block.
  */
 function emitInlineBackgrounds(
-  out: InlineEmit, words: readonly Word[], startX: number, lineBaselineY: number, justifyExtraPerSpace: number,
+  out: InlineEmit, words: readonly Word[], startX: number, line: LayoutLineBox, lineBaselineY: number,
+  justifyExtraPerSpace: number,
 ): void {
   let scanX = startX;
   let boxStartX = scanX;
@@ -678,7 +675,7 @@ function emitInlineBackgrounds(
       // Every nonempty atomic receives an inner layout in `usedSegmentWidths`.
       const ib = word.inlineBlockLayout!;
       const boxY = lineBaselineY - ib.baselineOffset + s.marginTop;
-      out.nodes.push({
+      const box: LayoutBox = {
         type: 'box', style: s, x: boxX,
         y: boxY,
         width: s.borderLeftWidth + s.paddingLeft + ib.contentWidth +
@@ -686,12 +683,18 @@ function emitInlineBackgrounds(
         height: s.borderTopWidth + s.paddingTop + ib.contentHeight +
           s.paddingBottom + s.borderBottomWidth,
         tagName: 'span', children: [],
-        lineBoxes: ib.lineBoxes.map(line => ({
-          ...line,
-          x: line.x + boxX + s.borderLeftWidth + s.paddingLeft,
-          y: line.y + boxY + s.borderTopWidth + s.paddingTop,
+        lineBoxes: ib.lineBoxes.map(inner => ({
+          ...inner,
+          x: inner.x + boxX + s.borderLeftWidth + s.paddingLeft,
+          y: inner.y + boxY + s.borderTopWidth + s.paddingTop,
         })),
-      });
+      };
+      out.nodes.push(box);
+      if (out.session.units) {
+        // An enclosing inline-block's emit overwrites this: the outermost box owns the content.
+        const owner = { box, line };
+        for (const node of ib.nodes) if (node.type === 'text') (node as PrivateText)[INLINE_BLOCK] = owner;
+      }
       boxTextWord = undefined;
       scanX += word.width;
       continue;
@@ -713,11 +716,16 @@ function emitInlineBackgrounds(
   }
 }
 
-/** Record a text node's line top, run seam and paint declarers for the passes after layout. */
-function registerTextNode(out: InlineEmit, node: LayoutText, word: Word, lineTop: number): void {
+/** Record a text node's stamps and paint declarers for the passes after layout. */
+function registerTextNode(out: InlineEmit, node: PrivateText, word: Word, line: LayoutLineBox): void {
   out.nodes.push(node);
-  (node as PrivateText)[LINE_TOP] = lineTop;
-  if (word.runSeam) (node as PrivateText)[RUN_SEAM] = true;
+  node[LINE_TOP] = line.y;
+  if (word.runSeam) node[RUN_SEAM] = true;
+  if (out.session.units) {
+    node[LINE_BOX] = line;
+    if (word.levels) node[RUN_LEVELS] = word.levels;
+    if (word.ellipsis) node[CLAMP_ELLIPSIS] = true;
+  }
   if (word.refs.clipStyle) out.clipRuns.set(node, word.refs.clipStyle);
   if (word.refs.strokeImageStyle) out.strokeImageRuns.set(node, word.refs.strokeImageStyle);
 }
@@ -732,7 +740,7 @@ function emitLineText(
   levels: number[] | null,
   keys: number[] | null,
   startX: number,
-  lineTop: number,
+  line: LayoutLineBox,
   lineBaselineY: number,
   justifyExtraPerSpace: number,
 ): void {
@@ -769,7 +777,7 @@ function emitLineText(
     // at its right edge (`PaintState.text` sets textAlign).
     const rtlPiece = levels !== null && levels[wordIndex] % 2 === 1;
 
-    const node: LayoutText = {
+    const node: PrivateText = {
       type: 'text',
       text: word.text,
       x: rtlPiece ? curX + effectiveWidth : curX,
@@ -782,7 +790,7 @@ function emitLineText(
     // Only when vertical-align moved this run off the line — an
     // underline from an unshifted declarer still hangs off the line.
     if (baselineY !== lineBaselineY) node.lineBaselineY = lineBaselineY;
-    registerTextNode(out, node, word, lineTop);
+    registerTextNode(out, node, word, line);
 
     curX += effectiveWidth;
   }

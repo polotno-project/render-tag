@@ -1,6 +1,6 @@
 // One `buildLayoutTree` call's state and its measuring primitive. The deliberate module
 // state lives here: `layoutFontMetrics`, the `claimCtx` token, the symbols.
-import type { StyledNode, LayoutText, ResolvedStyle, LayoutLine } from '../types.js';
+import type { StyledNode, LayoutBox, LayoutText, LayoutLineBox, ResolvedStyle, LayoutLine } from '../types.js';
 import { LINE_HEIGHT_MULTIPLIER } from '../css-resolver.js';
 import { createFallbackMeasureCtx } from '../dom.js';
 import {
@@ -30,6 +30,9 @@ export interface LayoutSession {
   readonly flippedDirection: Map<ResolvedStyle, ResolvedStyle>;
   /** Work counts for `tests/node/perf-counters.test.ts`; undefined outside it. */
   readonly stats: LayoutStats | undefined;
+  /** Text units are built after layout: emit and markers write the stamps they read
+   * (`LINE_BOX`, `INLINE_BLOCK`, ...). Off, runs keep the plain path's few shapes. */
+  readonly units: boolean;
 }
 
 /** Work counts no ctx call shows, for `tests/node/perf-counters.test.ts`. Internal. */
@@ -416,7 +419,29 @@ function fontBox(m: TextMetrics): FontBox {
 export const LINE_TOP: unique symbol = Symbol('lineTop');
 /** Marks a LayoutText that starts a measuring run (`startsMeasuredRun`). A symbol: no public field. */
 export const RUN_SEAM: unique symbol = Symbol('runSeam');
-export type PrivateText = LayoutText & { [LINE_TOP]?: number; [RUN_SEAM]?: true };
+/** A list marker run's own line box (`addListMarker`): text units keep it out of the words. */
+export const LIST_MARKER: unique symbol = Symbol('listMarker');
+/** Marks a run whose text ends with a line-clamp's '…' (`applyEllipsisToLine`). */
+export const CLAMP_ELLIPSIS: unique symbol = Symbol('clampEllipsis');
+/** An inline-block's content run: its outermost box and that box's line (emit). */
+export const INLINE_BLOCK: unique symbol = Symbol('inlineBlock');
+/** A run's line box, by identity (emit). */
+export const LINE_BOX: unique symbol = Symbol('lineBox');
+/** A single-paint bidi run's own levels (`singlePaintLine`) when any differs from the paragraph's,
+ * which it paints in. Unstamped, a run is one level in its `style.direction`. */
+export const RUN_LEVELS: unique symbol = Symbol('runLevels');
+export type PrivateText = LayoutText & {
+  [LINE_TOP]?: number; [RUN_SEAM]?: true; [LIST_MARKER]?: PrivateLineBox; [CLAMP_ELLIPSIS]?: true;
+  [INLINE_BLOCK]?: { box: LayoutBox; line: LayoutLineBox }; [LINE_BOX]?: LayoutLineBox;
+  [RUN_LEVELS]?: Uint8Array;
+};
+/** A run's text-unit pieces (`buildTextUnits`), set only on a layout made with text units. */
+export const RUN_PIECES: unique symbol = Symbol('runPieces');
+/** Marks a line box whose soft wrap consumed white space: the words on either side are two. */
+export const SPACE_WRAP: unique symbol = Symbol('spaceWrap');
+/** A line box's baseline. */
+export const LINE_BASELINE: unique symbol = Symbol('lineBaseline');
+export type PrivateLineBox = LayoutLineBox & { [SPACE_WRAP]?: true; [LINE_BASELINE]?: number };
 
 /**
  * True when `node` starts a new measuring run after a piece of the same style

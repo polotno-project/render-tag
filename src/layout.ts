@@ -1,12 +1,13 @@
 // Layout entry: the public surface (`src/index.ts`, render, path, tests) and `buildLayoutTree`.
 // The phases live in `src/layout/`; imports there only point down session → util → segment →
-// flow → prepare → emit → flex → block, so no value import is circular.
-import type { StyledNode, LayoutBox, LayoutLine } from './types.js';
+// flow → prepare → emit → flex → block → units, so no value import is circular.
+import type { StyledNode, LayoutBox, LayoutLine, TextUnit, TextUnitLevel } from './types.js';
 import { resolveStylesFromCSS } from './css-resolver.js';
 import { parseHTML } from './parse.js';
 import { layoutFontMetrics, Measurer, type FontMetricsTable, type LayoutSession, type LayoutStats } from './layout/session.js';
 import { isInline } from './layout/util.js';
 import { addListMarker, layoutBlock } from './layout/block.js';
+import { buildTextUnits } from './layout/units.js';
 
 export {
   buildCanvasFont, canvasKerning, claimCtx, formatLetterSpacing, getFontMetrics, isShiftedVAlign,
@@ -17,7 +18,9 @@ export {
 export {
   hasStrokeImage, hasTextClip, paintsBoxBackground, sameDecorationBand, textEdges, transformTextRuns,
 } from './layout/util.js';
-export { graphemes } from './layout/segment.js';
+export { graphemes, shapesAsRun } from './layout/segment.js';
+export { RUN_PIECES } from './layout/session.js';
+export type { UnitPiece, UnitRun } from './layout/units.js';
 
 // ── Main entry ──
 
@@ -41,7 +44,8 @@ export function buildLayoutTree(
   containerWidth: number,
   debug?: (entry: import('./types.ts').DebugEntry) => void,
   stats?: LayoutStats,
-): { root: LayoutBox; height: number; lines: LayoutLine[] } {
+  unitLevel?: TextUnitLevel,
+): { root: LayoutBox; height: number; lines: LayoutLine[]; textUnits?: TextUnit[] } {
   // Everything starts empty with the call: fonts may have loaded since the last one.
   const fontMetrics: FontMetricsTable = new Map();
   const session: LayoutSession = {
@@ -54,6 +58,7 @@ export function buildLayoutTree(
     prepared: new Map(),
     flippedDirection: new Map(),
     stats,
+    units: unitLevel !== undefined,
   };
   // The styledTree root is our container div — layout its children as a block flow
   const { box, height } = layoutBlock(session, styledTree, 0, 0, containerWidth, undefined, true);
@@ -88,7 +93,8 @@ export function buildLayoutTree(
     }
   }
   layoutFontMetrics.set(box, fontMetrics);
-  return { root: box, height, lines };
+  const textUnits = unitLevel ? buildTextUnits(session, box, unitLevel) : undefined;
+  return { root: box, height, lines, textUnits };
 }
 
 function addListMarkersRecursive(

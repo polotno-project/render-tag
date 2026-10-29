@@ -1,11 +1,11 @@
 // Block flow: margin collapsing (CSS 2.1 §8.3.1), the block, table and flex container
 // layouts (mutually recursive, so one module) and the list marker.
-import type { StyledNode, LayoutNode, LayoutBox, LayoutText, ResolvedStyle } from '../types.js';
+import type { StyledNode, LayoutNode, LayoutBox, ResolvedStyle } from '../types.js';
 import {
   borderBoxSize, contentBoxSize, intrinsicStyle, OVERFLOW_X, OVERFLOW_Y, resolvePercentages,
 } from '../css-resolver.js';
 import { MARKER_LINE_WITHOUT_CONTENT, MIN_HEIGHT_END_MARGINS } from '../engine.js';
-import { BULLET_MARKERS, LINE_TOP, type LayoutSession, type PrivateText } from './session.js';
+import { BULLET_MARKERS, LINE_BASELINE, LINE_TOP, LIST_MARKER, type LayoutSession, type PrivateText } from './session.js';
 import {
   appendAll, createsLineBox, hasOnlyInlineChildren, horizontalFrame, isCollapsibleWhitespace, isInline,
   resolveChildPercentages,
@@ -555,7 +555,7 @@ export function addListMarker(
     }
   }
 
-  const marker: LayoutText = {
+  const marker: PrivateText = {
     type: 'text',
     text: node.listMarker,
     x: markerX,
@@ -564,21 +564,18 @@ export function addListMarker(
     // One spread: the marker's own style object (the paint-runs seam logic keys on identity).
     style: { ...markerStyleObj, fontSize: markerFontSize, textDecorationLine: 'none', textDecorations: [], direction: markerDirection },
   };
-  // The marker sits on the item's first line, whose top is the content top.
-  (marker as PrivateText)[LINE_TOP] = box.y + style.borderTopWidth + style.paddingTop;
+  // The marker sits on the item's first line, whose top is the content top. bounds.width is
+  // the scaled glyph ADVANCE, not its ink.
+  const bounds = {
+    x: markerDirection === 'rtl' ? markerX - markerDrawWidth : markerX,
+    y: box.y + style.borderTopWidth + style.paddingTop,
+    width: markerDrawWidth,
+    height: strut.ascent + strut.descent,
+  };
+  marker[LINE_TOP] = bounds.y;
+  if (session.units) marker[LIST_MARKER] = { ...bounds, endedByHardBreak: false, [LINE_BASELINE]: baselineY };
   box.children.unshift(marker);
 
   // Publish the marker as a LayoutLine too, merged with its item's text by baseline.
-  // bounds.width is the scaled glyph ADVANCE, not its ink.
-  const markerLeftX = markerDirection === 'rtl' ? markerX - markerDrawWidth : markerX;
-  session.lines.push({
-    y: Math.round(baselineY),
-    text: node.listMarker,
-    bounds: {
-      x: markerLeftX,
-      y: box.y + style.borderTopWidth + style.paddingTop,
-      width: markerDrawWidth,
-      height: strut.ascent + strut.descent,
-    },
-  });
+  session.lines.push({ y: Math.round(baselineY), text: node.listMarker, bounds });
 }

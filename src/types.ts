@@ -46,6 +46,76 @@ export interface LayoutConfig extends LayoutInput {
    * wordSpacing to 0px, and performs no save/restore.
    */
   ctx?: AnyContext;
+  /** Cut the laid-out text into units of this level (`LayoutResult.textUnits`) for
+   * `drawLayout`'s `paintTextUnit`. Omitted: no unit work at all. */
+  textUnits?: TextUnitLevel;
+}
+
+export type TextUnitLevel = 'line' | 'word' | 'grapheme';
+
+/** One visually contiguous piece of a unit on one line, in one direction. */
+export interface TextUnitFragment {
+  /** Its line: an id ordering the line boxes that hold text (white space too) in reading
+   * order; an inline-block's rows belong to its outer line. Not an index into
+   * `LayoutResult.lines`. */
+  line: number;
+  /** Left edge and width of the fragment; top and height of its line box. Layout px, like
+   * `lineBoxes`: Blink paints each line at a whole pixel (`paintLineSnap`). */
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** The line's baseline. */
+  baseline: number;
+  direction: 'ltr' | 'rtl';
+}
+
+/**
+ * A piece of the laid-out text that `paintTextUnit` paints under its own canvas
+ * state. Units are in reading order; white space is never a unit and paints with a
+ * unit beside it. Geometry is in layout px, before any canvas transform.
+ */
+export interface TextUnit {
+  /** Position in reading order. */
+  index: number;
+  /** The logical word it is or belongs to: a word cut by a line wrap keeps one id.
+   * Null for a line and a list marker. */
+  word: number | null;
+  /** What it paints, without white space. */
+  text: string;
+  /** `marker`: a list marker. `ellipsis`: a line-clamp's '…' (grapheme level; at
+   * word level it is part of its word). `atomic`: an inline-block's text, kept whole. */
+  kind: 'text' | 'marker' | 'ellipsis' | 'atomic';
+  /** Graphemes painted together to keep their shaping (a joining script's run). */
+  grouped: boolean;
+  /** Union of `fragments`. */
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** Split at a line wrap or a bidi reordering, never at a style change. */
+  fragments: TextUnitFragment[];
+}
+
+/** One `paintTextUnit` call: set canvas state on `ctx`, then `draw()`. */
+export interface TextUnitPaint {
+  unit: TextUnit;
+  /** The draw's ctx, saved before the call and restored after it. */
+  ctx: CanvasRenderingContext2D;
+  /**
+   * What this call paints: the unit's shadows (`shadow`: its text-shadows and the
+   * ctx's own shadow, before any text of its paint region; every unit gets this call
+   * while shadows render) or its glyphs, strokes and decorations (`text`). A unit is
+   * called once per phase for each paint region it spans.
+   */
+  phase: 'shadow' | 'text';
+  /**
+   * Paint the unit's part of this phase under the ctx's current state. Not calling
+   * it hides the unit; calling it again paints it again. `fill` replaces the glyph
+   * fill (solid or background-clip:text); text without one (transparent, outline
+   * only) stays unfilled. Strokes, decorations and shadows keep theirs.
+   */
+  draw(override?: { fill?: string | CanvasGradient }): void;
 }
 
 export interface LayoutResult {
@@ -61,6 +131,8 @@ export interface LayoutResult {
   height: number;
   /** A lossy per-line summary for wrap inspection and tests. */
   lines: LayoutLine[];
+  /** The text units `LayoutConfig.textUnits` asked for, in reading order. */
+  textUnits?: TextUnit[];
 }
 
 export interface DrawConfig extends DrawTarget, ShadowOptions {
@@ -68,6 +140,12 @@ export interface DrawConfig extends DrawTarget, ShadowOptions {
   layout: LayoutResult;
   /** Width used during layout (must match) */
   width: number;
+  /**
+   * Paint each text unit under its own canvas state (needs a layout made with
+   * `textUnits`). Box backgrounds and borders stay in place. A frame should be a
+   * pure function of the unit: render-tag may call this more than once per unit.
+   */
+  paintTextUnit?: (paint: TextUnitPaint) => void;
 }
 
 export interface DebugEntry {

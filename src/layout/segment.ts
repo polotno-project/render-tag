@@ -1,7 +1,7 @@
 // The inline data model: text runs, segments and their flags, and what a text earns on
 // its own (CJK, emoji, kinsoku, the measuring context). Read by every pass; leaf module.
 import type { StyledNode, LayoutNode, ResolvedStyle, LayoutLine, LayoutLineBox } from '../types.js';
-import type { BidiContext } from '../bidi.js';
+import { bidiClass, type BidiContext } from '../bidi.js';
 import type { Measurer, MeasureState } from './session.js';
 
 // ── Inline text run types ──
@@ -54,6 +54,10 @@ export interface Word {
   inlineBlockLayout?: InlineBlockLayout;
   /** See `SEG_RUN_SEAM`. */
   runSeam?: true;
+  /** A line-clamp's '…', or a bidi run ending with it (`CLAMP_ELLIPSIS`). */
+  ellipsis?: true;
+  /** A single-paint bidi line's own levels (`RUN_LEVELS`). */
+  levels?: Uint8Array;
 }
 
 /** A committed line as the emit pass reads it: a `FlowLine` with its items materialized. */
@@ -63,6 +67,8 @@ export interface PositionedLine {
   lineHeight: number;
   /** True at a forced break (preserved \n or <br>); uses text-align-last. */
   endedByHardBreak?: boolean;
+  /** Its soft wrap consumed white space (`SPACE_WRAP`). */
+  spaceWrap?: true;
 }
 
 /** True for atomic inline-block words (boxOpen && boxClose && text together). */
@@ -83,6 +89,21 @@ export function needsSegmenter(text: string): boolean {
     if (code > 0xFFFF) i++; // skip surrogate pair
   }
   return false;
+}
+
+// Scripts fillText must shape as whole runs. Not Hebrew: its letters do not join, and a
+// grapheme keeps its points. `\u` escapes only: a literal RTL code point can silently
+// corrupt the class.
+const SHAPING_RE = /[\u0600-\u086F\u08A0-\u109F\u1780-\u18AF\uFB50-\uFDFF\uFE70-\uFEFF]/;
+
+/** Classes a shaped run may hold. Without neutrals and at one level, fillText's
+ * own bidi pass orders the run's inside exactly as UAX #9 does. */
+const SHAPED_RUN_CLASSES = new Set(['L', 'R', 'AL', 'NSM', 'EN', 'AN']);
+
+/** A grapheme that must be painted in one fillText with its shaped neighbours, never alone. */
+export function shapesAsRun(grapheme: string): boolean {
+  return SHAPING_RE.test(grapheme) &&
+    SHAPED_RUN_CLASSES.has(bidiClass(grapheme.codePointAt(0)!));
 }
 
 const segmenters: Partial<Record<'word' | 'grapheme', Intl.Segmenter>> = {};

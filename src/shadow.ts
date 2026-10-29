@@ -89,8 +89,8 @@ export function withoutCanvasShadow(ctx: CanvasRenderingContext2D, paint: Paint)
 
 function requireShadowContext(ctx: CanvasRenderingContext2D): void {
   if (typeof ctx.getTransform !== 'function' || typeof ctx.setTransform !== 'function' ||
-      typeof ctx.drawImage !== 'function' || typeof ctx.getLineDash !== 'function') {
-    throw new Error('render-tag: shadows require a Canvas 2D context with getTransform, setTransform, drawImage and getLineDash. For vector adapters, set renderShadows: false and paint shadows separately.');
+      typeof ctx.drawImage !== 'function') {
+    throw new Error('render-tag: shadows require a Canvas 2D context with getTransform, setTransform and drawImage. For vector adapters, set renderShadows: false and paint shadows separately.');
   }
 }
 
@@ -239,17 +239,19 @@ export class ScratchPool {
 /** Point `target` at the caller's drawing state, with `matrix` moved so
  * device pixel (x, y) lands on the target's origin. Destination opacity,
  * clipping, filters and blending apply when painting the effect image and
- * foreground, not while collecting shadow coverage. */
+ * foreground, not while collecting shadow coverage. Dash and cap start solid
+ * and butt, as a new `PaintState` assumes. */
 function prepareLayer(
   target: CanvasRenderingContext2D, ctx: CanvasRenderingContext2D, matrix: Matrix, x: number, y: number,
 ): void {
   for (const key of ['font', 'fontKerning', 'fontStretch', 'fontVariantCaps', 'textRendering',
     'letterSpacing', 'wordSpacing', 'textAlign', 'textBaseline', 'direction',
-    'lineWidth', 'lineCap', 'lineJoin', 'miterLimit', 'lineDashOffset',
+    'lineWidth', 'lineJoin', 'miterLimit', 'lineDashOffset',
     'fillStyle', 'strokeStyle', 'imageSmoothingEnabled', 'imageSmoothingQuality'] as const) {
     if (key in ctx) (target as any)[key] = ctx[key];
   }
-  target.setLineDash(ctx.getLineDash());
+  target.setLineDash([]);
+  target.lineCap = 'butt';
   target.setTransform(matrix.a, matrix.b, matrix.c, matrix.d, matrix.e - x, matrix.f - y);
 }
 
@@ -304,10 +306,23 @@ function castShadow(
 export function withCanvasShadow(
   ctx: CanvasRenderingContext2D, bounds: () => PaintBounds, paint: Paint, pool: ScratchPool,
 ): void {
+  if (castCanvasShadow(ctx, bounds, paint, pool)) withoutCanvasShadow(ctx, paint);
+  else paint(ctx);
+}
+
+/** The caller's ctx casts a shadow. */
+export function hasCanvasShadow(ctx: CanvasRenderingContext2D): boolean {
+  // The numbers first: reading `shadowColor` serializes a string.
+  return (ctx.shadowBlur > 0 || ctx.shadowOffsetX !== 0 || ctx.shadowOffsetY !== 0) &&
+    !isTransparent(ctx.shadowColor);
+}
+
+/** Cast the caller's shadow from `paint`'s rendering, without the rendering; false with no shadow. */
+export function castCanvasShadow(
+  ctx: CanvasRenderingContext2D, bounds: () => PaintBounds, paint: Paint, pool: ScratchPool,
+): boolean {
+  if (!hasCanvasShadow(ctx)) return false;
   const color = ctx.shadowColor;
-  const hasShadow = !isTransparent(color) &&
-    (ctx.shadowBlur > 0 || ctx.shadowOffsetX !== 0 || ctx.shadowOffsetY !== 0);
-  if (!hasShadow) { paint(ctx); return; }
   requireShadowContext(ctx);
   const source = layer(ctx, bounds(), ctx.getTransform(), paint, pool);
   const pad = blurPad(ctx.shadowBlur);
@@ -325,7 +340,7 @@ export function withCanvasShadow(
     // A drawing-command proxy may not save its emulated shadow properties.
     ctx.shadowColor = color;
   }
-  withoutCanvasShadow(ctx, paint);
+  return true;
 }
 
 /** Pixels per shadow tile: a small blur margin per tile, a few-MB mask. */

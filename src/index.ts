@@ -12,7 +12,7 @@ export type { RenderConfig, RenderResult, LayoutConfig, LayoutResult, DrawConfig
 // The `layoutRoot` node types: a versioned contract for external renderers.
 export type {
   LayoutBox, LayoutLineBox, LayoutText, LayoutNode, ResolvedStyle, DecorationEntry, BorderRadius,
-  CanvasFactory, ShadowOptions,
+  CanvasFactory, ShadowOptions, TextUnit, TextUnitFragment, TextUnitLevel, TextUnitPaint,
 } from './types.js';
 export { setDOMParser, type DOMParserLike } from './dom.js';
 export { lineBaselineOffset, getFontMetrics, tabStopMetrics } from './layout.js';
@@ -31,6 +31,9 @@ export function layout(config: LayoutConfig): LayoutResult {
   if (!Number.isFinite(width) || width <= 0) {
     throw new TypeError(`layout: width must be a positive finite number, got ${width}`);
   }
+  if (config.textUnits !== undefined && !['line', 'word', 'grapheme'].includes(config.textUnits)) {
+    throw new TypeError(`layout: textUnits must be 'line', 'word' or 'grapheme', got ${config.textUnits}`);
+  }
 
   // No save/restore on a caller's ctx: it is not free on PDF proxies.
   const measureCtx =
@@ -39,12 +42,13 @@ export function layout(config: LayoutConfig): LayoutResult {
 
   // Without a height, vh falls back to the width (a square viewport).
   const tree = styleTree(html, measureCtx, width, { width, height: height || width });
-  const { root, height: contentHeight, lines } =
-    buildLayoutTree(measureCtx, tree, width, config.debug);
+  const { root, height: contentHeight, lines, textUnits } =
+    buildLayoutTree(measureCtx, tree, width, config.debug, undefined, config.textUnits);
   const paintBounds = lazyPaintBounds(measureCtx, (ctx) => getNodePaintBounds(ctx, root));
   return {
     layoutRoot: root, height: height || contentHeight, lines,
     get paintBounds() { return paintBounds(); },
+    ...(textUnits && { textUnits }),
   };
 }
 
@@ -64,6 +68,9 @@ export function drawLayout(config: DrawConfig): { canvas: AnyCanvas } {
   }
   if (!Number.isFinite(pixelRatio) || pixelRatio <= 0) {
     throw new TypeError(`drawLayout: pixelRatio must be a positive finite number, got ${pixelRatio}`);
+  }
+  if (config.paintTextUnit && !layoutResult.textUnits) {
+    throw new TypeError('drawLayout: paintTextUnit needs a layout made with textUnits');
   }
 
   const finalHeight = layoutResult.height;

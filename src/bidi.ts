@@ -471,6 +471,18 @@ export function lineLevels(par: BidiParagraph, start: number, end: number): Uint
   return out;
 }
 
+/** `[start, end)` of each run of equal levels, in order. */
+export function levelRuns(levels: ArrayLike<number>): [number, number][] {
+  const runs: [number, number][] = [];
+  for (let start = 0, i = 1; i <= levels.length; i++) {
+    if (i === levels.length || levels[i] !== levels[start]) {
+      runs.push([start, i]);
+      start = i;
+    }
+  }
+  return runs;
+}
+
 /** L2: visual order (indices, left to right) of items with the given levels. */
 export function visualOrder(levels: ArrayLike<number>): number[] {
   const order = Array.from({ length: levels.length }, (_, i) => i);

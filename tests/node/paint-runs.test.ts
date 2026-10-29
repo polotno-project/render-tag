@@ -17,22 +17,11 @@ import { DOMParser as LinkedomDOMParser } from 'linkedom';
 import { layout, drawLayout, setDOMParser } from '../../src/index.ts';
 import { getNodePaintBounds } from '../../src/render.ts';
 import { LINE_TOP, type PrivateText } from '../../src/layout/session.ts';
-import { recordingCtx } from '../helpers/recording-ctx.ts';
+import { fillTexts, recordingCtx } from '../helpers/recording-ctx.ts';
 import { collectTexts } from '../helpers/layout-tree.ts';
 import { serializeResult } from '../helpers/serialize-result.ts';
 
 afterAll(() => setDOMParser(null));
-
-/** The fillText calls of a paint, as [text, x, y]. */
-function fillTexts(paints: string[]): [string, number, number][] {
-  return paints
-    .filter((p) => p.startsWith('fillText('))
-    .map((p) => {
-      const m = /^fillText\((".*?"),(-?[\d.e+-]+),(-?[\d.e+-]+)/.exec(p);
-      if (!m) throw new Error(`unparsed paint: ${p}`);
-      return [JSON.parse(m[1]) as string, Number(m[2]), Number(m[3])];
-    });
-}
 
 function paint(html: string) {
   setDOMParser(new LinkedomDOMParser());

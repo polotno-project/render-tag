@@ -36,7 +36,7 @@ document.body.appendChild(canvas);
 
 ```ts
 function render(config: RenderConfig): { canvas, height, layoutRoot, lines, paintBounds };
-function layout(config: LayoutConfig): { layoutRoot, height, lines, paintBounds };
+function layout(config: LayoutConfig): { layoutRoot, height, lines, paintBounds, textUnits? };
 function drawLayout(config: DrawConfig): { canvas };
 ```
 
@@ -50,6 +50,8 @@ function drawLayout(config: DrawConfig): { canvas };
 | `createCanvas` | browser canvas | Factory `(width, height) => canvas` for shadow composition. Required for shadows outside browsers. |
 | `renderShadows` | `true` | Set `false` to omit CSS and context shadows without allocating shadow buffers. Foreground stays drawing commands in both modes. |
 | `pixelRatio` | `devicePixelRatio` | HiDPI scaling. |
+| `textUnits` | — | `layout()` only: cut the text into `'line'`, `'word'` or `'grapheme'` units ([Text units](#text-units-per-word-and-per-letter-animation)). |
+| `paintTextUnit` | — | `drawLayout()` only: paint each unit under its own canvas state. |
 
 Use `layout()` + `drawLayout()` when you need to measure content, render the same layout onto multiple targets, or render onto an `OffscreenCanvas`.
 
@@ -151,6 +153,70 @@ and rendering.
 
 Clips to N lines and appends an ellipsis to the Nth. `line-clamp` (unprefixed) is accepted as a synonym. `none` / `auto` / `0` mean "no clamp". Like Chrome's legacy `-webkit-box` behavior, the line count spans block descendants — a clamp on a wrapper truncates across its `<p>`/`<div>` children and drops everything below the cut.
 
+### Text units (per-word and per-letter animation)
+
+Lay out once, then draw each line, word or grapheme under its own canvas state:
+opacity, transforms, clips, filters. Text stays where the layout put it; you own
+timing and effects, render-tag paints.
+
+```ts
+const result = layout({ html, width, textUnits: 'word' }); // 'line' | 'word' | 'grapheme'
+const count = result.textUnits!.length;
+
+// Every frame:
+drawLayout({
+  layout: result, width, ctx, pixelRatio: 1,
+  paintTextUnit({ unit, ctx, draw }) {
+    const p = progressAt(time, unit.index, count); // your stagger and easing
+    if (p <= 0) return;                             // not drawn: hidden
+    ctx.globalAlpha *= p;
+    ctx.translate(0, 12 * (1 - p));
+    draw();                                         // or draw({ fill: 'gold' })
+  },
+});
+```
+
+- **Units** are in reading order, logical for bidi text. White space is never a
+  unit; it paints with a unit beside it. Each `TextUnit` has `index`, `text`,
+  `kind` (`text`, `marker` for a list marker, `ellipsis` for a line-clamp `…` at
+  grapheme level, `atomic` for an inline-block, kept whole), `word` (a logical
+  word id, kept across a wrap inside the word; `null` for lines and markers), and
+  geometry in layout px, like `lineBoxes`: a union rectangle plus `fragments`, one
+  per line and visual stretch, each with its line id, line box, baseline and
+  direction.
+- **Graphemes** are positioned where the whole run paints them, kerning included.
+  A cut breaks ligatures and contextual alternates. Scripts that must be shaped
+  whole (Arabic, Indic, Thai, Khmer, Myanmar) stay one unit per shaped
+  run within a word, with `grouped: true`; wipe such a unit with a clip in its
+  fragment's `direction` instead.
+- **Everything of a unit moves with it**: glyphs, stroke, decorations (clipped to
+  the unit, so dashes and waves keep their phase), gradient fill (one gradient
+  over the declaring element, so a moving word carries its part) and text-shadow.
+  `fill` replaces the glyph fill only: transparent or outline-only text stays
+  unfilled (reveal it with `ctx.globalAlpha`). Under a rotated ctx an opaque band
+  overlaps its neighbour's by a device pixel; a translucent one, or one fading,
+  meets it edge to edge and may show a faint seam.
+- **Paint order** is kept: box backgrounds and borders paint in place and bound
+  paint regions; in each region every unit's shadows paint before any unit's
+  text. Each unit casts its shadow from its own mask, so where neighbouring
+  units' translucent shadows overlap they composite darker than in
+  `drawLayout`. While shadows render, each unit is called with `phase: 'shadow'`
+  and then `'text'`, so make the callback a pure function of the unit and your time.
+- **The ctx is saved before each call and restored after**, so a vector adapter's
+  `save`/`restore` must keep the state a callback sets. Opacity applies per
+  paint (stroke over fill shows through while fading), not as a group. A canvas
+  shadow (`ctx.shadow*`, set before the draw or in the callback) is cast in the
+  shadow phase from the unit's whole paint, so it also shows over a box
+  background, where `drawLayout`'s one cast from the whole result does not.
+- **Cost**: no unit work without `textUnits`. Each unit with a text-shadow casts
+  its own blurred mask; in Chromium a 30-word headline frame takes ~0.1 ms
+  without shadows and ~3 ms with a 10px blurred one (~8 ms at grapheme level). A wavy
+  or dotted decoration is drawn whole per unit and clipped, so it costs per unit.
+- `paintBounds` stays the static layout's; add your animation's reach yourself.
+  Curved text (`render-tag/path`) has no units yet. Inside `<bdo>` or
+  `unicode-bidi: bidi-override`, units follow the painted order and their `text`
+  reads as painted.
+
 ## Text on path: `render-tag/path`
 
 Draw rich text along an SVG path. Separate subpath entry point.
@@ -172,7 +238,7 @@ drawTextOnPath({
 `'middle'` — path through the vertical center.
 `'top'` / `'bottom'` — text hangs below / above the path.
 
-Same HTML/CSS dialect as the main API: fonts, colors, weights, `text-transform`, `direction: rtl`, `text-shadow`, `background-color`, `text-decoration`, gradient text via `background-clip: text`. Joining scripts (Arabic, Hebrew, Indic, Thai, Khmer, Myanmar) are shaped as runs so cursive joining works.
+Same HTML/CSS dialect as the main API: fonts, colors, weights, `text-transform`, `direction: rtl`, `text-shadow`, `background-color`, `text-decoration`, gradient text via `background-clip: text`. Joining scripts (Arabic, Indic, Thai, Khmer, Myanmar) are shaped as runs so cursive joining works; Hebrew is placed letter by letter.
 
 The path lays out as a single logical line — glyphs that overflow the path's end are dropped.
 
@@ -250,7 +316,7 @@ drawLayout({ layout: result, width: 400, ctx: pdfContext, createCanvas });
 ```
 
 With shadows enabled, the proxy must support Canvas 2D image and transform
-operations, including `drawImage`, `getTransform`, `setTransform` and `getLineDash`. The adapter
+operations, including `drawImage`, `getTransform` and `setTransform`. The adapter
 owns PDF image embedding and must preserve drawing order if embedding is
 asynchronous; render-tag's drawing APIs remain synchronous. One text-shadow
 group can arrive as several abutting horizontal image tiles, drawn unscaled on

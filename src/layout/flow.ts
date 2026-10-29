@@ -39,7 +39,7 @@ function applyEllipsisToLine(
     pop();
     popSpaces();
   }
-  words.push({ text: '…', width, refs: { style, parentStyle, boxStyle }, isSpace: false });
+  words.push({ text: '…', width, refs: { style, parentStyle, boxStyle }, isSpace: false, ellipsis: true });
   if (session.stats) session.stats.wordObjects++;
   line.totalWidth += width;
 }
@@ -151,6 +151,8 @@ interface FlowLine {
   lineHeight: number;
   /** True at a forced break (preserved \n or <br>); uses text-align-last. */
   endedByHardBreak?: boolean;
+  /** Its soft wrap consumed white space (`SPACE_WRAP`). */
+  spaceWrap?: true;
 }
 
 /**
@@ -499,6 +501,7 @@ export class LineFlow {
       while (line.length > 0 && this.isSpace(line[line.length - 1])) {
         current.totalWidth -= items.width(line[line.length - 1]);
         line.pop();
+        if (isSoftWrap) current.spaceWrap = true;
       }
     }
     // A soft wrap at a soft hyphen appends a visible '-'.

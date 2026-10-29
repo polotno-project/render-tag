@@ -2,9 +2,9 @@
  * one "shaped run" placement so fillText shapes them as a unit. */
 
 import type { ResolvedStyle, StyledNode } from '../types.js';
-import { Measurer, type FontMetricsTable, type MeasureState, graphemes as splitGraphemes, hasStrokeImage, hasTextClip, transformTextRuns } from '../layout.js';
+import { Measurer, type FontMetricsTable, type MeasureState, graphemes as splitGraphemes, hasStrokeImage, hasTextClip, shapesAsRun, transformTextRuns } from '../layout.js';
 import {
-  BidiTextBuilder, bidiClass, bidiContextFor, lineLevels, mayNeedBidi, resolveBidi, visualOrder,
+  BidiTextBuilder, bidiContextFor, lineLevels, mayNeedBidi, resolveBidi, visualOrder,
   type BidiContext,
 } from '../bidi.js';
 import type { PathLike, Point } from './svg-path.js';
@@ -126,10 +126,6 @@ export function flattenSegments(root: StyledNode): Segment[] {
   return transformTextRuns(out);
 }
 
-// Scripts fillText must shape as whole runs. `\u` escapes only: a literal RTL
-// code point can silently corrupt the class.
-const SHAPING_RE = /[\u0590-\u086F\u08A0-\u109F\u1780-\u18AF\uFB1D-\uFDFF\uFE70-\uFEFF]/;
-
 interface PreGlyph {
   text: string;
   width: number;
@@ -144,10 +140,6 @@ interface PreGlyph {
   /** UAX #9 level. */
   level: number;
 }
-
-/** Classes a shaped run may hold. Without neutrals and at one level, fillText's
- * own bidi pass orders the run's inside exactly as UAX #9 does. */
-const SHAPED_RUN_CLASSES = new Set(['L', 'R', 'AL', 'NSM', 'EN', 'AN']);
 
 /** A segment's PreGlyphs in logical order: one per grapheme, joining-script
  * graphemes grouped into shaped runs. The caller reorders all segments (L2). */
@@ -186,18 +178,15 @@ function preGlyphsForSegment(
     }
   };
   for (const g of graphemes) {
-    const isSpace = g === ' ';
     const level = levels[offset];
     offset += g.length;
-    const shapes = !isSpace && SHAPING_RE.test(g) &&
-      SHAPED_RUN_CLASSES.has(bidiClass(g.codePointAt(0)!));
-    if (shapes) {
+    if (shapesAsRun(g)) {
       if (shapedRun && level !== runLevel) flush();
       shapedRun += g;
       runLevel = level;
     } else {
       flush();
-      emit(g, false, isSpace, level);
+      emit(g, false, g === ' ', level);
     }
   }
   flush();

@@ -61,9 +61,6 @@ describe('vector adapters', () => {
       getTransform: () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }),
       setTransform() {}, drawImage() {},
     });
-    // `prepareLayer` copies the destination's dash onto each mask.
-    expect(() => render({ html, width: 500, ctx })).toThrow(/getLineDash/);
-    Object.assign(ctx, { getLineDash: () => [] });
     expect(() => render({ html, width: 500, ctx })).toThrow(/provide createCanvas/);
   });
 });
