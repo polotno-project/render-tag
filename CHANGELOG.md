@@ -2,6 +2,12 @@
 
 Only the interesting, user-visible changes. Full detail lives in the git history.
 
+## 0.4.1 — 2026-10-29
+
+- Draw list bullets at their exact size and place in Chrome on Windows, Linux, ChromeOS and Android, as on macOS: Chrome there reports a bullet's ink in whole pixels, which put it up to 1.6px off.
+- Keep a space's kerning into the next word under `white-space: pre`, `pre-wrap` and `break-spaces` (in Arial before "A", "T" or "Y"): the rest of such a line no longer drifts right of the browser's layout.
+- Text units: a word after a kerned space paints exactly where `drawLayout` paints it, so word and line units at rest no longer sit up to a pixel off.
+
 ## 0.4.0 — 2026-10-29
 
 - Animate text by line, word or letter: `layout({ textUnits })` cuts the laid-out text into units, and `drawLayout({ paintTextUnit })` paints each one under its own canvas state, with its gradient, stroke, decorations and shadow. See the [live examples](https://polotno.com/render-tag/#motion).
