@@ -75,7 +75,7 @@ const { canvas } = render({
     <section class="layout-section shell" id="layout">
       <div class="layout-copy"><p class="eyebrow">LAYOUT WITHOUT PAINTING</p><h2>Text measurements.</h2><p>Get content height, line boxes, and positioned runs. Use them to fit text into a space, draw backgrounds, or build hit areas.</p><a class="text-link" href="#api">Layout &amp; headless examples →</a></div>
       <figure class="layout-inspector"><figcaption class="panel-label"><span>LINE BOXES</span><span id="layout-dimensions">Measuring…</span></figcaption><div id="layout-preview" role="img" aria-label="Measured line boxes, used to draw backgrounds behind rich text"></div><label class="geometry-controls" for="layout-width"><span>Layout width</span><input type="range" id="layout-width" min="180" max="340" value="280"><output id="layout-width-value" for="layout-width">280</output><span>px</span></label><p class="geometry-note">Blue shapes come from the measured line boxes.</p></figure>
-      <aside class="docs-links" aria-label="Documentation on GitHub"><p class="eyebrow">DOCUMENTATION</p><a href="https://github.com/polotno-project/render-tag#usage" target="_blank" rel="noopener noreferrer">Getting started <span>↗</span></a><a href="https://github.com/polotno-project/render-tag#api" target="_blank" rel="noopener noreferrer">Rendering <span>↗</span></a><a href="https://github.com/polotno-project/render-tag#layout--headless-workflows" target="_blank" rel="noopener noreferrer">Layout &amp; headless <span>↗</span></a><a href="path.html">Text on a path <span>→</span></a><a href="https://github.com/polotno-project/render-tag#what-it-renders" target="_blank" rel="noopener noreferrer">Supported HTML &amp; CSS <span>↗</span></a></aside>
+      <aside class="docs-links" aria-label="Documentation on GitHub"><p class="eyebrow">DOCUMENTATION</p><a href="https://github.com/polotno-project/render-tag#usage" target="_blank" rel="noopener noreferrer">Getting started <span>↗</span></a><a href="https://github.com/polotno-project/render-tag#api" target="_blank" rel="noopener noreferrer">Rendering <span>↗</span></a><a href="https://github.com/polotno-project/render-tag#layout--headless-workflows" target="_blank" rel="noopener noreferrer">Layout &amp; headless <span>↗</span></a><a href="path.html">Text on a path <span>→</span></a><a href="#motion">Text in motion <span>↓</span></a><a href="https://github.com/polotno-project/render-tag#what-it-renders" target="_blank" rel="noopener noreferrer">Supported HTML &amp; CSS <span>↗</span></a></aside>
     </section>
     <section class="section shell" id="playground">
       <div class="section-head"><div><p class="eyebrow">LIVE EDITOR</p><h2>Interactive rich text.</h2></div><p class="section-description">Edit text and formatting.<br>Change the width to see reflow.</p></div>
@@ -164,6 +164,62 @@ const { canvas } = render({
       </div>
       <div class="section-footnote"><a href="path.html">Try the text-on-path playground →</a></div>
     </section>
+    <div class="motion-band" id="motion">
+      <section class="section shell" aria-labelledby="motion-title">
+        <div class="section-head"><div><p class="eyebrow">TEXT UNITS</p><h2 id="motion-title">Text in motion.</h2></div><p class="section-description">Lay out once, then animate every line, word or letter. Each piece keeps its gradient, stroke, underline and shadow as it moves. You write the timing; render-tag paints.</p></div>
+        <div class="motion-grid">
+          <article class="motion-card motion-wide" data-motion="assemble">
+            <div class="motion-top"><h3>Assemble</h3><span class="motion-hint">Point at the letters</span><span class="motion-meta">grapheme · <span data-frame-time>—</span></span><button class="motion-replay" aria-label="Replay Assemble">↻</button></div>
+            <div class="motion-stage" role="img" aria-label="Animated canvas: the letters of “Every letter finds its place.” fly in from all sides and settle into a gradient headline."></div>
+            <button class="feature-toggle" aria-expanded="false" aria-controls="motion-source-assemble">View source ↗</button>
+            <pre id="motion-source-assemble" class="feature-source" hidden><code></code></pre>
+          </article>
+          <article class="motion-card" data-motion="captions">
+            <div class="motion-top"><h3>Captions</h3><span class="motion-meta">word · <span data-frame-time>—</span></span><button class="motion-replay" aria-label="Replay Captions">↻</button></div>
+            <div class="motion-stage motion-stage-video" role="img" aria-label="Animated canvas: outlined captions highlight each word in yellow as it is said."></div>
+            <button class="feature-toggle" aria-expanded="false" aria-controls="motion-source-captions">View source ↗</button>
+            <pre id="motion-source-captions" class="feature-source" hidden><code></code></pre>
+          </article>
+          <article class="motion-card" data-motion="rise">
+            <div class="motion-top"><h3>Rise</h3><span class="motion-meta">word · <span data-frame-time>—</span></span><button class="motion-replay" aria-label="Replay Rise">↻</button></div>
+            <div class="motion-stage" role="img" aria-label="Animated canvas: words rise into place one by one, with their weight, slant, gradient, wavy underline and glow."></div>
+            <button class="feature-toggle" aria-expanded="false" aria-controls="motion-source-rise">View source ↗</button>
+            <pre id="motion-source-rise" class="feature-source" hidden><code></code></pre>
+          </article>
+          <article class="motion-card" data-motion="typewriter">
+            <div class="motion-top"><h3>Typewriter</h3><span class="motion-meta">grapheme · <span data-frame-time>—</span></span><button class="motion-replay" aria-label="Replay Typewriter">↻</button></div>
+            <div class="motion-stage" role="img" aria-label="Animated canvas: rich text typed one grapheme at a time behind a blue caret."></div>
+            <button class="feature-toggle" aria-expanded="false" aria-controls="motion-source-typewriter">View source ↗</button>
+            <pre id="motion-source-typewriter" class="feature-source" hidden><code></code></pre>
+          </article>
+          <article class="motion-card" data-motion="wipe">
+            <div class="motion-top"><h3>Wipe</h3><span class="motion-meta">line · <span data-frame-time>—</span></span><button class="motion-replay" aria-label="Replay Wipe">↻</button></div>
+            <div class="motion-stage" role="img" aria-label="Animated canvas: English lines wipe in from the left, Arabic and Hebrew lines from the right."></div>
+            <button class="feature-toggle" aria-expanded="false" aria-controls="motion-source-wipe">View source ↗</button>
+            <pre id="motion-source-wipe" class="feature-source" hidden><code></code></pre>
+          </article>
+        </div>
+        <div class="motion-loop">
+          <div><p class="eyebrow">ONE LOOP</p><h3>A layout and a callback.</h3><p>Every card runs its source through a loop like this. The layout stays put; the callback moves, hides or recolors each unit and calls <code>draw()</code>.</p><a class="text-link" href="https://github.com/polotno-project/render-tag#text-units-animation" target="_blank" rel="noopener noreferrer">Text units API ↗</a></div>
+          <div class="code-panel"><div class="panel-label"><span>JAVASCRIPT</span><button data-copy-source="motion-loop" aria-label="Copy the animation loop">Copy ↗</button></div><pre><code id="motion-loop">import { layout, drawLayout } from 'render-tag';
+import * as sample from './assemble'; // any card's source
+
+const result = layout({ html: sample.html, width, textUnits: sample.textUnits });
+const units = result.textUnits;
+
+requestAnimationFrame(function frame(time) {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  drawLayout({
+    layout: result, width, ctx,
+    paintTextUnit: paint => sample.paintTextUnit(paint, {
+      time, units, width, height: result.height, pointer: null,
+    }),
+  });
+  requestAnimationFrame(frame);
+});</code></pre></div>
+        </div>
+      </section>
+    </div>
     <section class="section shell" id="performance">
       <div class="section-head"><div><p class="eyebrow">PERFORMANCE</p><h2>Render time comparison.</h2></div><div class="section-description"><p>Compare fresh HTML → canvas rendering of the same rich text, on your device.</p><button class="button button-blue" id="run-benchmark">Run comparison <span aria-hidden="true">→</span></button></div></div>
       <p class="benchmark-cache-note">No cached render results or layouts. Each sample renders from fresh HTML. Fonts are preloaded; browser resource caches may still apply.</p>

@@ -50,7 +50,7 @@ function drawLayout(config: DrawConfig): { canvas };
 | `createCanvas` | browser canvas | Factory `(width, height) => canvas` for shadow composition. Required for shadows outside browsers. |
 | `renderShadows` | `true` | Set `false` to omit CSS and context shadows without allocating shadow buffers. Foreground stays drawing commands in both modes. |
 | `pixelRatio` | `devicePixelRatio` | HiDPI scaling. |
-| `textUnits` | — | `layout()` only: cut the text into `'line'`, `'word'` or `'grapheme'` units ([Text units](#text-units-per-word-and-per-letter-animation)). |
+| `textUnits` | — | `layout()` only: cut the text into `'line'`, `'word'` or `'grapheme'` units ([Text units](#text-units-animation)). |
 | `paintTextUnit` | — | `drawLayout()` only: paint each unit under its own canvas state. |
 
 Use `layout()` + `drawLayout()` when you need to measure content, render the same layout onto multiple targets, or render onto an `OffscreenCanvas`.
@@ -153,80 +153,44 @@ and rendering.
 
 Clips to N lines and appends an ellipsis to the Nth. `line-clamp` (unprefixed) is accepted as a synonym. `none` / `auto` / `0` mean "no clamp". Like Chrome's legacy `-webkit-box` behavior, the line count spans block descendants — a clamp on a wrapper truncates across its `<p>`/`<div>` children and drops everything below the cut.
 
-### Text units (per-word and per-letter animation)
+### Text units (animation)
 
-Lay out once, then draw each line, word or grapheme under its own canvas state:
-opacity, transforms, clips, filters. Text stays where the layout put it; you own
-timing and effects, render-tag paints.
+Cut the laid-out text into lines, words or graphemes and paint each one under
+its own canvas state, for example to animate it. Each unit paints with its fill,
+gradient, stroke, decorations and text-shadow; you supply the timing.
+[Live examples](https://polotno.com/render-tag/#motion).
 
 ```ts
 const result = layout({ html, width, textUnits: 'word' }); // 'line' | 'word' | 'grapheme'
-const count = result.textUnits!.length;
 
-// Every frame:
+// Every frame (`time` in ms):
 drawLayout({
-  layout: result, width, ctx, pixelRatio: 1,
+  layout: result, width, ctx,
   paintTextUnit({ unit, ctx, draw }) {
-    const p = progressAt(time, unit.index, count); // your stagger and easing
-    if (p <= 0) return;                             // not drawn: hidden
+    const p = Math.min(1, Math.max(0, (time - unit.index * 80) / 600));
+    if (p === 0) return;            // not drawn: hidden
     ctx.globalAlpha *= p;
-    ctx.translate(0, 12 * (1 - p));
-    draw();                                         // or draw({ fill: 'gold' })
+    ctx.translate(0, 12 * (1 - p)); // change the transform relatively
+    draw();
   },
 });
 ```
 
-- **Units** are in reading order, logical for bidi text. White space is never a
-  unit; it paints with a unit beside it. Each `TextUnit` has `index`, `text`,
-  `kind` (`text`, `marker` for a list marker, `ellipsis` for a line-clamp `…` at
-  grapheme level, `atomic` for an inline-block, kept whole), `word` (a logical
-  word id, kept across a wrap inside the word; `null` for lines and markers), and
-  geometry in layout px, like `lineBoxes`: a union rectangle plus `fragments`, one
-  per line and visual stretch, each with its line id, line box, baseline and
-  direction.
-- **Graphemes** are positioned where the whole run paints them, kerning included.
-  A cut breaks ligatures and contextual alternates. Scripts that must be shaped
-  whole (Arabic, Indic, Thai, Khmer, Myanmar) stay one unit per shaped
-  run within a word, with `grouped: true`; wipe such a unit with a clip in its
-  fragment's `direction` instead.
-- **`draw({ slice: true })`** paints the unit's part of its shaped run instead of
-  its own glyphs: the run clipped to the unit's slice. Units at rest then paint
-  exactly as `drawLayout`, ligatures and script fonts included (measured over the
-  corpus in five fonts, Lobster too); moving, a ligature's parts move apart. It is
-  a per-draw choice: slice the units at rest, cut glyphs for the moving ones. It
-  costs about twice a cut-glyph draw (0.4 ms for 150 graphemes in Chromium).
-- **Everything of a unit moves with it**: glyphs, stroke, decorations (clipped to
-  the unit, so dashes and waves keep their phase), gradient fill (one gradient
-  over the declaring element, so a moving word carries its part) and text-shadow.
-  `fill` replaces the glyph fill and the color of the decorations that take the
-  text's color (no `text-decoration-color`), so a highlighted word recolors its
-  underline; transparent or outline-only text keeps its colors (reveal it with
-  `ctx.globalAlpha`). Under a rotated ctx an opaque band
-  overlaps its neighbour's by a device pixel; a translucent one, or one fading,
-  meets it edge to edge and may show a faint seam.
-- **Paint order** is kept: box backgrounds and borders paint in place and bound
-  paint regions; in each region every unit's text-shadows paint before any
-  unit's text. A unit with a CSS `text-shadow` is called with `phase: 'shadow'`
-  and then `'text'`, and casts it from its own mask, so where neighbouring
-  units' translucent text-shadows overlap they composite darker than in
-  `drawLayout`. Make the callback a pure function of the unit and your time: it
-  may be called more than once per phase.
-- **The ctx is saved before each call and restored after**, so a vector adapter's
-  `save`/`restore` must keep the state a callback sets. Opacity applies per
-  paint (stroke over fill shows through while fading), not as a group. A canvas
-  shadow set before the draw (`ctx.shadow*`, a Konva element's) is cast once
-  from the whole draw, as `drawLayout` casts it: a first pass calls each
-  callback once more, and its `draw()` records where the unit lands, to size
-  the shadow's layer (a `ctx.filter` the callback sets is not measured). A
-  shadow the callback sets itself is not cast.
-- **Cost**: no unit work without `textUnits`. Each unit with a CSS
-  `text-shadow` casts its own blurred mask; in Chromium a 30-word headline frame
-  takes ~0.1 ms without shadows and ~3 ms with a 10px blurred text-shadow (~8 ms
-  at grapheme level). A canvas shadow costs one cast per draw, as in
-  `drawLayout`. A wavy or dotted decoration is drawn whole per unit and clipped,
-  so it costs per unit.
-- `paintBounds` stays the static layout's; add your animation's reach yourself.
-  Curved text (`render-tag/path`) has no units yet.
+- `result.textUnits` lists the units in reading order. Each `TextUnit` has
+  `index`, `text`, `kind` (`text`, `marker`, `ellipsis`, `atomic`), `word`,
+  `grouped`, a box and `fragments` (one per line and direction, with its
+  baseline), in layout px. White space is never a unit.
+- The ctx is saved before each call and restored after. The callback can run
+  more than once per unit in a draw: make it a pure function of the unit and
+  your time.
+- `draw({ fill })` replaces the text fill and the color of decorations that take
+  the text's color. `draw({ slice: true })` paints the unit's part of its shaped
+  run, so units at rest paint exactly as `drawLayout`, ligatures included.
+- At grapheme level, scripts that must be shaped whole (Arabic, Indic, Thai…)
+  stay whole within a word (`grouped: true`).
+- Backgrounds and borders stay in place. A CSS `text-shadow` is cast per unit,
+  so it costs per unit. `paintBounds` does not include your motion. Without
+  `textUnits` there is no extra cost. Curved text has no units yet.
 
 ## Text on path: `render-tag/path`
 

@@ -2,6 +2,7 @@ import { render } from 'render-tag';
 import { initShowcase, renderPathExample, pathExampleSource } from './showcase.ts';
 import { initLayoutDemo } from './layout-demo.ts';
 import { initBenchmark } from './performance.ts';
+import { initMotion } from './motion.ts';
 import { loadSiteFonts, initCopyButtons, initCodeTabs, highlightCode } from './site-utils.ts';
 
 // ── Feature demos ──
@@ -122,6 +123,7 @@ async function init(): Promise<void> {
   initLayoutDemo();
   initDemo();
   renderFeatureGallery();
+  initMotion();
   initBenchmark();
 }
 void init();
