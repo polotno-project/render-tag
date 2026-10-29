@@ -5,7 +5,8 @@
  * the way Chrome's canvas does (tests/node/canvas-spacing.test.ts holds the rules).
  *
  * The oracle is this engine's canvas, so a fixture where its rule is not Chrome's cannot
- * match: `RESIDUE` lists them per engine, with the reason, and only shrinks. Firefox is not a
+ * match: `RESIDUE` lists them per engine, with the reason, and only shrinks; it was measured
+ * on the maintainer's Mac, so in portable mode (CI) a listed fixture may match. Firefox is not a
  * lane: its own spacing is not Chrome's (an RTL glyph's on its other side, none after a
  * no-break space's word-spacing, Arabic letters spaced).
  *
@@ -19,6 +20,7 @@ import { compareCanvasPixels, prepareComparisonFonts } from './helpers/compare.t
 import { loadMultiFontCss, TEST_FALLBACK_STACK } from './helpers/test-cases.ts';
 import { browserName } from './helpers/browser-name.ts';
 import { makeCanvas } from './helpers/pixels.ts';
+import { PORTABLE_GATES_ONLY } from './helpers/portable-mode.ts';
 import { reportPath } from './helpers/report-path.ts';
 
 const PIXEL_RATIO = 2;
@@ -108,7 +110,7 @@ describe('a canvas without letterSpacing and wordSpacing paints as one with them
         .contentMismatchPercentage;
       report.push(`${percent.toFixed(4)}%\t${name}`);
       const known = RESIDUE[browserName]?.includes(name);
-      if (known && percent === 0) failures.push(`${name}: now matches, remove it from RESIDUE`);
+      if (known && percent === 0 && !PORTABLE_GATES_ONLY) failures.push(`${name}: now matches, remove it from RESIDUE`);
       else if (!known && percent > 0) failures.push(`${name}: ${percent.toFixed(3)}%`);
     }
     await commands.writeFile(reportPath(`canvas-spacing.${browserName}.txt`), report.join('\n') + '\n');
