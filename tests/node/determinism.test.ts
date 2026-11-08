@@ -136,7 +136,8 @@ describe('determinism and cache isolation', () => {
       else if (diff) failures.push(key.name);
     }
     expect(failures, `${failures.length} dirty run(s) diverged from a fresh one:\n${failures.join('\n\n')}`).toEqual([]);
-  });
+    // Every corpus case six times over: 3s here, ~35s on CI's runner beside the Chromium lane.
+  }, 120_000);
 
   it('paint on the ctx layout measured with matches paint on a fresh ctx', async () => {
     // render({ ctx }) lays out and paints on ONE ctx. Layout leaves its last
