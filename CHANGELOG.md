@@ -2,6 +2,21 @@
 
 Only the interesting, user-visible changes. Full detail lives in the git history.
 
+## 0.4.2 — 2026-11-08
+
+- Firefox and Safari now lay text out exactly as Chrome does: the same line breaks, line heights, baselines, kerning and decoration shapes, instead of each browser's own. Firefox's rounded-up font metrics and its wider synthetic bold are normalized to Chrome's. On Linux, Chrome's default hinted glyph widths are the one exception no other canvas can match.
+- Kerning sits where browsers put it: on the first letter of each pair, and across element edges such as `A<span>V</span>`. Text drawn run by run (Firefox, Safari, SVG and PDF export, text units) now lands where Chrome draws it.
+- Line ends and starts follow Chrome: a line keeps its last letter's kerning into the space after it unless that space shows, a line's first word is measured on its own, and a space at the end of a paragraph or before `<br>` no longer narrows the box.
+- `getFontMetrics()` now returns the whole-pixel font box that layout uses, so baselines placed with `lineBaselineOffset()` line up with render-tag's own in Node and Firefox.
+- `word-break: break-all` fills the line before breaking a word, and keeps punctuation, apostrophes, quotes and dashes with their neighbors as Chrome does.
+- Support `overflow-wrap: anywhere` and `word-break: break-word`. A too-long word breaks before its trailing comma, as browsers do.
+- `white-space: break-spaces`: a word wraps together with its first space, and a run of spaces can break after any of them.
+- Break before and after an em dash (but not between two em dashes or next to a straight quote), after U+2010 and U+2012 dashes, and between Yi syllables.
+- Padding, borders and margins of inline elements are no longer break points inside a word. A too-long word after a padded element no longer leaves a line holding only the padding.
+- `text-rendering` and the HTML `lang` attribute now reach text shaping. Chrome honours both, Firefox only `lang`.
+- `<b>` and `<strong>` are bolder than their parent, as in browsers.
+- In Node, `font-style: oblique` under 14° draws upright, as Chrome does.
+
 ## 0.4.1 — 2026-10-29
 
 - Draw list bullets at their exact size and place in Chrome on Windows, Linux, ChromeOS and Android, as on macOS: Chrome there reports a bullet's ink in whole pixels, which put it up to 1.6px off.
