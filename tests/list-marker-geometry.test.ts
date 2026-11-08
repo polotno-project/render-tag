@@ -10,12 +10,13 @@
  * Run: npx vitest run --project webkit tests/list-marker-geometry.test.ts
  */
 import { beforeAll, describe, expect, it, vi } from 'vitest';
-import { layout } from '../src/index.ts';
+import { getFontMetrics, layout } from '../src/index.ts';
 import { buildCanvasFont } from '../src/layout.ts';
 import type { LayoutBox, LayoutNode, LayoutText } from '../src/types.ts';
 import { prepareComparisonFonts } from './helpers/compare.ts';
 import { makeCanvas } from './helpers/pixels.ts';
 import { loadMultiFontCss } from './helpers/test-cases.ts';
+import { styleFixture } from './helpers/style-fixture.ts';
 
 const FAMILIES = ["'Roboto'", "'Open Sans'", "'Playfair Display'", "'Merriweather'", "'Lobster'"];
 const SIZES = [16, 40, 120];
@@ -62,8 +63,9 @@ function metrics(family: string, size: number, text: string): TextMetrics {
   return ctx.measureText(text);
 }
 
-/** Chrome's marker unit, ascent/3. */
-const markerUnit = (family: string, size: number) => metrics(family, size, 'M').fontBoundingBoxAscent / 3;
+/** Chrome's marker unit, a third of its font's ascent (`getFontMetrics`: Chrome's whole-px box). */
+const markerUnit = (family: string, size: number) =>
+  getFontMetrics(makeCanvas(1, 1).ctx, styleFixture({ fontFamily: family, fontSize: size })).ascent / 3;
 
 describe('bullet markers paint the disc layout promises', () => {
   beforeAll(async () => {

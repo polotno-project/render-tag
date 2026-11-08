@@ -1,8 +1,7 @@
 /**
- * Where a SOLID decoration band sits and how thick it is, against the
- * engine's own raster: Chromium and WebKit, five pinned fonts, 10-64px, two
- * line-heights, DPR 1 and 2 (WebKit rounds a band's thickness on the device
- * grid). Each band's top is taken relative to the bottom ink row of
+ * Where a SOLID decoration band sits and how thick it is, against Chrome's
+ * own raster: five pinned fonts, 10-64px, two line-heights, DPR 1 and 2.
+ * Each band's top is taken relative to the bottom ink row of
  * the black `H`s it decorates (the baseline), so the comparison is immune to
  * where each renderer put the line.
  *
@@ -11,25 +10,19 @@
  * as a capture of its own would.
  *
  * The rules live in src/decoration.ts (`decorationBand`). Every row here is
- * exact except WebKit's line-through, which reads a font table canvas cannot
- * reach and is fitted (a CSS pixel of budget). Gecko is unmeasured: the
- * Firefox lane skips this file.
+ * exact.
  */
 import { beforeAll, describe, it, expect } from 'vitest';
 import type { ComparisonResult } from './helpers/compare.ts';
 import { compareNativeRenders } from './helpers/native-compare.ts';
 import { loadMultiFontCss, FONT_VARIANTS } from './helpers/test-cases.ts';
-import { browserName } from './helpers/browser-name.ts';
 import { pixels, scanBand, stackFixtures, type Region, type Stack } from './helpers/decoration-scan.ts';
 
 const FONTS = FONT_VARIANTS.map((f) => [f.name, f.family] as const);
 const SIZES = [10, 13, 16, 17, 20, 25, 32, 40, 48, 64];
 const LINES = ['underline', 'overline', 'line-through'] as const;
-type Line = (typeof LINES)[number];
 
-const lane = browserName === 'firefox' ? describe.skip : describe;
-
-/** Captures the stack once for its describe block; a cold WebKit capture is slow. */
+/** Captures the stack once for its describe block. */
 function capturedStack(stack: Stack, dpr: number): () => ComparisonResult {
   let result: ComparisonResult;
   beforeAll(async () => {
@@ -38,16 +31,14 @@ function capturedStack(stack: Stack, dpr: number): () => ComparisonResult {
   return () => result;
 }
 
-function expectSameBand(r: ComparisonResult, region: Region, line: Line, dpr: number): void {
+function expectSameBand(r: ComparisonResult, region: Region, dpr: number): void {
   const lib = scanBand(pixels(r.libCanvas, region, dpr));
   const dom = scanBand(pixels(r.domCanvas, region, dpr));
   expect(lib.rows, 'thickness (device px)').toBe(dom.rows);
-  const budget = browserName === 'webkit' && line === 'line-through' ? dpr : 0;
-  expect(Math.abs((lib.top - lib.baseline) - (dom.top - dom.baseline)), 'band top below the baseline')
-    .toBeLessThanOrEqual(budget);
+  expect((lib.top - lib.baseline) - (dom.top - dom.baseline), 'band top below the baseline').toBe(0);
 }
 
-lane('solid decoration bands sit where the engine puts them', () => {
+describe('solid decoration bands sit where the engine puts them', () => {
   for (const dpr of [1, 2]) for (const [name, family] of FONTS) for (const lineHeight of ['normal', '2']) {
     const cases = LINES.flatMap((line) => SIZES.map((size) => ({ line, size })));
     const stack = stackFixtures(cases.map(({ line, size }) => ({
@@ -61,18 +52,17 @@ lane('solid decoration bands sit where the engine puts them', () => {
       const captured = capturedStack(stack, dpr);
       it.each(cases.map(({ line, size }, index) => [line, size, index] as const))(
         `${name} %s line-height:${lineHeight} @ %ipx, DPR ${dpr}`,
-        (line, _size, index) => expectSameBand(captured(), stack.regions[index], line, dpr),
+        (_line, _size, index) => expectSameBand(captured(), stack.regions[index], dpr),
       );
     });
   }
 });
 
 // An EXPLICIT thickness: Blink paints round(T) rows and moves the underline
-// down by ceil(T/2); WebKit rounds T up on the device grid, like its auto
-// thickness, and keeps its auto underline position. 0.2em at 32px is 6.4px.
+// down by ceil(T/2). 0.2em at 32px is 6.4px.
 const THICKNESSES = ['1px', '2.5px', '3px', '0.2em', '7px'];
 
-lane('explicit-thickness bands sit where the engine puts them', () => {
+describe('explicit-thickness bands sit where the engine puts them', () => {
   for (const dpr of [1, 2]) for (const [name, family] of FONTS.slice(0, 3)) {
     const cases = LINES.flatMap((line) => THICKNESSES.map((thickness) => ({ line, thickness })));
     const stack = stackFixtures(cases.map(({ line, thickness }) => ({
@@ -87,7 +77,7 @@ lane('explicit-thickness bands sit where the engine puts them', () => {
       const captured = capturedStack(stack, dpr);
       it.each(cases.map(({ line, thickness }, index) => [line, thickness, index] as const))(
         `${name} %s 32px thickness %s, DPR ${dpr}`,
-        (line, _thickness, index) => expectSameBand(captured(), stack.regions[index], line, dpr),
+        (_line, _thickness, index) => expectSameBand(captured(), stack.regions[index], dpr),
       );
     });
   }

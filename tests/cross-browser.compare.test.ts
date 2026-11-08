@@ -1,31 +1,29 @@
 /**
  * Compare the current browser's canvas layout against Chrome's canvas layout.
- * The Chrome reference is a local recording (environment-pinned, git-ignored)
- * in tests/.out/cross-browser-reference.json; update mode on Chromium writes it.
+ * The Chrome reference is recorded where the comparison runs (git-ignored,
+ * tests/.out/cross-browser-reference.json); update mode on Chromium writes it,
+ * and CI's Firefox and WebKit jobs record it on their runner first. Every
+ * runner gates the portable cases; the residual baseline is the maintainer's.
  *
  *   npm run update -- --project chromium tests/cross-browser.compare.test.ts  # record the reference
  *   npx vitest run --project webkit tests/cross-browser.compare.test.ts       # or firefox
  *   npm run update -- --project webkit tests/cross-browser.compare.test.ts    # re-record residuals
  */
 /// <reference types="vite/client" />
-import { describe, it, expect } from 'vitest';
+import { beforeAll, describe, it, expect } from 'vitest';
 import { commands } from 'vitest/browser';
+import { getFontMetrics, layout } from '../src/index.ts';
+import { isSimpleScript } from '../src/layout/segment.ts';
 import { prepareComparisonFonts, renderToCanvas } from './helpers/compare.ts';
-import {
-  compareLineMembership,
-  normalizeLineText,
-} from './helpers/wrap-comparison.ts';
-import { loadCorpus, polotnoCase, polotnoListsCase } from './helpers/test-cases.ts';
+import { compareLayout, loadCrossBrowserCorpus, type LayoutComparison, type ReferenceLine } from './helpers/cross-browser.ts';
 import { gateResidualBaseline } from './helpers/baselines.ts';
 import residualBaseline from './cross-browser-baseline.json';
 import { browserName } from './helpers/browser-name.ts';
 import { PORTABLE_GATES_ONLY } from './helpers/portable-mode.ts';
 import { reportPath } from './helpers/report-path.ts';
-
-interface ReferenceLine {
-  y: number;
-  text: string;
-}
+import { styleFixture } from './helpers/style-fixture.ts';
+import arimo from './fonts/arimo/arimo-latin-wght-normal.woff2?url';
+import playfair from './fonts/playfair-display/playfair-display-latin-wght-normal.woff2?url';
 
 interface ReferenceEntry {
   lines: ReferenceLine[];
@@ -35,18 +33,37 @@ const REFERENCE_FILE = reportPath('cross-browser-reference.json');
 const RECORD_COMMAND = 'npm run update -- --project chromium tests/cross-browser.compare.test.ts';
 const UPDATE_MODE = import.meta.env.MODE === 'update';
 
-/** The corpus without negativeListMarginsCase: the recorded reference and residuals predate it. */
-const loadCrossBrowserCorpus = () => loadCorpus({ extras: [polotnoCase, polotnoListsCase] });
+/** Whether a case sets a font of its own (a stack, monospace): system fonts differ per runner. */
+const ownFonts = (html: string, css: string) => /font-family|<tt\b/i.test(html) ||
+  [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)]
+    .some(([, selector, body]) => !/^body$|@font-face/.test(selector.trim()) && /font-family\s*:(?!\s*inherit)/i.test(body));
 
-/** Canvas lines per corpus key, as the reference records them. */
-async function canvasLines(): Promise<Array<{ key: string; lines: ReferenceLine[] }>> {
-  const out: Array<{ key: string; lines: ReferenceLine[] }> = [];
-  for (const { key, tc, css } of await loadCrossBrowserCorpus()) {
+/**
+ * Canvas lines per corpus key, as the reference records them. `portable`: Latin or Cyrillic
+ * text in a vendored font variant alone, which any runner lays out as the maintainer's does.
+ */
+async function canvasLines(): Promise<Array<{ key: string; lines: ReferenceLine[]; portable: boolean; at: (dx: number) => ReferenceLine[] }>> {
+  const out: Array<{ key: string; lines: ReferenceLine[]; portable: boolean; at: (dx: number) => ReferenceLine[] }> = [];
+  for (const { key, tc, css, font } of await loadCrossBrowserCorpus()) {
     await prepareComparisonFonts(tc.html, css);
-    out.push({ key, lines: renderToCanvas(tc.html, css, tc.width, tc.height).lines });
+    const portable = !!font && isSimpleScript(tc.html.replace(/<[^>]*>/g, '')) && !ownFonts(tc.html, tc.css);
+    const at = (dx: number) => renderToCanvas(tc.html, css, tc.width + dx, tc.height).lines;
+    out.push({ key, lines: at(0), portable, at });
   }
   return out;
 }
+
+/**
+ * A canvas measuring a line up to 1px apart from Chrome's moves a knife-edge break, not a layout
+ * rule: WebKit's canvas never kerns a space (Roboto lines 0.3-0.6px wider).
+ */
+const KNIFE_EDGE = 1;
+/** Portable cases a canvas cannot lay out as Chrome yet, per browser and platform. */
+const KNOWN_DRIFT: Record<string, string[]> = {
+  // Lobster's synthetic bold italic still lays out wider in Linux Firefox, not on macOS; unmeasured.
+  'firefox-linux': ['Deeply nested inline styles@Lobster'],
+};
+const platformKey = `${browserName}${/Linux/.test(navigator.userAgent) ? '-linux' : ''}`;
 
 /** The Chrome reference, or null when it has not been recorded here. */
 async function readReference(): Promise<Record<string, ReferenceEntry> | null> {
@@ -60,11 +77,9 @@ async function readReference(): Promise<Record<string, ReferenceEntry> | null> {
   return JSON.parse(json) as Record<string, ReferenceEntry>;
 }
 
-interface CaseResult {
+interface CaseResult extends Partial<LayoutComparison> {
   key: string;
-  status: 'match' | 'line-count-mismatch' | 'text-mismatch' | 'y-drift' | 'no-reference';
-  detail?: string;
-  maxYDrift?: number;
+  status: LayoutComparison['status'] | 'no-reference';
 }
 
 function signatureHash(value: string): string {
@@ -76,52 +91,24 @@ function signatureHash(value: string): string {
   return (hash >>> 0).toString(16).padStart(8, '0');
 }
 
-function compareLinesAgainstReference(
-  refMap: Record<string, ReferenceEntry>,
-  key: string,
-  currentLines: { y: number; text: string }[],
-): CaseResult {
-  const ref = refMap[key];
-  if (!ref) return { key, status: 'no-reference' };
+// Portable: the box comes from vendored font files, so CI's Firefox and WebKit lanes gate it.
+describe("Chrome's font box in every browser", () => {
+  beforeAll(async () => {
+    document.fonts.add(await new FontFace('BoxArimo', `url(${arimo})`, { weight: '100 900' }).load());
+    document.fonts.add(await new FontFace('BoxPlayfair', `url(${playfair})`, { weight: '100 900' }).load());
+  });
 
-  const chromeLines = ref.lines.filter(l => normalizeLineText(l.text).length > 0);
-  const browserLines = currentLines.filter(l => normalizeLineText(l.text).length > 0);
-  const membership = compareLineMembership(browserLines, chromeLines);
+  // Chrome rounds the box to whole px; Firefox's canvas ceils it (CANVAS_CEILS_FONT_BOX).
+  it.each([['BoxArimo', 16, 14, 3], ['BoxPlayfair', 100, 108, 25]] as const)(
+    '%s %spx lays out on %s / %s', (family, size, ascent, descent) => {
+      const ctx = document.createElement('canvas').getContext('2d')!;
+      expect(getFontMetrics(ctx, styleFixture({ fontFamily: family, fontSize: size }))).toEqual({ ascent, descent });
+      const { lines } = layout({ html: `<p style="margin:0;font:${size}px ${family}">Hxg</p>`, width: 1000 });
+      expect(lines[0].bounds.height).toBe(ascent + descent);
+    });
+});
 
-  // Line count mismatch
-  if (chromeLines.length !== browserLines.length) {
-    const detail = `${chromeLines.length} lines (chrome) vs ${browserLines.length} lines (${browserName})`;
-    return { key, status: 'line-count-mismatch', detail };
-  }
-
-  // Compare text content per line
-  let maxYDrift = 0;
-  const textMismatches = membership.differentLines.map(({ lineIndex, canvas, dom }) =>
-    `line ${lineIndex}: chrome="${dom.substring(0, 40)}" ` +
-    `${browserName}="${canvas.substring(0, 40)}"`,
-  );
-
-  for (let i = 0; i < chromeLines.length; i++) {
-    // Track Y position drift
-    const yDiff = Math.abs(chromeLines[i].y - browserLines[i].y);
-    if (yDiff > maxYDrift) maxYDrift = yDiff;
-  }
-
-  if (textMismatches.length > 0) {
-    return { key, status: 'text-mismatch', detail: textMismatches.join('\n    '), maxYDrift };
-  }
-
-  if (maxYDrift > 0) {
-    return { key, status: 'y-drift', maxYDrift };
-  }
-
-  return { key, status: 'match', maxYDrift };
-}
-
-// The Chrome reference layout and the residual baseline are both recorded on
-// the maintainer's machine; canvas metrics shift per OS, so portable mode
-// (CI) skips this suite entirely.
-describe.skipIf(PORTABLE_GATES_ONLY)(`Cross-browser consistency: ${browserName} vs chrome`, () => {
+describe(`Cross-browser consistency: ${browserName} vs chrome`, () => {
   if (browserName === 'chrome' && UPDATE_MODE) {
     it('records the Chrome reference layout', async () => {
       const results: Record<string, ReferenceEntry> = {};
@@ -142,14 +129,16 @@ describe.skipIf(PORTABLE_GATES_ONLY)(`Cross-browser consistency: ${browserName} 
       skip(`${REFERENCE_FILE} is missing: run \`${RECORD_COMMAND}\` first`);
       return;
     }
-    const results = (await canvasLines())
-      .map(({ key, lines }) => compareLinesAgainstReference(refMap, key, lines));
+    const entries = await canvasLines();
+    const results: CaseResult[] = entries.map(({ key, lines }) =>
+      refMap[key] ? { key, ...compareLayout(refMap[key].lines, lines) } : { key, status: 'no-reference' });
 
     // Print report
     const matches = results.filter(r => r.status === 'match');
     const lineCountMismatches = results.filter(r => r.status === 'line-count-mismatch');
     const textMismatches = results.filter(r => r.status === 'text-mismatch');
     const yDriftOnly = results.filter(r => r.status === 'y-drift');
+    const xDriftOnly = results.filter(r => r.status === 'x-drift');
     const noRef = results.filter(r => r.status === 'no-reference');
 
     console.log(`\n=== Cross-browser consistency: ${browserName} vs chrome ===\n`);
@@ -158,16 +147,16 @@ describe.skipIf(PORTABLE_GATES_ONLY)(`Cross-browser consistency: ${browserName} 
       if (r.status === 'match') {
         // Only log non-default-font matches briefly
         if (!r.key.includes('@')) {
-          console.log(`[${r.key}] MATCH${r.maxYDrift && r.maxYDrift > 1 ? ` (y-drift: ${r.maxYDrift.toFixed(1)}px)` : ''}`);
+          console.log(`[${r.key}] MATCH`);
         }
       } else if (r.status === 'line-count-mismatch') {
         console.log(`[${r.key}] LINE COUNT MISMATCH: ${r.detail}`);
       } else if (r.status === 'text-mismatch') {
         console.log(`[${r.key}] TEXT MISMATCH:\n    ${r.detail}`);
       } else if (r.status === 'y-drift') {
-        if (!r.key.includes('@')) {
-          console.log(`[${r.key}] Y-DRIFT: ${r.maxYDrift?.toFixed(1)}px`);
-        }
+        console.log(`[${r.key}] Y-DRIFT: ${r.maxYDrift?.toFixed(1)}px`);
+      } else if (r.status === 'x-drift') {
+        console.log(`[${r.key}] X-DRIFT: ${r.maxXDrift?.toFixed(2)}px`);
       } else if (r.status === 'no-reference') {
         console.log(`[${r.key}] NO REFERENCE (record it: ${RECORD_COMMAND})`);
       }
@@ -180,7 +169,7 @@ describe.skipIf(PORTABLE_GATES_ONLY)(`Cross-browser consistency: ${browserName} 
       const fontName = r.key.split('@')[1];
       if (!fontResults[fontName]) fontResults[fontName] = { match: 0, total: 0, mismatches: [] };
       fontResults[fontName].total++;
-      if (r.status === 'match' || r.status === 'y-drift') {
+      if (r.status === 'match') {
         fontResults[fontName].match++;
       } else {
         fontResults[fontName].mismatches.push(r.key.split('@')[0]);
@@ -193,22 +182,29 @@ describe.skipIf(PORTABLE_GATES_ONLY)(`Cross-browser consistency: ${browserName} 
       }
     }
 
-    console.log(`\n=== Summary: ${matches.length + yDriftOnly.length}/${results.length} consistent | ${lineCountMismatches.length} line-count | ${textMismatches.length} text | ${yDriftOnly.length} y-drift-only ===`);
+    console.log(`\n=== Summary: ${matches.length}/${results.length} consistent | ${lineCountMismatches.length} line-count | ${textMismatches.length} text | ${yDriftOnly.length} y-drift | ${xDriftOnly.length} x-drift ===`);
 
     if (noRef.length > 0) {
       console.log(`WARNING: ${noRef.length} cases have no Chrome reference. Run: ${RECORD_COMMAND}`);
     }
 
+    // Every runner: the portable cases keep Chrome's lines and their positions; a canvas's own
+    // kerning may still move their edges (WebKit's never kerns a space).
+    const holds = (status: string) => status === 'match' || status === 'x-drift';
+    const drifted = results.filter((result, k) => entries[k].portable && !holds(result.status) &&
+      result.status !== 'no-reference' &&
+      ![-KNIFE_EDGE, KNIFE_EDGE].some((dx) => holds(compareLayout(refMap[result.key].lines, entries[k].at(dx)).status)));
+    for (const result of drifted) console.log(`[portable] ${result.key}: ${result.status} ${result.detail ?? `y ${result.maxYDrift}`}`);
+    expect(drifted.map((result) => result.key), 'Latin/Cyrillic cases off Chrome\'s lines (KNOWN_DRIFT)')
+      .toEqual(KNOWN_DRIFT[platformKey] ?? []);
+    // The residuals are the maintainer's machine's: one layout in every browser, Chrome's
+    // (README), gated on line membership, line positions and line extents (X_TOLERANCE).
+    if (PORTABLE_GATES_ONLY) return;
     const signatures = results
-      // Y positions are already checked against each engine's native DOM by
-      // the pixel baselines. This lane gates cross-engine line membership;
-      // engine-specific baseline branches intentionally move some baselines.
-      .filter((result) =>
-        result.status !== 'match' && result.status !== 'y-drift',
-      )
+      .filter((result) => result.status !== 'match')
       .map((result) =>
         `${result.key}|${result.status}|` +
-        signatureHash(`${result.detail || ''}|y=${result.maxYDrift ?? 0}`),
+        signatureHash(`${result.detail || ''}|y=${result.maxYDrift ?? 0}|x=${Math.round((result.maxXDrift ?? 0) * 10) / 10}`),
       )
       .sort();
     const expected = await gateResidualBaseline({

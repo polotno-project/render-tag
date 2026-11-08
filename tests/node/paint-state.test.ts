@@ -202,7 +202,7 @@ describe('shadow masks', () => {
       const solid = ops.filter(op => op.startsWith('strokeText("bbbb"') ||
         (op.startsWith('stroke()') && !op.includes('lineWidth=6;')));
       // The foreground's two strokes plus the mask's underline (Blink's mask
-      // has no text stroke: `STROKE_CASTS_TEXT_SHADOW`); the caller's shadow
+      // has no text stroke, as Chrome's); the caller's shadow
       // repaints both on its source layer.
       expect(solid.length).toBeGreaterThan(callerShadow ? 4 : 2);
       for (const op of solid) {

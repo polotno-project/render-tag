@@ -5,8 +5,12 @@
  *
  * Unlike `mock-ctx.ts` (every glyph 10px, whatever the font), widths here
  * depend on everything the canvas state says: the font's size, style, weight
- * and family, `letterSpacing`, `wordSpacing` and `fontKerning` (a pair term,
- * so a string is NOT the sum of its parts). Measuring under a stale font or
+ * and family, `letterSpacing`, `wordSpacing`, `fontKerning` (a pair term,
+ * so a string is NOT the sum of its parts) and `textRendering`, as in Chrome:
+ * `optimizeSpeed` turns kerning off, and `optimizeLegibility` and
+ * `geometricPrecision` apply contextual features `auto` skips (a second pair term),
+ * and `lang` reaches shaping as in Chrome and Firefox: Turkish (`tr`) turns that
+ * term off, as it keeps "fi" apart. Measuring under a stale font or
  * letter-spacing therefore moves a line break instead of passing unnoticed —
  * that is the leak class a determinism gate exists to catch.
  *
@@ -69,7 +73,7 @@ export function fillTexts(paints: string[]): [string, number, number][] {
 function defaultState(): Record<string, unknown> {
   return {
     font: '10px sans-serif', fontKerning: 'auto', fontStretch: 'normal', fontVariantCaps: 'normal',
-    textRendering: 'auto', letterSpacing: '0px', wordSpacing: '0px', textAlign: 'start',
+    textRendering: 'auto', lang: 'inherit', letterSpacing: '0px', wordSpacing: '0px', textAlign: 'start',
     textBaseline: 'alphabetic', direction: 'inherit', lineWidth: 1, lineCap: 'butt', lineJoin: 'miter',
     miterLimit: 10, lineDashOffset: 0, fillStyle: '#000000', strokeStyle: '#000000',
     globalAlpha: 1, globalCompositeOperation: 'source-over', filter: 'none',
@@ -83,7 +87,7 @@ type Matrix = [number, number, number, number, number, number];
 const PAINT_OPS = new Set(['fillText', 'strokeText', 'fillRect', 'strokeRect', 'clearRect', 'fill', 'stroke', 'drawImage', 'putImageData']);
 const PATH_OPS = new Set(['moveTo', 'lineTo', 'quadraticCurveTo', 'bezierCurveTo', 'arc', 'arcTo', 'ellipse', 'rect', 'roundRect', 'closePath']);
 
-const TEXT_STATE = ['font', 'fontKerning', 'fontStretch', 'fontVariantCaps', 'textRendering',
+const TEXT_STATE = ['font', 'fontKerning', 'fontStretch', 'fontVariantCaps', 'textRendering', 'lang',
   'letterSpacing', 'wordSpacing', 'textAlign', 'textBaseline', 'direction'];
 const STROKE_STATE = ['strokeStyle', 'lineWidth', 'lineCap', 'lineJoin', 'miterLimit', 'lineDashOffset'];
 /** State every paint reads (plus the transform). */
@@ -118,7 +122,10 @@ export function stateWidth(state: Record<string, unknown>, text: string): number
   const face = 0.9 + (hash % 200) / 1000;
   const letterSpacing = parseFloat(String(state.letterSpacing)) || 0;
   const wordSpacing = parseFloat(String(state.wordSpacing)) || 0;
-  const kern = state.fontKerning !== 'none';
+  const rendering = state.textRendering;
+  const kern = state.fontKerning !== 'none' && rendering !== 'optimizeSpeed';
+  const contextual = (rendering === 'optimizeLegibility' || rendering === 'geometricPrecision') &&
+    !/^tr(?:-|$)/i.test(String(state.lang ?? ''));
   let width = 0;
   let prev = -1;
   // Canvas applies an RTL override (RLO…PDF) itself: its letters kern in visual order.
@@ -131,6 +138,7 @@ export function stateWidth(state: Record<string, unknown>, text: string): number
     if (!zero) width += size * (0.42 + ((cp * 37) % 13) * 0.025) * face;
     width += letterSpacing;
     if (cp === 0x20) width += wordSpacing;
+    if (contextual && prev >= 0 && (prev * 11 + cp) % 19 === 0) width -= size * 0.04;
     if (kern && prev >= 0 && (prev * 7 + cp) % 17 === 0) width -= size * 0.06;
     prev = cp;
   }

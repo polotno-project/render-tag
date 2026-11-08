@@ -219,6 +219,13 @@ describe('CSS-wide keywords', () => {
   });
 });
 
+describe('content language', () => {
+  it('the lang attribute resolves per element and inherits', () => {
+    const html = '<div lang="tr"><p>x</p><p lang=" ko ">y</p><p lang="">z</p></div><section><p>w</p></section>';
+    expect(elements(html).filter((n) => n.tagName === 'p').map((n) => n.style.lang)).toEqual(['tr', 'ko', '', 'inherit']);
+  });
+});
+
 describe('inherited properties', () => {
   const INHERITED_DECLARATIONS: [string, keyof ResolvedStyle, string][] = [
     ['font-family', 'fontFamily', 'monospace'],
@@ -239,6 +246,7 @@ describe('inherited properties', () => {
     ['word-spacing', 'wordSpacing', '4px'],
     ['text-shadow', 'textShadow', '2px 3px red'],
     ['font-kerning', 'fontKerning', 'none'],
+    ['text-rendering', 'textRendering', 'optimizespeed'],
     ['list-style-type', 'listStyleType', 'square'],
     ['vertical-align', 'verticalAlign', 'super'],
     ['paint-order', 'paintOrder', 'stroke fill'],
@@ -267,7 +275,7 @@ describe('inherited properties', () => {
       '<b>x</b><b style="font-weight:inherit">x</b><i>x</i><i style="font-style:unset">x</i>' +
       '<a href="#">x</a><a href="#" style="color:inherit">x</a></div>').children[0];
     expect(parent.children.map(n => [n.style.fontWeight, n.style.fontStyle, n.style.color])).toEqual([
-      [700, 'normal', 'red'], [300, 'normal', 'red'], [300, 'italic', 'red'],
+      [400, 'normal', 'red'], [300, 'normal', 'red'], [300, 'italic', 'red'],
       [300, 'normal', 'red'], [300, 'normal', '#0000ee'], [300, 'normal', 'red'],
     ]);
   });
@@ -418,6 +426,16 @@ describe('HTML UA defaults', () => {
     expect(at('nobr').whiteSpace).toBe('nowrap');
     expect(at('b').fontWeight).toBe(700);
     expect(at('sub')).toMatchObject({ verticalAlign: 'sub' });
+    // `font-size: smaller`, like <small>: 16px reads 13.3333px in Chrome, Firefox and WebKit.
+    for (const tag of ['sub', 'sup']) expect(at(tag).fontSize, tag).toBeCloseTo(20, 9);
+  });
+
+  it('b and strong are bolder than their parent, as the HTML UA sheet says', () => {
+    // getComputedStyle in Chrome, Firefox and WebKit: 300 → 400, 400 → 700, 600 and up → 900.
+    const weights = ['300', '400', '600', '700', '800'].flatMap((parent) => ['b', 'strong'].map((tag) =>
+      el(`<p style="font-weight:${parent}"><${tag}>x</${tag}></p>`, tag).style.fontWeight));
+    expect(weights).toEqual([400, 400, 700, 700, 900, 900, 900, 900, 900, 900]);
+    expect(el('<h1><b>x</b></h1>', 'b').style.fontWeight).toBe(900);
   });
 
   it('block UA styles', () => {
@@ -702,11 +720,11 @@ describe('invalid and uppercase values (a browser drops / lower-cases them)', ()
   it('keyword values are ASCII case-insensitive and stored lower-case', () => {
     const p = el('<p style="COLOR:RED;font-size:2EM;display:INLINE;text-align:CENTER;white-space:PRE;' +
       'text-transform:UPPERCASE;font-style:ITALIC;vertical-align:SUPER;border-top-style:SOLID;' +
-      'text-decoration-line:UNDERLINE;font-kerning:NONE;overflow-wrap:BREAK-WORD;direction:RTL">x</p>', 'p').style;
+      'text-decoration-line:UNDERLINE;font-kerning:NONE;overflow-wrap:BREAK-WORD;direction:RTL;text-rendering:optimizeLegibility">x</p>', 'p').style;
     expect(p).toMatchObject({
       fontSize: 32, display: 'inline', textAlign: 'center', whiteSpace: 'pre', textTransform: 'uppercase',
       fontStyle: 'italic', verticalAlign: 'super', borderTopStyle: 'solid', fontKerning: 'none',
-      overflowWrap: 'break-word', direction: 'rtl',
+      overflowWrap: 'break-word', direction: 'rtl', textRendering: 'optimizelegibility',
     });
     expect(p.textDecorationLine).toBe('underline');
     expect(p.color.toLowerCase()).toBe('red');

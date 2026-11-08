@@ -4,15 +4,15 @@
 import type { StyledNode, ResolvedStyle } from '../types.js';
 import { anonymousBlockStyle, borderBoxSize, contentBoxSize, intrinsicStyle } from '../css-resolver.js';
 import { bidiContextFor, type BidiContext } from '../bidi.js';
-import type { LayoutSession } from './session.js';
+import type { LayoutSession, Measurer } from './session.js';
 import {
   hasOnlyInlineChildren, hasStrokeImage, hasTextClip, hasVisibleBoxStyles, horizontalFrame,
-  horizontalMargins, isInline, layoutUnitCeil, transformTextRuns,
+  horizontalMargins, isInline, layoutUnitCeil, preservesSpaces, transformTextRuns,
 } from './util.js';
 import {
   abutsWithoutBreak, breakFlags, forEachHyphenPiece, inlineEdgeWidth, measureAfter, needsSegmenter,
   segmenter, SegmentBuilder,
-  SEG_NO_BREAK_BEFORE, SEG_RUN_SEAM, SEG_SOFT_HYPHEN, SEG_SPACE, SEG_TAB,
+  SEG_NO_BREAK_BEFORE, SEG_RUN_SEAM, SEG_SHAPED_APART, SEG_SOFT_HYPHEN, SEG_SPACE, SEG_TAB,
   type Cumulative, type PreparedInline, type TextRun,
 } from './segment.js';
 import { FlowItems, flowLines, LineFlow, widestLine } from './flow.js';
@@ -25,6 +25,8 @@ import { FlowItems, flowLines, LineFlow, widestLine } from './flow.js';
  */
 function collectTextRuns(node: StyledNode): TextRun[] {
   const runs: TextRun[] = [];
+  /** Inline elements closed since the last text or atomic run. */
+  let closesSinceText = 0;
 
   function walk(
     n: StyledNode,
@@ -40,6 +42,7 @@ function collectTextRuns(node: StyledNode): TextRun[] {
       runs.push({
         text: n.textContent, style: n.style, parentStyle, boxStyle, clipStyle, strokeImageStyle, bidi,
       });
+      closesSinceText = 0;
       return;
     }
     const isInlineBlock = n.style.display === 'inline-block';
@@ -73,6 +76,7 @@ function collectTextRuns(node: StyledNode): TextRun[] {
         inlineBlock: n,
         bidi,
       });
+      closesSinceText = 0;
       return;
     }
 
@@ -81,9 +85,12 @@ function collectTextRuns(node: StyledNode): TextRun[] {
     const childBidi = bidiContextFor(n.style.unicodeBidi, n.style.direction, bidi);
 
     // A margin lies outside the box's background: its edge belongs to the enclosing box.
-    if (hasMargins) runs.push({ text: '', style: n.style, boxStyle, boxOpen: n.style, margin: true, bidi });
+    const closesBefore = closesSinceText;
+    if (hasMargins) {
+      runs.push({ text: '', style: n.style, boxStyle, boxOpen: n.style, margin: true, closesBefore, bidi });
+    }
     if (hasHorizSpacing) {
-      runs.push({ text: '', style: n.style, boxStyle: newBoxStyle, boxOpen: n.style, bidi });
+      runs.push({ text: '', style: n.style, boxStyle: newBoxStyle, boxOpen: n.style, closesBefore, bidi });
     }
 
     for (const child of n.children) {
@@ -100,6 +107,7 @@ function collectTextRuns(node: StyledNode): TextRun[] {
       runs.push({ text: '', style: n.style, boxStyle: newBoxStyle, boxClose: n.style, bidi });
     }
     if (hasMargins) runs.push({ text: '', style: n.style, boxStyle, boxClose: n.style, margin: true, bidi });
+    if (inline) closesSinceText++;
   }
 
   // The block itself is the parent every top-level run measures against.
@@ -117,13 +125,13 @@ function isCollapsibleSpace(code: number): boolean {
 /** Segment and measure one string into `out` by white-space mode. */
 function prepareString(
   session: LayoutSession, out: SegmentBuilder, text: string, run: TextRun, ref: number,
-  cumState?: Cumulative,
+  cum: Cumulative,
 ): void {
   const m = session.measurer;
-  // Zero-width spaces and soft hyphens are break opportunities; the parts share one context.
+  // Zero-width spaces and soft hyphens are break opportunities; the parts share one context
+  // (Chrome kerns across both: Arimo "A&shy;V" -7.42px at 100px).
   if (text.includes('\u200B') || text.includes('\u00AD')) {
     const parts = text.split(/(\u200B|\u00AD)/);
-    const sharedState = cumState ?? { text: '', width: 0, word: 0 };
     let nextIsSoftHyphen = false;
     for (const part of parts) {
       if (part === '\u00AD') {
@@ -136,7 +144,7 @@ function prepareString(
       }
       // The segment before this part — possibly one from an earlier run.
       const prevLen = out.count;
-      prepareString(session, out, part, run, ref, sharedState);
+      prepareString(session, out, part, run, ref, cum);
       if (nextIsSoftHyphen && prevLen > 0) {
         out.flags[prevLen - 1] |= SEG_SOFT_HYPHEN;
       }
@@ -152,16 +160,13 @@ function prepareString(
   const n = text.length;
 
   // `pre-line` collapses spaces and tabs (its newlines were split off in prepareInline).
-  const isPreserve = run.style.whiteSpace === 'pre' ||
-    run.style.whiteSpace === 'pre-wrap' ||
-    run.style.whiteSpace === 'break-spaces';
-
-  if (isPreserve) {
+  if (preservesSpaces(run.style.whiteSpace)) {
     // Space runs, single tabs and the text between them, split after hyphens; measured in
     // context as collapsed text is, so a space's kerning into the next word counts (Arial
     // " A": -0.88px at 16px in Chrome's DOM under every white-space). A tab restarts it.
     const tabStopInterval = m.width(state, ' ') * 8; // CSS default: 8 spaces
-    const cum: Cumulative = cumState ?? { text: '', width: 0, word: 0 };
+    /** `SEG_SHAPED_APART` for the segment after a tab. */
+    let apart = 0;
     let i = 0;
     while (i < n) {
       const code = text.charCodeAt(i);
@@ -170,26 +175,30 @@ function prepareString(
         out.push('\t', tabStopInterval, SEG_SPACE | SEG_TAB, ref);
         cum.text = '';
         cum.width = cum.word = 0;
+        apart = SEG_SHAPED_APART;
         i++;
         continue;
       }
       let j = i + 1;
       if (code === 32) {
-        while (j < n && text.charCodeAt(j) === 32) j++;
+        // `break-spaces` breaks after every space, so each is a segment; the first wraps with
+        // its word (`breakBefore`).
+        if (run.style.whiteSpace !== 'break-spaces') while (j < n && text.charCodeAt(j) === 32) j++;
         const w = text.slice(i, j);
-        out.push(w, measureAfter(m, state, cum, w, run), SEG_SPACE, ref);
+        out.push(w, measureAfter(m, state, cum, w, run), SEG_SPACE | apart, ref);
+        apart = 0;
       } else {
         while (j < n && text.charCodeAt(j) !== 32 && text.charCodeAt(j) !== 9) j++;
-        forEachHyphenPiece(text, i, j, (w) => out.push(w, measureAfter(m, state, cum, w, run), breakFlags(w), ref));
+        forEachWordPiece(text, i, j, (w) => {
+          out.push(w, measureAfter(m, state, cum, w, run), breakFlags(w) | apart, ref);
+          apart = 0;
+        });
       }
       i = j;
     }
     return;
   }
 
-  // A word breaks after "?" (Chrome wraps URLs at the query; not at / & = . :), and before an
-  // NBSP only after a hyphen or break-after char (UAX #14 LB12a; measured: - | \u2013 \u2014).
-  const cum: Cumulative = cumState ?? { text: '', width: 0, word: 0 };
   const word = (w: string) => {
     // Use Intl.Segmenter for scripts without spaces (Thai, Khmer, etc.)
     if (needsSegmenter(w)) {
@@ -224,24 +233,46 @@ function prepareString(
       continue;
     }
     while (j < n && !isCollapsibleSpace(text.charCodeAt(j))) j++;
-    let start = i;
-    for (let q = i + 1; q < j; q++) {
-      const before = text.charCodeAt(q - 1);
-      const at = text.charCodeAt(q);
-      if ((before === 0x3F && at !== 0x2028 && at !== 0x2029) ||
-          (at === 0xA0 && (before === 0x2D || before === 0x7C || before === 0x2013 || before === 0x2014))) {
-        forEachHyphenPiece(text, start, q, word);
-        start = q;
-      }
-    }
-    forEachHyphenPiece(text, start, j, word);
+    forEachWordPiece(text, i, j, word);
     i = j;
   }
+}
+
+/**
+ * The breakable pieces of the word `text[start, end)`, under every white-space. A word breaks
+ * after "?" (Chrome wraps URLs at the query; not at / & = . :), before an NBSP only after a
+ * hyphen or break-after char (UAX #14 LB12a; measured: - | \u2013 \u2014), and at hyphens.
+ */
+function forEachWordPiece(text: string, start: number, end: number, emit: (piece: string) => void): void {
+  for (let q = start + 1; q < end; q++) {
+    const before = text.charCodeAt(q - 1);
+    const at = text.charCodeAt(q);
+    if ((before === 0x3F && at !== 0x2028 && at !== 0x2029) ||
+        (at === 0xA0 && (before === 0x2D || before === 0x7C || before === 0x2013 || before === 0x2014))) {
+      forEachHyphenPiece(text, start, q, emit);
+      start = q;
+    }
+  }
+  forEachHyphenPiece(text, start, end, emit);
+}
+
+/**
+ * Text run `next` continues the shaping of `prev`, its measuring context with it: Chrome shapes
+ * runs of one measuring state as one string across the element edge between them (Arimo
+ * "A<span>V</span>" -7.42px at 100px; colour, decorations, backgrounds and position keep it),
+ * not across an inline edge with width, a vertical-align shift, a bidi isolate or a different
+ * word-spacing. break-rules-parity, kern-placement-parity.
+ */
+function continuesShaping(m: Measurer, prev: TextRun, next: TextRun): boolean {
+  return m.stateOf(prev.style) === m.stateOf(next.style) && prev.bidi === next.bidi &&
+    prev.style.verticalAlign === next.style.verticalAlign && prev.style.wordSpacing === next.style.wordSpacing;
 }
 
 /** Segment and measure text runs: the one pass over an inline context's text per call. */
 function prepareInline(session: LayoutSession, runs: TextRun[]): PreparedInline {
   const out = new SegmentBuilder();
+  /** The last text run and the measuring context it ends with; an inline-block or an edge with width ends it. */
+  let shaping: { run: TextRun; cum: Cumulative } | null = null;
   /** The text so far ends with a zero-width space (a break opportunity). */
   let zwspBefore = false;
   /** Style of the last text run that produced segments (`markSeam`). */
@@ -255,6 +286,7 @@ function prepareInline(session: LayoutSession, runs: TextRun[]): PreparedInline 
       const source = run.inlineBlock!;
       out.inlineBlocks.push(out.count);
       out.push(run.text, inlineBlockOuterWidth(session, source, intrinsicStyle(source.style), Infinity), 0, out.addRefs(run));
+      shaping = null;
       continue;
     }
 
@@ -267,6 +299,7 @@ function prepareInline(session: LayoutSession, runs: TextRun[]): PreparedInline 
       if (pad !== 0 || box !== edge) {
         if (box !== edge) out.percentEdges.push(out.count);
         out.push('', pad, 0, out.addRefs(run));
+        shaping = null;
       }
       continue;
     }
@@ -289,17 +322,25 @@ function prepareInline(session: LayoutSession, runs: TextRun[]): PreparedInline 
       if (!breakAtStart && abutsWithoutBreak(out, startLen)) out.flags[startLen] |= SEG_NO_BREAK_BEFORE;
     };
 
-    // A newline (from <br> or pre-wrap) is always a forced break.
+    // A newline (from <br> or pre-wrap) is always a forced break; the line after it starts afresh,
+    // as does a run after an empty context (a newline or tab ended the last one).
     const parts = text.split('\n');
+    const continues = shaping !== null && shaping.cum.text !== '' && continuesShaping(session.measurer, shaping.run, run);
+    let cum: Cumulative = continues ? shaping!.cum : { text: '', width: 0, word: 0 };
     for (let i = 0; i < parts.length; i++) {
-      if (i > 0) out.push('\n', 0, 0, ref);
+      if (i > 0) {
+        out.push('\n', 0, 0, ref);
+        cum = { text: '', width: 0, word: 0 };
+      }
       if (parts[i]) {
         const startLen = out.count;
-        prepareString(session, out, parts[i], run, ref);
+        prepareString(session, out, parts[i], run, ref, cum);
         markSeam(startLen, i === 0);
         markGlue(startLen);
+        if ((i > 0 || !continues) && out.count > startLen) out.flags[startLen] |= SEG_SHAPED_APART;
       }
     }
+    shaping = { run, cum };
     if (out.count > runStart) lastTextStyle = run.style;
   }
 

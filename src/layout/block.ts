@@ -4,7 +4,6 @@ import type { StyledNode, LayoutNode, LayoutBox, ResolvedStyle } from '../types.
 import {
   borderBoxSize, contentBoxSize, intrinsicStyle, OVERFLOW_X, OVERFLOW_Y, resolvePercentages,
 } from '../css-resolver.js';
-import { MARKER_LINE_WITHOUT_CONTENT, MIN_HEIGHT_END_MARGINS } from '../engine.js';
 import { BULLET_MARKERS, LINE_BASELINE, LINE_TOP, LIST_MARKER, type LayoutSession, type PrivateText } from './session.js';
 import {
   appendAll, createsLineBox, hasOnlyInlineChildren, horizontalFrame, isCollapsibleWhitespace, isInline,
@@ -286,22 +285,20 @@ export function layoutBlock(
 
     // The last child's bottom margins leave through this box's bottom edge
     // unless padding, border or a BFC holds them inside (the layout root
-    // holds them: it defines the content height). What a min-height does
-    // here is an engine rule: MIN_HEIGHT_END_MARGINS.
+    // holds them: it defines the content height). A min-height that raises the
+    // box drops them (Blink, WebKit 27.2; Gecko keeps them inside).
     let marginBottomOut = ownMarginOut;
     let contentEnd = curY - contentStartY;
-    // A list item with nothing in flow but its marker (MARKER_LINE_WITHOUT_CONTENT).
+    // A list item with nothing in flow but its marker still gets the marker's line box
+    // (Blink; WebKit gives it no height).
     if (atTop && hasVisibleMarker(node)) {
       if (!bfcRoot && bottomAdjoinsChildren(style)) pending = throughStrut;
-      if (MARKER_LINE_WITHOUT_CONTENT) {
-        contentEnd = Math.max(contentEnd, session.measurer.lineHeight(style));
-      }
+      contentEnd = Math.max(contentEnd, session.measurer.lineHeight(style));
     }
     const raisesBox = style.minHeight > 0 &&
       contentBoxSize(style, style.minHeight, borderTop + padTop + padBottom + borderBottom) > Math.max(0, contentEnd);
-    if (!bfcRoot && bottomAdjoinsChildren(style) &&
-        !(MIN_HEIGHT_END_MARGINS === 'contain' && style.minHeight > 0)) {
-      if (MIN_HEIGHT_END_MARGINS === 'collapse' || !raisesBox) {
+    if (!bfcRoot && bottomAdjoinsChildren(style)) {
+      if (!raisesBox) {
         marginBottomOut = withMargin(pending, style.marginBottom);
       }
     } else {

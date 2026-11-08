@@ -1,6 +1,6 @@
 /**
- * The engine whose rules to follow, from the UA alone (layout never touches the
- * DOM). Blink is the default, so a server-side render matches
+ * The engine whose canvas to work around, from the UA alone (layout never
+ * touches the DOM). Blink is the default, so a server-side render matches
  * headless Chrome. Gecko is the only engine with a real `Gecko/<date>` token.
  * Safari is AppleWebKit without `Chrome/`, `jsdom/` or `HappyDOM/` (both borrow
  * WebKit's UA); `Chrome/` has no word boundary because of `HeadlessChrome/`.
@@ -9,16 +9,10 @@ const UA = typeof navigator === 'undefined' ? '' : navigator.userAgent;
 export const ENGINE: 'blink' | 'webkit' | 'gecko' = /\bGecko\/\d/.test(UA) ? 'gecko'
   : /AppleWebKit/.test(UA) && !/Chrome\/\d/.test(UA) && !/\b(jsdom|HappyDOM)\//.test(UA) ? 'webkit' : 'blink';
 
-// One flag per engine question, even where two select the same engines today:
-// never gate one rule on another's flag.
-
-/** A percentage line-height is truncated to an integer percentage before it
- * multiplies (162.9% acts as 162%). Blink and WebKit; line-baseline-parity. */
-export const INTEGER_PERCENT_LINE_HEIGHT = ENGINE !== 'gecko';
-
-/** The text-shadow of a -webkit-text-stroke'd glyph includes the stroke
- * (WebKit); Blink casts it from the fill only. text-shadow-coverage. */
-export const STROKE_CASTS_TEXT_SHADOW = ENGINE !== 'blink';
+// One layout in every browser, Chrome's (README, Design decisions). A flag here only works
+// around a canvas that reports or paints differently, so that canvas yields Chrome's layout
+// and paint; it never follows another engine's own layout. One flag per canvas question,
+// even where two select the same engines today: never gate one on another's flag.
 
 /** Blink paints a plain LTR source run with one shaped fillText without moving
  * its DOM raster. paint-runs. */
@@ -28,41 +22,17 @@ export const BLINK_TEXT_RUN_SHAPING = ENGINE === 'blink';
  * WebKit, whose Canvas orders it differently. bidi-order-parity. */
 export const CANVAS_BIDI_LINE = ENGINE !== 'webkit';
 
-/** The line baseline is floored to a whole CSS pixel (Blink; WebKit over its
- * truncated line-height). Gecko keeps it exact. line-baseline-parity. */
-export const FLOORS_LINE_BASELINE = ENGINE !== 'gecko';
+/** Firefox's canvas reports the font box ceiled to whole px where Chrome's and WebKit's round
+ * it (Arimo 16px: 15 / 4 over 14.48 / 3.39, Chrome 14 / 3; Playfair 100px: 109 / 26, Chrome
+ * 108 / 25): `chromeFontBox` reads it at EXACT_PROBE_SIZE and rounds it as Chrome does.
+ * cross-browser.compare. */
+export const CANVAS_CEILS_FONT_BOX = ENGINE === 'gecko';
 
-/** `super` = fontSize/3 + 1, `sub` = fontSize/5 + 1 (Blink and WebKit); Gecko
- * shifts 0.34em / 0.2em. line-baseline-parity. */
-export const BLINK_SUPER_SUB = ENGINE !== 'gecko';
-
-/** WebKit floors the float32 line-height to whole pixels (16px x 1.6 = 25px).
- * line-baseline-parity, line-box-parity. */
-export const TRUNCATES_LINE_HEIGHT = ENGINE === 'webkit';
-
-/** Blink paints each line box at a whole CSS pixel (round half up of its top)
- * while layout stays fractional. WebKit snaps to device pixels (not modelled).
- * line-paint-snap-parity. */
-export const SNAPS_LINE_PAINT = ENGINE === 'blink';
-
-/** Blink's auto underline top sits `ceil(fontSize / 20)` below the snapped
- * baseline, font-independent. decoration-geometry, line-paint-snap-parity. */
-export const BLINK_UNDERLINE_GAP = ENGINE === 'blink';
-
-/** A list item whose children all collapse through still gets its marker's
- * line box in Blink; WebKit gives it no height. margin-collapse-parity. */
-export const MARKER_LINE_WITHOUT_CONTENT = ENGINE === 'blink';
-
-/**
- * Margins leaving a block's bottom from its last child, under a min-height
- * (margin-collapse-parity):
- * - `'drop'` (Blink): a min-height that raises the box loses those margins.
- * - `'collapse'` (WebKit): CSS 2.1 §8.3.1 — they always pass out.
- * - `'contain'` (Gecko, unmeasured): any nonzero min-height keeps them inside.
- *   Firefox CI disagrees for min-heights at or near the content height.
- */
-export const MIN_HEIGHT_END_MARGINS: 'drop' | 'collapse' | 'contain' =
-  ENGINE === 'gecko' ? 'contain' : ENGINE === 'webkit' ? 'collapse' : 'drop';
+/** Firefox's canvas widens each glyph of a synthetic bold, ~0.57px at 20px (Lobster, one weight:
+ * "still underlined" 125.03px bold, 115.97 regular), where Chrome's keeps the regular advances
+ * (116.02 both): layout measures the regular face (`syntheticBoldWidening`) and paint takes the
+ * widening back out with letter-spacing. cross-browser.compare. */
+export const CANVAS_WIDENS_SYNTHETIC_BOLD = ENGINE === 'gecko';
 
 /** `measureText`'s ink box is not the painted ink, so `Measurer.inkBox` reads the
  * pixels. WebKit's always holds the pen origin and the advance, whatever the
@@ -75,19 +45,3 @@ export const MIN_HEIGHT_END_MARGINS: 'drop' | 'collapse' | 'contain' =
  * list-marker-geometry. */
 export const INK_BOX_FROM_PAINT = ENGINE !== 'blink' || /\b(Windows|Linux|CrOS)\b/.test(UA);
 
-/** Blink lays line-heights on its 1/64px LayoutUnit grid: a number floors the
- * product, a length rounds to nearest, the half-leading truncates.
- * line-baseline-parity. */
-export const LAYOUT_UNIT_LINE_HEIGHT = ENGINE === 'blink';
-
-/** Gecko rounds a line-height to its 1/60px app units (17.3px x 1.85 = 32.005
- * lays out as 32), measured in Firefox CI. line-baseline-parity. */
-export const APP_UNIT_LINE_HEIGHT = ENGINE === 'gecko';
-
-/** Inline widths live on the 1/64px LayoutUnit grid: the available width is
- * truncated (a `width: 751.855px` box is 751.84375 wide), a line fits up to
- * one unit over it inclusive, and intrinsic sizes ceil to it. Blink's line
- * breaker works in LayoutUnits with an epsilon; WebKit measures the same.
- * Gecko's 1/60px app-unit widths are unmeasured. wrapping-parity
- * (knife-edge), `Line fit on the layout grid`. */
-export const LAYOUT_UNIT_LINE_FIT = ENGINE !== 'gecko';

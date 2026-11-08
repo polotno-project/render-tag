@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { commands } from 'vitest/browser';
 import { compareNativeRenders, decodePng } from './helpers/native-compare.ts';
+import { extractDomLines, mountFixture } from './helpers/compare.ts';
 import { loadBasicCases } from './helpers/test-cases.ts';
 import { PORTABLE_GATES_ONLY } from './helpers/portable-mode.ts';
 
@@ -78,3 +79,60 @@ describe('native DOM oracle', () => {
     expect(canvas.height).toBe(testCase.height * 2);
   });
 });
+
+describe('DOM line oracle', () => {
+  // A line pitch far below the glyph box: a tall script such as Tibetan at an
+  // ordinary line-height has the same geometry.
+  const css = 'p { margin: 0; font: 40px sans-serif; line-height: 8px; overflow-wrap: anywhere; }';
+  const lineBoxes = (html: string, width: number) => {
+    const { container, content } = mountFixture(html, css, width);
+    const count = content.querySelector('p')!.getBoundingClientRect().height / 8;
+    container.remove();
+    return count;
+  };
+
+  it('reads every line of a word wrapped under a line pitch far below its glyph box', () => {
+    const word = 'abcdefghij'.repeat(6);
+    const html = `<p>${word}</p>`;
+    const lines = extractDomLines(html, css, 100);
+
+    expect(lines.map((line) => line.text).join('')).toBe(word);
+    expect(lines.length).toBeGreaterThan(5);
+    expect(lines).toHaveLength(lineBoxes(html, 100));
+  });
+
+  it('reads every line of words wrapped under a line pitch far below their glyph box', () => {
+    const words = ['one', 'two', 'six', 'ten', 'red', 'big'];
+    const html = `<p>${words.join(' ')}</p>`;
+    const lines = extractDomLines(html, css, 100);
+
+    expect(lines.map((line) => line.text)).toEqual(words);
+    expect(lines).toHaveLength(lineBoxes(html, 100));
+  });
+
+  // Polotno's editor CSS indents items 2.1em at line-height 1; with PT Sans the glyph boxes
+  // of adjacent lines overlap 23%, as sans-serif does at 0.8. The item's first word starts
+  // right of a one-word line above it.
+  it.each([
+    ['a list item after a paragraph', '<p>der</p><ul><li>Mitglieds</li></ul>'],
+    ['a nested list item after its parent item', '<ul><li>der<ul><li>Mitglieds</li></ul></li></ul>'],
+  ])('starts %s on a line of its own', (_, html) => {
+    const tight = 'p, ul, li { margin: 0; padding: 0; font: 20px sans-serif; line-height: 0.8; list-style: none; } li { padding-inline-start: 2.1em; }';
+
+    expect(extractDomLines(html, tight, 400).map((line) => line.text)).toEqual(['der', 'Mitglieds']);
+  });
+
+  it('capitalizes a word once, not again where it continues inside a child element', () => {
+    const html = '<p>nați<b>or</b> un<i>ite</i> a<span>u</span> <b>new</b> word</p>';
+    const capitalized = 'p { margin: 0; font: 16px sans-serif; text-transform: capitalize; }';
+    const { container, content } = mountFixture(html, capitalized, 400);
+    // innerText applies text-transform: the engine's own painted text.
+    const painted = content.querySelector('p')!.innerText;
+    container.remove();
+    const lines = extractDomLines(html, capitalized, 400);
+
+    expect(lines.map((line) => line.text).join('').replace(/\s/g, ''))
+      .toBe(painted.replace(/\s/g, ''));
+  });
+});
+

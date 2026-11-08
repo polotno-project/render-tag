@@ -12,8 +12,8 @@ import {
   type LayoutSession, type Measurer, type PrivateLineBox, type PrivateText,
 } from './session.js';
 import {
-  appendAll, createsLineBox, horizontalFrame, horizontalMargins, resolveChildPercentages, sameDecorationBand,
-  textEdges, withDirection,
+  appendAll, createsLineBox, hasBackgroundImage, horizontalFrame, horizontalMargins, physicalAlign,
+  resolveChildPercentages, sameDecorationBand, textEdges, withDirection,
 } from './util.js';
 import {
   inlineEdgeWidth, isAtomicInlineBlock, type InlineBlockLayout, type PositionedLine, type PreparedInline, type Word,
@@ -50,8 +50,7 @@ function usedSegmentWidths(
     resolveChildPercentages(source, contentWidth);
     const inner = layoutInlineContent(session, source, 0, 0, contentWidth);
     const contentHeight = inner.height || session.measurer.lineHeight(s);
-    const lastBaseline = inner.lines.at(-1)?.y ??
-      session.measurer.leadedBox(s).ascent;
+    const lastBaseline = inner.lastBaseline ?? session.measurer.leadedBox(s).ascent;
     const extra = inlineBlockExtra(s);
     const baselineOffset = extra.top + lastBaseline;
     const marginBoxHeight = extra.top + contentHeight + extra.bottom;
@@ -135,6 +134,7 @@ function sameGlyphPaint(p: ResolvedStyle, q: ResolvedStyle): boolean {
   if (p === q) return true;
   if (p.fontFamily !== q.fontFamily || p.fontSize !== q.fontSize || p.fontWeight !== q.fontWeight ||
     p.fontStyle !== q.fontStyle || p.fontVariantCaps !== q.fontVariantCaps || p.fontKerning !== q.fontKerning ||
+    p.textRendering !== q.textRendering || p.lang !== q.lang ||
     p.color !== q.color || p.webkitTextFillColor !== q.webkitTextFillColor ||
     p.textDecorationLine !== q.textDecorationLine) return false;
   // Decorations that would paint differently must not merge into one band.
@@ -352,6 +352,8 @@ interface InlineEmit {
   readonly nodes: LayoutNode[];
   readonly lines: LayoutLine[];
   readonly lineBoxes: LayoutLineBox[];
+  /** The last emitted line's exact baseline (`lines[].y` is rounded): an inline-block's own. */
+  lastBaseline?: number;
   /**
    * Text nodes under a clip / stroke-image declarer, to its style (`assignInlineFragmentBoxes`).
    */
@@ -370,7 +372,7 @@ export function layoutInlineContent(
   y: number,
   contentWidth: number,
   clamp?: LineClampState,
-): { nodes: LayoutNode[]; height: number; lines: LayoutLine[]; lineBoxes: LayoutLineBox[] } {
+): { nodes: LayoutNode[]; height: number; lines: LayoutLine[]; lineBoxes: LayoutLineBox[]; lastBaseline?: number } {
   // An ancestor's clamp already used its line budget — drop this content.
   if (clampSpent(clamp)) {
     return { nodes: [], height: 0, lines: [], lineBoxes: [] };
@@ -385,19 +387,14 @@ export function layoutInlineContent(
 
   const style = node.style;
   const isRTL = style.direction === 'rtl';
-  const resolveDir = (a: string) => {
-    if (a === 'start') return isRTL ? 'right' : 'left';
-    if (a === 'end') return isRTL ? 'left' : 'right';
-    return a;
-  };
-  const textAlign = resolveDir(style.textAlign);
+  const textAlign = physicalAlign(style.textAlign, isRTL);
   // text-align-last: 'auto' inherits from text-align except when text-align is
   // 'justify', then defaults to 'start' (CSS Text 3 §7.2).
   let textAlignLast = style.textAlignLast || 'auto';
   if (textAlignLast === 'auto') {
     textAlignLast = style.textAlign === 'justify' ? (isRTL ? 'right' : 'left') : textAlign;
   } else {
-    textAlignLast = resolveDir(textAlignLast);
+    textAlignLast = physicalAlign(textAlignLast, isRTL);
   }
   const out: InlineEmit = {
     session,
@@ -424,7 +421,7 @@ export function layoutInlineContent(
 
   assignInlineFragmentBoxes(session, out.nodes, out.clipRuns, (node, s, box) => {
     node.clip = {
-      image: s.backgroundImage && s.backgroundImage !== 'none' ? s.backgroundImage : undefined,
+      image: hasBackgroundImage(s) ? s.backgroundImage : undefined,
       color: !isTransparent(s.backgroundColor) ? s.backgroundColor : undefined,
       ...box,
     };
@@ -433,7 +430,7 @@ export function layoutInlineContent(
     node.strokeImage = { image: s.webkitTextStrokeImage, ...box };
   });
 
-  return { nodes: out.nodes, height: curY - y, lines: out.lines, lineBoxes: out.lineBoxes };
+  return { nodes: out.nodes, height: curY - y, lines: out.lines, lineBoxes: out.lineBoxes, lastBaseline: out.lastBaseline };
 }
 
 /** The final flow of `prepared` at `contentWidth`, inline-blocks laid out first. */
@@ -451,9 +448,9 @@ function flowInlineLines(
   const strutLineHeight = m.lineHeight(node.style);
   const items = new FlowItems(prepared, used?.widths, used?.layouts);
   const lines: PositionedLine[] = flowLines(new LineFlow(
-    session, items, contentWidth, node.style.whiteSpace, textIndent, false, tabMetrics, strutLineHeight,
+    session, items, contentWidth, node.style.whiteSpace, textIndent, false, tabMetrics, strutLineHeight, node.style,
   )).map((line) => ({
-    words: line.items.map((i) => items.word(i)),
+    words: line.items.map((i) => items.word(i, m)),
     totalWidth: line.totalWidth,
     lineHeight: line.lineHeight,
     endedByHardBreak: line.endedByHardBreak,
@@ -572,9 +569,11 @@ function emitLine(
     lineBox[LINE_BASELINE] = lineBaselineY;
     if (line.spaceWrap) lineBox[SPACE_WRAP] = true;
   }
-  emitInlineBackgrounds(out, emitWords, curX, lineBox, lineBaselineY, justifyExtraPerSpace);
-  emitLineText(out, emitWords, emitLevels, emitKeys, curX, lineBox, lineBaselineY, justifyExtraPerSpace);
+  const shifts = kernShifts(emitWords, emitLevels);
+  emitInlineBackgrounds(out, emitWords, shifts, curX, lineBox, lineBaselineY, justifyExtraPerSpace);
+  emitLineText(out, emitWords, shifts, emitLevels, emitKeys, curX, lineBox, lineBaselineY, justifyExtraPerSpace);
   out.lines.push(emittedLine);
+  out.lastBaseline = lineBaselineY;
   out.lineBoxes.push(lineBox);
   return lineBoxHeight;
 }
@@ -651,12 +650,28 @@ function emitInlineBox(
 }
 
 /**
+ * Each word's `kernBefore` moved onto the word before it, where every DOM books a pair's kern:
+ * index k is the shift of the boundary before word k. Null when none moves, and on a bidi
+ * line, whose pieces keep their placement.
+ */
+function kernShifts(words: readonly Word[], levels: number[] | null): number[] | null {
+  if (levels) return null;
+  let shifts: number[] | null = null;
+  for (let k = 1; k < words.length; k++) {
+    const kern = words[k].kernBefore;
+    if (!kern || !words[k - 1].text || isAtomicInlineBlock(words[k - 1])) continue;
+    (shifts ??= new Array<number>(words.length + 1).fill(0))[k] = kern;
+  }
+  return shifts;
+}
+
+/**
  * The line's inline background boxes from `startX`: one per run of words sharing a box
  * style (when it holds text), one per atomic inline-block.
  */
 function emitInlineBackgrounds(
-  out: InlineEmit, words: readonly Word[], startX: number, line: LayoutLineBox, lineBaselineY: number,
-  justifyExtraPerSpace: number,
+  out: InlineEmit, words: readonly Word[], shifts: number[] | null, startX: number, line: LayoutLineBox,
+  lineBaselineY: number, justifyExtraPerSpace: number,
 ): void {
   let scanX = startX;
   let boxStartX = scanX;
@@ -664,7 +679,8 @@ function emitInlineBackgrounds(
   // The open box group's first text word: decides whether its band is emitted and where.
   let boxTextWord: Word | undefined;
 
-  for (const word of words) {
+  for (let k = 0; k < words.length; k++) {
+    const word = words[k];
     if (isAtomicInlineBlock(word)) {
       if (currentBoxStyle) {
         if (boxTextWord) emitInlineBox(out, currentBoxStyle, boxStartX, scanX - boxStartX, lineBaselineY, boxTextWord);
@@ -702,11 +718,12 @@ function emitInlineBackgrounds(
     }
 
     if (word.refs.boxStyle !== currentBoxStyle) {
+      const edgeX = scanX + (shifts?.[k] ?? 0);
       if (currentBoxStyle && boxTextWord) {
-        emitInlineBox(out, currentBoxStyle, boxStartX, scanX - boxStartX, lineBaselineY, boxTextWord);
+        emitInlineBox(out, currentBoxStyle, boxStartX, edgeX - boxStartX, lineBaselineY, boxTextWord);
       }
       currentBoxStyle = word.refs.boxStyle;
-      boxStartX = scanX;
+      boxStartX = edgeX;
       boxTextWord = undefined;
     }
     if (word.text && !word.isSpace) boxTextWord ??= word;
@@ -738,6 +755,7 @@ function registerTextNode(out: InlineEmit, node: PrivateText, word: Word, line: 
 function emitLineText(
   out: InlineEmit,
   words: readonly Word[],
+  shifts: number[] | null,
   levels: number[] | null,
   keys: number[] | null,
   startX: number,
@@ -778,12 +796,13 @@ function emitLineText(
     // at its right edge (`PaintState.text` sets textAlign).
     const rtlPiece = levels !== null && levels[wordIndex] % 2 === 1;
 
+    const kernIn = shifts ? shifts[wordIndex] : 0;
     const node: PrivateText = {
       type: 'text',
       text: overriddenText(word.text, word.refs.bidi),
-      x: rtlPiece ? curX + effectiveWidth : curX,
+      x: (rtlPiece ? curX + effectiveWidth : curX) + kernIn,
       y: baselineY,
-      width: effectiveWidth,
+      width: effectiveWidth - kernIn + (shifts ? shifts[wordIndex + 1] : 0),
       // Paint direction is the bidi LEVEL's, never the CSS `direction` (unicode-bidi: normal
       // reorders nothing).
       style: withDirection(out.session, word.refs.style, rtlPiece ? 'rtl' : 'ltr'),

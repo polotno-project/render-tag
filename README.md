@@ -316,7 +316,8 @@ Text under an RTL `unicode-bidi: bidi-override` (`<bdo dir="rtl">`) arrives
 wrapped in U+202E…U+202C, as Canvas applies the override itself: honour the
 controls in your bidi pass and draw them invisible. On a proxy whose `measureText`
 ignores `letterSpacing` or `wordSpacing`, render-tag places the pieces of a run
-itself, each with its own `direction`.
+itself, each with its own `direction`. A proxy also receives `textRendering` and
+`lang` writes; one that has neither keeps them as plain properties.
 
 Unsupported proxies fail with guidance when shadows are enabled. Exporters
 remain responsible for matching fonts, opacity, blending and effect placement
@@ -324,7 +325,12 @@ across formats. No separate shadow-layer or preparation API is required.
 
 ## What it renders
 
-Paragraphs, headings, divs, spans · bold, italic, underline, strikethrough, overline · colors, background colors, text-shadow, text-stroke (solid **and gradient**), gradient text · font families, sizes, weights (100–900), the `font` shorthand · line-height, letter-spacing, text-align (left/center/right/justify) · ordered/unordered lists with nesting · flexbox (row/column, with `flex-grow`/`flex-shrink`/`flex-basis` sized against min- and max-content like the browser; `flex-basis: content`/`max-content` size like `auto`, `min-content`/`fit-content` by the item's min-content and its max-content clamped to the container), basic tables (declared cell widths size their columns, never below their cells' min-content, and give way toward it when they overflow the table; auto columns share the rest equally) · `-webkit-line-clamp` · `pre-wrap`, `overflow-wrap: break-word`, soft hyphens · RTL, CJK, emoji.
+Paragraphs, headings, divs, spans · bold, italic, underline, strikethrough, overline · colors, background colors, text-shadow, text-stroke (solid **and gradient**), gradient text · font families, sizes, weights (100–900), the `font` shorthand · line-height, letter-spacing, text-align (left/center/right/justify) · ordered/unordered lists with nesting · flexbox (row/column, with `flex-grow`/`flex-shrink`/`flex-basis` sized against min- and max-content like the browser; `flex-basis: content`/`max-content` size like `auto`, `min-content`/`fit-content` by the item's min-content and its max-content clamped to the container), basic tables (declared cell widths size their columns, never below their cells' min-content, and give way toward it when they overflow the table; auto columns share the rest equally) · `-webkit-line-clamp` · `pre-wrap`, `overflow-wrap: break-word`/`anywhere`, `word-break: break-all`/`break-word`, soft hyphens · RTL, CJK, emoji.
+
+The content language and `text-rendering` reach shaping as they do in the DOM: render-tag writes the element's
+`lang` to `ctx.lang` and CSS `text-rendering` to `ctx.textRendering`, with `auto` as `optimizeLegibility` (Chrome's
+canvas `auto` skips OpenType features its DOM applies). Chrome honours both, Firefox `lang` only (its canvas
+widths ignore `textRendering`); WebKit's canvas has neither.
 
 CSS input: selectors with type, `.class`, `#id`, attribute (`[a]`, `=`, `~=`, `|=`, `^=`, `$=`, `*=`, `i`), descendant/`>`/`+`/`~` combinators, and the structural pseudo-classes (`:root`, `:first-child`, `:last-child`, `:only-child`, `:nth-child()`, `:nth-last-child()`, the `-of-type` forms, `:empty`, `:not()`, `:is()`, `:where()` with complex selectors inside, `:link`); dynamic states (`:hover`, `:focus`, …) are never active, a selector using anything else valid (`:has()`, `::before`, …) never matches, and an invalid one (`p:foo`) drops its whole rule, as in a browser. Units: px, em, rem, %, pt, pc, in, cm, mm, Q, ch, ex, vw/vh/vmin/vmax (the viewport is `width` × `height`; without a `height`, vh uses the width) and `calc()`/`min()`/`max()`/`clamp()`. `!important`, `inherit`/`initial`/`unset`, the `font`, `background` and `border-width/style/color` shorthands, and the HTML defaults of phrasing elements (`<small>`, `<mark>`, `<font color size face>`, `<q>` quotes, `<wbr>`, unknown and custom elements render inline). An invalid value is ignored, as in a browser — keywords, colors, images, shadows and font families included — and keywords are case-insensitive. Percentages resolve against the containing block, including the used width of a flex item, table cell or shrink-to-fit inline-block (while that width is being computed they count as 0, as in the browser); a `text-indent` or flex `gap` percentage resolves against the box's own content width, and an inherited `text-indent` percentage against each inheriting block's. `box-sizing` applies to `width`, `min-width` (on inline-blocks and flex items only; a block's `min-width` is ignored), `min-height` and `flex-basis`; `height` and `max-width` are not supported. `<style media>` applies for `all`/`screen` only. Not supported: `var()`, `@media`/`@supports` (skipped; media features in `<style media>` likewise), `attr()`, `max-width`, `row-gap`/`column-gap`, and a two-value `gap` (a flex row spaces its items by the first, row value; the browser uses the second, column value). `inline-flex` and `inline-table` are laid out as block-level boxes; block and flex children inside an inline-block join its one inline flow; an inline-block with no text draws no box of its own.
 
@@ -335,9 +341,8 @@ fill/stroke order; it does not add a filled outline to the decoration as native
 SVG text can.
 
 Each decoration is one band per text fragment (one text node's words on one
-line), with the browser's own shapes for `double`, `dotted`, `dashed` and
-`wavy`: Chrome's or Safari's, picked by user agent (Firefox keeps an older
-approximation). Bands are plain strokes: `setLineDash` for dashes and dots
+line), with Chrome's shapes for `double`, `dotted`, `dashed` and `wavy` in
+every browser. Bands are plain strokes: `setLineDash` for dashes and dots
 (Chrome's round dots are zero-length dashes with round caps) and
 `bezierCurveTo` for waves, so vector adapters need those. A
 `linear-gradient` takes angles in `deg`/`rad`/`grad`/`turn`, `to` sides and
@@ -411,9 +416,7 @@ li::marker { content: none; font-size: 0; line-height: 0; }
 ### Design decisions
 
 - **Chrome-first.** When a rendering choice must favor one browser over another, Chrome wins.
-- **Cross-browser consistency over per-browser DOM fidelity.** Same canvas output in every browser, not pixel-matching each browser's quirks. Layout never probes the DOM: a DOM probe could not reconcile browser-specific line-break policies or Canvas/DOM metric differences anyway.
-- **Line boxes follow the engine's own rounding** (Blink and WebKit floor the baseline; Blink lays line-heights on its 1/64px grid; WebKit truncates line-heights; Gecko is exact), so canvas text lands where that browser's DOM puts it and a contenteditable overlay of the same text stays on one line.
-  Here per-browser fidelity wins over identical output.
+- **One layout in every browser: Chrome's.** In Firefox, Safari and Node, render-tag lays text out and paints it where Chrome's DOM would: the same lines, positions and line boxes, not each browser's own. What a canvas reports differently is normalized to Chrome's numbers (Firefox's ceiled font box); only workarounds for a canvas API that paints differently vary by engine. A contenteditable overlay in Firefox or Safari therefore lines up with Chrome's layout, not with that browser's. On Linux, Chrome lays text on hinted whole-pixel glyph advances, which no other canvas reports: there Firefox matches Chrome with font hinting off. Layout never probes the DOM.
 
 ## License
 

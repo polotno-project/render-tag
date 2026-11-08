@@ -59,18 +59,20 @@ const FIXTURES: [string, string][] = [
 
 /**
  * Fixtures this engine's own spacing places differently from the fallback. Only shrinks.
- * - Arabic sentence: Chrome leaves a space between Arabic words unspaced in Roboto (kerned)
- *   but spaces it in an Arabic font; the fallback spaces it. WebKit spaces Arabic letters.
+ * - Arabic sentence: WebKit spaces Arabic letters.
  * - Devanagari, Thai: both engines space inside a shaped run (`shapesAsRun`), which the
  *   fallback paints whole.
  * - ligatures: Chrome drops them under letter-spacing, and the fallback measures with them;
  *   WebKit keeps them and spaces each glyph.
  * - RTL with Latin words: WebKit's own canvas gives a string's leading space no word-spacing,
  *   so its one-fillText ` עולם` paints off render-tag's layout; the fallback does not.
+ * - combining and emoji: WebKit 27.2's canvas paints the spaced clusters off the fallback
+ *   (19% of the line) though it measures them per grapheme, as the fallback does.
  */
 const RESIDUE: Partial<Record<string, string[]>> = {
-  chrome: ['Arabic sentence', 'Devanagari', 'Thai', 'ligatures'],
-  webkit: ['RTL with Latin words', 'Arabic beside Latin', 'Arabic sentence', 'Devanagari', 'Thai', 'ligatures'],
+  chrome: ['Devanagari', 'Thai', 'ligatures'],
+  webkit: ['RTL with Latin words', 'Arabic beside Latin', 'Arabic sentence', 'Devanagari', 'Thai', 'ligatures',
+    'combining and emoji'],
 };
 
 /** The 2D contexts without their spacing properties, as an engine without them has. */

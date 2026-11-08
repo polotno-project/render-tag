@@ -1,7 +1,6 @@
 // Helpers more than one layout phase reads; nothing here calls into a phase.
 import type { StyledNode, LayoutText, ResolvedStyle, DecorationEntry } from '../types.js';
 import { isTransparent, resolvePercentages } from '../css-resolver.js';
-import { LAYOUT_UNIT_LINE_FIT } from '../engine.js';
 import type { LayoutSession } from './session.js';
 
 /**
@@ -95,12 +94,23 @@ export function hasVisibleBorder(style: ResolvedStyle): boolean {
     (style.borderLeftWidth > 0 && style.borderLeftStyle !== 'none');
 }
 
+/** A `background-image` that paints (render-tag draws `linear-gradient`). */
+export function hasBackgroundImage(style: ResolvedStyle): boolean {
+  return !!style.backgroundImage && style.backgroundImage !== 'none';
+}
+
+/** `text-align` with `start` and `end` resolved against the direction. */
+export function physicalAlign(align: string, isRTL: boolean): string {
+  if (align === 'start') return isRTL ? 'right' : 'left';
+  if (align === 'end') return isRTL ? 'left' : 'right';
+  return align;
+}
+
 /** `background-clip:text` with a visible background (gradient or color): the glyphs it
  * covers sample that background instead of painting it as a box. */
 export function hasTextClip(style: ResolvedStyle): boolean {
   return style.webkitBackgroundClip === 'text' &&
-    ((!!style.backgroundImage && style.backgroundImage !== 'none') ||
-      !isTransparent(style.backgroundColor));
+    (hasBackgroundImage(style) || !isTransparent(style.backgroundColor));
 }
 
 export function hasStrokeImage(style: ResolvedStyle): boolean {
@@ -144,10 +154,14 @@ export function resolveChildPercentages(node: StyledNode, cbWidth: number): void
  */
 export function isCollapsibleWhitespace(node: StyledNode): boolean {
   if (node.tagName !== '#text') return false;
-  const ws = node.style.whiteSpace;
   const text = node.textContent ?? '';
-  if (ws === 'pre' || ws === 'pre-wrap' || ws === 'break-spaces') return text === '';
+  if (preservesSpaces(node.style.whiteSpace)) return text === '';
   return /^[ \t\f]*$/.test(text);
+}
+
+/** `pre`, `pre-wrap` and `break-spaces` keep spaces as written: none collapses or is stripped. */
+export function preservesSpaces(whiteSpace: string): boolean {
+  return whiteSpace === 'pre' || whiteSpace === 'pre-wrap' || whiteSpace === 'break-spaces';
 }
 
 /**
@@ -175,14 +189,15 @@ export function horizontalMargins(style: ResolvedStyle): number {
 }
 
 /**
- * `x` on Blink's and WebKit's 1/64px LayoutUnit grid, truncated like `LayoutUnit(float)`;
- * exact in Gecko. Infinity stays Infinity (the max-content flow).
+ * `x` on Blink's 1/64px LayoutUnit grid, truncated like `LayoutUnit(float)`: inline widths
+ * live on it (a `width: 751.855px` box is 751.84375 wide). Infinity stays Infinity (the
+ * max-content flow).
  */
 export function layoutUnit(x: number): number {
-  return LAYOUT_UNIT_LINE_FIT ? Math.trunc(x * 64) / 64 : x;
+  return Math.trunc(x * 64) / 64;
 }
 
 /** `x` snapped up to the grid, like an intrinsic size (`LayoutUnit::FromFloatCeil`). */
 export function layoutUnitCeil(x: number): number {
-  return LAYOUT_UNIT_LINE_FIT ? Math.ceil(x * 64) / 64 : x;
+  return Math.ceil(x * 64) / 64;
 }

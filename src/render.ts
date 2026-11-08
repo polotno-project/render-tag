@@ -1,6 +1,7 @@
 import type { ShadowOptions, LayoutNode, LayoutBox, LayoutText, ResolvedStyle, TextUnit, TextUnitPaint } from './types.js';
 import {
   graphemes,
+  hasBackgroundImage,
   hasStrokeImage,
   hasTextClip,
   layoutFontMetrics,
@@ -23,7 +24,7 @@ import {
 } from './shadow.js';
 import { PaintState, withDraw } from './paint-state.js';
 import { fragmentBands, paintBand, type Band } from './decoration.js';
-import { BLINK_TEXT_RUN_SHAPING, STROKE_CASTS_TEXT_SHADOW } from './engine.js';
+import { BLINK_TEXT_RUN_SHAPING } from './engine.js';
 
 /**
  * Corner radii [TL, TR, BR, BL] for `roundRect`, or null when all square.
@@ -84,7 +85,7 @@ export interface TextPaints {
  * clip, or whose own fill is transparent under a declaring ancestor. A
  * transparent fill paints nothing (Chrome, even with a stroke) except on a
  * coverage mask, where every glyph is its own shadow's shape; Blink's mask
- * omits the stroke (STROKE_CASTS_TEXT_SHADOW).
+ * omits the stroke (WebKit's casts it).
  */
 export function glyphPaints(
   ps: PaintState, style: ResolvedStyle, clip: CanvasGradient | string | null, strokeImage: CanvasGradient | null,
@@ -92,7 +93,7 @@ export function glyphPaints(
   const clipped = hasTextClip(style) || (clip != null && fillIsTransparent(style));
   const fill = clipped ? clip || style.color
     : !fillIsTransparent(style) || ps.coverage ? textFillColor(style) : null;
-  const stroked = style.webkitTextStrokeWidth > 0 && (!ps.coverage || STROKE_CASTS_TEXT_SHADOW);
+  const stroked = style.webkitTextStrokeWidth > 0 && !ps.coverage;
   return { fill, clip, stroked, strokeImage };
 }
 
@@ -294,7 +295,7 @@ function forEachBatch(runs: LayoutText[], visit: (run: LayoutText, head: LayoutT
 /** A block's background-clip:text paint: its gradient, else its solid color. */
 function blockClipPaint(ps: PaintState, box: LayoutBox): CanvasGradient | string | null {
   const { style } = box;
-  const grad = style.backgroundImage && style.backgroundImage !== 'none'
+  const grad = hasBackgroundImage(style)
     ? ps.linearGradient(style.backgroundImage, box.x, box.width, box.y, box.height)
     : null;
   return grad ?? (!isTransparent(style.backgroundColor) ? style.backgroundColor : null);
@@ -739,18 +740,6 @@ function reachesSlice(pieces: readonly UnitPiece[], left: number, right: number,
   return pieces.some(piece => piece.right > left - em && piece.left < right + em);
 }
 
-/**
- * `run` (`head` on) painted on its own where drawLayout's batch over the fragment paints it
- * (`forEachBatch`). After an adjacent run the batch kerns into it (Arial pulls an "A" 0.88px
- * toward a space at 16px), and layout counts that in its width: it ends where layout ends it.
- */
-function batchPlaced(ps: PaintState, runs: LayoutText[], run: LayoutText, head: LayoutText): LayoutText {
-  const before = runs[runs.indexOf(head) - 1];
-  // A spacing ctx only: on one without, render-tag places the run's pieces (`spacedPieces`).
-  if (!before || Math.abs(before.x + before.width - head.x) > 0.01 || ps.text(run.style)) return run;
-  return { ...run, x: run.x + run.width - ps.measure(run.style, run.text, false) };
-}
-
 /** A unit's pieces of one fragment (`paintRuns`): bands keep the whole fragment's geometry,
  * so dashes and waves keep their phase, clipped to the unit's slice. */
 function paintPieces(
@@ -763,7 +752,7 @@ function paintPieces(
   const shaped = slice === true && sliced;
   const source = shaped ? fragment.runs : pieces.filter(piece => !piece.space).map(piece => piece.run);
   let glyphs: LayoutText[] = batched ? [] : source;
-  if (batched) forEachBatch(source, (run, head) => glyphs.push(shaped ? run : batchPlaced(ps, fragment.runs, run, head)));
+  if (batched) forEachBatch(source, (run) => glyphs.push(run));
   if (shaped) {
     glyphs = glyphs.filter(run => reachesSlice(pieces, ...textEdges(run), run.style.fontSize));
   }

@@ -3,10 +3,7 @@
 import type { StyledNode, LayoutBox, LayoutText, LayoutLineBox, ResolvedStyle, LayoutLine } from '../types.js';
 import { LINE_HEIGHT_MULTIPLIER } from '../css-resolver.js';
 import { createFallbackMeasureCtx } from '../dom.js';
-import {
-  APP_UNIT_LINE_HEIGHT, BLINK_SUPER_SUB, FLOORS_LINE_BASELINE, INK_BOX_FROM_PAINT, LAYOUT_UNIT_LINE_HEIGHT,
-  SNAPS_LINE_PAINT, TRUNCATES_LINE_HEIGHT,
-} from '../engine.js';
+import { CANVAS_CEILS_FONT_BOX, CANVAS_WIDENS_SYNTHETIC_BOLD, INK_BOX_FROM_PAINT } from '../engine.js';
 import { graphemes, letterSpaced, type PreparedInline } from './segment.js';
 
 /**
@@ -43,7 +40,7 @@ export interface LayoutStats {
   segments: number;
   /** `Word` objects the line flow hands the emit pass, plus a clamp's ellipsis. */
   wordObjects: number;
-  /** Items `gluedRunWidth` read: linear in a word split across runs, never quadratic. */
+  /** Items `gluedRunEnd` read: linear in a word split across runs, never quadratic. */
   glueSteps: number;
   /** Characters `breakGluedChain` cut such a word into: only for a word that splits. */
   chainCells: number;
@@ -51,9 +48,27 @@ export interface LayoutStats {
 
 // ── Canvas font helpers ──
 
-/** The `ctx.fontKerning` value a style resolves to. */
+/**
+ * The `ctx.fontKerning` value a style resolves to: `auto` as `normal`, since Chrome's DOM
+ * kerns a space its canvas `auto` leaves unkerned (Arimo " A": -5.5px at 100px).
+ */
 export function canvasKerning(style: ResolvedStyle): CanvasFontKerning {
   return style.fontKerning === 'none' ? 'none' : 'normal';
+}
+
+const CANVAS_TEXT_RENDERING: Record<string, CanvasTextRendering> = {
+  optimizespeed: 'optimizeSpeed', geometricprecision: 'geometricPrecision',
+};
+
+/**
+ * The `ctx.textRendering` value a style resolves to. Chrome's canvas `auto` skips OpenType
+ * features its DOM applies at CSS `auto` (a space between Hangul words measures 106.616px
+ * on canvas, 107.531px in the DOM); `optimizeLegibility` measures as the DOM does on 99.7%
+ * of 11,387 strings, against 98.6% for `auto`. Firefox's canvas widths ignore the property
+ * and WebKit's canvas has none.
+ */
+export function canvasTextRendering(style: ResolvedStyle): CanvasTextRendering {
+  return CANVAS_TEXT_RENDERING[style.textRendering] ?? 'optimizeLegibility';
 }
 
 /** Format a letter-spacing value (px) as a canvas `ctx.letterSpacing` string. */
@@ -104,6 +119,8 @@ export const BULLET_MARKERS = new Set(['disc', 'circle', 'square']);
 export interface MeasureState {
   readonly font: string;
   readonly kerning: CanvasFontKerning;
+  readonly textRendering: CanvasTextRendering;
+  readonly lang: string;
   readonly letterSpacing: string;
   /** `measureText` widths under this state, by text. */
   readonly widths: Map<string, number>;
@@ -134,6 +151,63 @@ export type FontMetricsTable = Map<string, FontBox>;
 let lastCtxWriter = 0;
 let ctxWriterIds = 0;
 const SPACING_PROBE = nextCtxWriterId();
+const OBLIQUE_PROBE = nextCtxWriterId();
+const OBLIQUE_SAMPLE = 'Hamburgefonstiv';
+const BOLD_PROBE = nextCtxWriterId();
+
+/**
+ * The canvas font of `style`. `oblique <angle>` under 14deg: Chrome picks the upright face (a
+ * slnt axis takes the angle) and measures it upright; a canvas that measures it apart picked
+ * another face (`@napi-rs/canvas`: the italic one) and gets 'normal', the face Chrome draws.
+ * `seen` keeps the answer per font for one ctx.
+ */
+export function canvasFont(ctx: CanvasRenderingContext2D, style: ResolvedStyle, seen: Map<string, string>): string {
+  const font = buildCanvasFont(style);
+  const angle = /^oblique (-?[\d.]+)deg$/.exec(style.fontStyle)?.[1];
+  if (angle === undefined || !(Math.abs(parseFloat(angle)) < 14)) return font;
+  let answer = seen.get(font);
+  if (answer === undefined) {
+    // Leaves the font as found: a paint may probe between setting its font and drawing.
+    claimCtx(OBLIQUE_PROBE);
+    const before = ctx.font;
+    const upright = buildCanvasFont({ ...style, fontStyle: 'normal' });
+    ctx.font = upright;
+    const width = ctx.measureText(OBLIQUE_SAMPLE).width;
+    ctx.font = font;
+    answer = ctx.measureText(OBLIQUE_SAMPLE).width === width ? font : upright;
+    ctx.font = before;
+    seen.set(font, answer);
+  }
+  return answer;
+}
+
+/**
+ * What the canvas adds to each glyph of `style` for a synthetic bold (`CANVAS_WIDENS_SYNTHETIC_BOLD`),
+ * else 0: a weight the family lacks widens every glyph alike ("iiiiiiii" and "WWWWWWWW" by the
+ * same), a real bold face does not. `seen` keeps the answer per font for one ctx.
+ */
+export function syntheticBoldWidening(ctx: CanvasRenderingContext2D, style: ResolvedStyle, seen: Map<string, number>): number {
+  if (!CANVAS_WIDENS_SYNTHETIC_BOLD || style.fontWeight < 600) return 0;
+  const font = buildCanvasFont(style);
+  let widening = seen.get(font);
+  if (widening === undefined) {
+    // Leaves the font as found: a paint may probe between setting its font and drawing.
+    claimCtx(BOLD_PROBE);
+    const before = ctx.font;
+    const regular = buildCanvasFont({ ...style, fontWeight: 400 });
+    const added = (sample: string) => {
+      ctx.font = font;
+      const bold = ctx.measureText(sample).width;
+      ctx.font = regular;
+      return bold - ctx.measureText(sample).width;
+    };
+    const narrow = added('iiiiiiii');
+    widening = narrow > 0 && Math.abs(narrow - added('WWWWWWWW')) < 0.05 ? narrow / 8 : 0;
+    ctx.font = before;
+    seen.set(font, widening);
+  }
+  return widening;
+}
 
 /** A fresh writer id for `claimCtx`. */
 export function nextCtxWriterId(): number {
@@ -173,6 +247,9 @@ export class Measurer {
   private readback: CanvasRenderingContext2D | undefined;
   /** Whether the ctx applies `letterSpacing` itself, asked once a width needs it. */
   private appliesLetterSpacing: boolean | undefined;
+  /** `canvasFont`'s and `syntheticBoldWidening`'s answers for this ctx. */
+  private readonly canvasFonts = new Map<string, string>();
+  private readonly boldWidenings = new Map<string, number>();
 
   /**
    * Clears the ctx's word-spacing: spaces carry it in their own measured width.
@@ -186,7 +263,7 @@ export class Measurer {
     if (spacing.wordSpacing && spacing.wordSpacing !== '0px') spacing.wordSpacing = '0px';
   }
 
-  /** A style's own measuring state: its font, kerning and letter-spacing. */
+  /** A style's own measuring state: its font, kerning, text rendering, language and letter-spacing. */
   stateOf(style: ResolvedStyle): MeasureState {
     return this.font(style).measure;
   }
@@ -246,7 +323,9 @@ export class Measurer {
       const font = fs.measure.font;
       let metrics = this.fontMetrics.get(font);
       if (!metrics) {
-        metrics = fontBox(this.measureText(fs.measure, 'M'));
+        const at = (size: number) => size === style.fontSize ? fs.measure
+          : this.intern(buildCanvasFont({ ...style, fontSize: size }), 'normal', canvasTextRendering(style), style.lang, '0px');
+        metrics = chromeFontBox(style.fontSize, (size) => fontBox(this.measureText(at(size), 'M')));
         this.fontMetrics.set(font, metrics);
       }
       fs.metrics = metrics;
@@ -307,7 +386,8 @@ export class Measurer {
    * resolver; 0.5em when the ctx cannot answer (CSS Values 4).
    */
   fontUnits(style: ResolvedStyle): { ch: number; ex: number } {
-    const state = this.intern(buildCanvasFont(style), 'normal', '0px');
+    const state = this.intern(canvasFont(this.ctx, style, this.canvasFonts), 'normal', canvasTextRendering(style),
+      style.lang, '0px');
     if (!state.units) {
       const ch = this.width(state, '0');
       const ex = this.measureText(state, 'x').actualBoundingBoxAscent;
@@ -322,7 +402,8 @@ export class Measurer {
     const fs = this.font(style);
     if (!fs.tabStops) {
       // Measured with letter-spacing off; the block's spacing is added per stop.
-      const spaceless = this.intern(fs.measure.font, fs.measure.kerning, '0px');
+      const { font, kerning, textRendering, lang } = fs.measure;
+      const spaceless = this.intern(font, kerning, textRendering, lang, '0px');
       const spaceWidth = this.width(spaceless, ' ');
       fs.tabStops = {
         interval: (spaceWidth + (style.letterSpacing || 0) + (style.wordSpacing || 0)) * 8,
@@ -335,9 +416,11 @@ export class Measurer {
   private font(style: ResolvedStyle): FontState {
     let fs = this.fonts.get(style);
     if (!fs) {
+      // A synthetic bold measures on the regular face's advances, as Chrome lays it out.
+      const measured = syntheticBoldWidening(this.ctx, style, this.boldWidenings) ? { ...style, fontWeight: 400 } : style;
       fs = {
-        measure: this.intern(
-          buildCanvasFont(style), canvasKerning(style), formatLetterSpacing(style.letterSpacing)),
+        measure: this.intern(canvasFont(this.ctx, measured, this.canvasFonts), canvasKerning(style),
+          canvasTextRendering(style), style.lang, formatLetterSpacing(style.letterSpacing)),
         metrics: undefined,
         computedLineHeight: undefined,
         usedLineHeight: undefined,
@@ -349,11 +432,15 @@ export class Measurer {
     return fs;
   }
 
-  private intern(font: string, kerning: CanvasFontKerning, letterSpacing: string): MeasureState {
-    const key = font + '\0' + kerning + '\0' + letterSpacing;
+  private intern(
+    font: string, kerning: CanvasFontKerning, textRendering: CanvasTextRendering, lang: string, letterSpacing: string,
+  ): MeasureState {
+    const key = font + '\0' + kerning + '\0' + textRendering + '\0' + lang + '\0' + letterSpacing;
     let state = this.states.get(key);
     if (!state) {
-      state = { font, kerning, letterSpacing, widths: new Map(), units: undefined, inks: undefined };
+      state = {
+        font, kerning, textRendering, lang, letterSpacing, widths: new Map(), units: undefined, inks: undefined,
+      };
       this.states.set(key, state);
     }
     return state;
@@ -372,6 +459,9 @@ export class Measurer {
 function writeMeasureState(ctx: CanvasRenderingContext2D, state: MeasureState, prev: MeasureState | null): void {
   if (prev?.font !== state.font) ctx.font = state.font;
   if (prev?.kerning !== state.kerning) ctx.fontKerning = state.kerning;
+  if (prev?.textRendering !== state.textRendering) ctx.textRendering = state.textRendering;
+  // Not in TypeScript's DOM types yet (Chrome, Firefox); a ctx without it keeps an expando.
+  if (prev?.lang !== state.lang) (ctx as CanvasRenderingContext2D & { lang?: string }).lang = state.lang;
   if (prev?.letterSpacing !== state.letterSpacing) ctx.letterSpacing = state.letterSpacing;
 }
 
@@ -451,6 +541,23 @@ function halfCoverEdge(coverage: Uint8Array, step: 1 | -1): number | null {
   return null;
 }
 
+/** Large enough that the canvas's whole-px font box is exact to 1/2000em (under 0.01px at a
+ * text size), small enough for every canvas: Firefox's font box stops growing past 2000px
+ * (Arimo: 1811 / 424 at 2000px and at 4000px), Chrome clamps a font at 10000px. */
+const EXACT_PROBE_SIZE = 2000;
+
+/**
+ * The ascent and descent Chrome lays text out on, from the font box `measure` reads at a size:
+ * each rounded to a whole px (Blink's SimpleFontData), as Chrome's and WebKit's canvases report
+ * them. Firefox's ceils them (`CANVAS_CEILS_FONT_BOX`): read there at EXACT_PROBE_SIZE, where
+ * whole-px rounding is negligible, and scaled to `fontSize` before rounding.
+ */
+function chromeFontBox(fontSize: number, measure: (size: number) => FontBox): FontBox {
+  const size = CANVAS_CEILS_FONT_BOX ? EXACT_PROBE_SIZE : fontSize;
+  const box = measure(size);
+  return { ascent: Math.round(box.ascent * fontSize / size), descent: Math.round(box.descent * fontSize / size) };
+}
+
 /** A font's ascent and descent, from any TextMetrics measured in it. */
 function fontBox(m: TextMetrics): FontBox {
   return {
@@ -490,21 +597,17 @@ export const SPACE_WRAP: unique symbol = Symbol('spaceWrap');
 export const LINE_BASELINE: unique symbol = Symbol('lineBaseline');
 export type PrivateLineBox = LayoutLineBox & { [SPACE_WRAP]?: true; [LINE_BASELINE]?: number };
 
-/**
- * True when `node` starts a new measuring run after a piece of the same style
- * (`Hello<!---->World`): paint must not batch the two into one fillText. A tree this
- * layout did not produce batches by style.
- */
+/** True when `node` starts at a `SEG_RUN_SEAM`; a tree this layout did not produce batches by style. */
 export function startsMeasuredRun(node: LayoutText): boolean {
   return (node as PrivateText)[RUN_SEAM] === true;
 }
 
 /**
- * The engine's paint offset for a run's line (`SNAPS_LINE_PAINT`): `round(lineTop) - lineTop`,
- * else 0. A node this layout did not produce uses its baseline as the line top.
+ * A run's line paint offset, `round(lineTop) - lineTop`: Chrome paints each line box at a
+ * whole CSS pixel (round half up of its top) while layout stays fractional.
+ * line-paint-snap-parity. A node this layout did not produce uses its baseline as the line top.
  */
 export function paintLineSnap(node: LayoutText): number {
-  if (!SNAPS_LINE_PAINT) return 0;
   const top = (node as PrivateText)[LINE_TOP] ?? node.lineBaselineY ?? node.y;
   return Math.round(top) - top;
 }
@@ -520,46 +623,29 @@ function lineHeightMultiplier(style: ResolvedStyle): number | undefined {
 }
 
 /**
- * Line box height of a UNITLESS line-height. Both put the font-size on the 1/64px grid
- * (Blink rounds, WebKit floors); Blink then floors the product onto the grid (14px x 1.6 =
- * 22.390625), WebKit the float32 product to a whole px (13.6px x 1.25 = 16). Gecko keeps
- * the exact product. line-baseline-parity.
+ * Line box height of a UNITLESS line-height, as Blink lays it on its 1/64px LayoutUnit grid:
+ * the font-size rounded onto the grid, the product floored onto it in double (14px x 1.6 =
+ * 22.390625). line-baseline-parity.
  */
 function multipliedLineHeight(fontSize: number, multiplier: number): number {
-  if (LAYOUT_UNIT_LINE_HEIGHT) {
-    // The epsilon keeps 20 x 1.15 (22.999999999999996) on its grid line, as Blink does.
-    return Math.floor((Math.round(fontSize * 64) / 64) * multiplier * 64 + 1e-6) / 64;
-  }
-  if (TRUNCATES_LINE_HEIGHT) {
-    return Math.floor(Math.fround((Math.floor(fontSize * 64) / 64) * multiplier));
-  }
-  if (APP_UNIT_LINE_HEIGHT) return Math.round(fontSize * multiplier * 60) / 60;
-  return fontSize * multiplier;
+  // The epsilon keeps 20 x 1.15 (22.999999999999996) on its grid line, as Blink does.
+  return Math.floor((Math.round(fontSize * 64) / 64) * multiplier * 64 + 1e-6) / 64;
 }
 
-/**
- * The used height of a computed line-height LENGTH: WebKit truncates it to whole px, Blink
- * rounds it to 1/64px, Gecko to 1/60px. Idempotent.
- */
+/** The used height of a computed line-height LENGTH: Blink rounds it to 1/64px. Idempotent. */
 function usedLineHeight(lineHeight: number): number {
-  if (TRUNCATES_LINE_HEIGHT) return Math.floor(Math.fround(lineHeight));
-  if (LAYOUT_UNIT_LINE_HEIGHT) return Math.round(lineHeight * 64) / 64;
-  if (APP_UNIT_LINE_HEIGHT) return Math.round(lineHeight * 60) / 60;
-  return lineHeight;
+  return Math.round(lineHeight * 64) / 64;
 }
 
 /**
- * Baseline offset from a line box's top: the half-leading over the engine's used
- * line-height plus the ascent, rounded per engine. Pass the computed line-height. Public:
+ * Baseline offset from a line box's top, as Blink places it: the half-leading over the used
+ * line-height, halved in LayoutUnits truncating toward zero (Verdana 13.6px x 1.25: 14, not
+ * 13), plus the ascent, floored to a whole CSS pixel. Pass the computed line-height. Public:
  * renderers placing a baseline beside a render-tag canvas call it rather than restate it.
  */
 export function lineBaselineOffset(lineHeight: number, ascent: number, descent: number): number {
-  let halfLeading = (usedLineHeight(lineHeight) - (ascent + descent)) / 2;
-  // Blink halves the leading in LayoutUnits, truncating toward zero (Verdana 13.6px x 1.25:
-  // 14, not 13).
-  if (LAYOUT_UNIT_LINE_HEIGHT) halfLeading = Math.trunc(halfLeading * 64) / 64;
-  const exact = halfLeading + ascent;
-  return FLOORS_LINE_BASELINE ? Math.floor(exact) : exact;
+  const halfLeading = Math.trunc((usedLineHeight(lineHeight) - (ascent + descent)) / 2 * 64) / 64;
+  return Math.floor(halfLeading + ascent);
 }
 
 /**
@@ -589,13 +675,18 @@ export function inlineBlockExtra(bs: ResolvedStyle): { top: number; bottom: numb
   };
 }
 
-/** Font ascent and descent measured on `ctx`; never cached, as fonts load between calls. */
+/**
+ * The font ascent and descent layout uses (`chromeFontBox`), measured on `ctx`; never cached,
+ * as fonts load between calls.
+ */
 export function getFontMetrics(ctx: CanvasRenderingContext2D, style: ResolvedStyle): { ascent: number; descent: number } {
   // Outside layout (paint, path decorations, the public API) the caller owns
   // the ctx's font: a measurement must not move it.
   const prev = ctx.font;
-  ctx.font = buildCanvasFont(style);
-  const result = fontBox(ctx.measureText('M'));
+  const result = chromeFontBox(style.fontSize, (size) => {
+    ctx.font = buildCanvasFont({ ...style, fontSize: size });
+    return fontBox(ctx.measureText('M'));
+  });
   ctx.font = prev;
   return result;
 }
@@ -613,14 +704,12 @@ export function verticalAlignShift(
   session: LayoutSession, style: ResolvedStyle, parentStyle: ResolvedStyle,
 ): number {
   switch (va) {
-    // Blink/WebKit: fontSize/3 + 1 (super), /5 + 1 (sub) of the PARENT size; Gecko 0.34em/0.2em.
-    // Plain float, not Blink's LayoutUnit math: quantizing regressed the sub/sup pixel baselines.
+    // Blink: fontSize/3 + 1 (super), /5 + 1 (sub) of the PARENT size (WebKit too; Gecko 0.34em /
+    // 0.2em). Plain float, not Blink's LayoutUnit math: quantizing regressed the sub/sup baselines.
     case 'super':
-      return BLINK_SUPER_SUB
-        ? -(parentStyle.fontSize / 3 + 1) : -parentStyle.fontSize * 0.34;
+      return -(parentStyle.fontSize / 3 + 1);
     case 'sub':
-      return BLINK_SUPER_SUB
-        ? parentStyle.fontSize / 5 + 1 : parentStyle.fontSize * 0.2;
+      return parentStyle.fontSize / 5 + 1;
     // Against the PARENT's content area (CSS 2.1 §10.8.1), not the line's tallest box.
     case 'text-top': {
       const m = session.measurer;

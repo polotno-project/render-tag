@@ -1,6 +1,6 @@
 /**
- * Decoration SHAPES (double, dotted, dashed, wavy) against the engine's own
- * pixels, Chromium and WebKit lanes.
+ * Decoration SHAPES (double, dotted, dashed, wavy) against Chrome's own
+ * pixels.
  *
  * The text is transparent and skip-ink is off, so each image holds the
  * decoration alone. Both images are reduced to a red-coverage mask and
@@ -14,13 +14,11 @@
  * (`stackFixtures`); each case masks its own region.
  *
  * The rules, and the DOM measurements behind them, live in src/decoration.ts.
- * Gecko keeps its own (unmeasured) shapes, so the Firefox lane skips this.
  */
 import { beforeAll, describe, it, expect } from 'vitest';
 import type { ComparisonResult } from './helpers/compare.ts';
 import { compareNativeRenders } from './helpers/native-compare.ts';
 import { loadMultiFontCss } from './helpers/test-cases.ts';
-import { browserName } from './helpers/browser-name.ts';
 import { pixels, stackFixtures, type Region, type Stack } from './helpers/decoration-scan.ts';
 
 function mask(image: ImageData): Float32Array {
@@ -92,24 +90,12 @@ const LINES = ['underline', 'overline', 'line-through'] as const;
 const STYLES = ['double', 'dotted', 'dashed', 'wavy'] as const;
 
 /**
- * Shape error budget per style and engine.
+ * Shape error budget per style: Blink's dashes and double bands are pixel-exact; its wave is
+ * painted from a cached tile (measured max 0.08 at DPR 1, 0.02 at DPR 2).
  */
-const SHAPE_BUDGET: Record<(typeof STYLES)[number], number> = browserName === 'webkit'
-  // WebKit's wave has the right size and period but strokes a little
-  // differently (measured mean 0.40, max 0.71 — the old shape: mean 0.73).
-  ? { double: 0.01, dotted: 0.01, dashed: 0.01, wavy: 0.75 }
-  // Blink's dashes and double bands are pixel-exact; its wave is painted
-  // from a cached tile (measured max 0.08 at DPR 1, 0.02 at DPR 2).
-  : { double: 0.01, dotted: 0.01, dashed: 0.01, wavy: 0.1 };
+const SHAPE_BUDGET: Record<(typeof STYLES)[number], number> = { double: 0.01, dotted: 0.01, dashed: 0.01, wavy: 0.1 };
 
-/** The one position WebKit takes from a font table canvas cannot read
- * (src/decoration.ts: a fit, up to a CSS pixel off), in device px. */
-const positionBudget = (line: string, dpr: number) =>
-  browserName === 'webkit' && line === 'line-through' ? dpr : 0;
-
-const lane = browserName === 'firefox' ? describe.skip : describe;
-
-lane('decoration shapes match the engine', () => {
+describe('decoration shapes match the engine', () => {
   for (const dpr of DPRS) for (const [fontName, family] of FONTS) for (const style of STYLES) {
     const cases = LINES.flatMap((line) => SIZES.map((size) => ({ line, size })));
     const stack = stackFixtures(cases.map(({ line, size }) => ({
@@ -126,7 +112,7 @@ lane('decoration shapes match the engine', () => {
         `${fontName} %s ${style} @ %ipx, DPR ${dpr}`,
         (line, _size, index) => {
           const { shift, error } = measureRegion(captured(), stack.regions[index], dpr);
-          expect(Math.abs(shift), 'band position').toBeLessThanOrEqual(positionBudget(line, dpr));
+          expect(shift, 'band position').toBe(0);
           expect(error, 'band shape').toBeLessThanOrEqual(SHAPE_BUDGET[style]);
         },
       );
@@ -134,7 +120,7 @@ lane('decoration shapes match the engine', () => {
   }
 });
 
-lane('a decoration restarts at each text fragment, like the engine', () => {
+describe('a decoration restarts at each text fragment, like the engine', () => {
   // Three text fragments under one declarer: the dash fit and the wave phase
   // restart at each, and continue across the spaces inside each.
   for (const dpr of DPRS) for (const style of ['dotted', 'dashed', 'wavy'] as const) for (const pad of [10, 13.5]) {
@@ -149,7 +135,7 @@ lane('a decoration restarts at each text fragment, like the engine', () => {
   }
 });
 
-lane('an ancestor decoration skips an atomic inline, like the engine', () => {
+describe('an ancestor decoration skips an atomic inline, like the engine', () => {
   // CSS Text Decoration 3 §2.1: a decoration does not reach the content of an
   // inline-block, and the declarer's band leaves a gap where the box sits —
   // in both engines. Before, the inline-block's text carried the ancestor's

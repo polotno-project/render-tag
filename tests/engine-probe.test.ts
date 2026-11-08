@@ -132,7 +132,7 @@ function usedLineHeight(name: string, rule: string, inputs: () => Input[]): Fami
 
 function firstBaseline(name: string, fonts: typeof PINNED): Family {
   return {
-    name, rule: 'FLOORS_LINE_BASELINE, LAYOUT_UNIT_LINE_HEIGHT (half-leading)', fields: ['baseline'], tol: UNIT,
+    name, rule: 'lineBaselineOffset (half-leading)', fields: ['baseline'], tol: UNIT,
     get inputs() { return lineHeightInputs(fonts, LINE_HEIGHTS); },
     measure({ family, size, lh }) {
       const style = blockStyle(String(family), Number(size), String(lh));
@@ -147,7 +147,7 @@ function firstBaseline(name: string, fonts: typeof PINNED): Family {
 function linePitch(name: string, fonts: typeof PINNED): Family {
   return {
     name,
-    rule: 'TRUNCATES_LINE_HEIGHT, LAYOUT_UNIT_LINE_HEIGHT, APP_UNIT_LINE_HEIGHT (compounded)',
+    rule: 'multipliedLineHeight (compounded)',
     fields: ['pitch', 'lastBaseline'], tol: UNIT,
     get inputs() { return lineHeightInputs(fonts, LINE_HEIGHTS); },
     measure({ family, size, lh }) {
@@ -175,7 +175,7 @@ const VALIGNS = ['super', 'sub', 'sup-element', 'sub-element', 'middle', 'text-t
 
 const verticalAlign: Family = {
   name: 'vertical-align',
-  rule: 'BLINK_SUPER_SUB (super/sub), FLOORS_LINE_BASELINE (middle), text-top/text-bottom leaded vs content edge',
+  rule: 'verticalAlignShift (super/sub, middle), text-top/text-bottom leaded vs content edge',
   fields: ['shiftUp'], tol: UNIT,
   get inputs() {
     return cross(PINNED, cross([8, 12.5, 16, 18, 33.9, 56], cross(VALIGNS, ['1', '2']))).map(
@@ -219,7 +219,7 @@ function marginGeometry(html: string): Measured {
 
 const marginMinHeight: Family = {
   name: 'margin-min-height',
-  rule: 'MIN_HEIGHT_END_MARGINS',
+  rule: 'min-height end margins (block.ts)',
   fields: ['nextTop', 'height'], tol: UNIT,
   get inputs() {
     return cross([10, 19.5, 20, 20.5, 25, 30, 40, 80], cross([10, 40], [0, 16])).map(
@@ -253,7 +253,7 @@ const EMPTY_BLOCKS: Record<string, string> = {
 
 const marginEmptyBlock: Family = {
   name: 'margin-empty-block',
-  rule: 'collapsesThrough, MARKER_LINE_WITHOUT_CONTENT',
+  rule: 'collapsesThrough, a marker-only list item (block.ts)',
   fields: ['lastTop', 'height'], tol: UNIT,
   inputs: Object.keys(EMPTY_BLOCKS).map((name) => ({ name })),
   measure: ({ name }) => marginGeometry(EMPTY_BLOCKS[name]),
@@ -345,7 +345,7 @@ let decorationCss: Promise<string> | null = null;
 
 const decorationBand: Family = {
   name: 'decoration-band',
-  rule: 'decorationBand (BLINK_UNDERLINE_GAP; WebKit device-grid thickness; Gecko unmeasured)',
+  rule: 'decorationBand',
   fields: ['topBelowBaseline', 'thickness'], tol: 0,
   get inputs() {
     return cross(PINNED, cross(['underline', 'overline', 'line-through'], cross([10, 16, 25, 40, 64], [1, 2]))).map(
@@ -365,11 +365,11 @@ const decorationBand: Family = {
 };
 
 const FAMILIES: Family[] = [
-  usedLineHeight('line-height', 'TRUNCATES_LINE_HEIGHT, LAYOUT_UNIT_LINE_HEIGHT, APP_UNIT_LINE_HEIGHT',
+  usedLineHeight('line-height', 'usedLineHeight',
     () => lineHeightInputs(PINNED, LINE_HEIGHTS)),
-  usedLineHeight('line-height:system', 'TRUNCATES_LINE_HEIGHT, LAYOUT_UNIT_LINE_HEIGHT, APP_UNIT_LINE_HEIGHT',
+  usedLineHeight('line-height:system', 'usedLineHeight',
     () => lineHeightInputs(SYSTEM, LINE_HEIGHTS)),
-  usedLineHeight('line-height-percent', 'INTEGER_PERCENT_LINE_HEIGHT',
+  usedLineHeight('line-height-percent', 'percentage line-height (css-resolver)',
     () => lineHeightInputs(PINNED, PERCENTS)),
   firstBaseline('first-baseline', PINNED),
   firstBaseline('first-baseline:system', SYSTEM),

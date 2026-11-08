@@ -8,18 +8,17 @@
  * Runs in Node (`npm run test:node`), not a browser: the few cases that go
  * through `layout({ html })` parse with linkedom, which tests/node/parity
  * pins against the browser parser. Node has no Gecko/WebKit UA, so the engine
- * flags (BLINK_SUPER_SUB, ...) always take the Blink branch here — the same
- * branch the Chromium lane, this file's old home, exercised. A case that
+ * flags always take the Blink branch here — the same branch the Chromium lane,
+ * this file's old home, exercised. A case that
  * needs real font metrics belongs in a browser suite instead (the block-strut
  * baseline case lives in tests/line-baseline-parity.test.ts).
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { DOMParser as LinkedomDOMParser } from 'linkedom';
 import { buildLayoutTree, buildCanvasFont, sameDecorationBand } from '../../src/layout.ts';
-import { BLINK_SUPER_SUB } from '../../src/engine.ts';
-import { layout, drawLayout, setDOMParser } from '../../src/index.ts';
+import { layout, drawLayout, getFontMetrics, lineBaselineOffset, setDOMParser } from '../../src/index.ts';
 import { mockCtx, CHAR_WIDTH } from '../helpers/mock-ctx.ts';
-import { recordingCtx } from '../helpers/recording-ctx.ts';
+import { recordingCtx, stateWidth } from '../helpers/recording-ctx.ts';
 import type { StyledNode, ResolvedStyle, LayoutBox, LayoutText, DecorationEntry } from '../../src/types.ts';
 import { collectInlineBoxes, collectTexts } from '../helpers/layout-tree.ts';
 import { resolveBidi, lineLevels, visualOrder } from '../../src/bidi.ts';
@@ -31,6 +30,18 @@ afterAll(() => setDOMParser(null));
 // ─── Test helpers ──────────────────────────────────────────────────────
 
 const SPACE_WIDTH = CHAR_WIDTH;
+
+/** The mock, kerning each of `pairs` by -3px wherever a measured string holds it. */
+function kerningCtx(...pairs: string[]): CanvasRenderingContext2D {
+  const ctx = mockCtx();
+  const measure = ctx.measureText.bind(ctx);
+  ctx.measureText = (s: string) => {
+    const m = measure(s);
+    const kern = 3 * pairs.reduce((n, pair) => n + s.split(pair).length - 1, 0);
+    return kern ? { ...m, width: m.width - kern, actualBoundingBoxRight: m.width - kern } : m;
+  };
+  return ctx;
+}
 
 /** Create a text node. */
 function textNode(text: string, styleOverrides: Partial<ResolvedStyle> = {}): StyledNode {
@@ -415,6 +426,48 @@ describe('Layout logic (mocked measureText)', () => {
     });
   });
 
+  describe('Dash break opportunities', () => {
+    // Chrome, Firefox and WebKit alike (measured): a break after U+2010 hyphen, U+2012 figure
+    // dash and U+2013 en dash (UAX #14 BA), before and after U+2014 em dash (B2) but not
+    // between two of them, none at U+2212 minus.
+    const lines = (text: string, width: number) =>
+      layout({ html: `<p style="margin:0">${text}</p>`, width, ctx: mockCtx() }).lines.map((l) => l.text.trim());
+
+    it.each(['\u2010', '\u2012', '\u2013'])('breaks after %s', (dash) => {
+      expect(lines(`aaaa${dash}bbbb`, 60)).toEqual([`aaaa${dash}`, 'bbbb']);
+    });
+
+    it('breaks before and after an em dash, not between two', () => {
+      expect(lines('aaaa\u2014bbbb', 45)).toEqual(['aaaa', '\u2014', 'bbbb']);
+      expect(lines('aa\u2014\u2014bb', 30)).toEqual(['aa', '\u2014\u2014', 'bb']);
+    });
+
+    it('keeps a straight quote with the em dash after it', () => {
+      // Chrome, Arial 20px: "aaaa" / "\"— bb", never "aaaa \"" / "— bb" (UAX #14 LB19).
+      expect(lines('aaaa "\u2014 bb', 60)).toEqual(['aaaa', '"\u2014 bb']);
+      expect(lines("aaaa '\u2014 bb", 60)).toEqual(['aaaa', "'\u2014 bb"]);
+      // And before one: "said" / "—\"Stop\"".
+      expect(lines('aaaa said\u2014"Stop" bb', 80)).toEqual(['aaaa', 'said', '\u2014"Stop"', 'bb']);
+    });
+
+    it('keeps a minus sign whole', () => {
+      expect(lines('aaaa\u2212bbbb', 60)).toEqual(['aaaa\u2212bbbb']);
+    });
+
+    it('breaks after the Ethiopic wordspace', () => {
+      expect(lines('aaaa\u1361bbbb', 60)).toEqual(['aaaa\u1361', 'bbbb']);
+    });
+
+    it('breaks after a Tibetan tsheg, not after the non-breaking one', () => {
+      expect(lines('aaaa\u0F0Bbbbb', 60)).toEqual(['aaaa\u0F0B', 'bbbb']);
+      expect(lines('aaaa\u0F0Cbbbb', 60)).toEqual(['aaaa\u0F0Cbbbb']);
+    });
+
+    it('breaks between Yi syllables, as between CJK ideographs', () => {
+      expect(lines('\uA2BD\uA2E9\uA14D\uA3ED\uA25C\uA00B', 30)).toEqual(['\uA2BD\uA2E9\uA14D', '\uA3ED\uA25C\uA00B']);
+    });
+  });
+
   describe('Emoji cluster breaking', () => {
     it('breaks between emoji clusters in an unspaced run', () => {
       // Each emoji measures 20px (2 UTF-16 units × 10px in the mock).
@@ -670,6 +723,357 @@ describe('Layout logic (mocked measureText)', () => {
       ]);
       const root = doLayout(tree, 30);
       expect(getLines(root)).toEqual(['wel', 'l-', 'bei', 'ng']);
+    });
+
+  });
+
+  // Chrome wraps a URL at its query under every white-space that wraps (edge-url-pre-wrap-*).
+  it.each(['normal', 'pre-wrap', 'break-spaces'])('%s breaks a word after "?"', (whiteSpace) => {
+    const tree = block('div', [block('p', [textNode('aaaa?bbbb', { whiteSpace })], { whiteSpace })]);
+    expect(getLines(doLayout(tree, 60))).toEqual(['aaaa?', 'bbbb']);
+  });
+
+  describe('oblique <angle> under 14deg', () => {
+    // Chrome picks the upright face (a slnt axis takes the angle) and measures it upright;
+    // @napi-rs/canvas draws the italic face. A canvas that measures it apart gets 'normal'.
+    function canvasWith(obliqueRatio: number) {
+      const ctx = mockCtx();
+      const fonts: string[] = [];
+      const measure = ctx.measureText.bind(ctx);
+      ctx.measureText = (text: string) => {
+        const m = measure(text);
+        return { ...m, width: /oblique/.test(ctx.font) ? m.width * obliqueRatio : m.width } as TextMetrics;
+      };
+      ctx.fillText = () => { fonts.push(ctx.font); };
+      return { ctx, fonts };
+    }
+    const draw = (style: string, obliqueRatio: number) => {
+      const { ctx, fonts } = canvasWith(obliqueRatio);
+      const result = layout({ html: `<p style="margin:0;font-size:16px;${style}">Hello world</p>`, width: 400, ctx });
+      drawLayout({ layout: result, width: 400, ctx });
+      return { fonts, width: collectTexts(result.layoutRoot).reduce((w, t) => w + t.width, 0) };
+    };
+
+    it('keeps the angle where the canvas measures it upright (Chrome)', () => {
+      const { fonts } = draw('font-style:oblique 10deg', 1);
+      expect(fonts.length).toBeGreaterThan(0);
+      expect(fonts.every((f) => f.startsWith('oblique 10deg'))).toBe(true);
+    });
+
+    it('measures and draws upright where the canvas picks another face', () => {
+      const { fonts, width } = draw('font-style:oblique 10deg', 0.9);
+      expect(fonts.every((f) => !f.includes('oblique'))).toBe(true);
+      expect(width).toBe(draw('', 1).width);
+    });
+
+    it('leaves 14deg and up alone: Chrome picks the italic face there too', () => {
+      expect(draw('font-style:oblique 20deg', 0.9).fonts.every((f) => f.startsWith('oblique 20deg'))).toBe(true);
+    });
+  });
+
+  describe('white-space: break-spaces', () => {
+    // The opportunity is after a preserved space and it takes room, so a word wraps with its
+    // first space (Chrome: "aaa bbb ccc" keeps "bbb" only once "bbb " fits).
+    const lines = (text: string, width: number) => getLines(doLayout(block('div', [
+      block('p', [textNode(text, { whiteSpace: 'break-spaces' })], { whiteSpace: 'break-spaces' }),
+    ]), width));
+
+    it('a word wraps with its first space', () => {
+      expect(lines('aaa bbb ccc', 75)).toEqual(['aaa ', 'bbb ccc']);
+    });
+
+    it('a run of spaces breaks after any of them', () => {
+      // Chrome, Arial 20px "aaa    bbb": "aaa  " / "  bbb" at 44.5px, "aaa   " / " bbb" at 50.5px.
+      expect(lines('aaa    bbb', 50)).toEqual(['aaa  ', '  bbb']);
+      expect(lines('aaa    bbb', 60)).toEqual(['aaa   ', ' bbb']);
+    });
+  });
+
+  describe('inline box edges at a break', () => {
+    // Chrome: the opportunity is AFTER a space, so an opening edge right before one stays with
+    // the word it touches ("là<code> </code>chartà" wraps 2px later with border-left: 2px).
+    it('an opening edge before white space stays with the word before it', () => {
+      // "aa aaaaaa"=90 + padding 25 = 115 > 100: "aaaaaa" wraps with its edge.
+      const tree = block('div', [block('p', [
+        textNode('aa aaaaaa'), inline('span', [textNode(' ')], { paddingLeft: 25 }), textNode('bbb'),
+      ])]);
+      expect(getLines(doLayout(tree, 100)).map((line) => line.trim())).toEqual(['aa', 'aaaaaa', 'bbb']);
+    });
+
+    // EDGE_BEFORE_SPACE_MAX_CLOSES (flow.ts): current Chrome, one closing tag between still glues.
+    it.each([[1, ['aa', 'aaaaaa', 'bbb']], [2, ['aa aaaaaa', 'bbb']]] as const)(
+      'with %i closing tags before the edge', (closes, expected) => {
+        let word = textNode('aaaaaa');
+        for (let k = 0; k < closes; k++) word = inline('span', [word]);
+        const tree = block('div', [block('p', [
+          textNode('aa '), word, inline('span', [textNode(' ')], { paddingLeft: 25 }), textNode('bbb'),
+        ])]);
+        expect(getLines(doLayout(tree, 100)).map((line) => line.trim())).toEqual(expected);
+      });
+
+    it('before preserved white space the edge stays at any depth', () => {
+      const pre = { whiteSpace: 'pre-wrap' } as const;
+      const word = inline('span', [inline('span', [textNode('aaaaaa', pre)], pre)], pre);
+      const tree = block('div', [block('p', [
+        textNode('aa ', pre), word, inline('span', [textNode(' ', pre)], { paddingLeft: 25, ...pre }), textNode('bbb', pre),
+      ], pre)]);
+      expect(getLines(doLayout(tree, 100)).map((line) => line.trim())).toEqual(['aa', 'aaaaaa', 'bbb']);
+    });
+
+    // A word broken per character keeps the box edges inside it: an opening edge goes with
+    // the character after it, a closing edge with the one before.
+    it.each([
+      ['an opening', [textNode('aaaa', { wordBreak: 'break-all' }), inline('span', [textNode('bbbb', { wordBreak: 'break-all' })], { paddingLeft: 10, wordBreak: 'break-all' })]],
+      ['a closing', [inline('span', [textNode('aaaa', { wordBreak: 'break-all' })], { paddingRight: 10, wordBreak: 'break-all' }), textNode('bbbb', { wordBreak: 'break-all' })]],
+    ] as const)('break-all keeps %s edge inside the word', (_kind, children) => {
+      const root = doLayout(block('div', [block('p', [...children], { wordBreak: 'break-all' })]), 50);
+      expect(getLines(root)).toEqual(['aaaa', 'bbbb']);
+    });
+
+    it('break-word counts the closing edge after the word', () => {
+      // "aa" + <span pr=10>"bbbbb"</span> = 70 + 10 > 75: the last "b" fits alone, not with its edge.
+      const bw = { overflowWrap: 'break-word' } as const;
+      const tree = block('div', [block('p', [
+        textNode('aa', bw), inline('span', [textNode('bbbbb', bw)], { paddingRight: 10, ...bw }), textNode(' c', bw),
+      ], bw)]);
+      expect(getLines(doLayout(tree, 75))).toEqual(['aabbbb', 'b c']);
+    });
+
+    it('a word continued into a padded box never breaks at the edge', () => {
+      // "aaaa<span pl=5>bb</span>" is one word (65): Chrome wraps it whole, not after "aaaa".
+      const tree = block('div', [block('p', [
+        textNode('aa aaaa'), inline('span', [textNode('bb')], { paddingLeft: 5 }),
+      ])]);
+      expect(getLines(doLayout(tree, 90)).map((line) => line.trim())).toEqual(['aa', 'aaaabb']);
+    });
+
+    it('an opening edge before a word goes with that word', () => {
+      const tree = block('div', [block('p', [
+        textNode('aa aaaaaa '), inline('span', [textNode('bbb')], { paddingLeft: 25 }),
+      ])]);
+      expect(getLines(doLayout(tree, 100)).map((line) => line.trim())).toEqual(['aa aaaaaa', 'bbb']);
+    });
+  });
+
+  describe('a too-wide word ending in punctuation', () => {
+    // Chrome breaks the word where it stops fitting, before its comma too: "чалавецтва," at 32px
+    // in a 137px box wraps as "чалавецтва" / ",".
+    it.each([{ overflowWrap: 'break-word' }, { overflowWrap: 'anywhere' }, { wordBreak: 'break-word' }])(
+      'breaks before the punctuation under %o', (style) => {
+        // The measured case scaled to the mock (4.5 characters wide), the same lines in all three engines.
+        const tree = block('div', [block('p', [textNode('aa aaaa. bb, cc', style)], style)]);
+        expect(getLines(doLayout(tree, 45)).map((l) => l.trim())).toEqual(['aa', 'aaaa', '.', 'bb,', 'cc']);
+      });
+  });
+
+  describe('a hanging space keeps its kern with the glyph before it', () => {
+    // Every engine fits and aligns a line with its last glyph's advance kerned against the
+    // space after it, under every white-space: Playfair "y " -1.04px at 40px in Chrome,
+    // Firefox and WebKit; PT Sans ", " -0.078em. This ctx kerns ", " by -3px.
+    const lines = (html: string, width: number) =>
+      layout({ html, width, ctx: kerningCtx(', ') }).lines.map((line) => line.text.trim());
+
+    it.each(['normal', 'pre-wrap'])('a word fits on its kerned width under %s', (whiteSpace) => {
+      // "aa bbbb," sums to 80px, 77px kerned against its space.
+      expect(lines(`<p style="margin:0;white-space:${whiteSpace}">aa bbbb, cc</p>`, 78)).toEqual(['aa bbbb,', 'cc']);
+      expect(lines(`<p style="margin:0;white-space:${whiteSpace}">aa bbbb, cc</p>`, 76)).toEqual(['aa', 'bbbb,', 'cc']);
+    });
+
+    it('a too-wide word keeps its closing punctuation on its kerned width', () => {
+      // "bbbbbb," is 70px, 67px kerned: it fits a 68px line whole.
+      expect(lines('<p style="margin:0;word-break:break-word">aa bbbbbb, cc</p>', 68)).toEqual(['aa', 'bbbbbb,', 'cc']);
+    });
+
+    it('the line it ends is as wide as its kerned advance', () => {
+      const result = layout({ html: '<p style="margin:0">aa bbbb, cc</p>', width: 78, ctx: kerningCtx(', ') });
+      expect(result.lines[0].bounds.width).toBe(77);
+    });
+
+    it('a line whose trailing space would show fits on its unkerned advance', () => {
+      // Blink: "aa bbbb," needs its 80px when not start-aligned, or under paint on the space.
+      expect(lines('<p style="margin:0;text-align:center">aa bbbb, cc</p>', 78)).toEqual(['aa', 'bbbb, cc']);
+      expect(lines('<p style="margin:0;text-align:right">aa bbbb, cc</p>', 80)).toEqual(['aa bbbb,', 'cc']);
+      expect(lines('<p style="margin:0"><u>aa bbbb, cc</u></p>', 78)).toEqual(['aa', 'bbbb, cc']);
+      expect(lines('<p style="margin:0"><span style="background:yellow">aa bbbb, cc</span></p>', 78)).toEqual(['aa', 'bbbb, cc']);
+      // The line's own block painting a border or background shows it too; an ancestor's does not.
+      expect(lines('<p style="margin:0;border-right:1px solid transparent">aa bbbb, cc</p>', 79)).toEqual(['aa', 'bbbb, cc']);
+      expect(lines('<p style="margin:0;background:yellow">aa bbbb, cc</p>', 78)).toEqual(['aa', 'bbbb, cc']);
+      expect(lines('<div style="background:yellow"><p style="margin:0">aa bbbb, cc</p></div>', 78)).toEqual(['aa bbbb,', 'cc']);
+    });
+
+    it('min-content keeps the kern wherever the space would show', () => {
+      // Chrome's min-content of "ab glory cd" is "glory" kerned, centred and underlined alike:
+      // an inline-block shrunk to it is 47px here.
+      const html = '<div><span style="display:inline-block;text-align:center;text-decoration:underline">bbbb, cc</span></div>';
+      expect(collectInlineBoxes(layout({ html, width: 5, ctx: kerningCtx(', ') }).layoutRoot)[0]?.width).toBe(47);
+    });
+
+    it('a collapsible space ending the paragraph or a line before <br> has no kern', () => {
+      // Chrome strips it before it shapes (Playfair 40px "ab say ": 110.125px, 109.09 kerned);
+      // pre-wrap keeps it, kerned.
+      const width = (inner: string, style = '') => collectInlineBoxes(layout({
+        html: `<div><span style="display:inline-block;${style}">${inner}</span></div>`, width: 500, ctx: kerningCtx(', '),
+      }).layoutRoot)[0]?.width;
+      expect(width('aa bbbb, ')).toBe(80);
+      expect(width('<u>aa bbbb, </u>')).toBe(80);
+      expect(width('aa bbbb, <br>cc')).toBe(80);
+      expect(width('aa bbbb, ', 'white-space:pre-wrap')).toBe(87);
+      expect(layout({ html: '<p style="margin:0">aa bbbb, </p>', width: 200, ctx: kerningCtx(', ') }).lines[0].bounds.width).toBe(80);
+    });
+  });
+
+  describe('kerning across an element edge (`continuesShaping`)', () => {
+    // Chrome and Firefox shape same-font runs as one string across an element edge (Arimo
+    // "A<span>V</span>" -7.42px at 100px), not across an inline edge with width, a different
+    // letter-spacing, kerning or vertical-align, a bidi isolate, nor in Chrome a different
+    // word-spacing. This ctx kerns "AV" (and "-V") by -3px.
+    const xOf = (html: string, text: string) =>
+      collectTexts(layout({ html: `<p style="margin:0">${html}</p>`, width: 400, ctx: kerningCtx('AV', '-V', ', ') }).layoutRoot)
+        .find((t) => t.text === text)?.x;
+
+    it('a same-font run continues the kerning of the one before it', () => {
+      expect(xOf('A<span style="color:red">V</span><b>x</b>', 'x')).toBe(17);
+      expect(xOf('<u>A</u>V<b>x</b>', 'x')).toBe(17);
+    });
+
+    it('a break opportunity inside a word keeps the shaping', () => {
+      expect([xOf('A&shy;V<b>x</b>', 'x'), xOf('A&#8203;V<b>x</b>', 'x'), xOf('A-V<b>x</b>', 'x')]).toEqual([17, 17, 27]);
+    });
+
+    it.each([
+      ['an inline edge with width', 'A<span style="padding-left:2px">V</span><b>x</b>', 22],
+      ['a different letter-spacing', 'A<span style="letter-spacing:0.5px">V</span><b>x</b>', 20.5],
+      ['a different kerning', 'A<span style="font-kerning:none">V</span><b>x</b>', 20],
+      ['a vertical-align shift', 'A<span style="vertical-align:2px">V</span><b>x</b>', 20],
+      ['a bidi isolate', 'A<span dir="ltr">V</span><b>x</b>', 20],
+      ['a different word-spacing', 'A<span style="word-spacing:2px">V</span><b>x</b>', 20],
+    ])('not across %s', (_, html, x) => {
+      expect(xOf(html, 'x')).toBe(x);
+    });
+
+    it('a space after an element edge keeps the kern into it at a line end', () => {
+      const { lines } = layout({ html: '<p style="margin:0">aa <u>bbbb,</u> cc</p>', width: 78, ctx: kerningCtx('AV', ', ') });
+      expect(lines.map((line) => line.text.trim())).toEqual(['aa bbbb,', 'cc']);
+    });
+  });
+
+  describe('a kern sits on the glyph before the pair', () => {
+    // measureAfter books a pair's kern on the later piece; every DOM, like HarfBuzz, books it on
+    // the earlier glyph, so the later run starts that much sooner (Arial " A" -0.88px at 16px).
+    // Runs painted one by one (Gecko, WebKit, vector consumers) need the DOM's placement. This
+    // ctx kerns " A", "AV" and ", " by -3px.
+    const ctx = () => kerningCtx(' A', 'AV', ', ');
+    const runs = (html: string) => collectTexts(layout({ html: `<p style="margin:0">${html}</p>`, width: 400, ctx: ctx() }).layoutRoot)
+      .map((t) => [t.text, t.x, t.width]);
+
+    it('after a space', () => {
+      expect(runs('aa Axx')).toEqual([['aa', 0, 20], [' ', 20, 7], ['Axx', 27, 30]]);
+    });
+
+    it('before a space', () => {
+      expect(runs('aa bbbb, cc')).toEqual([['aa', 0, 20], [' ', 20, 10], ['bbbb,', 30, 47], [' ', 77, 10], ['cc', 87, 20]]);
+    });
+
+    it('across an element edge', () => {
+      expect(runs('A<span style="color:red">V</span>x')).toEqual([['A', 0, 7], ['V', 7, 10], ['x', 17, 10]]);
+    });
+
+    it('on the first piece of a word split mid-line', () => {
+      // break-all fills the line: "A" is measured after its space, as the whole word was.
+      const result = layout({ html: '<p style="margin:0;word-break:break-all">aa Axxxxxxx</p>', width: 60, ctx: ctx() });
+      expect(result.lines.map((line) => line.text.trim())).toEqual(['aa Axx', 'xxxxx']);
+      expect(result.lines[0].bounds.width).toBe(57);
+      expect(collectTexts(result.layoutRoot).find((t) => t.text.startsWith('A'))?.x).toBe(27);
+      // A pair inside the split word books its kern on its first glyph too.
+      const inner = layout({ html: '<p style="margin:0;word-break:break-all">aa xxAVxxxxxxx</p>', width: 100, ctx: ctx() });
+      const run = (text: string) => collectTexts(inner.layoutRoot).find((t) => t.text === text);
+      expect([run('A')?.x, run('A')?.width, run('V')?.x, run('V')?.width]).toEqual([50, 7, 57, 10]);
+      // A later piece starting with the same letter keeps its place.
+      const later = layout({ html: '<p style="margin:0;word-break:break-all">aa AxAxxxxx</p>', width: 60, ctx: ctx() });
+      expect(collectTexts(later.layoutRoot).filter((t) => t.text === 'A').map((t) => t.x)).toEqual([27, 47]);
+    });
+
+    it('where an inline background starts', () => {
+      const span = collectInlineBoxes(layout({
+        html: '<p style="margin:0">A<span style="background:yellow">V</span></p>', width: 400, ctx: ctx(),
+      }).layoutRoot)[0];
+      expect([span?.x, span?.width]).toEqual([7, 10]);
+    });
+  });
+
+  describe('a word starting a line has no kern from the text before the break', () => {
+    // Chrome and Firefox shape a line's first word alone: Arial " A" -2.21px at 40px moves
+    // the rest of that line, measured in both DOMs, as do Merriweather "-t" -6.65px and Arimo
+    // "A&shy;V" -7.41px at 100px in Chrome. WebKit never kerns a space. This ctx kerns " A",
+    // "-A" and "mA" by -3px.
+    const result = (html: string, width: number) =>
+      layout({ html: `<p style="margin:0">${html}</p>`, width, ctx: kerningCtx(' A', '-A', 'mA') });
+    const zzX = (html: string, width: number) => collectTexts(result(html, width).layoutRoot).find((t) => t.text === 'zz')?.x;
+
+    it('its line holds it at its own width', () => {
+      expect(result('mmmmm Axx zz', 60).lines.map((line) => line.text.trim())).toEqual(['mmmmm', 'Axx zz']);
+      expect(zzX('mmmmm Axx zz', 60)).toBe(40);
+      // "Axx zz" is 60px there, 57px had "Axx" kept its kern.
+      expect(result('mmmmm Axx zz', 58).lines.map((line) => line.text.trim())).toEqual(['mmmmm', 'Axx', 'zz']);
+    });
+
+    it('after a hyphen, a soft hyphen or a zero-width space too', () => {
+      expect(result('mmmmm-Axx zz', 60).lines.map((line) => line.text.trim())).toEqual(['mmmmm-', 'Axx zz']);
+      expect([zzX('mmmmm-Axx zz', 60), zzX('mmmmm&shy;Axx zz', 60), zzX('mmmmm&#8203;Axx zz', 60)]).toEqual([40, 40, 40]);
+    });
+
+    it('mid-line it keeps the kern', () => {
+      expect(zzX('aa Axx zz', 200)).toBe(67);
+    });
+
+    it('an overflow-wrap cut that starts a line fits it on its own width', () => {
+      // "Axxxxx" is 60px alone, 57 kerned after the space: the cut after the emergency wrap
+      // is chosen alone, so no line overflows 58px.
+      const { lines } = layout({ html: '<p style="margin:0;overflow-wrap:break-word">mm Axxxxxxxxxx</p>', width: 58, ctx: kerningCtx(' A') });
+      expect(lines.map((line) => line.text.trim())).toEqual(['mm', 'Axxxx', 'xxxxx', 'x']);
+      expect(Math.max(...lines.map((line) => line.bounds.width))).toBeLessThanOrEqual(58);
+    });
+
+    it('a too-wide word shares its line with the opening edge before it', () => {
+      // Chrome, Arial 20px at 57px: "aaa" / padding + "LON" / "GLON"…, no line of padding alone.
+      for (const wrap of ['overflow-wrap:break-word', 'overflow-wrap:anywhere']) {
+        const { lines } = layout({
+          html: `<p style="margin:0;${wrap}">aaa <span style="padding-left:6px">LONGLONGLONGLONG</span></p>`, width: 57, ctx: mockCtx(),
+        });
+        expect(lines.map((line) => line.text.trim()), wrap).toEqual(['aaa', 'LONGL', 'ONGLO', 'NGLON', 'G']);
+        expect(Math.max(...lines.map((line) => line.bounds.width)), wrap).toBeLessThanOrEqual(57);
+      }
+    });
+
+    it('a too-wide word continued across elements, or inside nested edges, gets no edge-only line', () => {
+      const lines = (html: string) => layout({ html: `<p style="margin:0;overflow-wrap:break-word">${html}</p>`, width: 50, ctx: mockCtx() })
+        .lines.map((line) => line.text.trim());
+      expect(lines('foo <span style="padding-left:10px">aa</span>aaaaaaaaaaaa')).toEqual(['foo', 'aaaa', 'aaaaa', 'aaaaa']);
+      expect(lines('<span style="padding-left:5px"><span style="padding-left:5px">aaaaaaaaaaaaaa</span></span>'))
+        .toEqual(['aaaa', 'aaaaa', 'aaaaa']);
+    });
+
+    it('measuring the word after an opening edge does not wrap the line', () => {
+      const html = '<p style="margin:0;overflow-wrap:break-word">a <span style="padding-left:2px;letter-spacing:30px">bbbbbbb</span></p>';
+      expect(layout({ html, width: 105, ctx: mockCtx() }).lines.map((line) => line.text.trim())).toEqual(['a', 'bb', 'bb', 'bb', 'b']);
+    });
+
+    it('a piece of a word broken across lines too', () => {
+      // "AVA" / "VAV" / "AV": line 2 is "V" alone + "AV" kerned, 27px, not 24 (Chrome, Arimo
+      // 100px "AV" -7.42px, under each of these).
+      for (const style of ['overflow-wrap:break-word', 'word-break:break-all', 'overflow-wrap:anywhere']) {
+        const { lines } = layout({ html: `<p style="margin:0;${style}">AVAVAVAV zz</p>`, width: 30, ctx: kerningCtx('AV') });
+        expect(lines.map((line) => line.text.trim()), style).toEqual(['AVA', 'VAV', 'AV', 'zz']);
+        expect(lines[1].bounds.width, style).toBe(27);
+      }
+    });
+  });
+
+  describe('overflow-wrap anywhere', () => {
+    // CSS Text 3: `word-break: break-word` is `overflow-wrap: anywhere` with `word-break: normal`.
+    it.each([{ overflowWrap: 'anywhere' }, { wordBreak: 'break-word' }])('breaks a long word under %o too', style => {
+      const tree = block('div', [block('p', [textNode('abcdefghij', style)])]);
+      expect(getLines(doLayout(tree, 35))).toEqual(['abc', 'def', 'ghi', 'j']);
     });
   });
 
@@ -1079,6 +1483,11 @@ describe('Layout logic (mocked measureText)', () => {
 
     it('overflow-wrap: break-word does not lower min-content', () => {
       expect(minContentWidth('AAAAA BBBBB', { overflowWrap: 'break-word' })).toBe(50);
+    });
+
+    // Chrome, Firefox and WebKit: one character wide, where break-word keeps the word.
+    it.each([{ overflowWrap: 'anywhere' }, { wordBreak: 'break-word' }])('%o lowers min-content', style => {
+      expect(minContentWidth('AAAAA BBBBB', style)).toBe(10);
     });
 
     it.each(['normal', 'break-word'] as const)('word-break: break-all lowers min-content with overflow-wrap: %s', overflowWrap => {
@@ -1874,6 +2283,44 @@ describe('Layout logic (mocked measureText)', () => {
 
   // ─── Letter spacing ────────────────────────────────────────────────
 
+  describe('word-break: break-all', () => {
+    // Chrome: every character boundary is an ordinary opportunity, so a word fills the
+    // current line before it breaks; UAX #14 still keeps closers, infix punctuation and
+    // `/` with the character before, and an opener with the character after (measured).
+    const lines = (text: string, width: number) =>
+      layout({ html: `<p style="margin:0;word-break:break-all">${text}</p>`, width, ctx: mockCtx() }).lines.map((l) => l.text.trim());
+
+    it('fills the current line before breaking a word', () => {
+      expect(lines('aaaa bbbbbbbbbbbbbbbb', 100)).toEqual(['aaaa bbbbb', 'bbbbbbbbbb', 'b']);
+    });
+
+    it('breaks a word that would fit a line of its own, at the line end', () => {
+      expect(lines('aaaaaa bbbbbbb', 100)).toEqual(['aaaaaa bbb', 'bbbb']);
+    });
+
+    it('keeps punctuation and slashes with the character before, openers with the one after', () => {
+      expect(lines('abcdefgh(ij),kl', 90)).toEqual(['abcdefgh', '(ij),kl']);
+      expect(lines('abcdefg/hij', 70)).toEqual(['abcdef', 'g/hij']);
+    });
+
+    it('keeps a hyphen or figure dash with the character before', () => {
+      // Chrome, Arial 20px: "cdef" / "g‐hijk", never a line starting with U+2010 or U+2012.
+      expect(lines('abcdefg\u2010hijkl', 70)).toEqual(['abcdef', 'g\u2010hijkl']);
+      expect(lines('abcdefg\u2012hijkl', 70)).toEqual(['abcdef', 'g\u2012hijkl']);
+    });
+
+    it('keeps an apostrophe with the letters either side', () => {
+      // Chrome: "xxxxdon't" at 40px of Arial 20px wraps "do" / "n't", never "don'" / "t".
+      expect(lines("xxxxdon't", 40)).toEqual(['xxxx', 'do', "n't"]);
+      expect(lines('xxxxdon\u2019t', 40)).toEqual(['xxxx', 'do', 'n\u2019t']);
+    });
+
+    it('a word continued across inline elements fills the line too, with the same glue', () => {
+      expect(lines('aaaa bb<b>bbbbbbbbbbbb</b>', 100)).toEqual(['aaaa bbbbb', 'bbbbbbbbb']);
+      expect(lines('abcdef<b>g/hij</b>', 70)).toEqual(['abcdef', 'g/hij']);
+    });
+  });
+
   describe('Letter spacing', () => {
     it('break-all accounts for letter-spacing when choosing break points', () => {
       // "ABCDEFGH" with char=10 + letter-spacing=5 → 15px effective per char.
@@ -2008,6 +2455,51 @@ describe('Layout logic (mocked measureText)', () => {
       expect(pieces(followed)).toEqual(pieces(alone));
     });
 
+    it('measures under the canvas text rendering its style resolves to', () => {
+      // Chrome's canvas \`auto\` skips features its DOM applies (a space between two
+      // Hangul words is narrower); \`optimizeLegibility\` shapes like the DOM does.
+      const words = 'AVAWAYTOVAWATYAVATARWAVY wavy toward';
+      const widthOf = (css: string) => layout({ html: `<p style="margin:0;font:20px serif;${css}">${words}</p>`, width: 1000, ctx: recordingCtx(1000, 200).ctx })
+        .lines[0].bounds.width;
+      const under = (textRendering: string) => stateWidth({ font: '20px serif', fontKerning: 'normal', letterSpacing: '0px', wordSpacing: '0px', textRendering }, words);
+      expect(under('optimizeLegibility')).not.toBeCloseTo(under('auto'), 3); // the text does depend on it
+      expect(widthOf('')).toBeCloseTo(under('optimizeLegibility'), 6);
+      expect(widthOf('text-rendering:optimizeSpeed')).toBeCloseTo(under('optimizeSpeed'), 6);
+      expect(widthOf('text-rendering:geometricPrecision')).toBeCloseTo(under('geometricPrecision'), 6);
+    });
+
+    it('paints each run under the canvas text rendering its style resolves to', () => {
+      const html = '<p style="margin:0">a <span style="text-rendering:optimizeSpeed">b</span> ' +
+        '<span style="text-rendering:geometricPrecision">c</span> <span style="text-rendering:optimizeLegibility">d</span></p>';
+      const rec = recordingCtx(400, 200);
+      drawLayout({ layout: layout({ html, width: 400, ctx: rec.ctx }), width: 400, ctx: rec.ctx });
+      const rendering = (text: string) => rec.paints.find((p) => JSON.parse(/^fillText\((".*?"),/.exec(p)?.[1] ?? '""').trim() === text)
+        ?.match(/textRendering="(\w+)"/)?.[1];
+      expect(['a', 'b', 'c', 'd'].map(rendering)).toEqual(['optimizeLegibility', 'optimizeSpeed', 'geometricPrecision', 'optimizeLegibility']);
+    });
+
+    it('measures and paints under its element\'s content language', () => {
+      // HTML lang reaches shaping in Chrome and Firefox: Roboto 16px "fi fl Iİıi official"
+      // is 94.06px, 96px under lang="tr" (no "fi" ligature). recording-ctx models it.
+      const words = 'AVAWAYTOVAWATYAVATARWAVY wavy toward';
+      const under = (lang: string) => stateWidth({ font: '20px serif', fontKerning: 'normal', letterSpacing: '0px',
+        wordSpacing: '0px', textRendering: 'optimizeLegibility', lang }, words);
+      expect(under('tr')).not.toBeCloseTo(under('inherit'), 3); // the text does depend on it
+      const widthOf = (html: string) => layout({ html, width: 1000, ctx: recordingCtx(1000, 200).ctx }).lines[0].bounds.width;
+      const p = `<p style="margin:0;font:20px serif">${words}</p>`;
+      expect(widthOf(p.replace('<p', '<p lang="tr"'))).toBeCloseTo(under('tr'), 6);
+      expect(widthOf(`<div lang="tr">${p}</div>`)).toBeCloseTo(under('tr'), 6);
+      expect(widthOf(`<div lang="tr">${p.replace('<p', '<p lang="en"')}</div>`)).toBeCloseTo(under('en'), 6);
+      expect(widthOf(p)).toBeCloseTo(under('inherit'), 6);
+
+      const rec = recordingCtx(400, 200);
+      const html = '<p style="margin:0">a <span lang="tr">b</span> <span lang="ko">c</span></p>';
+      drawLayout({ layout: layout({ html, width: 400, ctx: rec.ctx }), width: 400, ctx: rec.ctx });
+      const langOf = (text: string) => rec.paints.find((op) => JSON.parse(/^fillText\((".*?"),/.exec(op)?.[1] ?? '""').trim() === text)
+        ?.match(/[;| ]lang="([^"]*)"/)?.[1];
+      expect(['a', 'b', 'c'].map(langOf)).toEqual(['inherit', 'tr', 'ko']);
+    });
+
     it('a width measured under one kerning is not reused under another', () => {
       // Same font, same letter-spacing, same text: only the kerning differs,
       // so the second paragraph's character breaks must not take the first's.
@@ -2083,16 +2575,16 @@ describe('Layout logic (mocked measureText)', () => {
     });
 
     it('word widths keep the kerning a whole-run measure has', () => {
-      // recording-ctx kerns character PAIRS, so the whole run measured as one
-      // string telescopes: each line's extent must equal the difference of the
-      // run's prefixes at its two ends, however far into the paragraph it sits.
+      // recording-ctx kerns character PAIRS, so summed word widths telescope:
+      // each line's extent must equal its own text measured as one string,
+      // however far into the paragraph it sits.
       const rec = recordingCtx(600, 100000);
       const result = layout({ html: `<p style="margin:0;font-size:16px">${longText}</p>`, width: 600, ctx: rec.ctx });
       const texts = collectTexts(result.layoutRoot);
       const probe = recordingCtx().ctx;
       probe.font = buildCanvasFont(texts[0].style);
       probe.fontKerning = 'normal';
-      const prefix = (n: number) => probe.measureText(longText.slice(0, n)).width;
+      probe.textRendering = 'optimizeLegibility';
       const rows = new Map<number, LayoutText[]>();
       for (const t of texts) rows.set(t.y, [...(rows.get(t.y) ?? []), t]);
       let cursor = 0;
@@ -2102,9 +2594,9 @@ describe('Layout logic (mocked measureText)', () => {
         const start = longText.indexOf(lineText, cursor);
         expect(start).toBeGreaterThanOrEqual(0);
         cursor = start + lineText.length;
-        // From the space before the line's first word: that word keeps its
-        // kerning against it.
-        const expected = prefix(cursor) - prefix(start);
+        // From the line's first word: Chrome and Firefox shape it alone, without
+        // the kerning of the space before it.
+        const expected = probe.measureText(longText.slice(start, cursor)).width;
         const last = row.filter((t) => t.text.trim()).at(-1)!;
         expect(last.x + last.width - row[0].x).toBeCloseTo(expected, 6);
         checked++;
@@ -2130,18 +2622,24 @@ describe('Layout logic (mocked measureText)', () => {
     });
 
     it('a line whose summed width fits is kept, whatever the one-string re-measure says', () => {
-      // The words sum to 90px in a 90.5px line; measured as one string the
-      // line reads 93px. The re-measure only overrules a sum OVER the edge:
-      // under it, the one string drops what Blink keeps (the last glyph's kern
-      // against the hanging space) and wrapped lines the DOM keeps.
+      // The words sum to 90.25px in a 90.5px line (a 0.25px padding edge keeps
+      // their measuring apart); measured as one string the line reads 93.25px.
+      // The re-measure only overrules a sum OVER the edge.
       const ctx = mockCtx();
       const measure = ctx.measureText.bind(ctx);
       ctx.measureText = (s: string) => {
         const m = measure(s);
         return s.includes('a b') ? { ...m, width: m.width + 3 } : m;
       };
-      const html = '<p style="margin:0">aaaa <span>bbbb</span></p>';
+      const html = '<p style="margin:0">aaaa <span style="padding-left:0.25px">bbbb</span></p>';
       expect(layout({ html, width: 90.5, ctx }).lines.map((l) => l.text)).toEqual(['aaaa bbbb']);
+    });
+
+    it('the one-string re-measure kerns nothing an element edge shapes apart', () => {
+      // "xx A", a 0.5px edge, "V b" sum to 70.5px in a 70px line. As one string "AV" would
+      // kern 3px and fit, but no engine kerns across an inline edge with width.
+      const html = '<p style="margin:0">xx A<span style="padding-left:0.5px">V</span> b</p>';
+      expect(layout({ html, width: 70, ctx: kerningCtx('AV') }).lines.map((l) => l.text.trim())).toEqual(['xx AV', 'b']);
     });
 
     it('a space in another state keeps its own width in the one-string re-measure', () => {
@@ -2203,15 +2701,12 @@ describe('Layout logic (mocked measureText)', () => {
       expect(yDelta('50%')).toBeCloseTo(-10, 5);
     });
 
-    it("sub lowers, super raises by the engine's own rule (font size 16)", () => {
-      // Measured off the DOM, 8-56px across three families (`BLINK_SUPER_SUB`):
-      // Blink and WebKit shift by fontSize/3 + 1 and fontSize/5 + 1, Gecko by
-      // 0.34em and 0.2em. These are not tunable constants — they are what the
-      // browser does, and the parity suites check them against it.
-      // BLINK_SUPER_SUB, never FLOORS_LINE_BASELINE: separate engine
-      // questions, even where they pick the same engines.
-      const superShift = BLINK_SUPER_SUB ? 16 / 3 + 1 : 16 * 0.34;
-      const subShift = BLINK_SUPER_SUB ? 16 / 5 + 1 : 16 * 0.2;
+    it("sub lowers, super raises by Chrome's rule (font size 16)", () => {
+      // Measured off the DOM, 8-56px across three families: Blink shifts by
+      // fontSize/3 + 1 and fontSize/5 + 1, in every engine. Not tunable
+      // constants — what Chrome does, and the parity suites check them against it.
+      const superShift = 16 / 3 + 1;
+      const subShift = 16 / 5 + 1;
       expect(yDelta('sub')).toBeCloseTo(subShift, 5);
       expect(yDelta('super')).toBeCloseTo(-superShift, 5);
     });
@@ -2231,8 +2726,8 @@ describe('Layout logic (mocked measureText)', () => {
         const texts = collectTexts(doLayout(tree, 2000));
         return texts.find(t => t.text === 'X')!.y - texts.find(t => t.text === 'base')!.y;
       };
-      expect(sizedDelta('super', 76)).toBeCloseTo(BLINK_SUPER_SUB ? -(76 / 3 + 1) : -76 * 0.34, 5);
-      expect(sizedDelta('sub', 76)).toBeCloseTo(BLINK_SUPER_SUB ? 76 / 5 + 1 : 76 * 0.2, 5);
+      expect(sizedDelta('super', 76)).toBeCloseTo(-(76 / 3 + 1), 5);
+      expect(sizedDelta('sub', 76)).toBeCloseTo(76 / 5 + 1, 5);
     });
 
     it('baseline leaves the word on the baseline', () => {
@@ -2644,18 +3139,11 @@ describe('sameDecorationBand (run merging)', () => {
   });
 });
 
-// ─── WebKit line-height truncation ─────────────────────────────────────
+// ─── Line paint snap ───────────────────────────────────────────────────
 //
-// The engine flags are module-level consts read off the UA, so this block
-// re-imports layout.ts under a Safari UA (Node otherwise takes the Blink
-// branch). Measured in Playwright WebKit (`TRUNCATES_LINE_HEIGHT` in
-// src/engine.ts): a line box is `floor(line-height)` tall, the line-height being
-// WebKit's float32 product — 16px x 1.6 stands 25px, 20px x 1.15 stands 23
-// even though `20 * 1.15` is 22.999999999999996 in double — and the baseline
-// sits `floor(half-leading)` below the line top plus the ascent.
-// Node's empty user agent selects Blink, which PAINTS each line box at a whole
-// CSS pixel: the line top rounds (half up) and the line's contents keep their
-// laid-out offsets. Layout itself stays fractional. See SNAPS_LINE_PAINT.
+// Chrome PAINTS each line box at a whole CSS pixel, in every browser render-tag
+// runs in: the line top rounds (half up) and the line's contents keep their
+// laid-out offsets. Layout itself stays fractional. See `paintLineSnap`.
 describe('Blink line paint snap', () => {
   /** Lay out `html`, draw it, and record every fillText baseline and band center. */
   function paint(html: string, width = 400) {
@@ -2705,7 +3193,7 @@ describe('Blink line paint snap', () => {
 });
 
 // Blink keeps a line-height on its 1/64px LayoutUnit grid, rounded down — the
-// pitch the DOM steps lines by (LAYOUT_UNIT_LINE_HEIGHT). Node selects Blink.
+// pitch the DOM steps lines by (`multipliedLineHeight`).
 describe('a CSS-wide keyword on line-height', () => {
   it('a later inherit replaces an earlier number, its multiplier included', () => {
     const ys = collectTexts(layout({
@@ -2731,6 +3219,12 @@ describe('line-height: <percentage>', () => {
     // The 40px span keeps the 24px line; unitless 1.2 recomputes to 48px.
     expect(heightOf('<div style="font-size:20px;line-height:120%"><span style="font-size:40px">hello</span></div>')).toBe(24);
     expect(heightOf('<div style="font-size:20px;line-height:1.2"><span style="font-size:40px">hello</span></div>')).toBe(48);
+  });
+
+  it('is an integer percentage, as Chrome reads it: 162.9% acts as 162%', () => {
+    // 162% of 10px, rounded onto the 1/64px grid.
+    const { lines } = layout({ html: '<p style="margin:0;font-size:10px;line-height:162.9%">a</p>', width: 100, ctx: mockCtx() });
+    expect(lines[0].bounds.height).toBe(Math.round(16.2 * 64) / 64);
   });
 });
 
@@ -2763,53 +3257,102 @@ describe('Blink LayoutUnit line-height', () => {
   });
 });
 
-describe('WebKit truncates the line-height (Safari UA)', () => {
-  const SAFARI =
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15';
+describe('the public baseline helpers', () => {
+  it("lineBaselineOffset places Chrome's baseline", () => {
+    // A line one 64th short of its 17px content area keeps the ascent (Verdana 13.6px x 1.25 =
+    // 16.984375 over 14 + 3), where the exact half (-1/128) would floor a whole pixel higher.
+    expect(lineBaselineOffset(25.6, 17, 5)).toBe(18);
+    expect(lineBaselineOffset(16.984375, 14, 3)).toBe(14);
+  });
 
-  async function safariLayout(tree: StyledNode, width: number) {
+  it('getFontMetrics gives the font box layout lays out on', () => {
+    // A canvas reporting 11.52 / 4.48 lays out on Chrome's whole-px 12 / 4.
+    const ctx = mockCtx();
+    const measure = ctx.measureText.bind(ctx);
+    ctx.measureText = (s: string) => ({ ...measure(s), fontBoundingBoxAscent: 11.52, fontBoundingBoxDescent: 4.48 });
+    const { ascent, descent } = getFontMetrics(ctx, defaultStyle({ fontSize: 16 }));
+    expect({ ascent, descent }).toEqual({ ascent: 12, descent: 4 });
+    const result = layout({ html: '<p style="margin:0;font-size:16px;line-height:25.6px">a</p>', width: 100, ctx });
+    expect(collectTexts(result.layoutRoot)[0].y).toBe(lineBaselineOffset(25.6, ascent, descent));
+  });
+});
+
+describe('Firefox lays out as Chrome', () => {
+  // One layout in every browser, Chrome's (README): Firefox's canvas ceils the font box
+  // (CANVAS_CEILS_FONT_BOX), so this mock reports 0.72em / 0.28em as Firefox would (16px:
+  // 12 / 5, where Chrome's rounds 11.52 / 4.48 to 12 / 4); Node's Blink branch reads it exact.
+  const FIREFOX = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14.6; rv:143.0) Gecko/20100101 Firefox/143.0';
+
+  function proportionalCtx(ceils: boolean) {
+    const ctx = mockCtx();
+    const measure = ctx.measureText.bind(ctx);
+    ctx.measureText = (text: string) => {
+      const size = parseFloat(/([\d.]+)px/.exec(ctx.font)?.[1] ?? '16');
+      const round = ceils ? Math.ceil : (v: number) => v;
+      return { ...measure(text), fontBoundingBoxAscent: round(size * 0.72), fontBoundingBoxDescent: round(size * 0.28) } as TextMetrics;
+    };
+    return ctx;
+  }
+
+  it('on the font box Chrome lays out on', async () => {
+    // Three 3-char words at 30px each wrap one per line in a 35px box.
+    const tree = () => block('div', [block('p', [textNode('aaa bbb ccc', { fontSize: 16 })], { fontSize: 16 })]);
+    const geometry = (root: LayoutBox) => ({
+      height: root.height,
+      runs: collectTexts(root).filter((t) => t.text.trim()).map((t) => [t.text, t.x, t.y]),
+    });
+    const chrome = geometry(buildLayoutTree(proportionalCtx(false), tree(), 35).root);
     vi.resetModules();
-    vi.stubGlobal('navigator', { userAgent: SAFARI });
+    vi.stubGlobal('navigator', { userAgent: FIREFOX });
     try {
       const mod = await import('../../src/layout.ts');
-      return mod.buildLayoutTree(mockCtx(), tree, width).root;
+      expect(geometry(mod.buildLayoutTree(proportionalCtx(true), tree(), 35).root)).toEqual(chrome);
     } finally {
       vi.unstubAllGlobals();
       vi.resetModules();
     }
-  }
-
-  // Three 3-char words at 30px each wrap one per line in a 35px box. The mock
-  // font is 12 + 4 = 16px tall at every size.
-  const threeLines = (style: Partial<ResolvedStyle>) =>
-    block('div', [block('p', [textNode('aaa bbb ccc', style)], style)]);
-
-  it('steps each line by the truncated line-height (25.6 -> 25)', async () => {
-    const root = await safariLayout(threeLines({ fontSize: 16, lineHeight: 25.6 }), 35);
-    const ys = collectTexts(root).filter((t) => t.text.trim()).map((t) => t.y);
-    // floor((25 - 16) / 2) + 12 = 16, then +25 per line.
-    expect(ys).toEqual([16, 41, 66]);
-    expect(root.height).toBe(75);
   });
 
-  it('truncates the float32 product, not the double one (20 x 1.15 = 23)', async () => {
-    const root = await safariLayout(
-      threeLines({ fontSize: 20, lineHeight: 20 * 1.15 }), 35);
-    // floor((23 - 16) / 2) + 12 = 15. A double-precision floor makes it 22.
-    expect(collectTexts(root).filter((t) => t.text.trim()).map((t) => t.y)).toEqual([15, 38, 61]);
-    expect(root.height).toBe(69);
-  });
-
-  it('resolves a percentage vertical-align against the exact line-height', async () => {
-    // WebKit's DOM: 50% of 25.6px moves the box 12.796875 (25.6 on the 1/64
-    // grid, halved) — the untruncated value, not 12.5.
-    const tree = block('div', [block('p', [
-      textNode('base', { lineHeight: 25.6 }),
-      textNode('X', { lineHeight: 25.6, verticalAlign: '50%' }),
-    ], { lineHeight: 25.6 })]);
-    const texts = collectTexts(await safariLayout(tree, 400));
-    const delta = texts.find((t) => t.text === 'X')!.y - texts.find((t) => t.text === 'base')!.y;
-    expect(delta).toBeCloseTo(-12.8, 5);
+  it('a synthetic bold on the regular advances, painted where Chrome puts it', async () => {
+    // Firefox's canvas widens each glyph of a synthetic bold (Lobster has one weight: +0.57px a
+    // glyph at 20px); Chrome's keeps the regular advances. This mock widens 'Solo' bold by 2px a
+    // glyph under Firefox; 'Duo' has a real bold face, its glyphs wider or narrower one by one.
+    const canvas = (firefox: boolean) => {
+      const ctx = mockCtx();
+      const measure = ctx.measureText.bind(ctx);
+      const spacings: string[] = [];
+      ctx.measureText = (text: string) => {
+        const m = measure(text);
+        const bold = /\b700\b/.test(ctx.font);
+        const width = /Duo/.test(ctx.font) && bold ? m.width + 3 * (text.split('i').length - 1) - (text.split('W').length - 1)
+          : firefox && bold ? m.width + 2 * [...text].length : m.width;
+        return { ...m, width, actualBoundingBoxRight: width } as TextMetrics;
+      };
+      ctx.fillText = () => { spacings.push(ctx.letterSpacing); };
+      return { ctx, spacings };
+    };
+    const html = (family: string) => `<p style="margin:0;font-family:${family}">aaa <b>bbbbbb</b> ccc</p>`;
+    const runs = (result: { layoutRoot: LayoutBox }) => collectTexts(result.layoutRoot).map((t) => [t.text, t.x, t.width]);
+    const chrome = canvas(false);
+    const chromeRuns = runs(layout({ html: html('Solo'), width: 400, ctx: chrome.ctx }));
+    vi.resetModules();
+    vi.stubGlobal('navigator', { userAgent: FIREFOX });
+    try {
+      const mod = await import('../../src/index.ts');
+      mod.setDOMParser(new LinkedomDOMParser());
+      const firefox = canvas(true);
+      const result = mod.layout({ html: html('Solo'), width: 400, ctx: firefox.ctx });
+      expect(runs(result)).toEqual(chromeRuns);
+      mod.drawLayout({ layout: result, width: 400, ctx: firefox.ctx });
+      expect(firefox.spacings).toContain('-2px');
+      // A real bold face measures as itself.
+      const duo = canvas(true);
+      expect(runs(mod.layout({ html: html('Duo'), width: 400, ctx: duo.ctx }))).toEqual(
+        runs(layout({ html: html('Duo'), width: 400, ctx: canvas(false).ctx })));
+    } finally {
+      vi.unstubAllGlobals();
+      vi.resetModules();
+    }
   });
 });
 

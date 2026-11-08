@@ -1,7 +1,7 @@
 import type { ResolvedStyle, ShadowOptions } from './types.js';
 import {
-  buildCanvasFont, canvasKerning, canvasSpacing, claimCtx, formatLetterSpacing, getFontMetrics, nextCtxWriterId,
-  type FontMetricsTable,
+  canvasFont, canvasKerning, canvasSpacing, canvasTextRendering, claimCtx, formatLetterSpacing, getFontMetrics,
+  nextCtxWriterId, syntheticBoldWidening, type FontMetricsTable,
 } from './layout.js';
 import { parseLinearGradient } from './gradient.js';
 import { ScratchPool, withoutCanvasShadow } from './shadow.js';
@@ -14,7 +14,7 @@ import { ScratchPool, withoutCanvasShadow } from './shadow.js';
 // restore() and written again on next use.
 
 type Key =
-  | 'font' | 'fontKerning' | 'letterSpacing' | 'wordSpacing'
+  | 'font' | 'fontKerning' | 'textRendering' | 'lang' | 'letterSpacing' | 'wordSpacing'
   | 'textBaseline' | 'textAlign' | 'direction'
   | 'fillStyle' | 'strokeStyle' | 'lineWidth' | 'lineJoin' | 'lineCap' | 'lineDash';
 
@@ -27,6 +27,8 @@ const COVERAGE = '#000';
 interface TextState {
   readonly font: string;
   readonly kerning: CanvasFontKerning;
+  readonly textRendering: CanvasTextRendering;
+  readonly lang: string;
   /** As written: 0px for the spacing the ctx does not apply, which render-tag places. */
   readonly letterSpacing: string;
   readonly wordSpacing: string;
@@ -49,6 +51,9 @@ export class PaintState {
   };
   private readonly scopes: Key[][] = [];
   private readonly texts = new Map<ResolvedStyle, TextState>();
+  /** `canvasFont`'s and `syntheticBoldWidening`'s answers for this ctx. */
+  private readonly canvasFonts = new Map<string, string>();
+  private readonly boldWidenings = new Map<string, number>();
   private readonly gradients = new Map<string, CanvasGradient | null>();
   private readonly writerId = nextCtxWriterId();
 
@@ -69,12 +74,15 @@ export class PaintState {
   private textState(style: ResolvedStyle): TextState {
     let state = this.texts.get(style);
     if (!state) {
-      const letter = style.letterSpacing || 0, word = style.wordSpacing || 0;
+      // A synthetic bold's widened glyphs land where Chrome puts them (`syntheticBoldWidening`).
+      const letter = (style.letterSpacing || 0) - syntheticBoldWidening(this.ctx, style, this.boldWidenings);
+      const word = style.wordSpacing || 0;
       // Asked before a spacing is written: asking writes both and claims the ctx.
       const applies = letter || word ? this.support.spacing ??= canvasSpacing(this.ctx) : undefined;
       const unapplied = { letter: applies?.letter === false ? letter : 0, word: applies?.word === false ? word : 0 };
       state = {
-        font: buildCanvasFont(style), kerning: canvasKerning(style),
+        font: canvasFont(this.ctx, style, this.canvasFonts), kerning: canvasKerning(style),
+        textRendering: canvasTextRendering(style), lang: style.lang,
         letterSpacing: formatLetterSpacing(unapplied.letter ? 0 : letter),
         wordSpacing: `${unapplied.word ? 0 : word}px`, rtl: style.direction === 'rtl',
         unapplied: unapplied.letter || unapplied.word ? unapplied : null, widths: undefined,
@@ -101,10 +109,13 @@ export class PaintState {
     // Another writer touched the ctx (the spacing probe too): forget what it writes.
     if (claimCtx(this.writerId)) {
       const known = this.known;
-      known.font = known.fontKerning = known.letterSpacing = known.wordSpacing = undefined;
+      known.font = known.fontKerning = known.textRendering = known.lang = undefined;
+      known.letterSpacing = known.wordSpacing = undefined;
     }
     this.set('font', t.font);
     this.set('fontKerning', t.kerning);
+    this.set('textRendering', t.textRendering);
+    this.set('lang', t.lang);
     this.set('letterSpacing', t.letterSpacing);
   }
 

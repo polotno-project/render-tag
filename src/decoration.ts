@@ -1,5 +1,4 @@
 import type { DecorationEntry, ResolvedStyle } from './types.js';
-import { BLINK_UNDERLINE_GAP, ENGINE } from './engine.js';
 import { isShiftedVAlign } from './layout.js';
 import type { PaintState } from './paint-state.js';
 
@@ -30,7 +29,6 @@ export interface Band {
 }
 
 const toDevice = (v: number, scale: number) => Math.floor(v * scale + 0.5) / scale;
-const deviceCeil = (t: number, scale: number) => Math.max(1, Math.ceil(t * scale)) / scale;
 
 /**
  * Band rows for a decoration entry: round(T) for an explicit thickness (0
@@ -58,80 +56,45 @@ export function explicitUnderlineDelta(
   return null;
 }
 
-/**
- * [painted rows, resolved float], or null when a declared 0 hides the band.
- * Blink: auto fontSize / 10, painted floor; explicit T resolves to round(T).
- * WebKit: auto fontSize / 16; auto and explicit both paint ceil on the DEVICE
- * grid. Gecko: round(T) rows, the declared float. decoration-position-parity.
- */
-function thicknessOf(deco: DecorationEntry, deviceScale: number): [rows: number, thickness: number] | null {
-  const rows = bandWidthFor(deco);
-  if (rows <= 0) return null;
-  const declared = deco.declarer.textDecorationThickness;
-  if (declared !== null) {
-    if (ENGINE === 'blink') return [rows, rows];
-    if (ENGINE === 'webkit') return [deviceCeil(declared, deviceScale), declared];
-    return [rows, Math.max(1, declared)];
-  }
-  const size = deco.declarer.fontSize;
-  if (ENGINE === 'webkit') return [deviceCeil(size / 16, deviceScale), size / 16];
-  return [rows, Math.max(1, size / 10)];
-}
-
 /** Where a fragment's decorations hang: what `decorationBand` needs to know. */
 export interface FragmentLine {
   baseline: number;
   /** The line's own baseline when only the run was vertical-aligned. */
   underlineBaseline: number;
-  fontSize: number;
   ascent: number;
   /** `paintLineSnap`. */
   snap: number;
 }
 
 /**
- * The band one entry draws over one fragment (null: nothing). Top edges:
- * - underline: Blink ceil(fontSize / 20) below the snapped baseline
- *   (SNAPS_LINE_PAINT, BLINK_UNDERLINE_GAP); WebKit max(1, ceil(fontSize / 32)) below its
- *   device-snapped baseline; explicit geometry via `explicitUnderlineDelta`.
- * - overline: Blink's bottom edge on the floored ascent row; WebKit's auto top.
- * - line-through: Blink `baseline - ascent / 3 - t / 2` (text_decoration_info.cc).
- *   WebKit reads a strikeout metric canvas cannot: 0.3025·ascent is a FIT.
- * Measured in decoration-position-parity; Gecko keeps older approximations.
+ * The band one entry draws over one fragment (null: nothing), Blink's geometry. Top edges:
+ * - underline: ceil(fontSize / 20) below the snapped baseline (`paintLineSnap`); explicit
+ *   geometry via `explicitUnderlineDelta`.
+ * - overline: the bottom edge on the floored ascent row.
+ * - line-through: `baseline - ascent / 3 - t / 2` (text_decoration_info.cc).
+ * decoration-position-parity.
  */
 export function decorationBand(
   deco: DecorationEntry, at: FragmentLine, x: number, width: number, deviceScale = 1,
 ): Band | null {
-  const thickness = thicknessOf(deco, deviceScale);
-  if (!thickness || width <= 0) return null;
-  const [rows, t] = thickness;
+  const rows = bandWidthFor(deco);
+  if (rows <= 0 || width <= 0) return null;
+  const fontSize = deco.declarer.fontSize;
+  const t = deco.declarer.textDecorationThickness !== null ? rows : Math.max(1, fontSize / 10);
   const line = deco.line as DecorationLine;
   const style = deco.style || 'solid';
-  const fontSize = deco.declarer.fontSize;
-  const engine = ENGINE;
   let y: number;
   if (line === 'underline') {
-    // WebKit keeps its auto position under an explicit thickness.
-    const explicit = engine === 'webkit' && deco.declarer.textUnderlineOffset === null
-      ? null : explicitUnderlineDelta(deco, rows);
-    if (explicit !== null) y = Math.round(at.underlineBaseline + explicit - rows / 2);
-    else if (engine === 'webkit') {
-      y = toDevice(at.underlineBaseline, deviceScale) + Math.max(1, Math.ceil(fontSize / 16 / 2));
-    }
-    else if (BLINK_UNDERLINE_GAP) y = Math.round(at.underlineBaseline + Math.ceil(fontSize / 20));
-    else y = Math.round(at.underlineBaseline + fontSize * 0.105 - 0.2 - rows / 2);
-    // Blink places the underline before the line's paint snap (OffsetFromDecoratingBox).
-    if (engine === 'blink') y -= at.snap;
+    const explicit = explicitUnderlineDelta(deco, rows);
+    y = explicit !== null
+      ? Math.round(at.underlineBaseline + explicit - rows / 2)
+      : Math.round(at.underlineBaseline + Math.ceil(fontSize / 20));
+    // Placed before the line's paint snap (OffsetFromDecoratingBox).
+    y -= at.snap;
   } else if (line === 'overline') {
-    // WebKit: a declared thickness keeps the auto band's bottom edge.
-    y = engine === 'webkit'
-      ? toDevice(at.baseline, deviceScale) - Math.round(at.ascent) + deviceCeil(fontSize / 16, deviceScale) - rows
-      : Math.floor(at.baseline - at.ascent) - rows;
+    y = Math.floor(at.baseline - at.ascent) - rows;
   } else if (line === 'line-through') {
-    y = engine === 'blink' ? at.baseline - at.ascent / 3 - t / 2
-      : engine === 'webkit'
-        ? Math.ceil((toDevice(at.baseline, deviceScale) - 0.3025 * at.ascent - t / 2) * deviceScale) / deviceScale
-        : Math.round(at.baseline - at.fontSize * 0.33 - rows / 2);
+    y = at.baseline - at.ascent / 3 - t / 2;
   } else {
     return null;
   }
@@ -157,16 +120,12 @@ export function fragmentBands(
       lineBaseline !== undefined && !isShiftedVAlign(deco.declarer.verticalAlign) ? lineBaseline : baseline;
     if (deco.line !== 'underline') ascent ??= ps.fontBox(style).ascent;
     const band = decorationBand(deco, {
-      baseline, underlineBaseline, fontSize: style.fontSize, ascent: ascent ?? 0, snap,
+      baseline, underlineBaseline, ascent: ascent ?? 0, snap,
     }, x, width, ps.deviceScale);
     if (band) bands.push({ band, deco });
   }
   return bands;
 }
-
-export const paintBand: (ps: PaintState, band: Band, color: string | CanvasGradient, pen?: Pen) => void =
-  ENGINE === 'blink' ? blinkBand : ENGINE === 'webkit' ? webkitBand
-    : (ps, b, c, pen) => drawDecorationLine(ps, b.x, b.y + b.rows / 2, b.width, b.rows, b.style, c, pen);
 
 /** A horizontal stroke `rows` thick whose top edge is `top`. */
 function rule(ps: PaintState, x0: number, x1: number, top: number, rows: number, color: string | CanvasGradient, pen: Pen) {
@@ -176,8 +135,6 @@ function rule(ps: PaintState, x0: number, x1: number, top: number, rows: number,
   pen.lineTo(x1, top + rows / 2);
   ps.ctx.stroke();
 }
-
-// ─── Blink ──────────────────────────────────────────────────────────────
 
 /**
  * Blink's `SelectBestDashGap` (styled_stroke_data.cc): the gap closest to
@@ -271,7 +228,7 @@ function wavePath(
   }
 }
 
-function blinkBand(ps: PaintState, band: Band, color: string | CanvasGradient, pen: Pen = ps.ctx) {
+export function paintBand(ps: PaintState, band: Band, color: string | CanvasGradient, pen: Pen = ps.ctx) {
   const { ctx } = ps;
   const { line, style, x, width, y, rows, thickness: t } = band;
   // Solid and double bands are rects snapped on y only (`SnapYAxis`).
@@ -313,98 +270,4 @@ function blinkBand(ps: PaintState, band: Band, color: string | CanvasGradient, p
     return;
   }
   rule(ps, x, x + width, top, rows, color, pen);
-}
-
-// ─── WebKit ─────────────────────────────────────────────────────────────
-
-/**
- * WebKit: double adds a band one band-width below (overline too); dotted
- * rows/rows and dashed 2·rows/2·rows, unfitted; wavy: a cubic per 2·step,
- * step = fontSize / 4.5, stretched so whole steps fill the fragment.
- */
-function webkitBand(ps: PaintState, band: Band, color: string | CanvasGradient, pen: Pen = ps.ctx) {
-  const { ctx } = ps;
-  const { style, x, width, y: top, rows } = band;
-  if (style === 'double') {
-    rule(ps, x, x + width, top, rows, color, pen);
-    rule(ps, x, x + width, top + 2 * rows, rows, color, pen);
-    return;
-  }
-  if (style === 'dotted' || style === 'dashed') {
-    const on = style === 'dotted' ? rows : 2 * rows;
-    ps.stroke(color, rows, [on, on]);
-    ctx.beginPath();
-    pen.moveTo(toDevice(x, band.deviceScale), top + rows / 2);
-    pen.lineTo(x + width, top + rows / 2);
-    ctx.stroke();
-    return;
-  }
-  if (style === 'wavy') {
-    let step = band.fontSize / 4.5;
-    let cp = band.fontSize * 1.5 / 16;
-    const steps = Math.floor(width / step);
-    if (steps > 0) {
-      const adjustment = (width - steps * step) / steps;
-      step += adjustment;
-      cp += adjustment;
-    }
-    // Overline 2px higher, line-through 1.5px (a FIT).
-    const raise = band.line === 'overline' ? 2 : band.line === 'line-through' ? 1.5 : 0;
-    const axis = top + 1 + (rows % 2 ? 0.5 : 0) - raise;
-    ps.stroke(color, band.thickness);
-    ctx.beginPath();
-    pen.moveTo(x, axis);
-    for (let at = x; at + 2 * step <= x + width + 1e-6; at += 2 * step) {
-      pen.bezierCurveTo(at + step, axis + cp, at + step, axis - cp, at + 2 * step, axis);
-    }
-    ctx.stroke();
-    return;
-  }
-  rule(ps, x, x + width, top, rows, color, pen);
-}
-
-// ─── Gecko (unmeasured) ─────────────────────────────────────────────────
-
-/** Unmeasured decoration shapes centered on `y`; dotted w/2w, dashed 3w/2w. */
-function drawDecorationLine(
-  ps: PaintState,
-  x: number,
-  y: number,
-  width: number,
-  lineWidth: number,
-  decoStyle: string,
-  color: string | CanvasGradient,
-  pen: Pen = ps.ctx,
-): void {
-  y = Math.round(y - lineWidth / 2) + lineWidth / 2;
-  const { ctx } = ps;
-
-  if (decoStyle === 'double') {
-    const gap = Math.max(lineWidth, 2);
-    ps.stroke(color, Math.max(0.5, lineWidth * 0.5));
-    ctx.beginPath();
-    pen.moveTo(x, y - gap / 2);
-    pen.lineTo(x + width, y - gap / 2);
-    pen.moveTo(x, y + gap / 2);
-    pen.lineTo(x + width, y + gap / 2);
-    ctx.stroke();
-  } else if (decoStyle === 'wavy') {
-    const amplitude = Math.max(1.5, lineWidth);
-    const wavelength = amplitude * 4;
-    ps.stroke(color, lineWidth);
-    ctx.beginPath();
-    pen.moveTo(x, y);
-    for (let cx = x; cx < x + width; cx += wavelength) {
-      pen.quadraticCurveTo(cx + wavelength / 4, y - amplitude, cx + wavelength / 2, y);
-      pen.quadraticCurveTo(cx + wavelength * 3 / 4, y + amplitude, cx + wavelength, y);
-    }
-    ctx.stroke();
-  } else {
-    const w = lineWidth;
-    ps.stroke(color, w, decoStyle === 'dotted' ? [w, w * 2] : decoStyle === 'dashed' ? [w * 3, w * 2] : undefined);
-    ctx.beginPath();
-    pen.moveTo(x, y);
-    pen.lineTo(x + width, y);
-    ctx.stroke();
-  }
 }

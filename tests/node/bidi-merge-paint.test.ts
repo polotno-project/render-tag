@@ -31,6 +31,7 @@ const CASES: Record<string, [string, string, string, string]> = {
   'stroke-linejoin': [`${STROKE};stroke-linejoin:round`, `${STROKE};stroke-linejoin:bevel`, 'lineJoin="round"', 'lineJoin="bevel"'],
   'font-variant-caps': ['font-variant-caps:small-caps', 'font-variant-caps:normal', 'font="small-caps 20px serif"', 'font="20px serif"'],
   'font-kerning': ['font-kerning:none', 'font-kerning:normal', 'fontKerning="none"', 'fontKerning="normal"'],
+  'text-rendering': ['text-rendering:optimizeSpeed', 'text-rendering:auto', 'textRendering="optimizeSpeed"', 'textRendering="optimizeLegibility"'],
 };
 
 describe('bidi pieces that differ in glyph paint stay separate', () => {
@@ -48,6 +49,15 @@ describe('bidi pieces that differ in glyph paint stay separate', () => {
     const ops = (text: string) => paints.filter((p) => p.includes(`"${text}"`)).map((p) => p.slice(0, p.indexOf('(')));
     expect(ops(A), paints.join('\n')).toEqual(['strokeText', 'fillText']);
     expect(ops(B), paints.join('\n')).toEqual(['fillText', 'strokeText']);
+  });
+
+  it('lang: pieces in different languages keep their own', () => {
+    const html = `<p dir="rtl" style="margin:0;font:20px serif"><span lang="he">${A}</span><span lang="yi">${B}</span></p>`;
+    const rec = recordingCtx(400, 100);
+    drawLayout({ layout: layout({ html, width: 400, ctx: rec.ctx }), width: 400, ctx: rec.ctx });
+    const paints = rec.paints.filter((p) => p.startsWith('fillText('));
+    expect(paints.some((p) => p.includes(`"${A}"`) && p.includes('lang="he"')), paints.join('\n')).toBe(true);
+    expect(paints.some((p) => p.includes(`"${B}"`) && p.includes('lang="yi"')), paints.join('\n')).toBe(true);
   });
 
   it('pieces with equal paint still merge into one fillText', () => {

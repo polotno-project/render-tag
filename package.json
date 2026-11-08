@@ -48,6 +48,7 @@
     "test:firefox": "vitest run --project firefox",
     "test:webkit": "vitest run --project webkit",
     "update": "vitest run --mode update",
+    "bench:cross-browser": "vitest run --mode update --project chromium tests/cross-browser.bench.test.ts && vitest run --project firefox tests/cross-browser.bench.test.ts && vitest run --project webkit tests/cross-browser.bench.test.ts",
     "probe:engines": "s=0; for b in chromium firefox webkit; do vitest run --project $b tests/engine-probe.test.ts || s=1; done; exit $s",
     "test:clear-native-cache": "node tests/clear-native-cache.mjs",
     "test:safari-native": "node tests/run-safari-native.mjs",
@@ -55,10 +56,11 @@
     "vendor:fonts": "node scripts/vendor-fonts.mjs"
   },
   "devDependencies": {
+    "@napi-rs/canvas": "^1.1.0",
     "@vitest/browser-playwright": "^4.1.12",
     "linkedom": "^0.18",
     "pixelmatch": "^7",
-    "playwright": "1.58.2",
+    "playwright": "1.64.1",
     "typescript": "^6",
     "vite": "^8",
     "vitest": "^4.1.12"

@@ -8,7 +8,7 @@
 
 import type { ShadowOptions, ResolvedStyle } from '../types.js';
 import { isTransparent } from '../css-resolver.js';
-import { hasTextClip, paintsBoxBackground, styleTree, layoutFontMetrics, type FontMetricsTable } from '../layout.js';
+import { hasBackgroundImage, hasTextClip, paintsBoxBackground, styleTree, layoutFontMetrics, type FontMetricsTable } from '../layout.js';
 import { glyphPaints, paintGlyphs } from '../render.js';
 import { fragmentBands, paintBand, type Band, type Pen } from '../decoration.js';
 import { parseLinearGradient } from '../gradient.js';
@@ -344,7 +344,7 @@ function clipPaintFor(
 ): string | CanvasGradient | null {
   const src = clipSourceOf(g);
   if (!src) return null;
-  const gradient = src.backgroundImage && src.backgroundImage !== 'none'
+  const gradient = hasBackgroundImage(src)
     ? sliceGradient(ctx, src.backgroundImage, g, g.clipRange, textWidth, baseY)
     : null;
   return gradient ?? (!isTransparent(src.backgroundColor) ? src.backgroundColor : null);

@@ -203,7 +203,7 @@ for (const curved of [false, true]) {
       // extents depends on where the glyphs sit inside a pixel. Translating
       // this same layout by k/16px in Playwright WebKit moves the largest
       // difference between 0 and 2.29; at the whole-pixel baseline WebKit's
-      // own layout uses (FLOORS_LINE_BASELINE) it is 2.29.
+      // own layout uses (lineBaselineOffset) it is 2.29.
       expectSameImage(pixels(actual), pixels(expected), 3);
     });
 
@@ -420,7 +420,7 @@ it('casts a tall CSS shadow in tiles with the pixels of one native shadow', () =
   const actual = make();
   render({ ctx: actual, html: html.replace('color:blue', 'color:blue;text-shadow:3px 4px 6px rgba(0,0,0,.6), 0 0 16px red'), width: 640 });
   // Chromium matches the native shadow exactly. WebKit's blur moves by a few
-  // levels with the extent of the image it blurs (measured: 4/255 when the
-  // whole text is one image, 5/255 cut into tiles); Firefox is unverified.
-  expectSameImage(pixels(actual), pixels(expected), isWebKit ? 5 : 3);
+  // levels with the extent of the image it blurs (measured: up to 6/255 cut
+  // into tiles); Firefox is unverified.
+  expectSameImage(pixels(actual), pixels(expected), isWebKit ? 6 : 3);
 });

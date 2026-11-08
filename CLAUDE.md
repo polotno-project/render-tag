@@ -10,9 +10,11 @@ map: this file holds only what no single file tells you.
 ## Invariants
 
 - **One home per rule.** A layout, measuring or paint rule lives in one
-  function; a new case goes into it, never re-derived at a call site. An
-  engine difference is a flag in `src/engine.ts` answering one measured
-  question; never gate one flag on another.
+  function; a new case goes into it, never re-derived at a call site.
+- **One layout in every browser: Chrome's** (README). A flag in
+  `src/engine.ts` only works around a canvas that reports or paints
+  differently so that it yields Chrome's layout, never another engine's own
+  layout; it answers one measured question; never gate one flag on another.
 - **Layout is reentrant.** Per-call state lives on the `LayoutSession`, never
   in a module-level `let` or cache (`tests/node/reentrancy.test.ts`). The CSS
   rule index is the one cache that outlives a call; any such cache needs
@@ -49,9 +51,11 @@ map: this file holds only what no single file tells you.
 
 ## Testing
 
-- **The oracle is each engine's own DOM**: scores compare render-tag with a
-  screenshot of the same fixture in that engine, with fonts vendored under
-  `tests/fonts/`. Prove engine behaviour against that DOM, not by reasoning.
+- **The oracle is Chrome's DOM**: Chromium's suites compare render-tag with
+  Chrome's own layout and screenshots, with fonts vendored under
+  `tests/fonts/`. Firefox and WebKit gate render-tag's layout against its
+  Chrome layout (`cross-browser.compare`: lines, their y, their extents) and
+  record their own paint. Prove behaviour against the DOM, not by reasoning.
   Playwright WebKit is WebKit, not Safari; never label its results Safari.
 - **Lanes**: `npm test` (Node + Chromium), `npm run test:webkit` and
   `npm run test:firefox` are the release bar. A browser project's `include` in
@@ -59,14 +63,26 @@ map: this file holds only what no single file tells you.
   file in any engine. Reports go to the git-ignored `tests/.out/`.
 - **Recorded contracts fail on ANY unrecorded change**, improvements included:
   pixel baselines (a score move over 0.01% or any change of line membership),
-  the DOM-parity ratchets in `tests/engine-divergences.json` (a listed case
-  that now passes fails too; Firefox keys are per platform: `firefox` is CI's
-  ubuntu, `firefox-darwin` the Mac) and `perf-counters`. Tests never update
-  them: verify the change, then re-record deliberately with
+  the cross-browser residuals in
+  `tests/cross-browser-baseline.json` (against a Chrome reference recorded
+  locally by `npm run update -- --project chromium
+  tests/cross-browser.compare.test.ts`; re-record it after any change to
+  Chrome's layout) and `perf-counters`. Tests never update them: verify the
+  change, then re-record deliberately with
   `npm run update -- --project <browser> <files>`.
+- **The cross-browser benchmark**: `npm run bench:cross-browser` after every
+  layout change. It records render-tag in Chrome, then reports how far
+  render-tag in Node (`@napi-rs/canvas`), Firefox and WebKit is from it
+  (layouts consistent at three widths per case, visual mismatch) and appends
+  one line per lane to `tests/.out/cross-browser-bench/history.jsonl`:
+  compare it with the last.
 - **CI runs with `RENDER_TAG_PORTABLE=1`**, which skips environment-pinned
-  gates (`tests/helpers/portable-mode.ts`). Never fix red CI by re-recording on
-  a runner: either the change is wrong or the gate belongs behind
+  gates (`tests/helpers/portable-mode.ts`). Its Firefox and WebKit jobs record
+  render-tag's Chrome layout on the runner first (unhinted: Linux Chrome lays
+  text on whole-pixel advances); `cross-browser.compare` then
+  gates the cases any runner reproduces (vendored fonts, Latin/Cyrillic) and
+  lists the rest in `KNOWN_DRIFT`. Never fix red CI by re-recording on a
+  runner: either the change is wrong or the gate belongs behind
   `PORTABLE_GATES_ONLY`.
 - **TDD in the Node tier**: write the failing case in
   `tests/node/layout-logic.test.ts` (mocked `measureText`; Node takes the Blink

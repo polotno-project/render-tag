@@ -26,7 +26,7 @@ const P = (style: string, body: string, dir = '') =>
 
 /** Width under the paint state the recording ctx sees, with what it applies of `letterSpacing`. */
 const w = (text: string, letterSpacing = 0) =>
-  stateWidth({ font: '20px serif', letterSpacing: `${letterSpacing}px`, wordSpacing: '0px', fontKerning: 'normal' }, text);
+  stateWidth({ font: '20px serif', letterSpacing: `${letterSpacing}px`, wordSpacing: '0px', fontKerning: 'normal', textRendering: 'optimizeLegibility' }, text);
 
 function laidOut(html: string, spacing: Spacing, width = 400, textUnits?: TextUnitLevel) {
   const result = layout({ html, width, ctx: recordingCtx(width, 400, spacing).ctx, textUnits });

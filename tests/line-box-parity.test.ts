@@ -17,7 +17,6 @@
 import { describe, it, expect } from 'vitest';
 import { layout } from '../src/index.ts';
 import { collectInlineBoxes, collectTexts } from './helpers/layout-tree.ts';
-import { divergenceRatchet } from './helpers/engine-divergences.ts';
 
 const FONT_A = 'sans-serif';
 const FONT_B = 'serif';
@@ -95,10 +94,6 @@ const CASES: {
     name: 'sup and sub',
     inner: 'base <sup>sup</sup> and <sub>sub</sub>',
     blockStyle: `font-size:18px;font-family:${FONT_A};line-height:2`,
-    // Safari grows a line around a shifted box ~0.9px differently from the
-    // other two; the shift itself matches (the 8px and 56px cases below hold
-    // there at 0.5px).
-    tolerance: 1,
   },
   // The shift is a rule of the font SIZE, so it has to hold at both ends of the
   // range. A single mid-range constant fits 18px and misses 8px by 0.5px and
@@ -112,10 +107,6 @@ const CASES: {
     name: 'sup and sub at 56px',
     inner: 'base <sup>s</sup> and <sub>u</sub>',
     blockStyle: `font-size:56px;font-family:${FONT_B};line-height:2`,
-    // The UA sheet's `font-size: smaller` is 56/1.2 = 46.67px in Chrome and
-    // WebKit; render-tag resolves 0.83em = 46.48px. Its 2x line-height then
-    // truncates to 92 where WebKit has 93: 0.99px short. Not the line rule;
-    // a recorded WebKit divergence.
   },
   {
     // Falling back to no shift sized this box as if the sup sat on the
@@ -239,8 +230,8 @@ const CASES: {
     blockStyle: `font-size:16px;font-family:${FONT_A};line-height:1.2`,
   },
   {
-    // Engine rule MIN_HEIGHT_END_MARGINS: Chrome drops the 10px margin (the
-    // next div sits at 40), WebKit lets it collapse out (at 50).
+    // Chrome drops the 10px margin (block.ts; WebKit too)
+    // (the next div sits at 40).
     name: 'a last-child margin under a minimum-height list',
     inner: '<ul style="margin:0;padding:0;list-style:none;min-height:40px">' +
       '<li style="margin:0 0 10px">first</li></ul><div>second</div>',
@@ -267,19 +258,15 @@ const CASES: {
   },
 ];
 
-const ratchet = divergenceRatchet('line-box');
-
 describe('line box height vs the DOM', () => {
-  it.for(CASES)('$name', ({ name, inner, blockStyle, tolerance, width }) => {
+  it.for(CASES)('$name', ({ inner, blockStyle, tolerance, width }) => {
     const dom = domHeight(inner, blockStyle, width ?? WIDTH);
     const canvas = canvasHeight(inner, blockStyle, width ?? WIDTH);
     // 0.5px covers the engines' own sub-pixel line-box rounding. The bugs this
     // pins cost 9px on a line whose run inherited a length line-height, 5.6px
     // on a sup/sub line, and 25px on a line holding text-top and text-bottom.
-    const within = Math.abs(canvas - dom) <= (tolerance ?? 0.5);
-    ratchet.check(name, within ? null : `height: canvas ${canvas}, DOM ${dom}, tolerance ${tolerance ?? 0.5}`);
+    expect(Math.abs(canvas - dom), `height: canvas ${canvas}, DOM ${dom}`).toBeLessThanOrEqual(tolerance ?? 0.5);
   });
-  ratchet.itRecords();
 });
 
 /** Every text run laid out for `inner`, with the line box each one belongs to. */

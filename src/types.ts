@@ -42,8 +42,8 @@ export interface LayoutConfig extends LayoutInput {
   /**
    * 2D context used for text measurement. Optional in the browser (a hidden
    * canvas is created); required in non-browser environments. render-tag
-   * mutates its font, fontKerning and letterSpacing state, resets a non-zero
-   * wordSpacing to 0px, and performs no save/restore.
+   * mutates its font, fontKerning, textRendering, lang and letterSpacing state,
+   * resets a non-zero wordSpacing to 0px, and performs no save/restore.
    */
   ctx?: AnyContext;
   /** Cut the laid-out text into units of this level (`LayoutResult.textUnits`) for
@@ -247,6 +247,10 @@ export interface ResolvedStyle {
   letterSpacing: number;
   wordSpacing: number;
   fontKerning: string;
+  /** CSS `text-rendering`, lower-cased: auto | optimizespeed | optimizelegibility | geometricprecision. */
+  textRendering: string;
+  /** The element's HTML `lang`, or its nearest ancestor's; `inherit` (the canvas's own) when none sets it. */
+  lang: string;
   lineHeight: number;
   verticalAlign: string;
   whiteSpace: string;

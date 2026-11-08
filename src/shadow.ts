@@ -244,11 +244,11 @@ export class ScratchPool {
 function prepareLayer(
   target: CanvasRenderingContext2D, ctx: CanvasRenderingContext2D, matrix: Matrix, x: number, y: number,
 ): void {
-  for (const key of ['font', 'fontKerning', 'fontStretch', 'fontVariantCaps', 'textRendering',
+  for (const key of ['font', 'fontKerning', 'fontStretch', 'fontVariantCaps', 'textRendering', 'lang',
     'letterSpacing', 'wordSpacing', 'textAlign', 'textBaseline', 'direction',
     'lineWidth', 'lineJoin', 'miterLimit', 'lineDashOffset',
     'fillStyle', 'strokeStyle', 'imageSmoothingEnabled', 'imageSmoothingQuality'] as const) {
-    if (key in ctx) (target as any)[key] = ctx[key];
+    if (key in ctx) (target as any)[key] = (ctx as any)[key];
   }
   target.setLineDash([]);
   target.lineCap = 'butt';

@@ -1,5 +1,4 @@
 import type { DecorationEntry, ResolvedStyle, StyledNode } from './types.js';
-import { INTEGER_PERCENT_LINE_HEIGHT } from './engine.js';
 import { bidiClass } from './bidi.js';
 import { parseDeclarationList, parseStylesheet } from './css-syntax.js';
 import { SelectorMatcher, parseSelectorList, type ElementContext, type ParsedSelector } from './css-selectors.js';
@@ -146,6 +145,8 @@ const INHERITED_DEFAULTS = {
   letterSpacing: 0,
   wordSpacing: 0,
   fontKerning: 'auto',
+  textRendering: 'auto',
+  lang: 'inherit',
   verticalAlign: 'baseline',
   whiteSpace: 'normal',
   wordBreak: 'normal',
@@ -185,6 +186,8 @@ function defaultStyle(parent: typeof INHERITED_DEFAULTS = INHERITED_DEFAULTS): R
     letterSpacing: parent.letterSpacing,
     wordSpacing: parent.wordSpacing,
     fontKerning: parent.fontKerning,
+    textRendering: parent.textRendering,
+    lang: parent.lang,
     lineHeight: 0,
     verticalAlign: parent.verticalAlign,
     whiteSpace: parent.whiteSpace,
@@ -244,7 +247,8 @@ function defaultStyle(parent: typeof INHERITED_DEFAULTS = INHERITED_DEFAULTS): R
 
 /**
  * The HTML UA stylesheet as far as render-tag renders it; unlisted tags are inline.
- * A `fontSize` below 10 is a multiple of the parent's size, a negative margin of own em.
+ * A `fontSize` below 10 is a multiple of the parent's size, a `fontWeight` of 0 is
+ * `bolder` than the parent's, a negative margin of own em.
  */
 const BLOCK: Partial<ResolvedStyle> = { display: 'block' };
 const HIDDEN: Partial<ResolvedStyle> = { display: 'none' };
@@ -253,13 +257,13 @@ const LIST: Partial<ResolvedStyle> = { display: 'block', listStyleType: 'disc', 
 const PRE: Partial<ResolvedStyle> = { display: 'block', whiteSpace: 'pre', fontFamily: 'monospace', marginTop: -1, marginBottom: -1 };
 const MONOSPACE: Partial<ResolvedStyle> = { fontFamily: 'monospace' };
 const ITALIC: Partial<ResolvedStyle> = { fontStyle: 'italic' };
-const BOLD: Partial<ResolvedStyle> = { fontWeight: 700 };
+const BOLDER: Partial<ResolvedStyle> = { fontWeight: 0 };
 const UNDERLINE: Partial<ResolvedStyle> = { textDecorationLine: 'underline' };
 const LINE_THROUGH: Partial<ResolvedStyle> = { textDecorationLine: 'line-through' };
 
 const TAG_DEFAULTS: Record<string, Partial<ResolvedStyle>> = nullProto({
-  strong: BOLD,
-  b: BOLD,
+  strong: BOLDER,
+  b: BOLDER,
   em: ITALIC,
   i: ITALIC,
   cite: ITALIC,
@@ -270,8 +274,8 @@ const TAG_DEFAULTS: Record<string, Partial<ResolvedStyle>> = nullProto({
   s: LINE_THROUGH,
   strike: LINE_THROUGH,
   del: LINE_THROUGH,
-  sub: { verticalAlign: 'sub', fontSize: 0.83 },
-  sup: { verticalAlign: 'super', fontSize: 0.83 },
+  sub: { verticalAlign: 'sub', fontSize: 1 / 1.2 },
+  sup: { verticalAlign: 'super', fontSize: 1 / 1.2 },
   small: { fontSize: 1 / 1.2 },
   big: { fontSize: 1.2 },
   mark: { backgroundColor: 'yellow', color: 'black' },
@@ -717,7 +721,8 @@ const PROPERTY_FIELDS: Record<string, readonly (keyof InternalStyle)[]> = nullPr
   'text-transform': ['textTransform'], 'white-space': ['whiteSpace'], 'word-break': ['wordBreak'],
   'overflow-wrap': ['overflowWrap'], direction: ['direction'], 'letter-spacing': ['letterSpacing'],
   'word-spacing': ['wordSpacing'], 'line-height': ['lineHeight', LINE_HEIGHT_MULTIPLIER],
-  'text-shadow': ['textShadow'], 'font-kerning': ['fontKerning'], 'list-style-type': ['listStyleType'],
+  'text-shadow': ['textShadow'], 'font-kerning': ['fontKerning'], 'text-rendering': ['textRendering'],
+  'list-style-type': ['listStyleType'],
   'vertical-align': ['verticalAlign'], 'text-underline-offset': ['textUnderlineOffset', UNDERLINE_OFFSET_PCT],
   'paint-order': ['paintOrder'], 'stroke-linejoin': ['strokeLinejoin'],
   '-webkit-text-stroke-width': ['webkitTextStrokeWidth'], '-webkit-text-stroke-color': ['webkitTextStrokeColor'],
@@ -747,7 +752,7 @@ const INHERITED_PROPERTIES = new Set([
   'font-family', 'font-size', 'font-weight', 'font-style', 'font-variant-caps', 'color', 'text-align',
   'text-align-last', 'text-indent', 'text-transform', 'white-space', 'word-break', 'overflow-wrap',
   'direction', 'letter-spacing', 'word-spacing', 'line-height', 'text-shadow', 'font-kerning',
-  'list-style-type', 'vertical-align', 'text-underline-offset', 'paint-order', 'stroke-linejoin',
+  'text-rendering', 'list-style-type', 'vertical-align', 'text-underline-offset', 'paint-order', 'stroke-linejoin',
   '-webkit-text-stroke-width', '-webkit-text-stroke-color', '-webkit-text-fill-color',
 ]);
 
@@ -1130,10 +1135,10 @@ function applyDeclaration(style: ResolvedStyle, property: string, value: string,
       let lineHeight: number;
       let multiplier: number | undefined;
       if (/^[+]?(?:\d+\.?\d*|\.\d+)%$/.test(v)) {
-        // Of the own font size, inherited as that px value. Blink and WebKit
-        // use an INTEGER percentage (INTEGER_PERCENT_LINE_HEIGHT).
+        // Of the own font size, inherited as that px value: Blink truncates to an integer
+        // percentage before it multiplies (162.9% acts as 162%). line-baseline-parity.
         const num = parseFloat(v);
-        lineHeight = ((INTEGER_PERCENT_LINE_HEIGHT ? Math.trunc(num) : num) / 100) * fontSize;
+        lineHeight = (Math.trunc(num) / 100) * fontSize;
       } else {
         env.b.percent = fontSize;
         const t = resolveNumberOrLength(v, env.b);
@@ -1629,7 +1634,9 @@ export function resolveStylesFromCSS(
     if (tagDef) {
       const defaults = TAG_DEFAULT_ENTRIES[tag];
       for (let i = 0; i < defaults.length; i++) {
-        (style as any)[defaults[i].field] = defaults[i].value;
+        const { field, value } = defaults[i];
+        (style as any)[field] = field === 'fontWeight' && value === 0
+          ? resolveFontWeight('bolder', parentStyle.fontWeight) : value;
         setProps.add(defaults[i].property);
       }
     }
@@ -1708,6 +1715,11 @@ export function resolveStylesFromCSS(
         style.unicodeBidi = 'isolate';
       }
     }
+
+    // The content language reaches shaping (Turkish keeps "fi" apart, Korean spaces widen),
+    // through ctx.lang in Chrome and Firefox; WebKit's canvas has none.
+    const langAttr = el.getAttribute('lang');
+    if (langAttr !== null) style.lang = langAttr.trim();
 
     inheritRelativeLengths(style, parentStyle, setProps);
     if (!setProps.has('text-indent')) inheritPercentages(style, parentStyle, cbWidth);

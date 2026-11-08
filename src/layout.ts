@@ -10,13 +10,17 @@ import { addListMarker, layoutBlock } from './layout/block.js';
 import { buildTextUnits } from './layout/units.js';
 
 export {
-  buildCanvasFont, canvasKerning, canvasSpacing, claimCtx, formatLetterSpacing, getFontMetrics, isShiftedVAlign,
-  layoutFontMetrics, lineBaselineOffset, Measurer, nextCtxWriterId, paintLineSnap, startsMeasuredRun,
+  buildCanvasFont, canvasFont, canvasKerning, canvasSpacing, canvasTextRendering, claimCtx, formatLetterSpacing,
+  syntheticBoldWidening,
+  getFontMetrics,
+  isShiftedVAlign, layoutFontMetrics, lineBaselineOffset, Measurer, nextCtxWriterId, paintLineSnap,
+  startsMeasuredRun,
   tabStopMetrics,
   type FontMetricsTable, type LayoutStats, type MeasureState,
 } from './layout/session.js';
 export {
-  hasStrokeImage, hasTextClip, hasVisibleBorder, paintsBoxBackground, sameDecorationBand, textEdges, transformTextRuns,
+  hasBackgroundImage, hasStrokeImage, hasTextClip, hasVisibleBorder, paintsBoxBackground, sameDecorationBand, textEdges,
+  transformTextRuns,
 } from './layout/util.js';
 export { graphemes, letterSpaced, shapesAsRun, wordSpacingIn } from './layout/segment.js';
 export { RUN_PIECES } from './layout/session.js';

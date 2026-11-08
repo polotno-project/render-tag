@@ -13,7 +13,6 @@
 import { describe, it, expect } from 'vitest';
 import { layout } from '../src/index.ts';
 import type { LayoutBox, LayoutNode } from '../src/types.ts';
-import { divergenceRatchet } from './helpers/engine-divergences.ts';
 
 const WIDTH = 300;
 const ROOT = 'font-family:sans-serif;font-size:16px;line-height:20px';
@@ -161,20 +160,14 @@ const CASES: Record<string, string> = {
     '<p>a</p><div style="min-height:50%"><p>b</p></div><p>c</p>',
 };
 
-const ratchet = divergenceRatchet('margin-collapse');
-
 describe('margin collapsing matches the DOM', () => {
   for (const [name, html] of Object.entries(CASES)) {
     it(name, () => {
       const dom = domGeometry(html);
       const canvas = canvasGeometry(html);
       const round = (g: Geometry) => `${g.tag} y=${g.top.toFixed(2)} h=${g.height.toFixed(2)}`;
-      const same = canvas.boxes.map(round).join(' | ') === dom.boxes.map(round).join(' | ') &&
-        Math.abs(canvas.height - dom.height) < 0.005;
-      ratchet.check(name, same ? null :
-        `DOM ${dom.boxes.map(round).join(' | ')} (height ${dom.height}); ` +
-        `canvas ${canvas.boxes.map(round).join(' | ')} (height ${canvas.height})`);
+      expect(canvas.boxes.map(round).join(' | ')).toBe(dom.boxes.map(round).join(' | '));
+      expect(Math.abs(canvas.height - dom.height), `height ${canvas.height}, DOM ${dom.height}`).toBeLessThan(0.005);
     });
   }
-  ratchet.itRecords();
 });

@@ -4,10 +4,9 @@
  * casts a full shadow (the "blurred text" idiom), a 40%-alpha fill casts a
  * solid shadow, and a stroked transparent glyph casts a FILLED shadow.
  * Blink casts it from the fill alone — a wide stroke hides most of it —
- * while WebKit's includes the stroke (`STROKE_CASTS_TEXT_SHADOW`); the 6px
+ * while WebKit's includes the stroke (render-tag follows Chrome); the 6px
  * rows tell the two apart.
- * Measured against the engine's own raster (Chromium, WebKit); Gecko is
- * unverified — the Firefox lane does not run this file.
+ * Measured against Chrome's own raster.
  */
 import { describe, expect, it } from 'vitest';
 import { compareNativeRenders } from './helpers/native-compare.ts';

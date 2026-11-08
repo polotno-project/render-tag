@@ -7,7 +7,7 @@
  * everything inside the line keeps its laid-out offset. A canvas only lands
  * `fillText` on a DEVICE pixel, so at DPR 2 and 3 render-tag painted text up
  * to half a pixel off a line Chrome had moved onto the grid — visible as a
- * doubled edge on every glyph (see `SNAPS_LINE_PAINT`).
+ * doubled edge on every glyph (see `paintLineSnap`).
  *
  * Each case sweeps the line top through k/16px (Blink's layout unit is 1/64,
  * so these land exactly), at DPR 1, 2 and 3, in every pinned font.
@@ -109,7 +109,7 @@ describe('Blink paints each line box at a whole CSS pixel', () => {
   }
 
   // The auto underline hangs ceil(fontSize / 20) below the SNAPPED baseline
-  // (BLINK_UNDERLINE_GAP): sizes either side of each step.
+  // (decorationBand): sizes either side of each step.
   it('an auto underline lands on the DOM band rows', async () => {
     await loadBasicCases();
     const failures: string[] = [];

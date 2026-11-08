@@ -24,6 +24,8 @@ export interface TextRun {
   boxClose?: ResolvedStyle;
   /** The edge is the box's margin, outside its padding and border and its background. */
   margin?: true;
+  /** An opening edge: inline elements closed since the last text (`EDGE_BEFORE_SPACE_MAX_CLOSES`). */
+  closesBefore?: number;
   /** Nearest inline ancestor-or-self declaring background-clip:text + background */
   clipStyle?: ResolvedStyle;
   /** Nearest inline ancestor-or-self declaring --rt-text-stroke-image */
@@ -60,6 +62,8 @@ export interface Word {
   ellipsis?: true;
   /** A single-paint bidi line's own levels (`RUN_LEVELS`). */
   levels?: Uint8Array;
+  /** The kern its width carries from the glyph before it (`FlowItems.kernBefore`). */
+  kernBefore?: number;
 }
 
 /** A committed line as the emit pass reads it: a `FlowLine` with its items materialized. */
@@ -135,7 +139,7 @@ export const MEASURE_CONTEXT = 32;
  * Latin, Greek, Cyrillic and the punctuation and symbols set beside them, without bidi
  * controls (U+2000-200F, U+2028-202F) or anything shaped across words.
  */
-function isSimpleScript(text: string): boolean {
+export function isSimpleScript(text: string): boolean {
   for (let i = 0; i < text.length; i++) {
     const c = text.charCodeAt(i);
     if (c < 0x0590 || (c >= 0x2010 && c <= 0x2027) || (c >= 0x2030 && c <= 0x205E) ||
@@ -272,7 +276,7 @@ export const SEG_SOFT_HYPHEN = 1 << 2;
  * whitespace (`<span>a</span><span>b</span>`).
  */
 export const SEG_NO_BREAK_BEFORE = 1 << 3;
-/** A new measuring run right after one of the same style object (`startsMeasuredRun`). */
+/** A text run right after one of the same style object (`Hello<!---->World`): paint keeps them apart (`startsMeasuredRun`). */
 export const SEG_RUN_SEAM = 1 << 4;
 /** Flags a piece cut from a segment keeps (`FlowItems.cut`); the rest come from its own text. */
 export const SEG_INHERITED = SEG_SPACE | SEG_TAB | SEG_SOFT_HYPHEN | SEG_NO_BREAK_BEFORE | SEG_RUN_SEAM;
@@ -286,6 +290,12 @@ export const SEG_EMOJI = 1 << 7;
 export const SEG_CLOSING_PUNCT = 1 << 8;
 /** Punctuation that cannot end a line (`OPENING_PUNCT`). */
 export const SEG_OPENING_PUNCT = 1 << 9;
+/**
+ * No engine shapes this segment together with the text before it: it starts a run that
+ * does not continue the last one's shaping (`continuesShaping`), after an inline edge
+ * with width, a forced break or a tab.
+ */
+export const SEG_SHAPED_APART = 1 << 10;
 
 /** The flags a text earns on its own: forced break and kinsoku glue. */
 export function textFlags(text: string): number {
@@ -374,14 +384,29 @@ export class SegmentBuilder implements PreparedInline {
   }
 }
 
+/** A break after: hyphen-minus, U+2010 hyphen, U+2012 figure dash, U+2013 en dash, U+1361
+ * Ethiopic wordspace, U+0F0B Tibetan tsheg (UAX #14 HY, BA). */
+function breaksAfterDash(code: number): boolean {
+  return code === 0x2D || code === 0x2010 || code === 0x2012 || code === 0x2013 ||
+    code === 0x1361 || code === 0x0F0B;
+}
+const EM_DASH = 0x2014;
+const isStraightQuote = (code: number) => code === 0x22 || code === 0x27;
+
 /**
- * `text.slice(start, end)` split after hyphens, keeping the hyphen; a leading hyphen stays
- * with its word.
+ * `text.slice(start, end)` split at its dash opportunities, as Chrome, Firefox and WebKit
+ * break (measured): after a hyphen or en dash, keeping it (a leading one stays with its
+ * word), and before and after an em dash, never between two (UAX #14 B2, LB17) nor next to a
+ * straight quote (LB19: `"—` and `—"` stay whole).
  */
 export function forEachHyphenPiece(text: string, start: number, end: number, emit: (piece: string) => void): void {
   let from = start;
-  for (let q = start + 2; q < end; q++) {
-    if (text.charCodeAt(q - 1) === 0x2D) {
+  for (let q = start + 1; q < end; q++) {
+    const before = text.charCodeAt(q - 1);
+    const at = text.charCodeAt(q);
+    if ((q >= start + 2 && breaksAfterDash(before)) ||
+        (before === EM_DASH && at !== EM_DASH && !isStraightQuote(at)) ||
+        (at === EM_DASH && before !== EM_DASH && !isStraightQuote(before))) {
       emit(text.slice(from, q));
       from = q;
     }
@@ -401,6 +426,7 @@ function lastGrapheme(text: string): string {
   return chars[chars.length - 1];
 }
 
+/** Ideographic-class code points (UAX #14 ID): a break between any two, CJK and Yi alike. */
 export function isCJKCode(code: number): boolean {
   return (
     (code >= 0x4E00 && code <= 0x9FFF) ||   // CJK Unified
@@ -410,6 +436,7 @@ export function isCJKCode(code: number): boolean {
     (code >= 0x30A0 && code <= 0x30FF) ||   // Katakana
     (code >= 0xAC00 && code <= 0xD7AF) ||   // Hangul
     (code >= 0xFF00 && code <= 0xFFEF) ||   // Fullwidth
+    (code >= 0xA000 && code <= 0xA4CF) ||   // Yi syllables and radicals (UAX #14 ID, like CJK)
     (code >= 0x20000 && code <= 0x2A6DF)    // CJK Extension B
   );
 }
@@ -455,6 +482,11 @@ const TRAILING_PUNCT = /^[,.\;:!?\)\]\}'"»›」』】〕〉》”、。・！�
 /** Punctuation that cannot end a line — stays with the following word. */
 const OPENING_PUNCT = /^[\(\[\{«‹“‘「『【〔〈《（]+$/;
 
+/** An inline box's opening or closing edge item (an inline-block is text, not an edge). */
+export function isBoxEdge(text: string, refs: SegmentRefs): boolean {
+  return !text && !refs.inlineBlock && (refs.boxOpen !== undefined || refs.boxClose !== undefined);
+}
+
 /**
  * Whether the run at segment `at` continues the text before it with no break opportunity
  * (`<span>E</span>xperience`): the source of `SEG_NO_BREAK_BEFORE`.
@@ -463,10 +495,14 @@ export function abutsWithoutBreak(out: SegmentBuilder, at: number): boolean {
   if (at >= out.count || at === 0) return false;
   const first = out.text[at];
   if ((out.flags[at] & SEG_SPACE) || !first || first === '\n') return false;
-  const prev = out.text[at - 1];
-  const prevRefs = out.refs[out.ref[at - 1]];
+  // A box edge (padding, border, margin) is no opportunity: Chrome, Firefox and WebKit keep
+  // `luya<span style="padding:3px">lu` whole.
+  let before = at - 1;
+  while (before > 0 && isBoxEdge(out.text[before], out.refs[out.ref[before]])) before--;
+  const prev = out.text[before];
+  const prevRefs = out.refs[out.ref[before]];
   if (
-    (out.flags[at - 1] & SEG_SPACE) || !prev.trim() ||
+    (out.flags[before] & SEG_SPACE) || !prev.trim() ||
     prevRefs.boxOpen || prevRefs.boxClose
   ) return false;
   // Printable ASCII cannot contain a CJK/emoji cluster or a segmenter script.

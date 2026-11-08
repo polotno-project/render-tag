@@ -9,7 +9,6 @@ import {
   warmNativeLayout,
 } from './helpers/compare.ts';
 import { loadFlexCases } from './helpers/test-cases.ts';
-import { divergenceRatchet } from './helpers/engine-divergences.ts';
 
 // Every flex item in the fixtures is a <section>; both sides collect them in
 // document order, so the two trees pair without needing class names in the
@@ -19,12 +18,6 @@ const ITEM_TAG = 'section';
 // Chrome resolves flex lengths in 1/64px LayoutUnits and we do not round at
 // all, so a matching distribution still differs in the last fraction.
 const WIDTH_TOLERANCE = 0.05;
-
-// WebKit never shrinks a `flex-basis: max-content` item below its max-content
-// width (measured 120-480px), so the row overflows at every width; Chrome
-// shrinks it like `auto`. Chrome-first: a recorded WebKit divergence.
-const geometry = divergenceRatchet('flex-geometry');
-const wrapping = divergenceRatchet('flex-wrapping');
 
 const MIN_WIDTH = 120;
 const STEP = 20;
@@ -77,8 +70,7 @@ describe('Flex sizing parity with the DOM', () => {
         }
       }
       const summary = off.slice(0, 4).join('; ') + (off.length > 4 ? `; (+${off.length - 4} more)` : '');
-      const failure = geometry.verdict(testCase.name, off.length ? summary : null);
-      if (failure) failures.push(failure);
+      if (off.length) failures.push(`${testCase.name}: ${summary}`);
     }
 
     expect(failures, `Flex item geometry diverged from the DOM:\n${failures.join('\n')}`)
@@ -103,14 +95,11 @@ describe('Flex sizing parity with the DOM', () => {
         );
         if (!wrappingMatch) off.push(width);
       }
-      const failure = wrapping.verdict(testCase.name, off.length ? `line membership differs at w=${off.join(',')}` : null);
-      if (failure) failures.push(failure);
+      if (off.length) failures.push(`${testCase.name}: line membership differs at w=${off.join(',')}`);
     }
 
     expect(failures, `Flex text wrapping diverged from the DOM:\n${failures.join('\n')}`)
       .toEqual([]);
   }, 300000);
 
-  geometry.itRecords();
-  wrapping.itRecords();
 });

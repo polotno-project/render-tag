@@ -3,6 +3,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { configDefaults, defineConfig } from 'vitest/config';
 import { captureNativeDom } from './tests/helpers/native-dom-command.ts';
+import { renderInNode } from './tests/helpers/node-render-command.ts';
 import { OUT_DIR } from './tests/helpers/report-path.ts';
 
 /**
@@ -10,21 +11,25 @@ import { OUT_DIR } from './tests/helpers/report-path.ts';
  * Select with `--project <name>`; `npm test` runs node + chromium together.
  *
  * A project's `include` is the lane: what that engine GATES. Chromium gates
- * every browser suite except the maintainer tools below; the other engines
- * opt in, because several geometry suites deliberately encode Chrome-first
- * output (see CLAUDE.md). A lane is not the only thing an engine can run:
+ * every browser suite except the maintainer tools below, render-tag against
+ * Chrome's own DOM. render-tag lays out as Chrome in every browser (README), so
+ * Firefox and WebKit gate it against its Chrome layout (cross-browser.compare)
+ * plus the suites that check a canvas workaround or their own recorded paint;
+ * the DOM-parity suites stay Chromium's. A lane is not the only thing an engine can run:
  * a test file named on the command line joins every browser lane for that
  * run, so `npx vitest run --project webkit tests/wrap-sweep.test.ts` works
  * although no lane gates that file.
  *
  * `--mode update` is the one re-recording mode (`import.meta.env.MODE`).
- * Files run one at a time in it: the engine-divergence suites merge their
- * keys into a single JSON file.
+ * Files run one at a time in it: the render suites merge their keys into one
+ * baseline file per engine.
  */
 
-/** Browser suites no lane gates: recorders, sweeps and report-only probes. */
+/** Browser suites Chromium does not gate: recorders, sweeps, report-only probes, and the
+ * cross-browser comparison, which the Firefox and WebKit lanes gate against Chrome. */
 const MAINTAINER_ONLY = [
   'tests/cross-browser.compare.test.ts',
+  'tests/cross-browser.bench.test.ts',
   'tests/wrap-debug.test.ts',
   'tests/wrap-sweep.test.ts',
   'tests/perf.test.ts',
@@ -34,35 +39,27 @@ const MAINTAINER_ONLY = [
 ];
 
 const FIREFOX_LANE = [
+  // render-tag's layout here against its Chrome layout: lines, their y and their extents.
+  'tests/cross-browser.compare.test.ts',
+  // This engine's own paint, recorded: any change is deliberate.
   'tests/render.test.ts',
   'tests/render.fonts.test.ts',
   'tests/native-dom-oracle.test.ts',
   'tests/font-fixtures.test.ts',
-  'tests/flex-parity.test.ts',
   'tests/computed-style-parity.test.ts',
   'tests/parse-style-extraction.test.ts',
-  // Gecko's known divergences are in tests/engine-divergences.json, keyed
-  // per platform (CI's ubuntu runner and the maintainer's Mac differ).
-  'tests/line-box-parity.test.ts',
-  'tests/line-baseline-parity.test.ts',
-  'tests/margin-collapse-parity.test.ts',
+  // CANVAS_BIDI_LINE: a bidi line's visual order is the UBA's in every engine.
   'tests/bidi-order-parity.test.ts',
   'tests/line-metadata.test.ts',
-  'tests/cross-browser.compare.test.ts',
-  'tests/stress.test.ts',
   'tests/text-shadow-paint.test.ts',
   'tests/paint-bounds.test.ts',
-  'tests/box-model-parity.test.ts',
   'tests/gradient-parity.test.ts',
+  // INK_BOX_FROM_PAINT: a self-check against layout's own numbers.
   'tests/list-marker-geometry.test.ts',
 ];
 
 const WEBKIT_LANE = [
   ...FIREFOX_LANE,
-  // Blink and WebKit only: Gecko's decoration geometry and stroke shadow are unmeasured.
-  'tests/decoration-shape-parity.test.ts',
-  'tests/decoration-position-parity.test.ts',
-  'tests/text-shadow-coverage.test.ts',
   // Not Gecko: its one-fillText RTL line paints off the layout's word advances (file header).
   'tests/text-units-parity.test.ts',
   // Not Gecko: its own spacing is not Chrome's, which the fallback follows (file header).
@@ -85,6 +82,11 @@ if (process.platform === 'darwin') mkdirSync(firefoxHome, { recursive: true });
 const firefoxLaunch = process.platform === 'darwin'
   ? { env: { ...process.env, CFFIXED_USER_HOME: firefoxHome } }
   : {};
+
+// Headless Chrome on Linux lays text on hinted whole-pixel advances (Open Sans 14px: 370px,
+// 357.23 on macOS), which no other engine's canvas reports. CI's cross-browser record step
+// sets this so Chrome measures as on macOS (.github/workflows/test.yml).
+const chromiumLaunch = process.env.RENDER_TAG_UNHINTED === '1' ? { args: ['--font-render-hinting=none'] } : {};
 
 const requested = process.argv
   .filter((argument) => argument.endsWith('.test.ts') && !argument.startsWith('tests/node/'));
@@ -129,7 +131,7 @@ export default defineConfig(({ mode }) => {
               // A failing pixel or geometry assertion already prints its numbers.
               screenshotFailures: false,
               provider: playwright(),
-              commands: { captureNativeDom },
+              commands: { captureNativeDom, renderInNode },
               fileParallelism: !update,
               instances: [
                 {
@@ -142,6 +144,7 @@ export default defineConfig(({ mode }) => {
                     ...MAINTAINER_ONLY.filter((file) => !requested.includes(file)),
                   ],
                   testTimeout: 30_000,
+                  provider: playwright({ launchOptions: chromiumLaunch }),
                 },
                 {
                   browser: 'firefox',

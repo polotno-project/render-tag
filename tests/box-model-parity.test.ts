@@ -14,7 +14,6 @@ import { layout } from '../src/index.ts';
 import type { LayoutBox, LayoutNode } from '../src/types.ts';
 import { canvasFixtureHtml, mountFixture, prepareComparisonFonts, warmNativeLayout } from './helpers/compare.ts';
 import { loadBoxModelCases } from './helpers/test-cases.ts';
-import { divergenceRatchet } from './helpers/engine-divergences.ts';
 
 // Blink and WebKit lay text out in 1/64px LayoutUnits; canvas measures in
 // floats. A shrink-to-fit width inherits that last fraction.
@@ -55,7 +54,6 @@ function canvasBoxes(html: string, css: string, width: number): Map<number, Box>
   return boxes;
 }
 
-const ratchet = divergenceRatchet('box-model');
 
 describe('Box model parity with the DOM', () => {
   it('places and sizes every marked box like the browser', async () => {
@@ -78,10 +76,8 @@ describe('Box model parity with the DOM', () => {
           off.push(`#${id} ` + bad.map((key) => `${key} ${rt[key].toFixed(2)} vs ${dom[key].toFixed(2)}`).join(', '));
         }
       }
-      const failure = ratchet.verdict(testCase.name, off.length ? off.join('; ') : null);
-      if (failure) failures.push(failure);
+      if (off.length) failures.push(`${testCase.name}: ${off.join('; ')}`);
     }
     expect(failures, `Box geometry diverged from the DOM:\n${failures.join('\n')}`).toEqual([]);
   }, 120000);
-  ratchet.itRecords();
 });

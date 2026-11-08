@@ -1,20 +1,28 @@
 // The one line breaker: min-content at 0, max-content at Infinity, layout at the used width.
 // A flow never writes to the prepared content; what it cuts is a piece in its own `FlowItems`.
 import type { ResolvedStyle } from '../types.js';
-import { LAYOUT_UNIT_LINE_FIT } from '../engine.js';
 import { overridesRtl } from '../bidi.js';
-import { layoutUnit } from './util.js';
+import { hasBackgroundImage, hasVisibleBoxStyles, layoutUnit, physicalAlign, preservesSpaces } from './util.js';
 import { type LayoutSession, type Measurer, type MeasureState, type TabStops } from './session.js';
 import {
-  forEachHyphenPiece, graphemes, isAtomicInlineBlock, isCJKCode, isEmojiCluster, MEASURE_CONTEXT,
+  forEachHyphenPiece, graphemes, isAtomicInlineBlock, isBoxEdge, isCJKCode, isEmojiCluster, isSimpleScript, MEASURE_CONTEXT,
   SEG_CJK, SEG_CLOSING_PUNCT, SEG_EMOJI, SEG_HARD_BREAK, SEG_INHERITED, SEG_NO_BREAK_BEFORE, SEG_OPENING_PUNCT,
-  SEG_RUN_SEAM, SEG_SOFT_HYPHEN, SEG_SPACE, SEG_TAB, segmentAdvance, textFlags, wordSpacingIn,
+  SEG_RUN_SEAM, SEG_SHAPED_APART, SEG_SOFT_HYPHEN, SEG_SPACE, SEG_TAB, segmentAdvance, textFlags, wordSpacingIn,
   type InlineBlockLayout, type PositionedLine, type PreparedInline, type SegmentRefs, type Word,
 } from './segment.js';
 
 /** How far over the grid budget a line still fits: one LayoutUnit, inclusive (120.015625px
- * fits 120px). Gecko is unmeasured: a hair, since a broader tolerance packs extra words. */
-const LINE_FIT_TOLERANCE = LAYOUT_UNIT_LINE_FIT ? 1 / 64 : 0.02;
+ * fits 120px), as Blink's line breaker does. */
+const LINE_FIT_TOLERANCE = 1 / 64;
+
+/**
+ * An inline box's opening edge (padding, border, margin) right before collapsible white space
+ * stays with the word before it, so the word wraps once word + edge overflow, while at most
+ * this many closing tags come between them: Chrome 151-156, `aaa bb <span>homaj</span><b
+ * style="padding-left:6px"> rajtoj</b>` (Chrome 145 kept it with none; Gecko always; WebKit
+ * never). Before preserved white space (`pre-wrap`) it stays at any depth. break-rules-parity.
+ */
+const EDGE_BEFORE_SPACE_MAX_CLOSES = 1;
 
 /**
  * `-webkit-line-clamp` cut-off: trim trailing spaces and text (atomic inline-blocks
@@ -57,6 +65,8 @@ export class FlowItems {
   private readonly pieceWidth: number[] = [];
   private readonly pieceFlags: number[] = [];
   private readonly pieceRefs: SegmentRefs[] = [];
+  /** The character each piece was measured after (`cut`'s `context`), '' when alone. */
+  private readonly pieceContext: string[] = [];
   private textOnlyRefs: Map<SegmentRefs, SegmentRefs> | undefined;
 
   /**
@@ -97,9 +107,12 @@ export class FlowItems {
     return this.inlineBlocks?.get(i);
   }
 
-  /** A text split or tab advance: atomics stay whole, at their prepared index. */
-  cut(from: number, text: string, width: number): number {
-    return this.add(text, width, this.flags(from) & SEG_INHERITED, this.refs(from));
+  /**
+   * A text split or tab advance: atomics stay whole, at their prepared index. `context`: the
+   * character the piece was measured after (`kernBefore`).
+   */
+  cut(from: number, text: string, width: number, context = ''): number {
+    return this.add(text, width, this.flags(from) & SEG_INHERITED, this.refs(from), context);
   }
 
   /**
@@ -119,11 +132,34 @@ export class FlowItems {
       };
       this.textOnlyRefs.set(from, refs);
     }
-    return this.add(text, width, 0, refs);
+    return this.add(text, width, 0, refs, '');
+  }
+
+  /**
+   * The last character of the text prepared segment `i` is shaped after: '' where shaping
+   * restarts at it (`SEG_SHAPED_APART`), at a tab, and under a bidi override.
+   */
+  contextBefore(i: number): string {
+    if (i <= 0 || (this.flags(i) & (SEG_SHAPED_APART | SEG_TAB))) return '';
+    const before = this.text(i - 1);
+    if (!before || this.refs(i).inlineBlock || overridesRtl(this.refs(i).bidi) || overridesRtl(this.refs(i - 1).bidi)) return '';
+    return before[before.length - 1];
+  }
+
+  /**
+   * The kern item `i`'s width carries from the glyph before it, which every DOM books on that
+   * glyph instead: the pair's kern, for simple scripts, whose kerning is pairwise.
+   */
+  private kernBefore(i: number, m: Measurer): number {
+    const text = this.text(i);
+    const before = i < this.base ? this.contextBefore(i) : this.pieceContext[i - this.base];
+    if (!before || !text || !isSimpleScript(before + text[0])) return 0;
+    const state = m.stateOf(this.refs(i).style);
+    return m.width(state, before + text[0]) - m.width(state, before) - m.width(state, text[0]);
   }
 
   /** Item `i` as the emit pass reads it. */
-  word(i: number): Word {
+  word(i: number, m: Measurer): Word {
     const flags = this.flags(i);
     return {
       text: this.text(i),
@@ -133,14 +169,16 @@ export class FlowItems {
       isTab: (flags & SEG_TAB) !== 0,
       inlineBlockLayout: this.inlineBlockLayout(i),
       runSeam: (flags & SEG_RUN_SEAM) !== 0 ? true : undefined,
+      kernBefore: this.kernBefore(i, m) || undefined,
     };
   }
 
-  private add(text: string, width: number, flags: number, refs: SegmentRefs): number {
+  private add(text: string, width: number, flags: number, refs: SegmentRefs, context: string): number {
     this.pieceText.push(text);
     this.pieceWidth.push(width);
     this.pieceFlags.push(flags | textFlags(text));
     this.pieceRefs.push(refs);
+    this.pieceContext.push(context);
     return this.base + this.pieceText.length - 1;
   }
 }
@@ -176,11 +214,15 @@ function lineMeasureState(
 }
 
 /**
- * Break segment `index` into character pieces if it holds CJK/emoji, or if break-word
- * applies and it is too wide; `null` when it stays whole. `emergency` marks the break-word
- * last resort, which the caller treats unlike ordinary CJK/emoji opportunities.
+ * Break segment `index` into character pieces if it holds CJK/emoji, under `break-all` when it
+ * does not fit the rest of the line, or if break-word applies and it is too wide; `null` when
+ * it stays whole. `wrapFirst`: a break-word last
+ * resort takes the whitespace opportunity first, as native layout does (the caller wraps).
+ * Measures only: a lookahead calls it too, with the `lineOffset` the line will have reached.
  */
-function splitSegment(flow: LineFlow, index: number): { texts: string[]; widths: number[]; emergency: boolean } | null {
+function splitSegment(
+  flow: LineFlow, index: number, lineOffset = flow.line.totalWidth,
+): { texts: string[]; widths: number[]; contexts: string[]; wrapFirst: boolean } | null {
   const { items, m } = flow;
   const contentWidth = flow.budget();
   const flags = items.flags(index);
@@ -190,31 +232,46 @@ function splitSegment(flow: LineFlow, index: number): { texts: string[]; widths:
   const hasEmoji = (flags & SEG_EMOJI) !== 0;
 
   const breaking = flow.wordBreaking(style);
-  const needsBreak = items.width(index) > contentWidth && breaking !== 'none';
+  // `break-all`: every grapheme boundary is an ordinary opportunity, so the word fills the
+  // current line before it breaks (Chrome), whether or not it fits a line of its own.
+  const anywhere = breaking === 'anywhere';
+  const needsBreak = breaking !== 'none' && items.width(index) + flow.endKern(index + 1) > contentWidth;
 
-  if (!hasCJK && !hasEmoji && !needsBreak) return null;
+  if (!hasCJK && !hasEmoji && !needsBreak && !anywhere) return null;
+  // A break-all word that fits the rest of the line with what glues after it breaks nowhere
+  // inside: placing it whole is the same layout without measuring every grapheme.
+  if (anywhere && !hasCJK && !hasEmoji &&
+      flow.line.totalWidth + items.width(index) + flow.gluedTail(index) + flow.tailKern(index) <= contentWidth) return null;
 
-  // CJK/emoji are ordinary opportunities, like `break-all`.
+  // CJK/emoji are ordinary opportunities, like `break-all`; ordinary splits fill the line. A
+  // break-word last resort on a line holding no word (an opening edge, spaces) shares it.
   const emergency = needsBreak && !hasCJK && !hasEmoji && breaking === 'last-resort';
+  const wrapFirst = emergency && flow.holdsWord();
+  let room = emergency && !wrapFirst ? contentWidth - lineOffset : contentWidth;
 
   // Each character is measured after its left context (`MEASURE_CONTEXT`); positions below
   // are in the context's coordinates, so a restart shifts them together.
   const state = m.stateOf(style);
   const text = items.text(index);
-  // By grapheme when emoji are present, so clusters never split.
-  const chars = hasEmoji ? graphemes(text) : [...text];
+  // By grapheme when emoji are present or every boundary breaks, so clusters never split.
+  const chars = hasEmoji || anywhere ? graphemes(text) : [...text];
   const texts: string[] = [];
   const widths: number[] = [];
-  const piece = (t: string, w: number) => {
+  const contexts: string[] = [];
+  const piece = (t: string, w: number, context: string) => {
     texts.push(t);
     widths.push(w);
+    contexts.push(context);
   };
 
   let current = '';
   let currentWidth = 0;
-  let measuredText = '';
-  let measuredWidth = 0;
-  let currentStartWidth = 0;
+  let currentContext = '';
+  // Mid-line, after the text before it, as `measureAfter` measured the segment: the first piece
+  // keeps the kern into it (`FlowItems.kernBefore`). At a line start, alone (`startWidth`).
+  let measuredText = flow.line.items.length > 0 && !wrapFirst ? items.contextBefore(index) : '';
+  let measuredWidth = measuredText ? segmentAdvance(m, state, measuredText, refs) : 0;
+  let currentStartWidth = measuredWidth;
   let previous = '';
 
   for (const char of chars) {
@@ -232,11 +289,11 @@ function splitSegment(flow: LineFlow, index: number): { texts: string[]; widths:
     // Each emoji cluster and CJK character is a piece of its own: a break opportunity.
     if ((hasEmoji && isEmojiCluster(char)) || isCJKCode(char.codePointAt(0)!)) {
       if (current) {
-        piece(current, currentWidth);
+        piece(current, currentWidth, currentContext);
         current = '';
         currentWidth = 0;
       }
-      piece(char, charWidth);
+      piece(char, charWidth, measuredText.slice(-1));
       currentStartWidth = nextMeasuredWidth;
       measuredText = nextMeasuredText;
       measuredWidth = nextMeasuredWidth;
@@ -246,8 +303,21 @@ function splitSegment(flow: LineFlow, index: number): { texts: string[]; widths:
     const candidateText = current + char;
     const candidateWidth = nextMeasuredWidth - currentStartWidth;
 
-    if (needsBreak && candidateWidth > contentWidth && current) {
-      piece(current, currentWidth);
+    if (current && needsBreak && candidateWidth > room) {
+      // The next line starts here: Chrome shapes it alone (`LineFlow.startWidth`).
+      piece(current, currentWidth, currentContext);
+      room = contentWidth;
+      current = char;
+      currentContext = '';
+      currentWidth = segmentAdvance(m, state, char, refs);
+      currentStartWidth = 0;
+      measuredText = char;
+      measuredWidth = currentWidth;
+      continue;
+    }
+    if (current && anywhere && breakAllAllows(current.slice(-1), char)) {
+      piece(current, currentWidth, currentContext);
+      currentContext = measuredText.slice(-1);
       current = char;
       currentWidth = charWidth;
       currentStartWidth = measuredWidth;
@@ -256,22 +326,39 @@ function splitSegment(flow: LineFlow, index: number): { texts: string[]; widths:
       continue;
     }
 
+    if (!current) currentContext = measuredText.slice(-1);
     current = candidateText;
     currentWidth = candidateWidth;
     measuredText = nextMeasuredText;
     measuredWidth = nextMeasuredWidth;
   }
 
-  if (current) piece(current, currentWidth);
+  if (current) piece(current, currentWidth, currentContext);
 
-  return { texts, widths, emergency };
+  return { texts, widths, contexts, wrapFirst };
+}
+
+/**
+ * `break-all` keeps these with the character before (UAX #14: closers, infix and
+ * exclamation punctuation, `/`, postfix `%`, U+2010 hyphen, figure and en dash) and after
+ * (openers, opening quotes, apostrophes, currency prefixes), as Chrome does: `s://`, `(p`,
+ * `n–`, `$1`, `n't` stay whole.
+ */
+const BREAK_ALL_GLUE_BEFORE = /^[)\]}»›”’,.:;!?\/%‰°‐‒–…'"]$/;
+const BREAK_ALL_GLUE_AFTER = /^[(\[{«‹“‘"'’$€£¥₹]$/;
+
+/** Whether `break-all` allows a break between characters `before` and `after`. */
+function breakAllAllows(before: string, after: string): boolean {
+  return !BREAK_ALL_GLUE_BEFORE.test(after) && !BREAK_ALL_GLUE_AFTER.test(before);
 }
 
 /**
  * What the boundary BEFORE a flow item allows; every breaking decision reads it.
  * - `'space'`: white space or a forced break.
- * - `'continues'`: a word continuing across a run boundary (`SEG_NO_BREAK_BEFORE`).
- * - `'glued'`: closing punctuation (`TRAILING_PUNCT`) or an inline box's closing edge.
+ * - `'continues'`: a word continuing across a run boundary (`SEG_NO_BREAK_BEFORE`), and an
+ *   opening edge into one.
+ * - `'glued'`: closing punctuation (`TRAILING_PUNCT`), an inline box's closing edge, an opening
+ *   edge before white space (`openingEdgeBreak`), a word's first `break-spaces` space.
  * - `'allowed'`: an ordinary break opportunity.
  * `splitPiece`: a piece after the first of a split segment. The split is the opportunity,
  * so run-boundary glue stays on the first piece; a closer still glues.
@@ -280,12 +367,42 @@ type BreakBefore = 'space' | 'continues' | 'glued' | 'allowed';
 
 function breakBefore(items: FlowItems, i: number, splitPiece = false): BreakBefore {
   const flags = items.flags(i);
+  if ((flags & SEG_SPACE) && firstBreakSpace(items, i)) return 'glued';
   if (flags & (SEG_SPACE | SEG_HARD_BREAK)) return 'space';
   const text = items.text(i);
   if (text && !splitPiece && (flags & SEG_NO_BREAK_BEFORE)) return 'continues';
   if (flags & SEG_CLOSING_PUNCT) return 'glued';
   if (!text && items.refs(i).boxClose) return 'glued';
+  if (!text && items.refs(i).boxOpen) return openingEdgeBreak(items, i);
   return 'allowed';
+}
+
+/**
+ * A word's first white space under `break-spaces`: the opportunity is after it and it takes
+ * room, so it wraps with the word (Chrome keeps "bbb" on a line only once "bbb " fits).
+ */
+function firstBreakSpace(items: FlowItems, i: number): boolean {
+  if (items.refs(i).style.whiteSpace !== 'break-spaces') return false;
+  let before = i - 1;
+  while (before >= 0 && isBoxEdge(items.text(before), items.refs(before))) before--;
+  return before >= 0 && (items.flags(before) & (SEG_SPACE | SEG_HARD_BREAK)) === 0;
+}
+
+/**
+ * An opening edge has no opportunity of its own: it takes the one of the content it opens
+ * onto (every engine keeps `luya<span style="padding:3px">lu` whole). Before white space,
+ * whose opportunity is after it (UAX #14 LB7), the engine decides whether the edge stays
+ * with what precedes it (`EDGE_BEFORE_SPACE_MAX_CLOSES`).
+ */
+function openingEdgeBreak(items: FlowItems, i: number): BreakBefore {
+  const count = items.prepared.count;
+  let next = i + 1;
+  while (next < count && !items.text(next) && items.refs(next).boxOpen) next++;
+  if (next >= count) return 'allowed';
+  const cls = breakBefore(items, next);
+  if (cls !== 'space') return cls;
+  const maxCloses = preservesSpaces(items.refs(next).style.whiteSpace) ? Infinity : EDGE_BEFORE_SPACE_MAX_CLOSES;
+  return (items.refs(i).closesBefore ?? 0) <= maxCloses ? 'glued' : 'allowed';
 }
 
 /** No line may start at an item of this class. */
@@ -300,17 +417,20 @@ function cannotStartLine(cls: BreakBefore): boolean {
  * punctuation, a closing box edge, a word continued across runs. It wraps with the word
  * before it ("Music Experie" + "nce" wraps whole).
  */
-function gluedRunWidth(flow: LineFlow, from: number): number {
+function gluedRunWidth(flow: LineFlow, from: number, end = gluedRunEnd(flow, from)): number {
+  let total = 0;
+  for (let index = from; index < end; index++) total += flow.items.width(index);
+  return total;
+}
+
+/** Where the glued run starting at segment `from` (`gluedRunWidth`) ends: the next segment a line may start at. */
+function gluedRunEnd(flow: LineFlow, from: number): number {
   const { items, session } = flow;
   const count = items.prepared.count;
-  let total = 0;
   let index = from;
-  for (; index < count; index++) {
-    if (!cannotStartLine(breakBefore(items, index))) break;
-    total += items.width(index);
-  }
+  while (index < count && cannotStartLine(breakBefore(items, index))) index++;
   if (session.stats) session.stats.glueSteps += index - from;
-  return total;
+  return index;
 }
 
 /**
@@ -354,7 +474,8 @@ function headGlueWidth(
     if (nextText && !flow.isSpace(nextIndex)) {
       // Only the next segment's first BREAKABLE unit stays with the padding: the whole word, or
       // one character for CJK / break-word.
-      const split = nextText.length > 1 ? splitSegment(flow, nextIndex) : null;
+      const split = nextText.length > 1
+        ? splitSegment(flow, nextIndex, flow.line.totalWidth + items.width(piece) + headExtra) : null;
       headExtra += split ? split.widths[0] : items.width(nextIndex);
       if (!split || split.texts.length === 1) {
         // Plus the word's own tail: `(<span>p50</span>,` never breaks inside word, edge and comma.
@@ -379,9 +500,12 @@ export class LineFlow {
   /** `pre`, `pre-wrap` and `break-spaces` preserve leading and trailing white space. */
   readonly preservesWhitespace: boolean;
   private readonly keepsSpaceOnlyLines: boolean;
-  /** The segment `gluedTail` last read, and its width. */
+  /** The segment `gluedTail` last read, its width and the `endKern` after it. */
   private tailOf = -1;
   private tailWidth = 0;
+  private tailEndKern = 0;
+  /** Whether a soft-wrapped line's trailing space shows (`endKern`); undefined for intrinsic sizing. */
+  private readonly blockShowsTrailingSpace: boolean | undefined;
 
   constructor(
     readonly session: LayoutSession,
@@ -392,13 +516,20 @@ export class LineFlow {
     private readonly minContent: boolean,
     private readonly tabMetrics?: TabStops,
     private readonly strutLineHeight = 0,
+    /** Laying lines out at the used width: the block, whose alignment and own paint decide
+     * whether a soft-wrapped line's trailing space shows (`endKern`). Unset for intrinsic sizing. */
+    block?: ResolvedStyle,
   ) {
     this.m = session.measurer;
     this.line = this.newLine();
     this.noWrap = whiteSpace === 'nowrap' || whiteSpace === 'pre';
     this.keepsSpaceOnlyLines = whiteSpace === 'pre-wrap' || whiteSpace === 'pre' || whiteSpace === 'pre-line';
-    this.preservesWhitespace =
-      whiteSpace === 'pre' || whiteSpace === 'pre-wrap' || whiteSpace === 'break-spaces';
+    this.preservesWhitespace = preservesSpaces(whiteSpace);
+    if (block) {
+      const isRTL = block.direction === 'rtl';
+      this.blockShowsTrailingSpace = physicalAlign(block.textAlign, isRTL) !== physicalAlign('start', isRTL) ||
+        hasVisibleBoxStyles(block) || hasBackgroundImage(block);
+    }
   }
 
   /** A line starts at the block's strut height: never shorter than its line-height. */
@@ -423,10 +554,12 @@ export class LineFlow {
   /**
    * How a too-wide word may break: `anywhere` (`word-break: break-all`, an ordinary
    * opportunity), `last-resort` (`overflow-wrap: break-word`, which CSS ignores for
-   * min-content) or `none`.
+   * min-content; `overflow-wrap: anywhere` and its alias `word-break: break-word`, which
+   * count for it) or `none`.
    */
   wordBreaking(style: ResolvedStyle): 'none' | 'anywhere' | 'last-resort' {
     if (style.wordBreak === 'break-all') return 'anywhere';
+    if (style.overflowWrap === 'anywhere' || style.wordBreak === 'break-word') return 'last-resort';
     return !this.minContent && style.overflowWrap === 'break-word' ? 'last-resort' : 'none';
   }
 
@@ -435,11 +568,66 @@ export class LineFlow {
    * pieces never ask, and reading the rest of the chain for each of them is quadratic.
    */
   gluedTail(segment: number): number {
-    if (this.tailOf !== segment) {
-      this.tailOf = segment;
-      this.tailWidth = gluedRunWidth(this, segment + 1);
-    }
+    this.readTail(segment);
     return this.tailWidth;
+  }
+
+  /** The `endKern` a line ending with `segment` and its glued tail keeps. */
+  tailKern(segment: number): number {
+    this.readTail(segment);
+    return this.tailEndKern;
+  }
+
+  private readTail(segment: number): void {
+    if (this.tailOf === segment) return;
+    this.tailOf = segment;
+    const end = gluedRunEnd(this, segment + 1);
+    this.tailWidth = gluedRunWidth(this, segment + 1, end);
+    this.tailEndKern = this.endKern(end);
+  }
+
+  /**
+   * What a line ending right before item `i` keeps of it: a hanging space's kern into the
+   * glyph before it, which `measureAfter` books on the space. Chrome fits and aligns a line on
+   * its last glyph's advance kerned against that space, under every white-space (Playfair
+   * "y " -1.04px at 40px; PT Sans ", " -0.078em), unless the space would show: then it lays
+   * the line out without it, the glyph before unkerned. It shows on a line that is not
+   * start-aligned, under a text decoration, inline background or inline border, and in a
+   * block with its own border (transparent too), background or box-shadow; colour,
+   * text-shadow, letter-spacing, the block's padding, outline or text-indent and an
+   * ancestor's border or background keep it hidden. Min-content keeps the kern everywhere.
+   * Box-shadow (unresolved) and RTL are unmodelled. Not on a `break-spaces` space, which
+   * takes room, nor a tab, nor a collapsible space ending the paragraph or a line before a
+   * forced break, which Chrome strips before it shapes (Playfair 40px "ab say ": 110.125px
+   * wide, 109.09 kerned). break-rules-parity.
+   */
+  endKern(i: number): number {
+    const { items, m } = this;
+    const count = items.prepared.count;
+    if (i >= count || (items.flags(i) & (SEG_SPACE | SEG_TAB)) !== SEG_SPACE) return 0;
+    const refs = items.refs(i);
+    if (refs.style.whiteSpace === 'break-spaces') return 0;
+    if (this.blockShowsTrailingSpace !== undefined &&
+        (this.blockShowsTrailingSpace || refs.style.textDecorations.length > 0 || refs.boxStyle)) return 0;
+    if (!preservesSpaces(refs.style.whiteSpace)) {
+      let next = i + 1;
+      while (next < count && isBoxEdge(items.text(next), items.refs(next))) next++;
+      if (next >= count || (items.flags(next) & SEG_HARD_BREAK)) return 0;
+    }
+    return items.width(i) - segmentAdvance(m, m.stateOf(refs.style), items.text(i), refs);
+  }
+
+  /**
+   * Item `i`'s width starting a line: Chrome shapes it alone there, without the kern into it
+   * from the text before the break that its in-context width carries (Arial " A" -2.21px at
+   * 40px, Merriweather "-t" -6.65px, Arimo "A&shy;V" and a word broken inside "A|V" -7.42px at
+   * 100px).
+   */
+  startWidth(i: number): number {
+    const { items, m } = this;
+    const refs = items.refs(i);
+    if ((items.flags(i) & (SEG_SPACE | SEG_SHAPED_APART)) || !items.text(i) || refs.inlineBlock) return items.width(i);
+    return segmentAdvance(m, m.stateOf(refs.style), items.text(i), refs);
   }
 
   isSpace(i: number): boolean {
@@ -450,6 +638,12 @@ export class LineFlow {
   endsWithSpace(): boolean {
     const line = this.line.items;
     return line.length > 0 && this.isSpace(line[line.length - 1]);
+  }
+
+  /** The current line holds a word: text other than white space (not just box edges). */
+  holdsWord(): boolean {
+    for (const i of this.line.items) if (!(this.items.flags(i) & SEG_SPACE) && this.items.text(i)) return true;
+    return false;
   }
 
   /**
@@ -501,7 +695,8 @@ export class LineFlow {
       || (this.preservesWhitespace && !isSoftWrap);
     if (!preserveTrailing) {
       while (line.length > 0 && this.isSpace(line[line.length - 1])) {
-        current.totalWidth -= items.width(line[line.length - 1]);
+        const space = line[line.length - 1];
+        current.totalWidth -= items.width(space) - this.endKern(space);
         line.pop();
         if (isSoftWrap) current.spaceWrap = true;
       }
@@ -599,20 +794,32 @@ function gluedChainEnd(items: FlowItems, start: number): number {
   if (refs.boxOpen || refs.boxClose) return start;
   const count = items.prepared.count;
   let end = start;
-  while (end + 1 < count && breakBefore(items, end + 1) === 'continues') end++;
+  while (end + 1 < count) {
+    // The word continues through closing edges too (`abutsWithoutBreak`).
+    let next = end + 1;
+    while (next < count && isBoxEdge(items.text(next), items.refs(next)) && items.refs(next).boxClose) next++;
+    if (next >= count || breakBefore(items, next) !== 'continues') break;
+    end = next;
+  }
+  // Closing edges after the word share its last line: no line starts at one.
+  while (end > start && end + 1 < count && isBoxEdge(items.text(end + 1), items.refs(end + 1)) &&
+    items.refs(end + 1).boxClose) end++;
   return end;
 }
 
 /**
- * Break a word split across runs (`gluedChainEnd`) at its hyphens or break-word points,
- * which per-segment logic cannot see. False when it needs no breaking here.
+ * Break a word split across runs (`gluedChainEnd`) at its hyphens, `break-all` or break-word
+ * points, which per-segment logic cannot see. False when it needs no breaking here.
  */
 function breakGluedChain(flow: LineFlow, start: number, end: number): boolean {
   const { items, m } = flow;
-  let combined = 0;
+  let combined = flow.endKern(end + 1);
   for (let j = start; j <= end; j++) combined += items.width(j);
   if (flow.line.totalWidth + combined <= flow.budget()) return false;
-  const breakWord = flow.wordBreaking(items.refs(start).style) !== 'none';
+  const breaking = flow.wordBreaking(items.refs(start).style);
+  const breakWord = breaking !== 'none';
+  // `break-all` fills the current line, as `splitSegment` does for a one-run word.
+  const anywhere = breaking === 'anywhere';
   let combinedText = '';
   for (let j = start; j <= end; j++) combinedText += items.text(j);
   // Hyphen break opportunities (same rule as the single-word hyphen path).
@@ -621,32 +828,53 @@ function breakGluedChain(flow: LineFlow, start: number, end: number): boolean {
   const hyphenMode = segTexts.length > 1;
   // A hyphen breaks whenever the unit does not fit; break-word only when it cannot fit a
   // whole line.
-  const enter = hyphenMode || (breakWord && combined > flow.budget());
+  const enter = hyphenMode || anywhere || (breakWord && combined > flow.budget());
   if (!enter) return false;
 
   // Only a chain that splits needs characters, each keeping its segment's refs: style,
   // paint declarers and `parentStyle` (a vertical-align run shifts against its real parent).
-  type Cell = { ch: string; refs: SegmentRefs };
+  // A box edge inside the word (`abutsWithoutBreak`) is a cell with no character: its item.
+  type Cell = { ch: string; refs: SegmentRefs; edge?: number };
   const cells: Cell[] = [];
   for (let j = start; j <= end; j++) {
     const refs = items.refs(j);
-    for (const ch of items.text(j)) cells.push({ ch, refs });
+    const text = items.text(j);
+    if (isBoxEdge(text, refs)) cells.push({ ch: '', refs, edge: j });
+    else for (const ch of text) cells.push({ ch, refs });
   }
   if (flow.session.stats) flow.session.stats.chainCells += cells.length;
 
-  // Atomic units for breaking: hyphen segments, else the whole chain.
+  // Atomic units for breaking: hyphen segments, else the whole chain. An opening edge
+  // belongs to the segment of the character after it, a closing edge to the one before.
   const segs: Cell[][] = [];
   let ci = 0;
   for (const st of segTexts) {
-    const len = [...st].length;
-    segs.push(cells.slice(ci, ci + len));
-    ci += len;
+    let len = [...st].length;
+    const seg: Cell[] = [];
+    while (ci < cells.length && (len > 0 || cells[ci].refs.boxClose && cells[ci].edge !== undefined)) {
+      if (cells[ci].edge === undefined) len--;
+      seg.push(cells[ci++]);
+    }
+    segs.push(seg);
   }
+  if (ci < cells.length && segs.length > 0) segs[segs.length - 1].push(...cells.slice(ci));
   // Place cells, splitting same-style runs into pieces: `chars` wraps between characters
   // (break-word), else the segment is placed atomically and may overflow.
   const placeCells = (cs: Cell[], chars: boolean) => {
     let i = 0;
     while (i < cs.length) {
+      const edge = cs[i].edge;
+      if (edge !== undefined) {
+        // An opening edge wraps with the character after it (padding-left goes with the content).
+        if (chars && cs[i].refs.boxOpen && flow.line.items.length > 0) {
+          const next = cs.find((c, k) => k > i && c.edge === undefined);
+          const nextW = next ? segmentAdvance(m, m.stateOf(next.refs.style), next.ch, next.refs) : 0;
+          if (flow.line.totalWidth + items.width(edge) + nextW > flow.budget()) flow.wrap();
+        }
+        flow.place(edge, items.width(edge), m.lineHeight(cs[i].refs.style));
+        i++;
+        continue;
+      }
       // Refs are 1:1 with the style run, so the run start's cover every piece.
       const refs = cs[i].refs;
       const st = refs.style;
@@ -654,15 +882,36 @@ function breakGluedChain(flow: LineFlow, start: number, end: number): boolean {
       const lh = m.lineHeight(st);
       let cur = '';
       let curW = 0;
-      while (i < cs.length && cs[i].refs.style === st) {
+      while (i < cs.length && cs[i].edge === undefined && cs[i].refs.style === st) {
         const ch = cs[i].ch;
         const candW = segmentAdvance(m, state, cur + ch, refs);
-        if (chars && flow.line.totalWidth + candW > flow.budget() &&
+        // A closing edge right after this character shares its line.
+        let closing = 0;
+        for (let k = i + 1; k < cs.length && cs[k].edge !== undefined && cs[k].refs.boxClose; k++) {
+          closing += items.width(cs[k].edge!);
+        }
+        if (chars && flow.line.totalWidth + candW + closing > flow.budget() &&
             (flow.line.items.length > 0 || cur)) {
-          if (cur) flow.place(items.textOf(refs, cur, curW), curW, lh);
+          // Under `break-all`, back up to the last boundary the glue allows.
+          let keep = cur;
+          let carry = '';
+          if (anywhere) {
+            const chars = [...cur];
+            let k = chars.length;
+            let next = ch;
+            while (k > 0 && !breakAllAllows(chars[k - 1], next)) next = chars[--k];
+            if (k > 0 || flow.line.items.length > 0) {
+              keep = chars.slice(0, k).join('');
+              carry = chars.slice(k).join('');
+            }
+          }
+          if (keep) {
+            const keepW = keep === cur ? curW : segmentAdvance(m, state, keep, refs);
+            flow.place(items.textOf(refs, keep, keepW), keepW, lh);
+          }
           flow.wrap();
-          cur = ch;
-          curW = segmentAdvance(m, state, ch, refs);
+          cur = carry + ch;
+          curW = segmentAdvance(m, state, cur, refs);
         } else {
           cur += ch;
           curW = candW;
@@ -679,20 +928,22 @@ function breakGluedChain(flow: LineFlow, start: number, end: number): boolean {
     let w = 0;
     let i = 0;
     while (i < cs.length) {
+      const edge = cs[i].edge;
+      if (edge !== undefined) { w += items.width(edge); i++; continue; }
       const refs = cs[i].refs;
       let txt = '';
-      while (i < cs.length && cs[i].refs.style === refs.style) { txt += cs[i].ch; i++; }
+      while (i < cs.length && cs[i].edge === undefined && cs[i].refs.style === refs.style) { txt += cs[i].ch; i++; }
       w += segmentAdvance(m, m.stateOf(refs.style), txt, refs);
     }
     return w;
   };
   // Pure break-word is a last resort: wrap the whole word to a fresh line first.
-  if (!hyphenMode && flow.line.items.length > 0) flow.wrap();
+  if (!hyphenMode && !anywhere && flow.holdsWord()) flow.wrap();
   for (const seg of segs) {
     const segW = measureSeg(seg);
-    if (flow.line.items.length > 0 && flow.line.totalWidth + segW > flow.budget()) flow.wrap();
-    // Char-break a segment only when break-word and it can't fit a line.
-    placeCells(seg, breakWord && segW > flow.budget());
+    if (!anywhere && flow.holdsWord() && flow.line.totalWidth + segW > flow.budget()) flow.wrap();
+    // Char-break a segment under break-all, or under break-word when it can't fit a line.
+    placeCells(seg, anywhere || (breakWord && segW > flow.budget()));
   }
   return true;
 }
@@ -703,23 +954,18 @@ function placeSegment(flow: LineFlow, segment: number, lineHeight: number): void
   // The pieces are consecutive items: the segment itself, or its cuts.
   let pieceStart = segment;
   let pieceEnd = segment + 1;
-  let emergency = false;
   if (!flow.isSpace(segment) && items.text(segment).length > 1) {
     const split = splitSegment(flow, segment);
     if (split) {
-      emergency = split.emergency;
+      if (split.wrapFirst) flow.wrap();
       for (let k = 0; k < split.texts.length; k++) {
-        const piece = items.cut(segment, split.texts[k], split.widths[k]);
+        const piece = items.cut(segment, split.texts[k], split.widths[k], split.contexts[k]);
         if (k === 0) pieceStart = piece;
         pieceEnd = piece + 1;
       }
       if (split.texts.length === 0) pieceEnd = pieceStart;
     }
   }
-
-  // Before an emergency (break-word) split, take the whitespace opportunity first, as native
-  // layout does; ordinary splits fill the current line.
-  if (emergency && flow.holds(SEG_SPACE, 0)) flow.wrap();
 
   for (let piece = pieceStart; piece < pieceEnd; piece++) {
     placePiece(flow, segment, piece, pieceStart, pieceEnd, lineHeight);
@@ -739,10 +985,19 @@ function placePiece(
   const glued = cannotStartLine(breakBefore(items, piece, piece !== pieceStart)) &&
     flow.line.items.length > 0 && !flow.endsWithSpace();
   const pieceWidth = items.width(piece);
+  // overflow-wrap: a word too wide for any line breaks where it stops fitting, before its
+  // closing punctuation too (Chrome, Firefox, WebKit: "aaaa." wraps as "aaaa" / ".").
+  if (glued && (pieceFlags & SEG_CLOSING_PUNCT) && flow.wordBreaking(items.refs(piece).style) === 'last-resort' &&
+      flow.line.totalWidth + pieceWidth + (piece === pieceEnd - 1 ? flow.endKern(segment + 1) : 0) > flow.budget() &&
+      !flow.holds(SEG_SPACE, SEG_SPACE)) {
+    flow.wrap();
+  }
+  // `break-spaces` spaces take room: they wrap like words and start the next line visibly.
+  const breakSpaces = items.refs(piece).style.whiteSpace === 'break-spaces';
 
-  if (!(pieceFlags & SEG_SPACE) && !glued && flow.line.items.length > 0) {
+  if ((!(pieceFlags & SEG_SPACE) || breakSpaces) && !glued && flow.line.items.length > 0) {
     const gluedTailWidth = flow.gluedTail(segment);
-    const tail = trailingGlueWidth(items, piece, pieceEnd, gluedTailWidth);
+    const tail = trailingGlueWidth(items, piece, pieceEnd, gluedTailWidth + flow.tailKern(segment));
     const headExtra = headGlueWidth(flow, segment, piece, piece === pieceEnd - 1, gluedTailWidth);
     // Chrome breaks at a soft hyphen only if the prefix PLUS its '-' fits: reserve it.
     const shReserve = pieceFlags & SEG_SOFT_HYPHEN
@@ -765,11 +1020,14 @@ function placePiece(
   }
 
   // Leading spaces are dropped, except preserved ones after a hard break.
-  if ((pieceFlags & SEG_SPACE) && flow.line.items.length === 0
+  if ((pieceFlags & SEG_SPACE) && flow.line.items.length === 0 && !breakSpaces
       && (!flow.afterHardBreak || !flow.preservesWhitespace)) return;
 
   if (pieceFlags & SEG_TAB) {
     flow.placeTab(piece, lineHeight);
+  } else if (flow.line.items.length === 0) {
+    const width = flow.startWidth(piece);
+    flow.place(width === pieceWidth ? piece : items.cut(piece, items.text(piece), width), width, lineHeight);
   } else {
     flow.place(piece, pieceWidth, lineHeight);
   }
@@ -779,7 +1037,7 @@ function placePiece(
 /**
  * Whether a line whose summed advances overflow by under 1px really does: re-measure it
  * as one string when its glyphs share one state. Only over the edge; a sum under it is
- * trusted (one string drops the kern against the hanging space Blink keeps).
+ * trusted.
  */
 function knifeEdgeOverflows(flow: LineFlow, piece: number, tail: number, headExtra: number): boolean {
   const { items, m } = flow;
@@ -807,6 +1065,11 @@ function knifeEdgeOverflows(flow: LineFlow, piece: number, tail: number, headExt
       text = '';
       markerWidth += items.width(i);
     } else {
+      // The engine shapes it apart from the text before it: no kerning joins them.
+      if ((items.flags(i) & SEG_SHAPED_APART) && text) {
+        textWidth += m.width(state, text);
+        text = '';
+      }
       text += itemText;
       markerWidth += wordSpacingIn(itemText, items.refs(i).style.wordSpacing);
     }

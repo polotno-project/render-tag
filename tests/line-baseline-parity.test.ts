@@ -5,29 +5,18 @@
  * baseline sits that far below the line top, plus the ascent. Blink does not
  * use that value directly: `FontHeight::AddLeading` FLOORS it to a whole CSS
  * pixel, so Chrome's DOM text sits up to 1px HIGHER than the exact value.
- * WebKit floors it too, and lays the line out at a whole-pixel line-height
- * besides (`TRUNCATES_LINE_HEIGHT`): 16px x 1.6 is a 25px line there, so the
- * exact value drifts 0.6px further off with every line. Gecko keeps the exact
- * half-leading over a line-height rounded to 1/60px app units.
- *
- * render-tag kept the exact value everywhere, so canvas text stood up to 1px
- * BELOW the same HTML in Chrome — a fraction of a pixel per line, plainly
- * visible when text sits on a rule.
+ * render-tag places it so in every browser (README: one layout, Chrome's); the
+ * DOM cases gate Chrome.
  *
  * `lines[].y` is rounded, so these tests read the baseline off the layout tree,
  * which carries it unrounded.
  */
 import { describe, it, expect } from 'vitest';
 import { layout } from '../src/index.ts';
-import { ENGINE, FLOORS_LINE_BASELINE, TRUNCATES_LINE_HEIGHT } from '../src/engine.ts';
 import { collectTexts } from './helpers/layout-tree.ts';
-import { divergenceRatchet } from './helpers/engine-divergences.ts';
 
 const FONT = 'sans-serif';
-// Gecko snaps layout to 1/60px app units, which render-tag does not model:
-// allow one app unit there, exact elsewhere.
-const DOM_TOLERANCE = ENGINE === 'gecko' ? 1 / 60 : 0.001;
-const ratchet = divergenceRatchet('line-baseline');
+const DOM_TOLERANCE = 0.001;
 // Sizes and ratios chosen so the exact baseline lands on whole, half and
 // arbitrary fractions of a pixel — a rule that only floors integers proves
 // nothing.
@@ -69,35 +58,6 @@ function canvasBaseline(size: number, lineHeightPx: number): number {
 }
 
 describe('line-box baseline', () => {
-  // Blink and WebKit floor half-leading + ascent onto a whole pixel, WebKit
-  // over a line-height it has already truncated; Gecko keeps the exact value.
-  // render-tag follows the engine it runs on, so the canvas sits on the
-  // baseline that engine's own DOM would use.
-  it.each(CASES)(
-    'places the baseline the way this engine does at $size px / $lineHeight',
-    ({ size, lineHeight }) => {
-      const lineHeightPx = size * lineHeight;
-      const used = TRUNCATES_LINE_HEIGHT ? Math.floor(Math.fround(lineHeightPx)) : lineHeightPx;
-      const ctx = document.createElement('canvas').getContext('2d')!;
-      ctx.font = `${size}px ${FONT}`;
-      const m = ctx.measureText('M');
-      const exact =
-        (used - (m.fontBoundingBoxAscent + m.fontBoundingBoxDescent)) / 2 +
-        m.fontBoundingBoxAscent;
-
-      expect(canvasBaseline(size, lineHeightPx)).toBeCloseTo(
-        FLOORS_LINE_BASELINE ? Math.floor(exact) : exact,
-        2,
-      );
-    },
-  );
-
-  // Every engine places its DOM baseline on a rule stated in canvas terms, so
-  // each asserts parity against its own DOM. (An older note excluded WebKit
-  // because a 30px/1 line landed at 25.59375 in its DOM against 25.5 from the
-  // canvas; Playwright WebKit lays every baseline here on a whole pixel, with
-  // integer canvas metrics, so the floored rule reaches it exactly. Branded
-  // Safari is not re-measured.)
   it.each(CASES)(
     'lands on the DOM baseline at $size px / $lineHeight',
     ({ size, lineHeight }) => {
@@ -105,10 +65,7 @@ describe('line-box baseline', () => {
       const lineHeightPx = size * lineHeight;
       const canvas = canvasBaseline(size, lineHeightPx);
       const dom = domBaseline(font, lineHeightPx);
-      ratchet.check(
-        `first baseline ${size}px/${lineHeight}`,
-        Math.abs(canvas - dom) <= Math.max(DOM_TOLERANCE, 0.005) ? null : `canvas ${canvas}, DOM ${dom}`,
-      );
+      expect(Math.abs(canvas - dom), `canvas ${canvas}, DOM ${dom}`).toBeLessThanOrEqual(0.005);
     },
   );
 });
@@ -131,16 +88,13 @@ function domBaselines(size: number, lineHeight: string, lines: number, family = 
 }
 
 describe('line pitch', () => {
-  // The baseline of line N is where the line-height ROUNDING compounds: WebKit
-  // steps 25px per 16px x 1.6 line, so the exact 25.6 lands 0.6px lower on
-  // every line — the single largest WebKit pixel residual over the corpus.
+  // The baseline of line N is where the line-height ROUNDING compounds.
   // Unitless, length, percentage and em values; fractional font sizes; and a
-  // product (20 x 1.15) that is a hair under 23 in double but 23 in WebKit's
-  // float32. Blink keeps the line-height on its 1/64px LayoutUnit grid,
-  // rounded down (25.6 -> 25.59375; LAYOUT_UNIT_LINE_HEIGHT): sub-pixel, but
-  // it compounds, and once Blink's paint rounds every line top
-  // (SNAPS_LINE_PAINT) 45 lines of it move a line by a whole pixel. So the
-  // match is exact, not within a LayoutUnit per line.
+  // product (20 x 1.15) that is a hair under 23 in double. Blink keeps the
+  // line-height on its 1/64px LayoutUnit grid, rounded down (25.6 -> 25.59375;
+  // `multipliedLineHeight`): sub-pixel, but it compounds, and once Blink's
+  // paint rounds every line top (`paintLineSnap`) 45 lines of it move a line
+  // by a whole pixel. So the match is exact, not within a LayoutUnit per line.
   const LINES = 6;
   it.each([
     { size: 16, lineHeight: '1.6' },
@@ -153,8 +107,6 @@ describe('line pitch', () => {
     { size: 17.3, lineHeight: '1.37' },
     { size: 12.5, lineHeight: '1.7' },
     { size: 44, lineHeight: '1.15' },
-    // WebKit floors the font-size to 1/64px BEFORE it multiplies: 13.6 x 1.25
-    // is a 16px line there, not 17 (floor(fround(13.6 x 1.25)) = 17).
     { size: 13.6, lineHeight: '1.25' },
     { size: 17.3, lineHeight: '1.85' },
     { size: 8.7, lineHeight: '1.15' },
@@ -170,8 +122,6 @@ describe('line pitch', () => {
     // and only then floors: an odd number of 64ths short puts the baseline
     // 1px lower than flooring the exact half.
     { size: 13.6, lineHeight: '1.25', family: 'Verdana' },
-    // Gecko puts the first baseline 0.5px lower (Firefox CI); unmeasured, a
-    // recorded divergence.
     { size: 33.9, lineHeight: '1.15' },
     { size: 38.1, lineHeight: '1.05' },
     { size: 18.1, lineHeight: '21.99px', family: 'Verdana' },
@@ -187,7 +137,7 @@ describe('line pitch', () => {
     expect(canvas).toHaveLength(LINES);
     const off = canvas.flatMap((y, i) =>
       Math.abs(y - dom[i]) <= DOM_TOLERANCE ? [] : [`line ${i}: canvas ${y}, DOM ${dom[i]}`]);
-    ratchet.check(`pitch ${size}px/${lineHeight} ${family}`, off.length ? off.join('; ') : null);
+    expect(off).toEqual([]);
   });
 });
 
@@ -211,11 +161,10 @@ describe('vertical-align: middle', () => {
       wrap.getBoundingClientRect().top;
     wrap.remove();
     const texts = collectTexts(layout({ html: `<div style="${style}">${inner}</div>`, width: 600 }).layoutRoot);
-    ratchet.check(`middle ${name}`, Math.abs(texts[0].y - dom) <= 0.25 ? null : `canvas ${texts[0].y}, DOM ${dom}`);
+    expect(Math.abs(texts[0].y - dom), `canvas ${texts[0].y}, DOM ${dom}`).toBeLessThanOrEqual(0.25);
   });
 });
 
-ratchet.itRecords();
 
 describe('block strut baseline', () => {
   // The strut is a BASELINE participant, not only a height floor: a smaller

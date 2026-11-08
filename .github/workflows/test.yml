@@ -3,10 +3,11 @@ name: Test
 # CI runs with RENDER_TAG_PORTABLE=1: suites that self-compare against the
 # browser's own DOM in the same environment gate at full strictness, while the
 # environment-pinned contracts (recorded pixel-score/wrap baselines, the
-# cross-browser Chrome reference, fuzz signature sets, system-font geometry)
-# stay local-only — they were recorded on the maintainer's machine and font
-# rasterization differs per OS/runner image. See CLAUDE.md
-# "Portable mode (CI)".
+# cross-browser residuals, fuzz signature sets, system-font geometry) stay
+# local-only — they were recorded on the maintainer's machine and font
+# rasterization differs per OS/runner image. The Firefox and WebKit jobs record
+# render-tag's Chrome layout on their own runner first, which
+# cross-browser.compare checks them against. See CLAUDE.md "Portable mode (CI)".
 
 on:
   push:
@@ -35,13 +36,13 @@ jobs:
             script: test
           - browser: firefox
             os: ubuntu-latest
-            install: --with-deps firefox
+            install: --with-deps firefox chromium
             script: test:firefox
           # Playwright WebKit is not branded Safari, but running the engine on
           # macOS is the closest automatable full-corpus lane to shipping Safari.
           - browser: webkit
             os: macos-latest
-            install: webkit
+            install: webkit chromium
             script: test:webkit
     steps:
       - uses: actions/checkout@v6
@@ -68,6 +69,12 @@ jobs:
           path: ${{ runner.os == 'macOS' && '~/Library/Caches/ms-playwright' || '~/.cache/ms-playwright' }}
           key: ${{ runner.os }}-playwright-${{ matrix.browser }}-${{ hashFiles('node_modules/playwright-core/browsers.json') }}
       - run: npx playwright install ${{ matrix.install }}
+      - name: Record render-tag's Chrome layout on this runner
+        if: matrix.browser != 'chromium'
+        run: npm run update -- --project chromium tests/cross-browser.compare.test.ts
+        env:
+          # Unhinted, as on macOS: Linux Chrome otherwise lays text on whole-pixel advances.
+          RENDER_TAG_UNHINTED: "1"
       - run: npm run ${{ matrix.script }}
         env:
           RENDER_TAG_PORTABLE: "1"

@@ -384,6 +384,7 @@ export const KEYWORDS: Record<string, Set<string>> = {
   'text-align-last': set('auto start end left right center justify match-parent'),
   'text-decoration-style': set('solid double dotted dashed wavy'),
   'font-kerning': set('auto normal none'),
+  'text-rendering': set('auto optimizespeed optimizelegibility geometricprecision'),
   'white-space': set('normal pre nowrap pre-wrap pre-line break-spaces'),
   'word-break': set('normal break-all keep-all break-word auto-phrase'),
   'overflow-wrap': set('normal break-word anywhere'),

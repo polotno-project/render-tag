@@ -1,5 +1,6 @@
 import pixelmatch from 'pixelmatch';
 import { layout, render } from '../../src/index.ts';
+import type { LayoutLine } from '../../src/types.ts';
 import {
   compareLineMembership,
   type LayoutComparisonResult,
@@ -81,6 +82,11 @@ async function registerFonts(css: string): Promise<void> {
     probe.remove();
   }
 
+  // WebKit 27.2 fails a few loads when many faces load at once (an Open Sans
+  // subset errors, then loads on a retry): retry each failed face once.
+  for (const face of addedFaces) {
+    if (face.status === 'error') await face.load().catch(() => {});
+  }
   const failed = addedFaces
     .filter((face) => face.status === 'error')
     .map((face) => `${face.family} ${face.weight} ${face.style}`);
@@ -202,7 +208,7 @@ export function renderToCanvas(
   width: number,
   height: number,
   pixelRatio = 1,
-): { canvas: HTMLCanvasElement; lines: { y: number; text: string }[] } {
+): { canvas: HTMLCanvasElement; lines: LayoutLine[] } {
   const result = render({
     html: canvasFixtureHtml(html, css),
     width,
@@ -309,6 +315,55 @@ export function extractDomLines(
   }
 }
 
+/**
+ * One font's glyph boxes share a top along a line, and a new line moves that
+ * top by the line pitch, which can be far below the box height (tall scripts
+ * at an ordinary line-height). Box overlap alone merges such lines.
+ */
+function sameTop(a: number, b: number): boolean {
+  return Math.abs(a - b) < 1;
+}
+
+/** Two glyph bands of one font (equal heights) on different lines. */
+function stackedLines(
+  a: { top: number; bottom: number },
+  b: { top: number; bottom: number },
+): boolean {
+  return Math.abs((a.bottom - a.top) - (b.bottom - b.top)) < 1 && !sameTop(a.top, b.top);
+}
+
+/** The nearest ancestor that is not an inline box: a word continues across elements inside it. */
+function blockOf(node: Node): Element | null {
+  let element = node.parentElement;
+  while (element && getComputedStyle(element).display === 'inline') element = element.parentElement;
+  return element;
+}
+
+/**
+ * A normal-flow block boundary lies between two blocks' text, so it is a line break: every
+ * box from either up to their common ancestor is an in-flow block in a block container.
+ * Flex and grid items, table cells, floats, positioned and inline-level boxes can sit side
+ * by side.
+ */
+function stackedBlocks(a: Element, b: Element): boolean {
+  const blockFlow = (element: Element) => /^(block|list-item|flow-root)$/.test(getComputedStyle(element).display);
+  const inFlow = (element: Element) => {
+    const style = getComputedStyle(element);
+    return blockFlow(element) && style.float === 'none' && !/absolute|fixed/.test(style.position) &&
+      element.parentElement !== null && blockFlow(element.parentElement);
+  };
+  const chain = (element: Element | null) => {
+    const elements: Element[] = [];
+    for (; element; element = element.parentElement) elements.push(element);
+    return elements;
+  };
+  const aChain = chain(a);
+  const bChain = chain(b);
+  const common = aChain.find((element) => bChain.includes(element));
+  if (!common) return false;
+  return [...aChain.slice(0, aChain.indexOf(common)), ...bChain.slice(0, bChain.indexOf(common))].every(inFlow);
+}
+
 /** A word's trailing edge in reading order: right edge LTR, left edge RTL. */
 function trailingEdge(wp: { x: number; width: number }, rtl: boolean): number {
   return rtl ? wp.x : wp.x + wp.width;
@@ -324,6 +379,8 @@ export interface LineToken {
   height: number;
   /** Painted text (text-transform applied, invisible characters removed). */
   text: string;
+  /** A normal-flow block boundary separates it from the previous token: it starts a line. */
+  startsBlock?: boolean;
 }
 
 /** A word as the browser laid it out, in document order. */
@@ -371,16 +428,26 @@ export function collectDomWords(content: HTMLElement): DomWord[] {
   // mid-word (overflow-wrap: break-word), handling long unbroken words.
   const wordPositions: DomWord[] = [];
   const range = document.createRange();
+  // Capitalize upper-cases a WORD's first letter: a text node that starts
+  // mid-word (`nați<b>or</b>`) keeps its first letter, as every engine paints it.
+  let previousChar = '';
+  let previousBlock: Element | null = null;
+  let wordBlock: Element | null = null;
   for (const textNode of textNodes) {
     const text = textNode.textContent || '';
+    const block = blockOf(textNode);
+    const continuesWord = block === previousBlock && /[\p{L}\p{M}\p{N}]/u.test(previousChar);
+    previousChar = text.slice(-1) || previousChar;
+    previousBlock = block;
     if (!text.trim()) continue;
+    const firstWord = wordPositions.length;
     const transform = getComputedStyle(textNode.parentElement!).textTransform;
-    const paintedText = (value: string) => {
+    const paintedText = (value: string, midWord: boolean) => {
       if (transform === 'uppercase') return value.toUpperCase();
       if (transform === 'lowercase') return value.toLowerCase();
       if (transform === 'capitalize') {
-        return value.replace(/(^|\s)(\p{L})/gu, (_match, space, letter) =>
-          space + letter.toUpperCase());
+        return value.replace(/(^|\s)(\p{L})/gu, (match, space, letter, at) =>
+          at === 0 && midWord ? match : space + letter.toUpperCase());
       }
       return value;
     };
@@ -408,7 +475,7 @@ export function collectDomWords(content: HTMLElement): DomWord[] {
         // in the capitalize rule matches inside every single-character string,
         // which would upper-case every letter. A transform that changes length
         // has no character-to-character mapping, so fall back to the source.
-        const paintedWord = paintedText(w);
+        const paintedWord = paintedText(w, offset === 0 && continuesWord);
         const paintedChar = (index: number) =>
           paintedWord.length === w.length ? paintedWord[index] : w[index];
         // Char-by-char scan: group by Y position to find line breaks.
@@ -439,7 +506,7 @@ export function collectDomWords(content: HTMLElement): DomWord[] {
             while (next < w.length && /[\u00AD\u200B]/.test(w[next])) next++;
             if (last && next < w.length) {
               const nextRect = characterRect(next);
-              if (nextRect && Math.abs(nextRect.top - cTop - last.y) >= last.height * 0.5) {
+              if (nextRect && !sameTop(nextRect.top - cTop, last.y)) {
                 last.chars += '-';
               }
             }
@@ -450,7 +517,8 @@ export function collectDomWords(content: HTMLElement): DomWord[] {
           if (!charRect) continue;
           const charY = charRect.top - cTop;
           const last = charGroups[charGroups.length - 1];
-          if (last && Math.abs(charY - last.y) < last.height * 0.5) {
+          // One text node, one font: a different top is a different line.
+          if (last && sameTop(charY, last.y)) {
             last.chars += paintedChar(ci);
             last.right = Math.max(last.right, charRect.right);
           } else {
@@ -477,7 +545,7 @@ export function collectDomWords(content: HTMLElement): DomWord[] {
         }
       } else {
         const rect = rects[0] || range.getBoundingClientRect();
-        const clean = paintedText(stripInvisible(w));
+        const clean = paintedText(stripInvisible(w), offset === 0 && continuesWord);
         if (clean) {
           wordPositions.push({
             x: rect.left,
@@ -490,6 +558,12 @@ export function collectDomWords(content: HTMLElement): DomWord[] {
         }
       }
       offset += w.length;
+    }
+    if (wordPositions.length > firstWord) {
+      if (wordBlock && block && block !== wordBlock && stackedBlocks(wordBlock, block)) {
+        wordPositions[firstWord].startsBlock = true;
+      }
+      wordBlock = block;
     }
   }
   return wordPositions;
@@ -511,7 +585,10 @@ export function groupDomLines<T extends LineToken>(
   // while still grouping mixed-size words on the same baseline.
   // Group words into visual lines using DOCUMENT (reading) order, not a Y sort.
   //
-  // A word continues the current line only when BOTH hold:
+  // A word after a normal-flow block boundary (`startsBlock`) starts a line: a
+  // list item indented past a short last line above it overlaps that line's
+  // band and advances x. Otherwise a word continues the current line only when
+  // BOTH hold:
   //   1. its vertical band overlaps the line's band (anchored on the first
   //      word, never expanded by tall outliers), and
   //   2. its left edge advances in the line's reading direction (LTR: x grows,
@@ -533,24 +610,28 @@ export function groupDomLines<T extends LineToken>(
     lastX: number;
     rtl: boolean;
     words: T[];
+    /** Reading-order index of this line, and of every line merged into it. */
+    index: number;
+    members: Set<number>;
   }[] = [];
   for (const wp of wordPositions) {
     const top = wp.y;
     const bottom = wp.y + wp.height;
     const last = lineGroups[lineGroups.length - 1];
-    if (last) {
+    if (last && !wp.startsBlock) {
       const overlap = Math.min(bottom, last.bottom) - Math.max(top, last.top);
       const minH = Math.min(bottom - top, last.bottom - last.top);
       const ratio = overlap / minH;
-      // Near-full vertical overlap → same line unconditionally. This covers
-      // baseline-aligned text of mixed font sizes AND bidi (LTR+RTL) lines,
-      // where x is non-monotonic and the reading-direction test below would
-      // wrongly split. Partial overlap is the ambiguous zone — a tall
-      // vertical-align glyph (same line) vs a tight-line-height wrap (new
-      // line) — disambiguated by whether x advances in the reading direction
-      // (a wrap resets x to the opposite margin).
+      // Near-full vertical overlap → same line, unless both bands are one
+      // font at different tops (`stackedLines`). This covers baseline-aligned
+      // text of mixed font sizes AND bidi (LTR+RTL) lines, where x is
+      // non-monotonic and the reading-direction test below would wrongly
+      // split. Partial overlap, and one font at two tops, is the ambiguous
+      // zone — a tall vertical-align glyph (same line) vs a tight-line-height
+      // wrap (new line) — disambiguated by whether x advances in the reading
+      // direction (a wrap resets x to the opposite margin).
       let join = false;
-      if (ratio >= 0.7) {
+      if (ratio >= 0.7 && !stackedLines({ top, bottom }, last)) {
         join = true;
       } else if (ratio > 0.2) {
         // Advance is judged against the previous word's TRAILING edge in
@@ -576,6 +657,8 @@ export function groupDomLines<T extends LineToken>(
       lastX: trailingEdge(wp, rtl),
       rtl,
       words: [wp],
+      index: lineGroups.length,
+      members: new Set([lineGroups.length]),
     });
   }
   // Second pass: merge reading-order lines that share the SAME visual row but
@@ -584,10 +667,13 @@ export function groupDomLines<T extends LineToken>(
   // bands FULLY overlap (parallel columns at the same Y) are one visual row
   // here too. Partially-overlapping lines (tight line-height within one flow)
   // are left separate — that's the single-flow wrap signal we must preserve.
+  // Lines adjacent in reading order were already judged by the first pass,
+  // which split them on purpose (`stackedLines`, an x reset).
   lineGroups.sort((a, b) => a.top - b.top);
   const merged: typeof lineGroups = [];
   for (const g of lineGroups) {
     const target = merged.find((m) => {
+      if (m.members.has(g.index - 1) || m.members.has(g.index + 1)) return false;
       const overlap =
         Math.min(g.bottom, m.bottom) - Math.max(g.top, m.top);
       const minH = Math.min(g.bottom - g.top, m.bottom - m.top);
@@ -595,6 +681,7 @@ export function groupDomLines<T extends LineToken>(
     });
     if (target) {
       target.words.push(...g.words);
+      target.members.add(g.index);
     } else {
       merged.push(g);
     }

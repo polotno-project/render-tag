@@ -5,10 +5,8 @@
  * decoration once across each text fragment — one text node's pieces,
  * contiguous on one line — so a dash pattern fits and a wave keeps its phase
  * across the spaces inside it, and restarts at the next text node
- * (measured in Chromium and WebKit, tests/decoration-shape-parity.test.ts).
+ * (measured in Chromium, tests/decoration-shape-parity.test.ts).
  * A clip gradient is likewise one gradient object per fragment.
- *
- * Node takes the Blink branch (src/engine.ts ENGINE).
  */
 import { afterAll, describe, expect, it } from 'vitest';
 import { DOMParser as LinkedomDOMParser } from 'linkedom';

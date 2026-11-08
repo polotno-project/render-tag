@@ -10,9 +10,21 @@ export interface LayoutComparisonResult {
   differentLines: { lineIndex: number; canvas: string; dom: string }[];
 }
 
-/** Normalize paint-only differences while preserving exact line membership. */
+const ROMAN = 'M{0,3}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3})';
+const LETTER_MARKER = `(?:[a-zA-Z]|(?=[MDCLXVI])${ROMAN}|(?=[mdclxvi])${ROMAN.toLowerCase()})\\.`;
+/**
+ * An alphabetic or roman list marker at a line's start (or end: an RTL item's
+ * marker sits at its right). Alphabetic ones only as single letters: two-letter
+ * words end sentences.
+ */
+const EDGE_MARKER = new RegExp(`^\\s*${LETTER_MARKER}(?:\\s+|$)|\\s+${LETTER_MARKER}\\s*$`);
+
+/**
+ * Normalize paint-only differences while preserving exact line membership.
+ * render-tag's lines carry list-marker text; DOM ranges never report `::marker`.
+ */
 export function normalizeLineText(text: string): string {
-  let normalized = text.replace(/\s+/g, '');
+  let normalized = text.replace(EDGE_MARKER, '').replace(/\s+/g, '');
   normalized = normalized.replace(/[•○■▪▸▹◦]/g, '');
   normalized = normalized.replace(/(?:^|\b)(\d+)\./g, '');
   // DOM ranges report visual order while LayoutLine stores logical order.

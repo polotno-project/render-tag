@@ -81,14 +81,16 @@ function difference(expected: Outcome, actual: Outcome): string | null {
 
 /**
  * Same fonts and text, different canvas measuring state — ONE property per
- * variant. Changed together, the letter-spacing difference alone moves any
+ * variant (as the wrapping div's attributes). Changed together, the letter-spacing difference alone moves any
  * key that includes it, so a cache key missing only `fontKerning` (or only
  * `wordSpacing`) would never collide with the plain run and pass unseen.
  */
 const RESTATES = {
-  'letter-spacing': 'letter-spacing:1.5px',
-  'word-spacing': 'word-spacing:3px',
-  'kerning': 'font-kerning:none',
+  'letter-spacing': 'style="letter-spacing:1.5px"',
+  'word-spacing': 'style="word-spacing:3px"',
+  'kerning': 'style="font-kerning:none"',
+  'text-rendering': 'style="text-rendering:optimizeSpeed"',
+  'lang': 'lang="tr"',
 };
 
 // Inline content for text-on-path: the paints that propagate by painting
@@ -114,7 +116,7 @@ describe('determinism and cache isolation', () => {
       { name: `${c.name} @${Math.round(c.width * 0.6)}`, html: caseHtml(c), width: Math.round(c.width * 0.6) },
       ...Object.entries(RESTATES).map(([label, style]) => ({
         name: `${c.name} @${c.width} ${label}`,
-        html: `${c.css ? `<style>${c.css}</style>` : ''}<div style="${style}">${c.html}</div>`,
+        html: `${c.css ? `<style>${c.css}</style>` : ''}<div ${style}>${c.html}</div>`,
         width: c.width,
       })),
     ]);
@@ -147,7 +149,7 @@ describe('determinism and cache isolation', () => {
         { name: c.name, html: caseHtml(c), width: c.width },
         ...Object.entries(RESTATES).map(([label, style]) => ({
           name: `${c.name} ${label}`,
-          html: `${c.css ? `<style>${c.css}</style>` : ''}<div style="${style}">${c.html}</div>`,
+          html: `${c.css ? `<style>${c.css}</style>` : ''}<div ${style}>${c.html}</div>`,
           width: c.width,
         })),
       ]),
