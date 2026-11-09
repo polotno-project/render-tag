@@ -1849,6 +1849,58 @@ code { font-family: monospace; background: #f3f4f6; padding: 1px 4px; border-rad
 <p>a\t\tb\t\t\tc</p>
 <p>after break\n\treset tab stop</p>`,
     },
+
+    // =========================================================================
+    // Cyrillic editor content
+    // =========================================================================
+
+    {
+      name: 'Cyrillic rich text',
+      width: 480,
+      height: 520,
+      css: `body { font-family: sans-serif; font-size: 16px; line-height: 1.5; }
+a { color: #2563eb; }
+.accent { color: #dc2626; }
+mark { background: #fef08a; }`,
+      html: `<p><strong>Съешь же ещё этих мягких французских булок</strong>, да выпей чаю. В чащах юга жил бы цитрус? Да, но <em>фальшивый экземпляр</em>!</p>
+<p>Компания «Полотно» выпустила версию <b>2.4</b> — теперь редактор поддерживает <a href="#">шрифты пользователя</a>, <u>подчёркивание</u>, <s>зачёркивание</s> и <span class="accent">цветной текст</span>. Цена: 1 290 руб. в месяц, № заказа 4521.</p>
+<p>Українська: Чуєш їх, доцю, га? Кумедна ж ти, прощайся без ґольфів! Ґудзик, їжак, єнот і її подвір’я.</p>
+<p>Сложные слова: северо-западный, научно-исследовательский, Санкт-Петербург; длинные — <i>высокопревосходительство</i> и <mark>достопримечательности</mark>.</p>`,
+    },
+
+    {
+      name: 'Cyrillic lists and headings',
+      width: 420,
+      height: 760,
+      css: `body { font-family: sans-serif; font-size: 15px; line-height: 1.5; }`,
+      html: `<h2>План на неделю</h2>
+<ul>
+  <li>Подготовить <strong>квартальный отчёт</strong> для руководства</li>
+  <li><em>Согласовать</em> макет обложки с дизайнером</li>
+  <li>Купить: хлеб, молоко, яйца, сыр и яблоки</li>
+</ul>
+<ol>
+  <li>Провести встречу с командой в 10:30</li>
+  <li>Обновить документацию к <u>новой версии</u></li>
+  <li>Отправить <span style="color: rgb(20, 218, 103);">статус</span> заинтересованным сторонам</li>
+</ol>
+<p style="text-align: center;">Центрированный абзац с текстом, который переносится на следующую строку.</p>
+<p style="text-align: right;">Выровнено по правому краю.</p>
+<p style="text-align: justify;">Выравнивание по ширине распределяет пробелы между словами так, чтобы обе границы строки совпадали с краями блока.</p>`,
+    },
+
+    {
+      name: 'Cyrillic headline and spacing',
+      width: 400,
+      height: 620,
+      css: `body { font-family: sans-serif; font-size: 16px; line-height: 1.5; }`,
+      html: `<h1 style="text-transform: uppercase; letter-spacing: 1px;">Большая распродажа</h1>
+<p style="font-size: 28px; font-weight: 700; line-height: 1.2;">Скидки до 50% на всё</p>
+<p style="text-transform: capitalize;">каждое слово с заглавной буквы</p>
+<p style="font-style: italic; font-weight: 300;">Тонкий курсив: Ёжик в тумане шёл по лесу.</p>
+<p style="word-spacing: 6px;">Широкие пробелы между словами меняют переносы.</p>
+<p style="overflow-wrap: break-word;">Хештег #ВесенняяРаспродажаДляВсехПокупателей2026 не помещается в строку.</p>`,
+    },
   ];
 
   // A generic/system family can pick a different fallback in canvas text than

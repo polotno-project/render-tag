@@ -355,6 +355,18 @@
     "score": 0,
     "wrap": true
   },
+  "Cyrillic rich text": {
+    "score": 0.39,
+    "wrap": true
+  },
+  "Cyrillic lists and headings": {
+    "score": 3.67,
+    "wrap": true
+  },
+  "Cyrillic headline and spacing": {
+    "score": 3.91,
+    "wrap": true
+  },
   "Polotno HTML": {
     "score": 10.55,
     "wrap": true
@@ -723,6 +735,18 @@
     "score": 0,
     "wrap": true
   },
+  "Cyrillic rich text@Open Sans": {
+    "score": 0.39,
+    "wrap": true
+  },
+  "Cyrillic lists and headings@Open Sans": {
+    "score": 3.67,
+    "wrap": true
+  },
+  "Cyrillic headline and spacing@Open Sans": {
+    "score": 3.91,
+    "wrap": true
+  },
   "Simple paragraph@Roboto": {
     "score": 0,
     "wrap": true
@@ -1077,6 +1101,18 @@
   },
   "Pre-wrap tabs and hard breaks@Roboto": {
     "score": 5.76,
+    "wrap": true
+  },
+  "Cyrillic rich text@Roboto": {
+    "score": 5.06,
+    "wrap": true
+  },
+  "Cyrillic lists and headings@Roboto": {
+    "score": 2.95,
+    "wrap": true
+  },
+  "Cyrillic headline and spacing@Roboto": {
+    "score": 4.75,
     "wrap": true
   },
   "Simple paragraph@Playfair Display": {
@@ -1435,6 +1471,18 @@
     "score": 12.5,
     "wrap": true
   },
+  "Cyrillic rich text@Playfair Display": {
+    "score": 12.34,
+    "wrap": true
+  },
+  "Cyrillic lists and headings@Playfair Display": {
+    "score": 8.2,
+    "wrap": true
+  },
+  "Cyrillic headline and spacing@Playfair Display": {
+    "score": 10.07,
+    "wrap": true
+  },
   "Simple paragraph@Merriweather": {
     "score": 6.64,
     "wrap": true
@@ -1791,6 +1839,18 @@
     "score": 11.11,
     "wrap": true
   },
+  "Cyrillic rich text@Merriweather": {
+    "score": 7.47,
+    "wrap": true
+  },
+  "Cyrillic lists and headings@Merriweather": {
+    "score": 4.74,
+    "wrap": true
+  },
+  "Cyrillic headline and spacing@Merriweather": {
+    "score": 8.87,
+    "wrap": true
+  },
   "Simple paragraph@Lobster": {
     "score": 0,
     "wrap": true
@@ -2145,6 +2205,18 @@
   },
   "Pre-wrap tabs and hard breaks@Lobster": {
     "score": 18.25,
+    "wrap": true
+  },
+  "Cyrillic rich text@Lobster": {
+    "score": 0.17,
+    "wrap": true
+  },
+  "Cyrillic lists and headings@Lobster": {
+    "score": 12.09,
+    "wrap": true
+  },
+  "Cyrillic headline and spacing@Lobster": {
+    "score": 0.64,
     "wrap": true
   }
 }

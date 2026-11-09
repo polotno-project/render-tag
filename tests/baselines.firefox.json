@@ -355,6 +355,18 @@
     "score": 15.36,
     "wrap": true
   },
+  "Cyrillic rich text": {
+    "score": 10.51,
+    "wrap": false
+  },
+  "Cyrillic lists and headings": {
+    "score": 3.63,
+    "wrap": true
+  },
+  "Cyrillic headline and spacing": {
+    "score": 5.93,
+    "wrap": true
+  },
   "Polotno HTML": {
     "score": 21.36,
     "wrap": true
@@ -723,6 +735,18 @@
     "score": 9.85,
     "wrap": true
   },
+  "Cyrillic rich text@Open Sans": {
+    "score": 10.51,
+    "wrap": false
+  },
+  "Cyrillic lists and headings@Open Sans": {
+    "score": 3.63,
+    "wrap": true
+  },
+  "Cyrillic headline and spacing@Open Sans": {
+    "score": 5.93,
+    "wrap": true
+  },
   "Simple paragraph@Roboto": {
     "score": 0.02,
     "wrap": true
@@ -1077,6 +1101,18 @@
   },
   "Pre-wrap tabs and hard breaks@Roboto": {
     "score": 0,
+    "wrap": true
+  },
+  "Cyrillic rich text@Roboto": {
+    "score": 5.85,
+    "wrap": true
+  },
+  "Cyrillic lists and headings@Roboto": {
+    "score": 2.18,
+    "wrap": true
+  },
+  "Cyrillic headline and spacing@Roboto": {
+    "score": 3.49,
     "wrap": true
   },
   "Simple paragraph@Playfair Display": {
@@ -1435,6 +1471,18 @@
     "score": 12.29,
     "wrap": true
   },
+  "Cyrillic rich text@Playfair Display": {
+    "score": 14.15,
+    "wrap": true
+  },
+  "Cyrillic lists and headings@Playfair Display": {
+    "score": 19.75,
+    "wrap": true
+  },
+  "Cyrillic headline and spacing@Playfair Display": {
+    "score": 9.01,
+    "wrap": true
+  },
   "Simple paragraph@Merriweather": {
     "score": 16.81,
     "wrap": true
@@ -1791,6 +1839,18 @@
     "score": 10.74,
     "wrap": true
   },
+  "Cyrillic rich text@Merriweather": {
+    "score": 8.26,
+    "wrap": true
+  },
+  "Cyrillic lists and headings@Merriweather": {
+    "score": 5.24,
+    "wrap": true
+  },
+  "Cyrillic headline and spacing@Merriweather": {
+    "score": 8.46,
+    "wrap": true
+  },
   "Simple paragraph@Lobster": {
     "score": 0.09,
     "wrap": true
@@ -2145,6 +2205,18 @@
   },
   "Pre-wrap tabs and hard breaks@Lobster": {
     "score": 5.96,
+    "wrap": true
+  },
+  "Cyrillic rich text@Lobster": {
+    "score": 5.57,
+    "wrap": true
+  },
+  "Cyrillic lists and headings@Lobster": {
+    "score": 14.85,
+    "wrap": true
+  },
+  "Cyrillic headline and spacing@Lobster": {
+    "score": 22.85,
     "wrap": true
   }
 }
