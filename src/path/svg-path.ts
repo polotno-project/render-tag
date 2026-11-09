@@ -47,7 +47,8 @@ type Seg =
 // ─── Tokenizer ─────────────────────────────────────────────────────────
 
 const COMMAND_RE = /[MmLlHhVvCcSsQqTtAaZz]/;
-const NUMBER_RE = /-?(?:\d+\.\d+|\d+\.|\.\d+|\d+)(?:[eE][-+]?\d+)?/g;
+const NUMBER_RE = /[+-]?(?:\d+\.\d+|\d+\.|\.\d+|\d+)(?:[eE][-+]?\d+)?/y;
+const SEPARATORS_RE = /[\s,]*/y;
 
 /** Split a path string into a sequence of (command, args) tuples. */
 function tokenize(d: string): { cmd: string; args: number[] }[] {
@@ -59,18 +60,37 @@ function tokenize(d: string): { cmd: string; args: number[] }[] {
       // Slice until the next command
       let j = i + 1;
       while (j < d.length && !COMMAND_RE.test(d[j])) j++;
-      const argString = d.slice(i + 1, j);
-      const args: number[] = [];
-      let m: RegExpExecArray | null;
-      NUMBER_RE.lastIndex = 0;
-      while ((m = NUMBER_RE.exec(argString))) args.push(Number(m[0]));
-      out.push({ cmd: c, args });
+      out.push({ cmd: c, args: readArgs(d.slice(i + 1, j), c === 'A' || c === 'a') });
       i = j;
     } else {
       i++;
     }
   }
   return out;
+}
+
+/** A command's numbers, up to the first that does not parse (SVG renders up to an error).
+ * An arc's flags are one digit each, so minifiers glue them to the next number (`0 01100 0`). */
+function readArgs(s: string, arc: boolean): number[] {
+  const args: number[] = [];
+  let i = 0;
+  for (;;) {
+    SEPARATORS_RE.lastIndex = i;
+    SEPARATORS_RE.exec(s);
+    i = SEPARATORS_RE.lastIndex;
+    if (i >= s.length) return args;
+    const flag = arc && (args.length % 7 === 3 || args.length % 7 === 4);
+    if (flag) {
+      if (s[i] !== '0' && s[i] !== '1') return args;
+      args.push(s.charCodeAt(i++) - 48);
+      continue;
+    }
+    NUMBER_RE.lastIndex = i;
+    const m = NUMBER_RE.exec(s);
+    if (!m) return args;
+    args.push(Number(m[0]));
+    i = NUMBER_RE.lastIndex;
+  }
 }
 
 // ─── Normalize to absolute segments ───────────────────────────────────

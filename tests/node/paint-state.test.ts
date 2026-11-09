@@ -71,6 +71,17 @@ describe('paint state', () => {
     expect(dirty.paints).toEqual(fresh.paints);
   });
 
+  it('curved text does not depend on the caller\'s text alignment or direction', () => {
+    setDOMParser(new LinkedomDOMParser());
+    const curved = (state: Partial<CanvasRenderingContext2D>) => {
+      const rec = recordingCtx(400, 300);
+      Object.assign(rec.ctx, state);
+      drawTextOnPath({ html: '<span style="font-size:24px">Hello <b>world</b></span>', path: 'M20,150 Q200,20 380,150', ctx: rec.ctx });
+      return rec.paints;
+    };
+    expect(curved({ textAlign: 'center', direction: 'rtl' })).toEqual(curved({}));
+  });
+
   it('does not depend on save/restore snapshotting state', () => {
     setDOMParser(new LinkedomDOMParser());
     const real = recordingCtx(400, 800);

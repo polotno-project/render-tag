@@ -80,6 +80,18 @@ describe('SVG path parser', () => {
     approx(mid.y, -50, 0.5);
   });
 
+  it('reads arc flags as one digit each, as minifiers write them', () => {
+    // SVGO and Figma glue the flags to the next number: `0 01100 0` is flags 0, 1 and x 100.
+    expect(parsePathData('M0 0a50 50 0 01100 0')).toEqual(parsePathData('M0 0 a50 50 0 0 1 100 0'));
+    expect(parsePathData('M0 0a50 50 0 01100 0 50 50 0 1,0-100 0'))
+      .toEqual(parsePathData('M0 0 a50 50 0 0 1 100 0 a50 50 0 1 0 -100 0'));
+    expect(parsePathData('M0 0A50 50 0 1.5 1 0')).toHaveLength(0);
+  });
+
+  it('reads numbers glued by sign, dot and exponent', () => {
+    expect(parsePathData('M0 0L1.5.5L10-5l+1e1,0')).toEqual(parsePathData('M 0 0 L 1.5 0.5 L 10 -5 l 10 0'));
+  });
+
   it('returns null for out-of-range length', () => {
     const p = pathFromString('M0,0 L100,0');
     expect(p.getPointAtLength(-1)).toBeNull();

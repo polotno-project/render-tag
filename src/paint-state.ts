@@ -148,10 +148,11 @@ export class PaintState {
     this.set('textAlign', rtl ? 'right' : 'left');
   }
 
-  /** Path glyphs: placed at their own origin, baseline handled by the caller. */
+  /** Path glyphs: placed at their own origin (its left edge), baseline handled by the caller. */
   glyph(style: ResolvedStyle): void {
     this.font(style);
     this.set('textBaseline', 'alphabetic');
+    this.direction(false);
   }
 
   fill(paint: Paint): void {
