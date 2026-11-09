@@ -725,6 +725,16 @@ describe('Layout logic (mocked measureText)', () => {
       expect(getLines(root)).toEqual(['wel', 'l-', 'bei', 'ng']);
     });
 
+    it('never splits a grapheme cluster', () => {
+      // Chrome never starts a line with a combining mark (Devanagari "कि", a decomposed "é").
+      for (const cluster of ['कि', 'é']) {
+        const { lines } = layout({
+          html: `<p style="margin:0;overflow-wrap:break-word">${cluster.repeat(8)}</p>`, width: 50, ctx: mockCtx(),
+        });
+        expect(lines.length).toBeGreaterThan(1);
+        for (const line of lines) expect(line.text).toMatch(/^[^\p{M}]/u);
+      }
+    });
   });
 
   // Chrome wraps a URL at its query under every white-space that wraps (edge-url-pre-wrap-*).
@@ -2463,6 +2473,13 @@ describe('Layout logic (mocked measureText)', () => {
     it('a word continued across inline elements fills the line too, with the same glue', () => {
       expect(lines('aaaa bb<b>bbbbbbbbbbbb</b>', 100)).toEqual(['aaaa bbbbb', 'bbbbbbbbb']);
       expect(lines('abcdef<b>g/hij</b>', 70)).toEqual(['abcdef', 'g/hij']);
+    });
+
+    it('keeps a grapheme cluster whole in a word continued across inline elements', () => {
+      const family = '\u{1F468}‍\u{1F469}‍\u{1F467}';
+      const result = lines(`<b>ab</b>c${family}def`, 40);
+      expect(result.some((line) => line.includes(family))).toBe(true);
+      expect(lines('<b>ab</b>c' + 'é'.repeat(6), 40).every((line) => /^[^\p{M}]/u.test(line))).toBe(true);
     });
   });
 

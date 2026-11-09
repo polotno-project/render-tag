@@ -254,8 +254,8 @@ function splitSegment(
   // are in the context's coordinates, so a restart shifts them together.
   const state = m.stateOf(style);
   const text = items.text(index);
-  // By grapheme when emoji are present or every boundary breaks, so clusters never split.
-  const chars = hasEmoji || anywhere ? graphemes(text) : [...text];
+  // By grapheme, so a cluster never splits.
+  const chars = graphemes(text);
   const texts: string[] = [];
   const widths: number[] = [];
   const contexts: string[] = [];
@@ -856,7 +856,7 @@ function breakGluedChain(flow: LineFlow, start: number, end: number): boolean {
     const refs = items.refs(j);
     const text = items.text(j);
     if (isBoxEdge(text, refs)) cells.push({ ch: '', refs, edge: j });
-    else for (const ch of text) cells.push({ ch, refs });
+    else for (const ch of graphemes(text)) cells.push({ ch, refs });
   }
   if (flow.session.stats) flow.session.stats.chainCells += cells.length;
 
@@ -865,10 +865,10 @@ function breakGluedChain(flow: LineFlow, start: number, end: number): boolean {
   const segs: Cell[][] = [];
   let ci = 0;
   for (const st of segTexts) {
-    let len = [...st].length;
+    let len = st.length;
     const seg: Cell[] = [];
     while (ci < cells.length && (len > 0 || cells[ci].refs.boxClose && cells[ci].edge !== undefined)) {
-      if (cells[ci].edge === undefined) len--;
+      len -= cells[ci].ch.length;
       seg.push(cells[ci++]);
     }
     segs.push(seg);
@@ -912,7 +912,7 @@ function breakGluedChain(flow: LineFlow, start: number, end: number): boolean {
           let keep = cur;
           let carry = '';
           if (anywhere) {
-            const chars = [...cur];
+            const chars = graphemes(cur);
             let k = chars.length;
             let next = ch;
             while (k > 0 && !breakAllAllows(chars[k - 1], next)) next = chars[--k];
