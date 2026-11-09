@@ -68,10 +68,13 @@ export interface TextUnitFragment {
   /** The line's baseline. */
   baseline: number;
   direction: 'ltr' | 'rtl';
-  /** Top and bottom of what its text paints at rest, conservatively: glyph ink, strokes and
-   * decorations; not CSS shadows (phase 'shadow'). Past the line box under a tight line-height:
-   * clipped to this span, a moving fragment loses nothing it paints. */
+  /** Edges of what its text paints at rest: glyph ink as the canvas reports it, 2px past each
+   * edge and past strokes, and decoration bands; not CSS shadows (phase 'shadow'). Past its box
+   * where an italic overhangs or a line-height is tight: clipped to them, a moving fragment loses
+   * nothing it paints and shows in its neighbours' place only as far as its glyphs reach. */
+  paintLeft: number;
   paintTop: number;
+  paintRight: number;
   paintBottom: number;
 }
 

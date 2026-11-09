@@ -41,16 +41,17 @@ describe('text units: layout', () => {
     ]);
     // 10px glyphs; the collapsed space is one 10px space.
     expect(words.map(u => [u.x, u.width])).toEqual([[0, 50], [60, 50], [120, 50]]);
-    // Paint: ink 12 up (the mock's), 5 down (0.5em), 2px past each (`textPaintReach`).
+    // Paint: the mock's ink, its advance, 12 up and 4 down, 2px past each edge.
     expect(words[0].fragments).toEqual([{
-      line: 0, x: 0, y: 0, width: 50, height: 16, baseline: 12, direction: 'ltr', paintTop: -2, paintBottom: 19,
+      line: 0, x: 0, y: 0, width: 50, height: 16, baseline: 12, direction: 'ltr',
+      paintLeft: -2, paintRight: 52, paintTop: -2, paintBottom: 18,
     }]);
   });
 
   it('gives a fragment the span its text paints, past a tight line box', () => {
-    // At least 1em up and 0.5em down, 2px past each: 20px text paints 22 up and 12 down.
+    // Its ink, 12 up and 4 down, 2px past each, whatever the font size.
     const [{ fragments: [f] }] = units('<p style="margin:0;font:20px/10px serif">Hello</p>', 'line');
-    expect([f.paintTop - f.baseline, f.paintBottom - f.baseline]).toEqual([-22, 12]);
+    expect([f.paintTop - f.baseline, f.paintBottom - f.baseline]).toEqual([-14, 6]);
     expect(f.paintTop < f.y && f.paintBottom > f.y + f.height).toBe(true);
   });
 
@@ -65,17 +66,58 @@ describe('text units: layout', () => {
     };
     const span = (u: TextUnit) => [u.fragments[0].paintTop, u.fragments[0].paintBottom];
     const [a2, b, u] = result.textUnits!;
-    // 30px: 30 up, 15 down, 2px past each; 10px: 12 up (ink), 5 down.
-    expect(span(a2)).toEqual([at('2') - 32, Math.max(at('2') + 17, at('a') + 7)]);
-    expect(span(b)).toEqual([at('B') - 32, at('B') + 17]);
-    // An underline 10px down, 1px thick: 2 + 10 + 4 past the text.
-    expect(span(u)).toEqual([at('u') - 28, at('u') + 21]);
+    // Each run's ink, 12 up and 4 down, 2px past each.
+    expect(span(a2)).toEqual([at('2') - 14, Math.max(at('2'), at('a')) + 6]);
+    expect(span(b)).toEqual([at('B') - 14, at('B') + 6]);
+    // Its underline: 1px thick, its top on the whole px 10px down (Blink's band), 1px past it.
+    expect(span(u)).toEqual([at('u') - 14, Math.round(at('u') + 10) + 2]);
+  });
+
+  it('gives a fragment the sides its glyphs paint, past its advance either way', () => {
+    // An italic's ink: 3px left of its pen, 4px past its advance; 2px past each.
+    const ctx = mockCtx();
+    const measure = ctx.measureText.bind(ctx);
+    ctx.measureText = (text: string) => {
+      const m = measure(text);
+      return { ...m, actualBoundingBoxLeft: 3, actualBoundingBoxRight: m.width + 4 };
+    };
+    const sides = (html: string) => layout({ html, width: 400, ctx, textUnits: 'word' }).textUnits!
+      .map(({ fragments: [f] }) => [f.paintLeft - f.x, f.paintRight - (f.x + f.width)]);
+    expect(sides(`${P}Hello world</p>`)).toEqual([[-5, 6], [-5, 6]]);
+    // An RTL run's x is its right edge; its glyphs sit the same way.
+    expect(sides(`<p dir="rtl" style="margin:0;font:10px serif">שלום</p>`)).toEqual([[-5, 6]]);
+  });
+
+  it('gives a run painted as one string its word-spacing, which measuring leaves out', () => {
+    // A bidi line paints in one fillText: 90px of glyphs and a 20px word-spacing.
+    const [{ fragments: [f] }] = units('<p dir="rtl" style="margin:0;font:10px serif;word-spacing:20px">שלום עולם</p>', 'line');
+    expect([f.x, f.width, f.paintLeft, f.paintRight]).toEqual([290, 110, 288, 402]);
+  });
+
+  it('gives a fragment the sides of the decorations it paints, white space\'s too', () => {
+    // "a" paints the underlined space after it: its band, 1px past each end.
+    const words = units(`${P}a<u> </u>b</p>`, 'word');
+    expect(words.map(({ fragments: [f] }) => [f.paintLeft, f.paintRight])).toEqual([[-2, 21], [18, 32]]);
+  });
+
+  it('spans the font box where the canvas reports no ink', () => {
+    const ctx = mockCtx();
+    const measure = ctx.measureText.bind(ctx);
+    ctx.measureText = (text: string) => ({
+      ...measure(text), fontBoundingBoxAscent: 15, fontBoundingBoxDescent: 5,
+      actualBoundingBoxAscent: undefined, actualBoundingBoxDescent: undefined,
+      actualBoundingBoxLeft: undefined, actualBoundingBoxRight: undefined,
+    }) as unknown as TextMetrics;
+    const [{ fragments: [f] }] = layout({ html: `${P}Hello</p>`, width: 400, ctx, textUnits: 'line' }).textUnits!;
+    expect([f.paintTop - f.baseline, f.paintBottom - f.baseline]).toEqual([-17, 7]);
+    // And its advance sideways.
+    expect([f.paintLeft, f.paintRight]).toEqual([-2, 52]);
   });
 
   it('spans the decorations of white space, which paints with a unit beside it', () => {
-    // The space's underline, 20px down: 5 + 2 + 20 + 4 below the baseline, past the letters' 7.
+    // The space's underline, 1px thick 20px down, 1px past it; the letters reach 6.
     const words = units(`${P}a<u style="text-underline-offset:20px"> </u>b</p>`, 'word');
-    expect(words.map(u => u.fragments[0].paintBottom - u.fragments[0].baseline)).toEqual([31, 7]);
+    expect(words.map(u => u.fragments[0].paintBottom - u.fragments[0].baseline)).toEqual([22, 6]);
   });
 
   it('keeps a word across style runs whole', () => {

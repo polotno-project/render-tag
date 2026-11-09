@@ -4,6 +4,7 @@ import { layoutTextOnPath, drawTextOnPathLayout, drawTextOnPath } from '../src/p
 import fontUrl from './fonts/arimo/arimo-latin-wght-normal.woff2?url';
 import { loadCorpus, TEST_FALLBACK_STACK } from './helpers/test-cases.ts';
 import { prepareComparisonFonts } from './helpers/compare.ts';
+import { browserName } from './helpers/browser-name.ts';
 
 beforeAll(async () => {
   document.fonts.add(await new FontFace('BoundsFixture', `url(${fontUrl})`, { weight: '100 900' }).load());
@@ -128,12 +129,13 @@ test('default bounds context does not inherit spacing from another layout', () =
   containsPaint(ctx, result.paintBounds);
 });
 
-test('a text unit paints within its fragments\' paintTop and paintBottom', async () => {
-  // Glyphs past Merriweather's font box (Å, Vietnamese), fallback scripts, a stroke, offset and
-  // over lines, a raised run, a marker and an inline-block, on lines shorter than their text.
+test('a text unit paints within its fragments\' paint edges', async () => {
+  // Glyphs past Merriweather's font box (Å, Vietnamese) and past their advance (italic), fallback
+  // scripts, a stroke, offset and over lines, a raised run, a marker and an inline-block, on lines
+  // shorter than their text.
   const [{ css }] = (await loadCorpus({ defaultFont: false })).filter((e) => e.key === 'Simple paragraph@Merriweather');
   const html = `<div style="font:36px/0.8 Merriweather, ${TEST_FALLBACK_STACK}, serif">
-    <p style="margin:0">Åland Ångström gjpq</p>
+    <p style="margin:0">Åland Ångström gjpq <i>staff</i></p>
     <p style="margin:0">ẤN TƯỢNG <sup>2</sup> <span style="font-size:54px">Ễỗ</span></p>
     <p style="margin:0;-webkit-text-stroke:3px #000">Stroke <u style="text-decoration-style:wavy;text-underline-offset:10px">wavy</u> <span style="text-decoration:overline">over</span></p>
     <p style="margin:0">ญี่ปุ่น <span dir="rtl">إلىٰ שלום</span></p>
@@ -148,10 +150,41 @@ test('a text unit paints within its fragments\' paintTop and paintBottom', async
     for (const unit of units) {
       ctx.clearRect(-300, -250, 1000, 700);
       drawLayout({ layout: result, width: 600, ctx, paintTextUnit: (paint) => { if (paint.unit === unit) paint.draw(); } });
-      // Each pixel within the span of the fragment under it, give or take an overhang.
+      // Each pixel within the paint edges of a fragment.
       const outside = [...paintedPixels(ctx)].filter(([x, y]) => !unit.fragments.some((f) =>
-        x + 1 >= f.x - 30 && x <= f.x + f.width + 30 && y + 1 >= f.paintTop && y <= f.paintBottom));
+        x + 1 >= f.paintLeft && x <= f.paintRight && y + 1 >= f.paintTop && y <= f.paintBottom));
       expect(outside.slice(0, 5), `${level} "${unit.text}" ${JSON.stringify(unit.fragments)}`).toEqual([]);
+    }
+  }
+});
+
+test('a text unit\'s paint edges follow what it paints', async () => {
+  const [{ css }] = (await loadCorpus({ defaultFont: false })).filter((e) => e.key === 'Simple paragraph@Merriweather');
+  for (const family of ['Roboto', 'Merriweather', 'Lobster']) {
+    const html = `<div style="font:90px/1 '${family}', ${TEST_FALLBACK_STACK}">
+      <p style="margin:0">Typography</p><p style="margin:0"><u>Linked</u> text</p><p style="margin:0"><i>fluffy</i></p></div>`;
+    await prepareComparisonFonts(html, css);
+    const ctx = surface();
+    const result = layout({ html, width: 600, ctx, textUnits: 'line' });
+    for (const unit of result.textUnits!) {
+      ctx.clearRect(-300, -250, 1000, 700);
+      drawLayout({ layout: result, width: 600, ctx, paintTextUnit: (paint) => { if (paint.unit === unit) paint.draw(); } });
+      let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
+      for (const [x, y] of paintedPixels(ctx)) {
+        [left, top, right, bottom] = [Math.min(left, x), Math.min(top, y), Math.max(right, x + 1), Math.max(bottom, y + 1)];
+      }
+      const [f] = unit.fragments;
+      // Holds the paint, within 4px of it: 2px past the reported ink, 1px past a decoration band.
+      // Sideways only Chrome's canvas reports the ink itself: WebKit's holds the advance too
+      // (Roboto "Linked text" 2.86px past its "t"), Firefox's is wider round a synthetic oblique
+      // (Lobster "fluffy": 2.4px left, 5.7 right).
+      const side = browserName === 'chrome' ? 4 : Infinity;
+      const label = `${family} "${unit.text}" edges ${f.paintLeft} ${f.paintTop} ${f.paintRight} ${f.paintBottom}, ` +
+        `paint ${left} ${top} ${right} ${bottom}`;
+      expect(f.paintLeft <= left && f.paintLeft >= left - side, label).toBe(true);
+      expect(f.paintTop <= top && f.paintTop >= top - 4, label).toBe(true);
+      expect(f.paintRight >= right && f.paintRight <= right + side, label).toBe(true);
+      expect(f.paintBottom >= bottom && f.paintBottom <= bottom + 4, label).toBe(true);
     }
   }
 });

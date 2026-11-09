@@ -114,19 +114,19 @@ export function transformBounds(bounds: PaintBounds, m: Matrix): PaintBounds {
   return { x, y, width: Math.max(ax, bx, cx, dx) - x, height: Math.max(ay, by, cy, dy) - y };
 }
 
-/** How far text of `style` paints around its baseline, conservatively: its ink as the canvas
- * reports it, at least 1em up and 0.5em down, and `pad` past that on every side for half its
- * stroke (a miter join reaches `miterLimit` times further) and its decorations. */
-export function textPaintReach(
-  style: ResolvedStyle, inkAscent: number, inkDescent: number, miterLimit = 10,
-): { ascent: number; descent: number; pad: number } {
-  const stroke = style.webkitTextStrokeWidth / 2 * (style.strokeLinejoin === 'miter' ? miterLimit : 1);
-  let pad = 2 + stroke;
-  for (const deco of style.textDecorations) {
-    const thickness = deco.declarer.textDecorationThickness ?? Math.max(1, deco.declarer.fontSize / 15);
-    pad = Math.max(pad, 2 + stroke + Math.abs(deco.declarer.textUnderlineOffset ?? deco.declarer.fontSize * 0.2) + thickness * 4);
-  }
-  return { ascent: Math.max(style.fontSize, inkAscent), descent: Math.max(style.fontSize * 0.5, inkDescent), pad };
+/** How far past a glyph's outline its -webkit-text-stroke paints: half its width, which a miter
+ * join reaches `miterLimit` times further. */
+export function strokeReach(style: ResolvedStyle, miterLimit = 10): number {
+  return style.webkitTextStrokeWidth / 2 * (style.strokeLinejoin === 'miter' ? miterLimit : 1);
+}
+
+/**
+ * The shear of a synthetic oblique, 14deg as WebKit paints it (WebCore/FontCascade.h
+ * syntheticObliqueAngle), for any italic or oblique `style`: canvas does not expose whether a
+ * face was synthesized.
+ */
+export function obliqueShear(style: ResolvedStyle): number {
+  return /^(italic|oblique)\b/.test(style.fontStyle) ? Math.tan(14 * Math.PI / 180) : 0;
 }
 
 /** Conservative ink bounds with the same context state used to paint the text.
@@ -136,16 +136,20 @@ export function textPaintBounds(
   x: number, y: number, width: number, rightAligned = false,
 ): PaintBounds {
   const metrics = ctx.measureText(text);
-  const { ascent, descent, pad } = textPaintReach(style, metrics.actualBoundingBoxAscent || 0,
-    metrics.actualBoundingBoxDescent || 0, ctx.miterLimit ?? 10);
+  const stroke = strokeReach(style, ctx.miterLimit ?? 10);
+  let pad = 2 + stroke;
+  for (const deco of style.textDecorations) {
+    const thickness = deco.declarer.textDecorationThickness ?? Math.max(1, deco.declarer.fontSize / 15);
+    pad = Math.max(pad, 2 + stroke + Math.abs(deco.declarer.textUnderlineOffset ?? deco.declarer.fontSize * 0.2) + thickness * 4);
+  }
   // TextMetrics already accounts for alignment/direction relative to (x, y).
   // Keep the layout advance too: decoration geometry uses it independently.
   const left = Math.min(rightAligned ? -width : 0, -(metrics.actualBoundingBoxLeft || 0));
   const right = Math.max(rightAligned ? 0 : width, metrics.actualBoundingBoxRight || 0);
-  // WebKit can omit synthetic italics from TextMetrics. Its painter shears by
-  // 14 degrees (WebCore/FontCascade.h::syntheticObliqueAngle). Canvas does not
-  // expose whether a face was synthesized, so conservatively allow that shear.
-  const skew = /^(italic|oblique)\b/.test(style.fontStyle) ? Math.tan(14 * Math.PI / 180) : 0;
+  const ascent = Math.max(style.fontSize, metrics.actualBoundingBoxAscent || 0);
+  const descent = Math.max(style.fontSize * 0.5, metrics.actualBoundingBoxDescent || 0);
+  // WebKit can omit synthetic italics from TextMetrics (`CANVAS_INK_UNSHEARED`).
+  const skew = obliqueShear(style);
   return { x: x + left - pad - descent * skew, y: y - ascent - pad,
     width: right - left + pad * 2 + (ascent + descent) * skew, height: ascent + descent + pad * 2 };
 }

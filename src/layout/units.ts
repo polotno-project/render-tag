@@ -4,19 +4,21 @@
 // fillText puts those glyphs (in Firefox, within its 1/60px glyph rounding: CANVAS_ROUNDS_ADVANCES).
 // Each run gets its pieces (`RUN_PIECES`); paint draws them.
 import type {
-  LayoutBox, LayoutLineBox, LayoutText, TextUnit, TextUnitLevel,
+  LayoutBox, LayoutLineBox, LayoutText, ResolvedStyle, TextUnit, TextUnitLevel,
 } from '../types.js';
 import { levelRuns, overrideContent, rtlOverride, visualOrder } from '../bidi.js';
 import {
-  CLAMP_ELLIPSIS, INLINE_BLOCK, LINE_BASELINE, LINE_BOX, LIST_MARKER, paintBaselines, RUN_LEVELS, RUN_PIECES,
-  SPACE_WRAP, type LayoutSession, type PrivateLineBox, type PrivateText,
+  CLAMP_ELLIPSIS, INLINE_BLOCK, LINE_BASELINE, LINE_BOX, LIST_MARKER, paintBaselines, paintLineSnap, RUN_LEVELS,
+  RUN_PIECES, SPACE_WRAP, type LayoutSession, type PrivateLineBox, type PrivateText,
 } from './session.js';
 import {
   breakFlags, graphemes, needsSegmenter, SEG_CJK, SEG_CLOSING_PUNCT, SEG_OPENING_PUNCT, segmenter, shapesAsRun,
   textFlags, wordSpacingIn,
 } from './segment.js';
 import { textEdges, withDirection } from './util.js';
-import { textPaintReach } from '../shadow.js';
+import { obliqueShear, strokeReach } from '../shadow.js';
+import { CANVAS_INK_UNSHEARED } from '../engine.js';
+import { bandSpan, fragmentBands } from '../decoration.js';
 
 /** The part of one run one unit paints. */
 export interface UnitPiece {
@@ -323,21 +325,45 @@ function graphemeSpans(text: string, owner: number[], a: number, b: number): [nu
 /** A unit's stretch of a line; `box` places it (a list marker's own, else the line's). */
 interface Extent { unit: TextUnit; line: number; box: PrivateLineBox; left: number; right: number; rtl: boolean }
 
-/** `[top, bottom]` of what `run` paints: `textPaintReach` on each of its baselines. Its ink is
- * its words': shaping across a space moves no glyph up or down, and words repeat. */
-function paintSpan(session: LayoutSession, run: LayoutText): readonly [number, number] {
+/**
+ * `[left, top, right, bottom]` of what `run` paints: its glyph ink as the canvas reports it, 2px
+ * past each edge (Blink off macOS rounds it to whole px, Gecko's sits ~1px right) and past its
+ * stroke, and its decoration bands, 1px past their ends. Its height is its words': shaping across
+ * a space moves no glyph up or down, and words repeat. Where the canvas reports no ink, the font
+ * box and the advance.
+ */
+function paintRect(session: LayoutSession, run: LayoutText): readonly [number, number, number, number] {
   const m = session.measurer;
   const state = m.stateOf(run.style);
-  let inkAscent = 0, inkDescent = 0;
+  const box = m.metrics(run.style);
+  let ascent = 0, descent = 0;
   for (const word of run.text.split(' ')) {
     if (!word) continue;
     const ink = m.reportedInk(state, word);
-    inkAscent = Math.max(inkAscent, ink.ascent);
-    inkDescent = Math.max(inkDescent, ink.descent);
+    const reported = ink.ascent !== 0 || ink.descent !== 0;
+    ascent = Math.max(ascent, reported ? ink.ascent : box.ascent);
+    descent = Math.max(descent, reported ? ink.descent : box.descent);
   }
-  const { ascent, descent, pad } = textPaintReach(run.style, inkAscent, inkDescent);
+  const [x0, x1] = textEdges(run);
   const [y, lineY] = paintBaselines(run);
-  return [Math.min(y, lineY) - ascent - pad, Math.max(y, lineY) + descent + pad];
+  const pad = 2 + strokeReach(run.style);
+  let left = Infinity, right = -Infinity, top = y - ascent - pad, bottom = y + descent + pad;
+  if (run.text.trim()) {
+    // Painted from its left edge as measured, plus its word-spacing; a shear leans its ink right
+    // above the baseline.
+    const ink = m.reportedInk(state, run.text);
+    const spacing = wordSpacingIn(run.text, run.style.wordSpacing);
+    const shear = CANVAS_INK_UNSHEARED ? obliqueShear(run.style) : 0;
+    [left, right] = [x0 - ink.left - descent * shear - pad, x0 + ink.right + spacing + ascent * shear + pad];
+  }
+  const metrics = { fontBox: (style: ResolvedStyle) => m.metrics(style), deviceScale: 1 };
+  for (const { band } of fragmentBands(metrics, run.style, x0, x1 - x0, y, paintLineSnap(run), lineY)) {
+    const [bandTop, bandBottom] = bandSpan(band);
+    [left, top, right, bottom] = [
+      Math.min(left, band.x - 1), Math.min(top, bandTop), Math.max(right, band.x + band.width + 1), Math.max(bottom, bandBottom),
+    ];
+  }
+  return [left, top, right, bottom];
 }
 
 function placePieces(
@@ -394,10 +420,12 @@ function placePieces(
   // Every piece paints within its unit's fragments on its line, white space its decorations.
   onLine.forEach((pieces, line) => {
     for (const piece of pieces) {
-      const [top, bottom] = paintSpan(session, piece.run);
+      const [left, top, right, bottom] = paintRect(session, piece.run);
       for (const f of piece.unit.fragments) {
         if (f.line !== line) continue;
+        f.paintLeft = Math.min(f.paintLeft, left);
         f.paintTop = Math.min(f.paintTop, top);
+        f.paintRight = Math.max(f.paintRight, right);
         f.paintBottom = Math.max(f.paintBottom, bottom);
       }
     }
@@ -485,7 +513,8 @@ function setGeometry(drafts: Draft[], extents: Extent[], lines: LineInfo[], byLi
     } else {
       e.unit.fragments.push({
         line: e.line, x: e.left, y: box.y, width: e.right - e.left, height: box.height,
-        baseline: box[LINE_BASELINE]!, direction, paintTop: Infinity, paintBottom: -Infinity,
+        baseline: box[LINE_BASELINE]!, direction,
+        paintLeft: Infinity, paintTop: Infinity, paintRight: -Infinity, paintBottom: -Infinity,
       });
     }
     previous = e;

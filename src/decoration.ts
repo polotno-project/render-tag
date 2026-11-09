@@ -110,7 +110,7 @@ export function decorationBand(
  * when only the run was vertical-aligned. tests/decorating-box-geometry.test.ts.
  */
 export function fragmentBands(
-  ps: PaintState, style: ResolvedStyle, x: number, width: number,
+  ps: Pick<PaintState, 'fontBox' | 'deviceScale'>, style: ResolvedStyle, x: number, width: number,
   baseline: number, snap: number, lineBaseline?: number,
 ): { band: Band; deco: DecorationEntry }[] {
   let ascent: number | undefined;
@@ -228,16 +228,48 @@ function wavePath(
   }
 }
 
+/** How far a double band's second line sits from its first: t + 1, away from the text. */
+function doubleOffset({ line, thickness: t }: Band): number {
+  return line === 'line-through' ? Math.floor(t + 1) : line === 'overline' ? -(t + 1) : t + 1;
+}
+
+/** A wavy band's axis offset from its top, control point and wavelength (`MakeWave`). */
+function waveOf({ line, thickness: t }: Band) {
+  const k = Math.max(1, t);
+  return {
+    offset: line === 'underline' ? t + 1 : line === 'overline' ? -(t + 1) : 0,
+    cp: 0.5 + Math.round(3 * k + 0.5),
+    wavelength: 1 + 2 * Math.round(2 * k + 0.5),
+  };
+}
+
+/** Top and bottom of what `paintBand` paints for `band`, 1px past each for any device pixel. A
+ * wave's cubic, control points at ±cp, peaks at cp·√3/6. */
+export function bandSpan(band: Band): readonly [number, number] {
+  const { style, y, rows, thickness: t } = band;
+  let top = y, bottom = y + rows;
+  if (style === 'double') {
+    const offset = doubleOffset(band);
+    [top, bottom] = [Math.min(y, y + offset), Math.max(y, y + offset) + rows];
+  } else if (style === 'wavy') {
+    const { offset, cp } = waveOf(band);
+    const reach = cp * Math.sqrt(3) / 6 + t / 2;
+    [top, bottom] = [y + offset + 0.5 - reach, y + offset + 0.5 + reach];
+  } else if (style === 'dotted' || style === 'dashed') {
+    bottom = y + Math.max(t, 1) + 0.5;
+  }
+  return [top - 1, bottom + 1];
+}
+
 export function paintBand(ps: PaintState, band: Band, color: string | CanvasGradient, pen: Pen = ps.ctx) {
   const { ctx } = ps;
-  const { line, style, x, width, y, rows, thickness: t } = band;
+  const { style, x, width, y, rows, thickness: t } = band;
   // Solid and double bands are rects snapped on y only (`SnapYAxis`).
   const top = Math.floor(y + 0.5);
   if (style === 'double') {
     rule(ps, x, x + width, top, rows, color, pen);
     // The second band is moved t + 1 and snapped on its own.
-    const offset = line === 'line-through' ? Math.floor(t + 1) : line === 'overline' ? -(t + 1) : t + 1;
-    rule(ps, x, x + width, Math.floor(y + offset + 0.5), rows, color, pen);
+    rule(ps, x, x + width, Math.floor(y + doubleOffset(band) + 0.5), rows, color, pen);
     return;
   }
   if (style === 'dotted' || style === 'dashed') {
@@ -257,10 +289,7 @@ export function paintBand(ps: PaintState, band: Band, color: string | CanvasGrad
   }
   if (style === 'wavy') {
     // `MakeWave`: painted from a cached tile whose origin lands on a device pixel.
-    const k = Math.max(1, t);
-    const wavelength = 1 + 2 * Math.round(2 * k + 0.5);
-    const cp = 0.5 + Math.round(3 * k + 0.5);
-    const offset = line === 'underline' ? t + 1 : line === 'overline' ? -(t + 1) : 0;
+    const { offset, cp, wavelength } = waveOf(band);
     const tileTop = Math.floor(0.5 - cp - t / 2);
     const axis = toDevice(y + offset + tileTop, band.deviceScale) + 0.5 - tileTop;
     ps.stroke(color, t);

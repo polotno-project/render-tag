@@ -180,11 +180,12 @@ drawLayout({
   `index`, `text`, `kind` (`text`, `marker`, `ellipsis`, `atomic`), `word`,
   `grouped`, a box and `fragments` (one per line and direction, with its
   baseline), in layout px. White space is never a unit.
-- A fragment's `y` and `height` are its line box; `paintTop` and `paintBottom`
-  are how far its text paints, glyphs, strokes and decorations included (not
-  text-shadow). Under a tight line-height that is past the line box: to clip a
-  line to its own row while it moves, as a masked line reveal does, clip to
-  `paintTop`…`paintBottom` and nothing is cut, moving or at rest.
+- A fragment's `x` and `width` are its advance and its `y` and `height` its
+  line box; `paintLeft`, `paintTop`, `paintRight` and `paintBottom` are how far
+  its text paints, glyphs, strokes and decorations included (not text-shadow).
+  An italic's overhang or a tight line-height reaches past the box: to clip a
+  line to its own place while it moves, as a masked line reveal does, clip to
+  those edges and nothing is cut, moving or at rest.
 - The ctx is saved before each call and restored after. The callback can run
   more than once per unit in a draw: make it a pure function of the unit and
   your time.

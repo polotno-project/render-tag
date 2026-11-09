@@ -41,6 +41,11 @@ export const CANVAS_ROUNDS_ADVANCES = ENGINE === 'gecko';
  * widening back out with letter-spacing. cross-browser.compare. */
 export const CANVAS_WIDENS_SYNTHETIC_BOLD = ENGINE === 'gecko';
 
+/** WebKit's canvas leaves a synthetic oblique's shear out of `measureText`'s ink box (Lobster
+ * 90px "fluffy" paints 4.3px left and 7.3px right of it): `paintRect` adds the shear
+ * (`obliqueShear`). Blink's box holds it. paint-bounds. */
+export const CANVAS_INK_UNSHEARED = ENGINE === 'webkit';
+
 /** `measureText`'s ink box is not the painted ink, so `Measurer.inkBox` reads the
  * pixels. WebKit's always holds the pen origin and the advance, whatever the
  * textBaseline, textAlign or letterSpacing: `•` (Roboto 100px, ink 47.4 up,
