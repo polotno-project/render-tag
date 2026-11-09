@@ -416,7 +416,7 @@ li::marker { content: none; font-size: 0; line-height: 0; }
 ### Design decisions
 
 - **Chrome-first.** When a rendering choice must favor one browser over another, Chrome wins.
-- **One layout in every browser: Chrome's.** In Firefox, Safari and Node, render-tag lays text out and paints it where Chrome's DOM would: the same lines, positions and line boxes, not each browser's own. What a canvas reports differently is normalized to Chrome's numbers (Firefox's ceiled font box); only workarounds for a canvas API that paints differently vary by engine. A contenteditable overlay in Firefox or Safari therefore lines up with Chrome's layout, not with that browser's. On Linux, Chrome lays text on hinted whole-pixel glyph advances, which no other canvas reports: there Firefox matches Chrome with font hinting off. Layout never probes the DOM.
+- **One layout in every browser: Chrome's.** In Firefox, Safari and Node, render-tag lays text out and paints it where Chrome's DOM would: the same lines, positions and line boxes, not each browser's own. What a canvas reports differently is normalized to Chrome's numbers (Firefox's ceiled font box and its glyph widths rounded to 1/60px); only workarounds for a canvas API that paints differently vary by engine. A contenteditable overlay in Firefox or Safari therefore lines up with Chrome's layout, not with that browser's. On Linux, Chrome lays text on hinted whole-pixel glyph advances, which no other canvas reports: there Firefox matches Chrome with font hinting off. Layout never probes the DOM.
 
 ## License
 

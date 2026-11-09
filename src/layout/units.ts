@@ -1,7 +1,8 @@
 // Text units: the laid-out text cut into lines, words or graphemes in reading order, for
 // `drawLayout`'s `paintTextUnit`. Built once per call after layout, from the runs as they
 // paint: a cut is measured in the run's own state, so a piece lands where the run's own
-// fillText puts those glyphs. Each run gets its pieces (`RUN_PIECES`); paint draws them.
+// fillText puts those glyphs (in Firefox, within its 1/60px glyph rounding: CANVAS_ROUNDS_ADVANCES).
+// Each run gets its pieces (`RUN_PIECES`); paint draws them.
 import type {
   LayoutBox, LayoutLineBox, LayoutText, TextUnit, TextUnitLevel,
 } from '../types.js';

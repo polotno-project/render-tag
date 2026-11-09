@@ -3318,14 +3318,21 @@ describe('Firefox lays out as Chrome', () => {
   // (CANVAS_CEILS_FONT_BOX), so this mock reports 0.72em / 0.28em as Firefox would (16px:
   // 12 / 5, where Chrome's rounds 11.52 / 4.48 to 12 / 4); Node's Blink branch reads it exact.
   const FIREFOX = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14.6; rv:143.0) Gecko/20100101 Firefox/143.0';
+  /** The size the mock is set to: its widths scale with it from the mock's 16px ones, as a real
+   * canvas's do (Firefox measures widths at 2000px). */
+  const sizeOf = (ctx: CanvasRenderingContext2D) => parseFloat(/([\d.]+)px/.exec(ctx.font)?.[1] ?? '16');
 
   function proportionalCtx(ceils: boolean) {
     const ctx = mockCtx();
     const measure = ctx.measureText.bind(ctx);
     ctx.measureText = (text: string) => {
-      const size = parseFloat(/([\d.]+)px/.exec(ctx.font)?.[1] ?? '16');
+      const size = sizeOf(ctx);
       const round = ceils ? Math.ceil : (v: number) => v;
-      return { ...measure(text), fontBoundingBoxAscent: round(size * 0.72), fontBoundingBoxDescent: round(size * 0.28) } as TextMetrics;
+      const width = measure(text).width * size / 16;
+      return {
+        ...measure(text), width, actualBoundingBoxRight: width,
+        fontBoundingBoxAscent: round(size * 0.72), fontBoundingBoxDescent: round(size * 0.28),
+      } as TextMetrics;
     };
     return ctx;
   }
@@ -3360,8 +3367,8 @@ describe('Firefox lays out as Chrome', () => {
       ctx.measureText = (text: string) => {
         const m = measure(text);
         const bold = /\b700\b/.test(ctx.font);
-        const width = /Duo/.test(ctx.font) && bold ? m.width + 3 * (text.split('i').length - 1) - (text.split('W').length - 1)
-          : firefox && bold ? m.width + 2 * [...text].length : m.width;
+        const width = (/Duo/.test(ctx.font) && bold ? m.width + 3 * (text.split('i').length - 1) - (text.split('W').length - 1)
+          : firefox && bold ? m.width + 2 * [...text].length : m.width) * sizeOf(ctx) / 16;
         return { ...m, width, actualBoundingBoxRight: width } as TextMetrics;
       };
       ctx.fillText = () => { spacings.push(ctx.letterSpacing); };
@@ -3385,6 +3392,67 @@ describe('Firefox lays out as Chrome', () => {
       const duo = canvas(true);
       expect(runs(mod.layout({ html: html('Duo'), width: 400, ctx: duo.ctx }))).toEqual(
         runs(layout({ html: html('Duo'), width: 400, ctx: canvas(false).ctx })));
+    } finally {
+      vi.unstubAllGlobals();
+      vi.resetModules();
+    }
+  });
+
+  it('on the advances Chrome measures, not rounded to 1/60px', async () => {
+    // Firefox's canvas rounds each glyph advance to 1/60px at the font's size. Here a letter is
+    // 0.5525em: 8.84px at 16px, 8.8333 rounded. 21 glyphs: 185.64px, past a 185.6px box;
+    // rounded, 185.5px, which fits. An emoji takes its bitmap strike's advance in both
+    // browsers: 1.25em under 160px, 1em from there. 'Opsz' letters narrow to 0.5em from 1000px,
+    // 'Mixed' ones only in Cyrillic, as a fallback font designed per size would. Firefox widens
+    // 'Synth' bold Arabic, a fallback with no bold face, as Gecko widens a synthetic bold, and it
+    // snaps a fractional size, to 1/8px here.
+    const canvas = (rounds: boolean) => {
+      const ctx = mockCtx();
+      const measure = ctx.measureText.bind(ctx);
+      ctx.measureText = (text: string) => {
+        const size = rounds ? Math.round(sizeOf(ctx) * 8) / 8 : sizeOf(ctx);
+        const width = [...text].reduce((sum, ch) => {
+          const em = /\p{Extended_Pictographic}/u.test(ch) ? (size < 160 ? 1.25 : 1)
+            : size >= 1000 && (/Opsz/.test(ctx.font) || /Mixed/.test(ctx.font) && /\p{Script=Cyrillic}/u.test(ch))
+              ? 0.5 : 0.5525;
+          const synthetic = rounds && /^700 .*Synth/.test(ctx.font) && /\p{Script=Arabic}/u.test(ch);
+          const widening = synthetic ? (size < 48 ? 0.25 + 0.75 * size / 48 : size / 48) : 0;
+          const advance = size * em + (parseFloat(ctx.letterSpacing) || 0) + widening;
+          return sum + (rounds ? Math.round(advance * 60) / 60 : advance);
+        }, 0);
+        return { ...measure(text), width, actualBoundingBoxRight: width } as TextMetrics;
+      };
+      return ctx;
+    };
+    const html = '<p style="margin:0;font:16px Solo">aaaaaaaaaa aaaaaaaaaa</p>';
+    const emoji = '<p style="margin:0;font:16px Solo">a\u{1F600}b</p>';
+    const opsz = '<p style="margin:0;font:16px Opsz">aaaaaaaaaa</p>';
+    const mixed = '<p style="margin:0;font:16px Mixed">аааааааааа</p>';
+    const synth = '<p style="margin:0;font:700 16px Synth">مممممم</p>';
+    const small = '<p style="margin:0;font:2.2px Solo">aaaaaaaaaa</p>';
+    const lines = (result: { lines: { text: string }[] }) => result.lines.map((line) => line.text.trim());
+    const chrome = lines(layout({ html, width: 185.6, ctx: canvas(false) }));
+    expect(chrome).toEqual(['aaaaaaaaaa', 'aaaaaaaaaa']);
+    const chromeEmoji = layout({ html: emoji, width: 400, ctx: canvas(false) }).lines[0].bounds.width;
+    const chromeOpsz = layout({ html: opsz, width: 400, ctx: canvas(false) }).lines[0].bounds.width;
+    const chromeMixed = layout({ html: mixed, width: 400, ctx: canvas(false) }).lines[0].bounds.width;
+    const chromeSynth = layout({ html: synth, width: 400, ctx: canvas(false) }).lines[0].bounds.width;
+    const chromeSmall = layout({ html: small, width: 400, ctx: canvas(false) }).lines[0].bounds.width;
+    vi.resetModules();
+    vi.stubGlobal('navigator', { userAgent: FIREFOX });
+    try {
+      const mod = await import('../../src/index.ts');
+      mod.setDOMParser(new LinkedomDOMParser());
+      expect(lines(mod.layout({ html, width: 185.6, ctx: canvas(true) }))).toEqual(chrome);
+      expect(mod.layout({ html: emoji, width: 400, ctx: canvas(true) }).lines[0].bounds.width).toBeCloseTo(chromeEmoji, 1);
+      expect(mod.layout({ html: opsz, width: 400, ctx: canvas(true) }).lines[0].bounds.width).toBeCloseTo(chromeOpsz, 0);
+      expect(mod.layout({ html: mixed, width: 400, ctx: canvas(true) }).lines[0].bounds.width).toBeCloseTo(chromeMixed, 0);
+      // The Latin of 'Mixed' still scales, so it still lays out on Chrome's advances.
+      expect(lines(mod.layout({ html: html.replace('Solo', 'Mixed'), width: 185.6, ctx: canvas(true) }))).toEqual(chrome);
+      // Read at 2000px, the synthetic bold keeps a third of a px a glyph at 16px, not half.
+      expect(mod.layout({ html: synth, width: 400, ctx: canvas(true) }).lines[0].bounds.width).toBeCloseTo(chromeSynth + 6 / 3, 0);
+      // 2.2px snaps to 2.25 (Firefox's Open Sans at 2.2px: 1.1% off), a font that scales all the same.
+      expect(mod.layout({ html: small, width: 400, ctx: canvas(true) }).lines[0].bounds.width).toBeCloseTo(chromeSmall, 2);
     } finally {
       vi.unstubAllGlobals();
       vi.resetModules();

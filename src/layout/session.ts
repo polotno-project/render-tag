@@ -3,7 +3,7 @@
 import type { StyledNode, LayoutBox, LayoutText, LayoutLineBox, ResolvedStyle, LayoutLine } from '../types.js';
 import { LINE_HEIGHT_MULTIPLIER } from '../css-resolver.js';
 import { createFallbackMeasureCtx } from '../dom.js';
-import { CANVAS_CEILS_FONT_BOX, CANVAS_WIDENS_SYNTHETIC_BOLD, INK_BOX_FROM_PAINT } from '../engine.js';
+import { CANVAS_CEILS_FONT_BOX, CANVAS_ROUNDS_ADVANCES, CANVAS_WIDENS_SYNTHETIC_BOLD, INK_BOX_FROM_PAINT } from '../engine.js';
 import { graphemes, letterSpaced, type PreparedInline } from './segment.js';
 
 /**
@@ -118,6 +118,8 @@ export const BULLET_MARKERS = new Set(['disc', 'circle', 'square']);
 /** The canvas state a width depends on, interned per call by value (one width cache each). */
 export interface MeasureState {
   readonly font: string;
+  /** The size `font` sets. */
+  readonly fontSize: number;
   readonly kerning: CanvasFontKerning;
   readonly textRendering: CanvasTextRendering;
   readonly lang: string;
@@ -128,6 +130,8 @@ export interface MeasureState {
   units: { ch: number; ex: number } | undefined;
   /** `Measurer.inkBox` results under this state, by text. */
   inks: Map<string, InkBox> | undefined;
+  /** `Measurer.scales` answers for this probe state, by sample. */
+  scales: Map<string, boolean> | undefined;
 }
 
 type FontBox = Readonly<{ ascent: number; descent: number }>;
@@ -279,10 +283,42 @@ export class Measurer {
       // Asked before measuring: asking writes the ctx's spacing.
       const added = spacing && !(this.appliesLetterSpacing ??= canvasSpacing(this.ctx).letter)
         ? spacing * letterSpaced(graphemes(text)).filter(Boolean).length : 0;
-      width = this.measureText(state, text).width + added;
+      width = this.advance(state, text) + added;
       state.widths.set(text, width);
     }
     return width;
+  }
+
+  /** `measureText`'s width; read at EXACT_PROBE_SIZE where the canvas rounds advances
+   * (`CANVAS_ROUNDS_ADVANCES`) and the fonts of the text's scripts scale with the size. */
+  private advance(state: MeasureState, text: string): number {
+    if (CANVAS_ROUNDS_ADVANCES && state.fontSize > 0 && state.fontSize < EXACT_PROBE_SIZE && !STRIKE_SIZED.test(text) &&
+      SCALING_PROBES.every(([script, sample]) => !script.test(text) || this.scales(state, sample))) {
+      const scale = EXACT_PROBE_SIZE / state.fontSize;
+      const exact = this.intern(state.font.replace(`${state.fontSize}px`, `${EXACT_PROBE_SIZE}px`), EXACT_PROBE_SIZE,
+        state.kerning, state.textRendering, state.lang, formatLetterSpacing(parseFloat(state.letterSpacing) * scale));
+      return this.measureText(exact, text).width / scale;
+    }
+    return this.measureText(state, text).width;
+  }
+
+  /** Whether `state`'s fonts keep `sample`'s width per em from their size to EXACT_PROBE_SIZE, read
+   * upright, regular and at a whole px: Firefox widens a synthetic bold 0.25 + 0.75 * size / 48 px a
+   * glyph under 48px (size / 48 above), and snaps a fractional size (`CANVAS_ROUNDS_ADVANCES`). */
+  private scales(state: MeasureState, sample: string): boolean {
+    const size = `${state.fontSize}px`;
+    const families = state.font.slice(state.font.indexOf(size) + size.length);
+    const at = (px: number) => this.intern(`${px}px${families}`, px, 'normal', state.textRendering, state.lang, '0px');
+    const probe = at(Math.ceil(state.fontSize));
+    const scales = probe.scales ??= new Map();
+    let result = scales.get(sample);
+    if (result === undefined) {
+      const perEm = (s: MeasureState) => this.measureText(s, sample).width / s.fontSize;
+      // At a whole px Firefox's rounding moves a sample 0.02% (Arimo, Open Sans 16px).
+      const near = perEm(probe);
+      scales.set(sample, result = Math.abs(near - perEm(at(EXACT_PROBE_SIZE))) <= near / 100);
+    }
+    return result;
   }
 
   /** Uncached, for ink metrics: its `width` is not `width`'s on a ctx that ignores letterSpacing. */
@@ -324,7 +360,7 @@ export class Measurer {
       let metrics = this.fontMetrics.get(font);
       if (!metrics) {
         const at = (size: number) => size === style.fontSize ? fs.measure
-          : this.intern(buildCanvasFont({ ...style, fontSize: size }), 'normal', canvasTextRendering(style), style.lang, '0px');
+          : this.intern(buildCanvasFont({ ...style, fontSize: size }), size, 'normal', canvasTextRendering(style), style.lang, '0px');
         metrics = chromeFontBox(style.fontSize, (size) => fontBox(this.measureText(at(size), 'M')));
         this.fontMetrics.set(font, metrics);
       }
@@ -386,8 +422,8 @@ export class Measurer {
    * resolver; 0.5em when the ctx cannot answer (CSS Values 4).
    */
   fontUnits(style: ResolvedStyle): { ch: number; ex: number } {
-    const state = this.intern(canvasFont(this.ctx, style, this.canvasFonts), 'normal', canvasTextRendering(style),
-      style.lang, '0px');
+    const state = this.intern(canvasFont(this.ctx, style, this.canvasFonts), style.fontSize, 'normal',
+      canvasTextRendering(style), style.lang, '0px');
     if (!state.units) {
       const ch = this.width(state, '0');
       const ex = this.measureText(state, 'x').actualBoundingBoxAscent;
@@ -402,8 +438,8 @@ export class Measurer {
     const fs = this.font(style);
     if (!fs.tabStops) {
       // Measured with letter-spacing off; the block's spacing is added per stop.
-      const { font, kerning, textRendering, lang } = fs.measure;
-      const spaceless = this.intern(font, kerning, textRendering, lang, '0px');
+      const { font, fontSize, kerning, textRendering, lang } = fs.measure;
+      const spaceless = this.intern(font, fontSize, kerning, textRendering, lang, '0px');
       const spaceWidth = this.width(spaceless, ' ');
       fs.tabStops = {
         interval: (spaceWidth + (style.letterSpacing || 0) + (style.wordSpacing || 0)) * 8,
@@ -419,7 +455,7 @@ export class Measurer {
       // A synthetic bold measures on the regular face's advances, as Chrome lays it out.
       const measured = syntheticBoldWidening(this.ctx, style, this.boldWidenings) ? { ...style, fontWeight: 400 } : style;
       fs = {
-        measure: this.intern(canvasFont(this.ctx, measured, this.canvasFonts), canvasKerning(style),
+        measure: this.intern(canvasFont(this.ctx, measured, this.canvasFonts), style.fontSize, canvasKerning(style),
           canvasTextRendering(style), style.lang, formatLetterSpacing(style.letterSpacing)),
         metrics: undefined,
         computedLineHeight: undefined,
@@ -433,13 +469,15 @@ export class Measurer {
   }
 
   private intern(
-    font: string, kerning: CanvasFontKerning, textRendering: CanvasTextRendering, lang: string, letterSpacing: string,
+    font: string, fontSize: number, kerning: CanvasFontKerning, textRendering: CanvasTextRendering, lang: string,
+    letterSpacing: string,
   ): MeasureState {
     const key = font + '\0' + kerning + '\0' + textRendering + '\0' + lang + '\0' + letterSpacing;
     let state = this.states.get(key);
     if (!state) {
       state = {
-        font, kerning, textRendering, lang, letterSpacing, widths: new Map(), units: undefined, inks: undefined,
+        font, fontSize, kerning, textRendering, lang, letterSpacing, widths: new Map(), units: undefined, inks: undefined,
+        scales: undefined,
       };
       this.states.set(key, state);
     }
@@ -540,6 +578,17 @@ function halfCoverEdge(coverage: Uint8Array, step: 1 | -1): number | null {
   }
   return null;
 }
+
+/** Text a color emoji font may draw: its advances are its bitmap strike's, not proportional to
+ * the size (Apple Color Emoji ❤️: 20px at 16px, 1em from 160px up, in Chrome and Firefox). */
+const STRIKE_SIZED = /\p{Extended_Pictographic}|\p{Regional_Indicator}|\uFE0F/u;
+/** `Measurer.scales` probes, each for the text it matches: a font designed per size (an opsz axis,
+ * size-specific tracking) may be a fallback for some scripts alone. macOS system-ui 16px, read at
+ * 2000px: Latin -7.9%, Cyrillic -6.9%, Greek -3.1%, Hebrew -2.0%, Arabic -1.8%; CJK and Thai scale. */
+const SCALING_PROBES: readonly (readonly [RegExp, string])[] = [
+  [/./su, 'Hamburgefonstiv'], [/\p{Script=Cyrillic}/u, 'Съешь же ещё'], [/\p{Script=Greek}/u, 'Ελληνικά'],
+  [/\p{Script=Arabic}/u, 'مرحبا بالعالم'], [/\p{Script=Hebrew}/u, 'שלום עולם'],
+];
 
 /** Large enough that the canvas's whole-px font box is exact to 1/2000em (under 0.01px at a
  * text size), small enough for every canvas: Firefox's font box stops growing past 2000px

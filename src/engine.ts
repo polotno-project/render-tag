@@ -28,6 +28,13 @@ export const CANVAS_BIDI_LINE = ENGINE !== 'webkit';
  * cross-browser.compare. */
 export const CANVAS_CEILS_FONT_BOX = ENGINE === 'gecko';
 
+/** Firefox's canvas rounds each glyph advance to 1/60px at the font's size (Open Sans 700 16px
+ * "Съешь же ещё этих мягких французских булок": 398.883px, Chrome 398.992) and snaps a fractional
+ * size (Open Sans 2.2px: 1.1% narrow, 11.2px: 0.55% wide), so a line can fit a word Chrome wraps. At EXACT_PROBE_SIZE and scaled it reports Chrome's within 0.002px:
+ * `Measurer.width` reads widths there, but emoji (`STRIKE_SIZED`) and fonts designed per size
+ * (`SCALING_PROBES`). cross-browser.compare. */
+export const CANVAS_ROUNDS_ADVANCES = ENGINE === 'gecko';
+
 /** Firefox's canvas widens each glyph of a synthetic bold, ~0.57px at 20px (Lobster, one weight:
  * "still underlined" 125.03px bold, 115.97 regular), where Chrome's keeps the regular advances
  * (116.02 both): layout measures the regular face (`syntheticBoldWidening`) and paint takes the
