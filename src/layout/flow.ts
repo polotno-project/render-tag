@@ -508,8 +508,6 @@ export class LineFlow {
   readonly m: Measurer;
   /** No soft wrapping at all: everything up to a forced break is one line. */
   readonly noWrap: boolean;
-  /** `pre`, `pre-wrap` and `break-spaces` preserve leading and trailing white space. */
-  readonly preservesWhitespace: boolean;
   private readonly keepsSpaceOnlyLines: boolean;
   /** The segment `gluedTail` last read, its width and the `endKern` after it. */
   private tailOf = -1;
@@ -535,7 +533,6 @@ export class LineFlow {
     this.line = this.newLine();
     this.noWrap = whiteSpace === 'nowrap' || whiteSpace === 'pre';
     this.keepsSpaceOnlyLines = whiteSpace === 'pre-wrap' || whiteSpace === 'pre' || whiteSpace === 'pre-line';
-    this.preservesWhitespace = preservesSpaces(whiteSpace);
     if (block) {
       const isRTL = block.direction === 'rtl';
       this.blockShowsTrailingSpace = physicalAlign(block.textAlign, isRTL) !== physicalAlign('start', isRTL) ||
@@ -710,7 +707,7 @@ export class LineFlow {
     // Trim trailing spaces: `break-spaces` keeps them; `pre`/`pre-wrap` keep them except at
     // soft wraps (CSS Text 3 §4.1.1).
     const preserveTrailing = this.whiteSpace === 'break-spaces'
-      || (this.preservesWhitespace && !isSoftWrap);
+      || (preservesSpaces(this.whiteSpace) && !isSoftWrap);
     if (!preserveTrailing) {
       while (line.length > 0 && this.isSpace(line[line.length - 1])) {
         const space = line[line.length - 1];
