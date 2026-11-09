@@ -164,6 +164,11 @@ export function preservesSpaces(whiteSpace: string): boolean {
   return whiteSpace === 'pre' || whiteSpace === 'pre-wrap' || whiteSpace === 'break-spaces';
 }
 
+/** Preserved spaces a line may wrap after (`pre-wrap`, `break-spaces`); `pre` never wraps. */
+export function wrapsPreservedSpaces(whiteSpace: string): boolean {
+  return whiteSpace === 'pre-wrap' || whiteSpace === 'break-spaces';
+}
+
 /**
  * Whether inline content makes a line box (CSS 2.1 §9.4.2): text, preserved white space, an
  * atomic inline, or an inline with inline-axis margin/border/padding. An empty `<span>` does not.
