@@ -274,7 +274,7 @@ describe('Wrap fuzz (generative differential)', () => {
     //    the OS's font rasterization), so portable mode keeps only gate 1.
     const known: string[] | null = PORTABLE_GATES_ONLY
       ? null
-      : (baseline as Record<string, string[] | null>)[browserName] ?? null;
+      : (baseline as Partial<Record<string, unknown>>)[browserName] as string[] | null ?? null;
     if (known) {
       const knownSet = new Set(known);
       const newSigs = findings

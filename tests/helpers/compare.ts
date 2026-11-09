@@ -832,7 +832,7 @@ export function compareCanvasPixels(
   const mismatchedPixels = pixelmatch(
     referencePixels,
     actualPixels,
-    null,
+    undefined,
     width,
     height,
     { threshold },

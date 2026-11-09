@@ -31,7 +31,7 @@ import { reportPath } from './helpers/report-path.ts';
 const UNIT = ENGINE === 'gecko' ? 1 / 60 : 1 / 64;
 const EPS = 1e-6;
 
-const PINNED = FONT_VARIANTS.map((f) => ({ font: f.name, family: f.family }));
+const PINNED: { font: string; family: string }[] = FONT_VARIANTS.map((f) => ({ font: f.name, family: f.family }));
 // Unpinned: present on macOS, fallbacks on CI runners. Kept in their own
 // families so they never mix with comparable rows.
 const SYSTEM = ['sans-serif', 'Georgia', 'Verdana'].map((f) => ({ font: f, family: f }));
@@ -109,7 +109,7 @@ function round(n: number): number {
 
 const cross = <A, B>(as: A[], bs: B[]) => as.flatMap((a) => bs.map((b) => [a, b] as const));
 
-function lineHeightInputs(fonts: typeof PINNED, lineHeights: string[]): Input[] {
+function lineHeightInputs(fonts: typeof SYSTEM, lineHeights: string[]): Input[] {
   return cross(fonts, cross(SIZES, lineHeights)).map(([f, [size, lh]]) => ({
     font: f.font, family: f.family, size, lh, ...canvasMetrics(f.family, size),
   }));
@@ -130,7 +130,7 @@ function usedLineHeight(name: string, rule: string, inputs: () => Input[]): Fami
   };
 }
 
-function firstBaseline(name: string, fonts: typeof PINNED): Family {
+function firstBaseline(name: string, fonts: typeof SYSTEM): Family {
   return {
     name, rule: 'lineBaselineOffset (half-leading)', fields: ['baseline'], tol: UNIT,
     get inputs() { return lineHeightInputs(fonts, LINE_HEIGHTS); },
@@ -144,7 +144,7 @@ function firstBaseline(name: string, fonts: typeof PINNED): Family {
   };
 }
 
-function linePitch(name: string, fonts: typeof PINNED): Family {
+function linePitch(name: string, fonts: typeof SYSTEM): Family {
   return {
     name,
     rule: 'multipliedLineHeight (compounded)',

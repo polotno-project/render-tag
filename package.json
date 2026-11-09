@@ -40,7 +40,9 @@
   ],
   "scripts": {
     "dev": "vite --config docs/vite.config.ts",
-    "build": "rm -rf lib && tsc && vite build --config vite.umd.config.ts",
+    "build": "rm -rf lib && tsc -p tsconfig.build.json && vite build --config vite.umd.config.ts",
+    "prepublishOnly": "npm run build",
+    "typecheck": "tsc",
     "docs:build": "vite build --config docs/vite.config.ts",
     "test": "vitest run --project node --project chromium",
     "test:browser": "vitest run --project chromium",
@@ -57,6 +59,7 @@
   },
   "devDependencies": {
     "@napi-rs/canvas": "^1.1.0",
+    "@types/node": "^24.19.2",
     "@vitest/browser-playwright": "^4.1.12",
     "linkedom": "^0.18",
     "pixelmatch": "^7",

@@ -41,9 +41,9 @@ const MIN_WIDTH = 100;
 /** Bands this wide or narrower are threshold knife-edges, counted not listed. */
 const KNIFE_MAX = 2;
 /** `'default'` sweeps the corpus font only; `'all'` adds the 5 font variants. */
-const FONT_MODE: 'default' | 'all' = 'default';
+const FONT_MODE = 'default' as 'default' | 'all';
 /** Restrict to these case names for a quick subset run; `null` sweeps all. */
-const CASE_FILTER: string[] | null = null;
+const CASE_FILTER = null as string[] | null;
 
 interface CaseFinding {
   key: string;

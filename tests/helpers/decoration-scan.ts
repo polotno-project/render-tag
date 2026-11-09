@@ -24,6 +24,7 @@ export interface Stack {
  * clipping. Never stack fonts: the pruned face set (`keepUsedFontFaces`)
  * would change.
  */
+import type { AnyCanvas } from '../../src/types.ts';
 export function stackFixtures(
   blocks: { html: string; width: number; height: number }[],
   gap = 8,
@@ -42,7 +43,7 @@ export function stackFixtures(
 }
 
 /** The device pixels of one region of a capture (default: all of it). */
-export function pixels(canvas: HTMLCanvasElement, region?: Region, dpr = 1): ImageData {
+export function pixels(canvas: AnyCanvas, region?: Region, dpr = 1): ImageData {
   const context = canvas.getContext('2d')!;
   if (!region) return context.getImageData(0, 0, canvas.width, canvas.height);
   return context.getImageData(0, region.y * dpr, region.width * dpr, region.height * dpr);

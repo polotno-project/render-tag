@@ -77,7 +77,7 @@ async function readReference(): Promise<Record<string, ReferenceEntry> | null> {
   return JSON.parse(json) as Record<string, ReferenceEntry>;
 }
 
-interface CaseResult extends Partial<LayoutComparison> {
+interface CaseResult extends Omit<Partial<LayoutComparison>, 'status'> {
   key: string;
   status: LayoutComparison['status'] | 'no-reference';
 }

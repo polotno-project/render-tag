@@ -1,14 +1,24 @@
 {
+  // Type-checks everything (`npm run typecheck`, editors): the library, its tests and the docs
+  // site, which Vite bundles. `tsconfig.build.json` emits the published `lib/` from src alone.
   "compilerOptions": {
     "target": "ES2020",
-    "module": "nodenext",
+    "module": "esnext",
+    "moduleResolution": "bundler",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["node", "vite/client"],
     "strict": true,
     "skipLibCheck": true,
     "isolatedModules": true,
-    "declaration": true,
-    "outDir": "./lib",
-    "rootDir": "./src"
+    "resolveJsonModule": true,
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    // The docs site imports the package by name; resolve it to src as its Vite alias does.
+    "paths": {
+      "render-tag": ["./src/index.ts"],
+      "render-tag/path": ["./src/path/index.ts"]
+    }
   },
-  "include": ["src/**/*"]
+  "include": ["src", "tests", "docs", "*.config.ts"],
+  "exclude": ["tests/.out", "docs/dist"]
 }

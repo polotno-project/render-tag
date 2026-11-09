@@ -38,8 +38,8 @@ import { reportPath } from './helpers/report-path.ts';
 //   FONT_MODE   'all' = default + all FONT_VARIANTS; 'default' = default only
 //   CASE_FILTER null = all cases; or a Set of case names to isolate
 //   WIDTH_MODE  'coarse' (6 widths/case) | 'fine' (20px sweep) | a step in px
-const FONT_MODE: 'all' | 'default' = 'all';
-const CASE_FILTER: Set<string> | null = null;
+const FONT_MODE = 'all' as 'all' | 'default';
+const CASE_FILTER = null as Set<string> | null;
 const WIDTH_MODE: 'coarse' | 'fine' | string = 'coarse';
 
 // Measured but flagged "known" so they don't pollute the actionable list.

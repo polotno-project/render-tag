@@ -2,6 +2,8 @@
  * Pixel counting for the paint suites. A predicate's thresholds are part of
  * its suite's assertions, so a suite whose predicate differs keeps its own.
  */
+import type { AnyCanvas } from '../../src/types.ts';
+
 export type RgbPredicate = (r: number, g: number, b: number) => boolean;
 
 export interface Rect {
@@ -20,7 +22,7 @@ export function makeCanvas(width: number, height: number) {
 }
 
 /** Pixels in `rect` (default: the whole canvas) with alpha >= 128 that match `predicate`. */
-export function countPixels(canvas: HTMLCanvasElement, predicate: RgbPredicate, rect?: Rect): number {
+export function countPixels(canvas: AnyCanvas, predicate: RgbPredicate, rect?: Rect): number {
   const { x, y, w, h } = rect ?? { x: 0, y: 0, w: canvas.width, h: canvas.height };
   const data = canvas.getContext('2d')!.getImageData(x, y, w, h).data;
   let count = 0;
@@ -32,13 +34,13 @@ export function countPixels(canvas: HTMLCanvasElement, predicate: RgbPredicate, 
 }
 
 /** `countPixels` over the whole canvas, where near-white (r, g and b > 240) never counts. */
-export function countColoredPixels(canvas: HTMLCanvasElement, predicate: RgbPredicate): number {
+export function countColoredPixels(canvas: AnyCanvas, predicate: RgbPredicate): number {
   return countPixels(canvas, (r, g, b) => !(r > 240 && g > 240 && b > 240) && predicate(r, g, b));
 }
 
 /** Every pixel whose RGBA matches, transparent ones included. */
 export function countMatching(
-  canvas: HTMLCanvasElement,
+  canvas: AnyCanvas,
   predicate: (r: number, g: number, b: number, a: number) => boolean,
 ): number {
   const data = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data;

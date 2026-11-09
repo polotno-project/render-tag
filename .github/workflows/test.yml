@@ -51,6 +51,8 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - if: matrix.browser == 'chromium'
+        run: npm run typecheck
       - name: Cache native DOM references
         uses: actions/cache@v6
         with:

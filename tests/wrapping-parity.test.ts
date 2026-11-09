@@ -165,7 +165,7 @@ const KNIFE_EDGE_CASES: [string, number, number[]][] = [
   ['<p>Typography fitting puts every line right at the edge of its container box</p>', 1200,
     [529.109375, 529.125, 529.140625, 529.15625]],
 ];
-it.each(KNIFE_EDGE_CASES.flatMap(([html, height, widths]) => widths.map((width) => [width, html, height])))(
+it.each(KNIFE_EDGE_CASES.flatMap(([html, height, widths]) => widths.map((width) => [width, html, height] as const)))(
   'breaks a knife-edge line like the native DOM at %s px', async (width, html, height) => {
     const font = FONT_VARIANTS.find((item) => item.name === 'Roboto')!;
     const css = `${await loadMultiFontCss()}\n${RESET}` +

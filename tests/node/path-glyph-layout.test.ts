@@ -49,6 +49,7 @@ describe('layoutGlyphsOnPath', () => {
       path,
       ctx,
       align: 'left',
+      textBaseline: 'alphabetic',
     });
     expect(out.glyphs).toHaveLength(5);
     for (let i = 0; i < 5; i++) {
@@ -67,6 +68,7 @@ describe('layoutGlyphsOnPath', () => {
       path,
       ctx,
       align: 'center',
+      textBaseline: 'alphabetic',
     });
     expect(out.glyphs[0].x).toBe((200 - 30) / 2);
   });
@@ -79,6 +81,7 @@ describe('layoutGlyphsOnPath', () => {
       path,
       ctx,
       align: 'right',
+      textBaseline: 'alphabetic',
     });
     expect(out.glyphs[0].x).toBe(100 - 20);
     expect(out.glyphs[1].x).toBe(100 - 10);
@@ -93,6 +96,7 @@ describe('layoutGlyphsOnPath', () => {
       path,
       ctx,
       align: 'justify',
+      textBaseline: 'alphabetic',
     });
     expect(out.glyphs).toHaveLength(5);
     // A=0, B=10, space=20 (takes 10+50=60 of path), C=80, D=90
@@ -112,6 +116,7 @@ describe('layoutGlyphsOnPath', () => {
       path,
       ctx,
       align: 'center',
+      textBaseline: 'alphabetic',
     });
     expect(out.glyphs.length).toBeGreaterThan(5);
     // Rotation should monotonically progress from near +π/2 (top of arc start)
@@ -135,6 +140,7 @@ describe('layoutGlyphsOnPath', () => {
       path,
       ctx,
       align: 'left',
+      textBaseline: 'alphabetic',
     });
     expect(out.glyphs).toHaveLength(4);
     expect(out.glyphs[0].style.fontWeight).toBe(400);
@@ -151,6 +157,7 @@ describe('layoutGlyphsOnPath', () => {
       path,
       ctx,
       align: 'left',
+      textBaseline: 'alphabetic',
     });
     // Reversed: C at x=0, B at x=10, A at x=20
     expect(out.glyphs.map(g => g.char)).toEqual(['C', 'B', 'A']);
@@ -162,6 +169,7 @@ describe('layoutGlyphsOnPath', () => {
       path: horizontalPath(200),
       ctx: mockCtx(),
       align: 'left',
+      textBaseline: 'alphabetic',
     });
     expect(out.glyphs.map(g => g.char)).toEqual(['A', 'B', 'C']);
   });
@@ -178,6 +186,7 @@ describe('layoutGlyphsOnPath', () => {
       path: horizontalPath(200),
       ctx: mockCtx(),
       align: 'left',
+      textBaseline: 'alphabetic',
     });
     // Letter by letter: Hebrew does not join.
     expect(out.glyphs.map(g => g.char).join('')).toBe('\u05DD\u05DC\u05D5\u05E2 \u05DD\u05D5\u05DC\u05E9');
@@ -191,6 +200,7 @@ describe('layoutGlyphsOnPath', () => {
       path: horizontalPath(200),
       ctx: mockCtx(),
       align: 'left',
+      textBaseline: 'alphabetic',
     });
     expect(out.glyphs.map(g => g.char)).toEqual([
       'a', 'b', ' ', '\u05D3', '\u05D2', ' ', '\u05D1', '\u05D0', ' ', 'c', 'd',
@@ -205,6 +215,7 @@ describe('layoutGlyphsOnPath', () => {
       path,
       ctx,
       align: 'left',
+      textBaseline: 'alphabetic',
     });
     // 3 full glyphs (0..30) fit. The 4th (30..40) overflows by 5px → drop.
     // (Slack from kerning is 0 with our mock since per-glyph sum == whole-string measure.)
@@ -233,6 +244,7 @@ describe('layoutGlyphsOnPath', () => {
       path,
       ctx,
       align: 'left',
+      textBaseline: 'alphabetic',
     });
     // One space per glyph, not two: the advance is 10 (glyph) + 5 (space).
     expect(out.glyphs[0].x).toBe(0);
@@ -248,6 +260,7 @@ describe('layoutGlyphsOnPath', () => {
       path,
       ctx,
       align: 'left',
+      textBaseline: 'alphabetic',
     });
     // 3 glyphs x 10 + 2 gaps x 5. The trailing space does not hang off the end.
     expect(out.textWidth).toBe(40);
@@ -267,6 +280,7 @@ describe('layoutGlyphsOnPath', () => {
         path: horizontalPath(200),
         ctx: mockCtx(),
         align,
+        textBaseline: 'alphabetic',
       });
       expect(out.glyphs.map(g => g.char).join('')).toBe('AB CD');
     },
@@ -282,6 +296,7 @@ describe('layoutGlyphsOnPath', () => {
       path: horizontalPath(200),
       ctx: mockCtx(),
       align: 'left',
+      textBaseline: 'alphabetic',
     });
     const last = out.glyphs[out.glyphs.length - 1];
     expect(last.pathOffset + last.width).toBe(out.textWidth);
@@ -295,12 +310,14 @@ describe('layoutGlyphsOnPath', () => {
       path,
       ctx,
       align: 'center',
+      textBaseline: 'alphabetic',
     });
     const plain = layoutGlyphsOnPath({
       segments: [seg('ABC', { letterSpacing: 0 })],
       path,
       ctx,
       align: 'center',
+      textBaseline: 'alphabetic',
     });
     // Ink spans from the first glyph's origin to the last glyph's origin plus
     // its own 10px advance (its trailing space is not ink). Both runs are

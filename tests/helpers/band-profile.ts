@@ -9,6 +9,7 @@
  * glyph-ink row (`baselineRow`), which cancels the sub-pixel line-layout
  * difference between the canvas and the DOM.
  */
+import type { AnyCanvas } from '../../src/types.ts';
 import { expect } from 'vitest';
 
 export interface Column {
@@ -24,7 +25,7 @@ const isRed = (data: Uint8ClampedArray, i: number): boolean =>
   data[i] - data[i + 2] > 80;
 
 /** The red band's center and thickness per pixel column; null where absent. */
-export function profile(canvas: HTMLCanvasElement): (Column | null)[] {
+export function profile(canvas: AnyCanvas): (Column | null)[] {
   const ctx = canvas.getContext('2d')!;
   const { width, height } = canvas;
   const data = ctx.getImageData(0, 0, width, height).data;
@@ -45,7 +46,7 @@ export function profile(canvas: HTMLCanvasElement): (Column | null)[] {
 
 /** Red row-run clusters of the whole canvas — one entry per distinct band. */
 export function bandClusters(
-  canvas: HTMLCanvasElement,
+  canvas: AnyCanvas,
 ): { top: number; center: number; thickness: number }[] {
   const ctx = canvas.getContext('2d')!;
   const { width, height } = canvas;
@@ -76,7 +77,7 @@ export function bandClusters(
  * text without descenders so it IS the baseline. Band centers are reported
  * relative to it.
  */
-export function baselineRow(canvas: HTMLCanvasElement): number {
+export function baselineRow(canvas: AnyCanvas): number {
   const ctx = canvas.getContext('2d')!;
   const { width, height } = canvas;
   const data = ctx.getImageData(0, 0, width, height).data;

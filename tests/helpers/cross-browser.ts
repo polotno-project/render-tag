@@ -35,7 +35,7 @@ export interface LayoutComparison {
  * line count, line membership, a line's y, a line's left or right edge past X_TOLERANCE.
  */
 export function compareLayout(
-  chromeLines: readonly ReferenceLine[], browserLines: readonly ReferenceLine[], lane = browserName,
+  chromeLines: readonly ReferenceLine[], browserLines: readonly ReferenceLine[], lane: string = browserName,
 ): LayoutComparison {
   const chrome = chromeLines.filter((line) => normalizeLineText(line.text).length > 0);
   const browser = browserLines.filter((line) => normalizeLineText(line.text).length > 0);

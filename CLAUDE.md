@@ -57,10 +57,11 @@ map: this file holds only what no single file tells you.
   Chrome layout (`cross-browser.compare`: lines, their y, their extents) and
   record their own paint. Prove behaviour against the DOM, not by reasoning.
   Playwright WebKit is WebKit, not Safari; never label its results Safari.
-- **Lanes**: `npm test` (Node + Chromium), `npm run test:webkit` and
-  `npm run test:firefox` are the release bar. A browser project's `include` in
-  `vitest.config.ts` is what that engine gates; `--project <x> <file>` runs any
-  file in any engine. Reports go to the git-ignored `tests/.out/`.
+- **Lanes**: `npm run typecheck` (src, tests and docs), `npm test` (Node +
+  Chromium), `npm run test:webkit` and `npm run test:firefox` are the release
+  bar. A browser project's `include` in `vitest.config.ts` is what that engine
+  gates; `--project <x> <file>` runs any file in any engine. Reports go to the
+  git-ignored `tests/.out/`.
 - **Recorded contracts fail on ANY unrecorded change**, improvements included:
   pixel baselines (a score move over 0.01% or any change of line membership),
   the cross-browser residuals in

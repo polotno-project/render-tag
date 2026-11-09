@@ -299,7 +299,7 @@ async function capture(
       __renderTagCaptureFrames?: Map<string, HTMLIFrameElement>;
     };
     const captureWindow = window as CaptureWindow;
-    const frames = captureWindow.__renderTagCaptureFrames ||= new Map();
+    const frames = captureWindow.__renderTagCaptureFrames ||= new Map<string, HTMLIFrameElement>();
     for (const existing of frames.values()) existing.style.display = 'none';
 
     let frame = frames.get(fontCss);

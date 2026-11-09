@@ -171,7 +171,7 @@ describe('paint on a ctx without letter- and word-spacing', () => {
 describe('sliced text units on a ctx without spacing', () => {
   it('paint each glyph near its unit only, not the whole line per unit', () => {
     const html = P('letter-spacing:1px;white-space:nowrap', Array.from({ length: 40 }, () => 'word').join(' '));
-    const count = (paintTextUnit?: TextUnitPaint) => {
+    const count = (paintTextUnit?: (paint: TextUnitPaint) => void) => {
       const rec = recordingCtx(400, 400, NONE);
       const result = layout({ html, width: 400, ctx: rec.ctx, textUnits: 'grapheme' });
       drawLayout({ layout: result, width: 400, ctx: rec.ctx, pixelRatio: 1, paintTextUnit });
