@@ -2,6 +2,12 @@
 
 Only the interesting, user-visible changes. Full detail lives in the git history.
 
+## 0.4.4 — 2026-11-09
+
+- A Latin, Greek or Cyrillic word after text in another script sits where Chrome puts it. Since 0.4.2 the space before it was kerned into its first letter, which Chrome never does across scripts: in Arial 40px, "Arial" in `こんにちは Arial` was drawn 2.2px left.
+- Text units: each fragment also reports `paintLeft` and `paintRight`, how far its text paints sideways, so a line clipped while it slides keeps an italic's overhang.
+- Text units: `paintTop` and `paintBottom` follow the glyphs and decorations closely, instead of reaching at least 1em up and 0.5em down.
+
 ## 0.4.3 — 2026-11-09
 
 - A too-long word that `overflow-wrap` must break now first moves to a new line after a preserved space, tab or inline-block before it, as Chrome does. In 0.4.2, ` SNOWBOARDING` under `pre-wrap` was broken on the space's own line, so the text sat a line higher and broke at a different letter.
