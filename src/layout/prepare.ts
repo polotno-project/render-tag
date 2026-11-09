@@ -4,14 +4,14 @@
 import type { StyledNode, ResolvedStyle } from '../types.js';
 import { anonymousBlockStyle, borderBoxSize, contentBoxSize, intrinsicStyle } from '../css-resolver.js';
 import { bidiContextFor, type BidiContext } from '../bidi.js';
-import type { LayoutSession, Measurer } from './session.js';
+import type { LayoutSession, Measurer, MeasureState } from './session.js';
 import {
   hasOnlyInlineChildren, hasStrokeImage, hasTextClip, hasVisibleBoxStyles, horizontalFrame,
   horizontalMargins, isInline, layoutUnitCeil, preservesSpaces, transformTextRuns,
 } from './util.js';
 import {
   abutsWithoutBreak, breakFlags, forEachHyphenPiece, inlineEdgeWidth, measureAfter, needsSegmenter,
-  segmenter, SegmentBuilder,
+  segmenter, SegmentBuilder, startsScriptRun,
   SEG_NO_BREAK_BEFORE, SEG_RUN_SEAM, SEG_SHAPED_APART, SEG_SOFT_HYPHEN, SEG_SPACE, SEG_TAB,
   type Cumulative, type PreparedInline, type TextRun,
 } from './segment.js';
@@ -117,6 +117,24 @@ function collectTextRuns(node: StyledNode): TextRun[] {
   return runs;
 }
 
+/**
+ * Push the word `w`, measured after `cum`, and return its width. A word that starts a script
+ * run (`startsScriptRun`) is shaped apart from the text before it: measured alone.
+ */
+function pushWord(
+  out: SegmentBuilder, m: Measurer, state: MeasureState, cum: Cumulative, w: string, run: TextRun,
+  ref: number, flags: number,
+): number {
+  if (startsScriptRun(out.scriptChar, w)) {
+    cum.text = '';
+    cum.width = cum.word = 0;
+    flags |= SEG_SHAPED_APART;
+  }
+  const width = measureAfter(m, state, cum, w, run);
+  out.push(w, width, flags, ref);
+  return width;
+}
+
 /** `[ \t\n\r\f\v]`: what collapsible white space splits on. */
 function isCollapsibleSpace(code: number): boolean {
   return code === 32 || (code >= 9 && code <= 13);
@@ -190,7 +208,7 @@ function prepareString(
       } else {
         while (j < n && text.charCodeAt(j) !== 32 && text.charCodeAt(j) !== 9) j++;
         forEachWordPiece(text, i, j, (w) => {
-          out.push(w, measureAfter(m, state, cum, w, run), breakFlags(w) | apart, ref);
+          pushWord(out, m, state, cum, w, run, ref, breakFlags(w) | apart);
           apart = 0;
         });
       }
@@ -206,12 +224,12 @@ function prepareString(
       if (wordSeg) {
         for (const seg of wordSeg.segment(w)) {
           const s = seg.segment;
-          out.push(s, measureAfter(m, state, cum, s, run), breakFlags(s), ref);
+          pushWord(out, m, state, cum, s, run, ref, breakFlags(s));
         }
         return;
       }
     }
-    const width = measureAfter(m, state, cum, w, run);
+    const width = pushWord(out, m, state, cum, w, run, ref, breakFlags(w));
     if (session.debug) {
       // Measured alone for the debug callback only.
       const directWidth = m.width(state, w);
@@ -221,7 +239,6 @@ function prepareString(
         data: { text: w, deltaWidth: width, directWidth, contextWidth: cum.width, contextBefore: cum.width - width, font: run.style.fontFamily, fontSize: run.style.fontSize },
       });
     }
-    out.push(w, width, breakFlags(w), ref);
   };
   let i = 0;
   while (i < n) {

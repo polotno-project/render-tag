@@ -149,6 +149,23 @@ export function isSimpleScript(text: string): boolean {
   return true;
 }
 
+// The scripts whose letters a font kerns against a space.
+const KERNED_SCRIPTS = [/^\p{sc=Latin}/u, /^\p{sc=Greek}/u, /^\p{sc=Cyrillic}/u];
+
+/**
+ * `text` starts a script run after `before`, a character of the script the text before it ends
+ * in (`SegmentBuilder.scriptChar`): its first letter is Latin, Greek or Cyrillic and `before` is
+ * not. A space, digit or dash takes the script before it (UAX #24), across element edges and
+ * tabs, and every engine shapes each script run apart: no kern joins "こんにちは " or
+ * "Привет — " to the "A" after it (Arial 40px: a 11.11px space, 8.91 after Latin).
+ */
+export function startsScriptRun(before: string, text: string): boolean {
+  // An ASCII `before` is a Latin letter, and ASCII text continues it.
+  if (!before || (before.charCodeAt(0) < 0x80 && text.charCodeAt(0) < 0x80)) return false;
+  const script = KERNED_SCRIPTS.find((re) => re.test(text));
+  return script !== undefined && !script.test(before);
+}
+
 export interface Cumulative {
   text: string;
   width: number;
@@ -159,32 +176,40 @@ export interface Cumulative {
 const MEASURE_BRACKET = 256;
 
 /**
- * Where a context restart may cut `text`: at `word`, or earlier at a still-open bracket
- * and the word with the nearest letter before it: a pair takes its direction from the
- * type before the opener (UBA N0), and a number takes its type from a letter (W7).
- * Without it, `)` in `<Arabic>: $42.99 (<Arabic> … ₪158.50)` measured 0.38px narrow
- * in Lobster and moved a wrap.
+ * Where a context restart may cut `text`: at `word`, or earlier at a bracket still open or
+ * closed from `word` on, and the word with the nearest letter before it: a pair takes its
+ * direction from the type before the opener (UBA N0) and its script from the script before
+ * it (`SegmentBuilder.scriptChar`), and a number takes its type from a letter (W7). Without
+ * it, `)` in `<Arabic>: $42.99 (<Arabic> … ₪158.50)` measured 0.38px narrow in Lobster and
+ * moved a wrap, and "Arial" after "word (Привет) " measured unkerned.
  */
 function contextStart(text: string, word: number): number {
   const open: number[] = [];
+  let start = text.length;
   // The last word too: an opener starting it still wants the letter before it.
   for (let i = 0; i < text.length; i++) {
-    const code = text.charCodeAt(i);
-    // ASCII by code; the Unicode property tests only past it.
-    if (code < 0x80) {
-      if (code === 0x28 || code === 0x5B || code === 0x7B) open.push(i);
-      else if (code === 0x29 || code === 0x5D || code === 0x7D) open.pop();
-    } else if (OPEN_BRACKET.test(text[i])) open.push(i);
-    else if (CLOSE_BRACKET.test(text[i])) open.pop();
+    const type = bracket(text.charCodeAt(i), text[i]);
+    if (type > 0) open.push(i);
+    else if (type < 0) {
+      const opener = open.pop();
+      if (opener !== undefined && i >= word && opener < start) start = opener;
+    }
   }
-  if (open.length === 0) return word;
-  let start = open[0];
+  if (open.length > 0) start = Math.min(start, open[0]);
+  if (start === text.length) return word;
   while (start > 0 && !LETTER.test(text[start - 1])) start--;
   while (start > 0 && text[start - 1] !== ' ') start--;
   return word - start <= MEASURE_BRACKET ? start : word;
 }
 const OPEN_BRACKET = /\p{Ps}/u;
 const CLOSE_BRACKET = /\p{Pe}/u;
+
+/** 1 for an opening bracket, -1 for a closing one, else 0: ASCII by code, the Unicode property
+ * tests only past it. */
+function bracket(code: number, char: string): number {
+  if (code < 0x80) return code === 0x28 || code === 0x5B || code === 0x7B ? 1 : code === 0x29 || code === 0x5D || code === 0x7D ? -1 : 0;
+  return OPEN_BRACKET.test(char) ? 1 : CLOSE_BRACKET.test(char) ? -1 : 0;
+}
 const LETTER = /\p{L}/u;
 
 /** The width `piece` adds after what `cum` holds, as it paints (`segmentAdvance`, in context);
@@ -293,7 +318,7 @@ export const SEG_OPENING_PUNCT = 1 << 9;
 /**
  * No engine shapes this segment together with the text before it: it starts a run that
  * does not continue the last one's shaping (`continuesShaping`), after an inline edge
- * with width, a forced break or a tab.
+ * with width, a forced break or a tab, or it starts a script run (`startsScriptRun`).
  */
 export const SEG_SHAPED_APART = 1 << 10;
 
@@ -368,6 +393,14 @@ export class SegmentBuilder implements PreparedInline {
   readonly refs: SegmentRefs[] = [];
   readonly inlineBlocks: number[] = [];
   readonly percentEdges: number[] = [];
+  /**
+   * A character of the script the text so far ends in, '' for none (`startsScriptRun`): the
+   * last one with a script of its own, but a closing bracket takes the script its opener
+   * followed, as Chrome's ScriptRunIterator pairs them ("word (Привет) Arial" kerns " A",
+   * "Привет (word) Arial" does not; quotes do not pair).
+   */
+  scriptChar = '';
+  private readonly openerScripts: string[] = [];
 
   addRefs(refs: SegmentRefs): number {
     this.refs.push(refs);
@@ -381,6 +414,18 @@ export class SegmentBuilder implements PreparedInline {
     this.flags.push(flags & SEG_SPACE ? flags : flags | textFlags(text));
     this.ref.push(ref);
     this.count++;
+    if (flags & SEG_SPACE) return;
+    for (let k = 0; k < text.length; k++) {
+      const code = text.charCodeAt(k);
+      const char = code < 0xD800 || code > 0xDBFF ? text[k] : text.slice(k, ++k + 1);
+      if (code < 0x80 ? (code | 0x20) >= 0x61 && (code | 0x20) <= 0x7A : !SHARED.test(char)) {
+        this.scriptChar = char;
+        continue;
+      }
+      const type = bracket(code, char);
+      if (type > 0) this.openerScripts.push(this.scriptChar);
+      else if (type < 0 && this.openerScripts.length) this.scriptChar = this.openerScripts.pop() || this.scriptChar;
+    }
   }
 }
 

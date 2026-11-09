@@ -1037,6 +1037,70 @@ describe('Layout logic (mocked measureText)', () => {
     });
   });
 
+  describe('no kern joins a word to the script run before it', () => {
+    // A space, digit or dash takes the script of the last letter before it (UAX #24), across
+    // element edges and tabs, and every engine shapes each script run apart: Chrome places
+    // "Arial" after "こんにちは ", "Привет ", "Привет — " or "Привет<b> " unkerned (Arial 40px:
+    // a 11.11px space, 8.91 after Latin), and its canvas measures it so. This ctx kerns " A"
+    // by -3px only where the space shapes with Latin; a ")" takes its "("'s script.
+    const cyrillicBefore = (text: string) => {
+      let script = '';
+      const open: string[] = [];
+      for (const char of text) {
+        if (char === '(') open.push(script);
+        else if (char === ')') script = open.pop() || script;
+        else if (/\p{L}/u.test(char)) script = /\p{sc=Cyrillic}/u.test(char) ? 'cyrillic' : 'latin';
+      }
+      return script === 'cyrillic';
+    };
+    const ctx = () => {
+      const c = mockCtx();
+      const measure = c.measureText.bind(c);
+      c.measureText = (s: string) => {
+        const m = measure(s);
+        let kern = 0;
+        for (let at = s.indexOf(' A'); at >= 0; at = s.indexOf(' A', at + 1)) {
+          if (!cyrillicBefore(s.slice(0, at))) kern += 3;
+        }
+        return kern ? { ...m, width: m.width - kern, actualBoundingBoxRight: m.width - kern } : m;
+      };
+      return c;
+    };
+    const run = (html: string, width = 400, style = '') => {
+      const result = layout({ html: `<p style="margin:0;${style}">${html}</p>`, width, ctx: ctx() });
+      const a = collectTexts(result.layoutRoot).find((t) => t.text.startsWith('A'));
+      return [a?.x, a?.width];
+    };
+
+    it.each([
+      ['a space', 'бб Axx', 30],
+      ['a dash', 'бб — Axx', 50],
+      ['digits', 'бб 12 Axx', 60],
+      ['an element edge to another font', 'бб<b> Axx</b>', 30],
+    ])('after %s', (name, html, x) => {
+      expect(run(html)).toEqual([x, 30]);
+    });
+
+    it('after a tab', () => {
+      expect(run('бб\t Axx', 400, 'white-space:pre-wrap')).toEqual([90, 30]);
+    });
+
+    it('on the first piece of a word split mid-line', () => {
+      const result = layout({ html: '<p style="margin:0;word-break:break-all">бб Axxxxxxx</p>', width: 60, ctx: ctx() });
+      expect(result.lines.map((line) => [line.text.trim(), line.bounds.width])).toEqual([['бб Axx', 60], ['xxxxx', 50]]);
+    });
+
+    it('while a Latin word keeps it', () => {
+      expect(run('aa — Axx')).toEqual([47, 30]);
+    });
+
+    it('after a closing bracket, by the script its opener follows', () => {
+      // Chrome (ScriptRunIterator): "word (Привет) Arial" kerns " A", "Привет (word) Arial" not.
+      expect(run('aa (бб) Axx')).toEqual([77, 30]);
+      expect(run('бб (aa) Axx')).toEqual([80, 30]);
+    });
+  });
+
   describe('a word starting a line has no kern from the text before the break', () => {
     // Chrome and Firefox shape a line's first word alone: Arial " A" -2.21px at 40px moves
     // the rest of that line, measured in both DOMs, as do Merriweather "-t" -6.65px and Arimo

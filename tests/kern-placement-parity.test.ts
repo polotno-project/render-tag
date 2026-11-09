@@ -12,6 +12,9 @@ import { collectTexts } from './helpers/layout-tree.ts';
 import arimo from './fonts/arimo/arimo-latin-wght-normal.woff2?url';
 import playfair from './fonts/playfair-display/playfair-display-latin-wght-normal.woff2?url';
 import merriweather from './fonts/merriweather/merriweather-latin-wght-normal.woff2?url';
+import robotoLatin from './fonts/roboto/roboto-latin-wght-normal.woff2?url';
+import robotoCyrillic from './fonts/roboto/roboto-cyrillic-wght-normal.woff2?url';
+import notoJapanese from './fonts/noto-sans-jp/noto-sans-jp-119-400-normal.woff2?url';
 
 const TOLERANCE = 1;
 
@@ -19,6 +22,10 @@ beforeAll(async () => {
   document.fonts.add(await new FontFace('PlaceArimo', `url(${arimo})`, { weight: '100 900' }).load());
   document.fonts.add(await new FontFace('PlacePlayfair', `url(${playfair})`, { weight: '100 900' }).load());
   document.fonts.add(await new FontFace('PlaceMerriweather', `url(${merriweather})`, { weight: '100 900' }).load());
+  document.fonts.add(await new FontFace('PlaceRoboto', `url(${robotoLatin})`, { weight: '100 900', unicodeRange: 'U+0000-00FF' }).load());
+  document.fonts.add(await new FontFace('PlaceRoboto', `url(${robotoCyrillic})`, { weight: '100 900', unicodeRange: 'U+0400-045F' }).load());
+  // Hiragana.
+  document.fonts.add(await new FontFace('PlaceNotoJapanese', `url(${notoJapanese})`).load());
 });
 
 /** `word`'s left and right edges in the DOM, from its text node's Range rect. */
@@ -63,6 +70,13 @@ it.each([
   ['a part after a soft hyphen', 'A&shy;V', 'V', 'font: 100px PlaceArimo'],
   // And across a zero-width space.
   ['a part after a zero-width space', 'A&#8203;Vx', 'Vx', 'font: 100px PlaceArimo'],
+  // No kern joins a space to a word of another script: the space shapes with the script
+  // before it (UAX #24), a closing bracket with its opener's. Arimo " A" -5.5px, Roboto " T"
+  // -1.95px.
+  ['a Latin word after a Japanese one', 'こんにちは Axx', 'Axx', 'font: 100px PlaceArimo, PlaceNotoJapanese'],
+  ['a Latin word after a Cyrillic one', 'Привет Tokyo', 'Tokyo', 'font: 100px PlaceRoboto'],
+  ['a Latin word after a bracket opened in Cyrillic', 'Привет (aa) Tokyo', 'Tokyo', 'font: 100px PlaceRoboto'],
+  ['a Latin word after a bracket closed around Cyrillic', 'aa (Привет) Tokyo', 'Tokyo', 'font: 100px PlaceRoboto'],
 ])('%s', (name, html, word, style) => {
   const [domLeft, domRight] = domEdges(html, style, word);
   const [left, right] = canvasEdges(html, style, word);
