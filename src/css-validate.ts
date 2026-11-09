@@ -27,7 +27,7 @@ export function splitTopLevelWhitespace(value: string): string[] {
 }
 
 /** Whitespace-separated tokens at depth 0, with a top-level `/` as its own token. */
-function tokens(value: string): string[] {
+export function tokens(value: string): string[] {
   const out: string[] = [];
   for (const part of splitTopLevelWhitespace(value)) {
     if (part.includes('/') && !part.includes('(')) {

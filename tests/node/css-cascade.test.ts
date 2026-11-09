@@ -62,6 +62,14 @@ describe('units', () => {
     expect(p.style).toMatchObject({ fontSize: 30, paddingLeft: 16 });
   });
 
+  it('the root stands for html and body: body sizes against html, rem is html\'s', () => {
+    // Chrome: the 62.5% reset gives body 16px; html's own rem is the initial 16px.
+    const p = (css: string) => el(`<style>${css}</style><p style="padding-left:1rem">x</p>`, 'p').style;
+    expect(p('html { font-size: 62.5% } body { font-size: 1.6rem }')).toMatchObject({ fontSize: 16, paddingLeft: 10 });
+    expect(p('html { font-size: 20px } body { font-size: 80% }')).toMatchObject({ fontSize: 16, paddingLeft: 20 });
+    expect(p('html { font-size: 2rem }')).toMatchObject({ fontSize: 32, paddingLeft: 32 });
+  });
+
   it('absolute units', () => {
     const s = (v: string) => el(`<p style="padding-left:${v}">x</p>`, 'p').style.paddingLeft;
     expect(s('12pt')).toBeCloseTo(16, 9);
@@ -180,6 +188,10 @@ describe('font-size, font-weight keywords and the font shorthand', () => {
       .toMatchObject({ fontSize: 16, lineHeight: 32, fontStyle: 'italic', fontVariantCaps: 'small-caps', fontWeight: 700 });
   });
 
+  it('font shorthand resets font-kerning', () => {
+    expect(el('<p style="font-kerning:none; font:20px Arial">x</p>', 'p').style.fontKerning).toBe('auto');
+  });
+
   it('font-variant-caps inherits', () => {
     expect(el('<div style="font-variant:small-caps"><p>x</p></div>', 'p').style.fontVariantCaps).toBe('small-caps');
   });
@@ -216,6 +228,25 @@ describe('CSS-wide keywords', () => {
   it('a unitless line-height inherited explicitly stays a factor', () => {
     const p = el('<div style="font-size:10px;line-height:2"><p style="font-size:20px;line-height:3px;line-height:inherit">x</p></div>', 'p');
     expect(p.style.lineHeight).toBe(40);
+  });
+
+  it('a shorthand takes a CSS-wide keyword into each of its longhands', () => {
+    const css = '<style>p { border: 2px solid red; flex: 3 2 10px; -webkit-text-stroke: 2px red; list-style: square }</style>';
+    const reset = (keyword: string) => el(`${css}<div style="border:4px dashed blue;list-style:circle"><p style="` +
+      `border:${keyword};flex:${keyword};-webkit-text-stroke:${keyword};list-style:${keyword}">x</p></div>`, 'p').style;
+    for (const keyword of ['initial', 'unset']) {
+      expect(reset(keyword)).toMatchObject({ borderTopWidth: 0, borderTopStyle: 'none', flexGrow: 0, flexShrink: 1, webkitTextStrokeWidth: 0 });
+    }
+    expect(reset('initial').listStyleType).toBe('disc');
+    expect(reset('inherit')).toMatchObject({ borderTopWidth: 4, borderTopStyle: 'dashed', listStyleType: 'circle' });
+  });
+});
+
+describe('the dir attribute', () => {
+  it('is a presentational hint: an author direction wins', () => {
+    expect(el('<p dir="rtl">x</p>', 'p').style.direction).toBe('rtl');
+    expect(el('<p dir="rtl" style="direction:ltr">x</p>', 'p').style.direction).toBe('ltr');
+    expect(el('<style>p { direction: ltr }</style><p dir="rtl">x</p>', 'p').style.direction).toBe('ltr');
   });
 });
 
@@ -362,6 +393,9 @@ describe('background shorthand and currentcolor', () => {
   it('reads an image with position, size and repeat, and a spaced color function', () => {
     const url = 'url(data:image/png;base64,iVBORw0KGgo=)';
     expect(el(`<p style="background:${url} no-repeat center / 10px 10px">x</p>`, 'p').style.backgroundImage).toBe(url);
+    expect(el('<p style="background: linear-gradient(red, blue) center/cover no-repeat">x</p>', 'p').style.backgroundImage)
+      .toBe('linear-gradient(red, blue)');
+    expect(el('<p style="background: red top/cover">x</p>', 'p').style.backgroundColor).toBe('red');
     expect(el('<p style="background: rgb(10 20 30 / 50%) ">x</p>', 'p').style.backgroundColor).toBe('rgb(10 20 30 / 50%)');
   });
 
@@ -467,6 +501,10 @@ describe('HTML UA defaults', () => {
   });
 
   it('border-width, border-style and border-color take 1-4 values', () => {
+    const medium = el('<p style="border-style:solid;border-left-style:none">x</p><span style="border-left-style:dotted">y</span>', 'p').style;
+    expect([medium.borderTopWidth, medium.borderLeftWidth]).toEqual([3, 0]);
+    const side = el('<span style="border-left-style:dotted">y</span>', 'span').style;
+    expect([side.borderTopWidth, side.borderLeftWidth]).toEqual([0, 3]);
     const p = el('<p style="border-style:solid;border-width:1px 2px 3px 4px;border-color:red green blue orange">x</p>', 'p');
     expect([p.style.borderTopWidth, p.style.borderRightWidth, p.style.borderBottomWidth, p.style.borderLeftWidth])
       .toEqual([1, 2, 3, 4]);

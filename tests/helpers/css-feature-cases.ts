@@ -515,6 +515,32 @@ function miscCases(): CssFeatureCase[] {
       html: `<p style="border-style:solid;border-width:1px 2px 3px 4px;border-color:red green blue orange">a</p>`,
     },
     { name: 'border thin solid keyword width', html: `<p style="border:thin solid">a</p><p style="border:medium dashed red">b</p>` },
+    { name: 'border style without a width is medium', html: `<p style="border-style:solid">a</p><p style="border-left-style:dotted">b</p>` },
+    {
+      name: 'CSS-wide keywords on shorthands',
+      css: `p { border: 2px solid red; flex: 3 2 10px; -webkit-text-stroke: 2px red; list-style: square }`,
+      html:
+        `<div style="border:4px dashed blue;list-style:circle">` +
+        `<p style="border:unset;flex:unset;-webkit-text-stroke:unset;list-style:unset">a</p>` +
+        `<p style="border:initial;flex:initial;-webkit-text-stroke:initial;list-style:initial">b</p>` +
+        `<p style="border:inherit;list-style:inherit">c</p></div>`,
+    },
+    {
+      name: 'background position and size glued by a slash',
+      html: `<p style="background: linear-gradient(red, blue) center/cover no-repeat">a</p><p style="background: red top/cover">b</p>`,
+    },
+    { name: 'font shorthand resets font-kerning', html: `<p style="font-kerning:none; font:20px serif">a</p>` },
+    {
+      name: 'dir attribute loses to an author direction',
+      css: `.l { direction: ltr }`,
+      html: `<p dir="rtl" style="direction:ltr">a</p><p class="l" dir="rtl">b</p><p dir="rtl">c</p>`,
+    },
+    {
+      name: 'rem reset on html, body sized in rem',
+      css: `html { font-size: 62.5% } body { font-size: 1.6rem }`,
+      html: `<p style="padding-left:1rem">a</p>`,
+    },
+    { name: 'body font-size percentage of html', css: `html { font-size: 20px } body { font-size: 80% }`, html: `<p style="padding-left:1rem">a</p>` },
     { name: 'border none with width', html: `<p style="border-top:3px none red;border-left:5px hidden">a</p>` },
     { name: 'margin auto', html: `<p style="width:100px;margin:0 auto">a</p>` },
     {

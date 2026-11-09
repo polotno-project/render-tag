@@ -9,7 +9,7 @@ import {
 import {
   BORDER_STYLES, CHECK_BASIS, KEYWORDS, backgroundClip, display, fontStyle, isColor, isFontFamilyList, isImageList,
   MATH, isImage, isTextShadow, listStyleType, paintOrder, parseLegacyColor, splitTopLevel,
-  splitTopLevelWhitespace, textDecorationLine, textTransform, verticalAlign,
+  splitTopLevelWhitespace, textDecorationLine, textTransform, tokens, verticalAlign,
 } from './css-validate.js';
 
 // No ambient `Node` global outside browsers.
@@ -398,10 +398,20 @@ function flexLonghands(grow: string, shrink: string, basis: string): Longhand[] 
 export function expandShorthand(property: string, value: string): Longhand[] {
   if (property === 'word-wrap') return [{ property: 'overflow-wrap', value }];
   if (property === '-webkit-background-clip') return [{ property: 'background-clip', value }];
+  const longhands = SHORTHAND_LONGHANDS[property];
+  if (longhands && cssWideKeyword(property, value)) {
+    // `text-decoration: inherit` stays `none`: textDecorationLine is the propagated union of lines.
+    if (property === 'text-decoration' && /^\s*inherit\s*$/i.test(value)) {
+      return [
+        { property: 'text-decoration-line', value: 'none' },
+        { property: 'text-decoration-thickness', value: 'auto' },
+      ];
+    }
+    return longhands.map((longhand) => ({ property: longhand, value }));
+  }
   // Canvas only renders `small-caps`.
   if (property === 'font-variant') {
-    const caps = cssWideKeyword(property, value) ? value : /\bsmall-caps\b/i.test(value) ? 'small-caps' : 'normal';
-    return [{ property: 'font-variant-caps', value: caps }];
+    return [{ property: 'font-variant-caps', value: /\bsmall-caps\b/i.test(value) ? 'small-caps' : 'normal' }];
   }
   if (property === 'margin' || property === 'padding') {
     return (fourSides(splitTopLevelWhitespace(value.trim())) ?? []).map((v, i) => ({ property: `${property}-${SIDES[i]}`, value: v }));
@@ -465,18 +475,7 @@ export function expandShorthand(property: string, value: string): Longhand[] {
 
   if (property === 'text-decoration') {
     // `<line> || <style> || <color> || <thickness>`; unnamed longhands reset.
-    // `inherit` stays `none`: textDecorationLine is the propagated union of lines.
     const v = value.trim();
-    if (v.toLowerCase() === 'inherit') {
-      return [
-        { property: 'text-decoration-line', value: 'none' },
-        { property: 'text-decoration-thickness', value: 'auto' },
-      ];
-    }
-    if (/^(?:initial|unset|revert|revert-layer)$/i.test(v)) {
-      return ['text-decoration-line', 'text-decoration-style', 'text-decoration-color', 'text-decoration-thickness']
-        .map(property => ({ property, value: v }));
-    }
     const lines: string[] = [];
     let style = '', color = '', thickness = '', none = false;
     for (const p of splitTopLevelWhitespace(v)) {
@@ -518,7 +517,6 @@ export function expandShorthand(property: string, value: string): Longhand[] {
     const keyword = value.trim().toLowerCase();
     if (keyword === 'none') return flexLonghands('0', '0', 'auto');
     if (keyword === 'auto') return flexLonghands('1', '1', 'auto');
-    if (keyword === 'initial') return flexLonghands('0', '1', 'auto');
     const numbers: string[] = [];
     let basis = '';
     for (const part of splitTopLevelWhitespace(value.trim())) {
@@ -533,10 +531,6 @@ export function expandShorthand(property: string, value: string): Longhand[] {
     );
   }
 
-  if (property === 'border-collapse' || property === 'border-spacing') {
-    return [];
-  }
-
   return [{ property, value }];
 }
 
@@ -547,6 +541,24 @@ const isWidthToken = (p: string) =>
 
 const SIDES = ['top', 'right', 'bottom', 'left'];
 const CORNERS = ['top-left', 'top-right', 'bottom-right', 'bottom-left'];
+
+const borderSide = (side: string) => [`border-${side}-width`, `border-${side}-style`, `border-${side}-color`];
+/** Every longhand a shorthand sets: what a CSS-wide keyword on the shorthand reaches. */
+const SHORTHAND_LONGHANDS: Record<string, string[]> = nullProto({
+  'font-variant': ['font-variant-caps'],
+  margin: SIDES.map((side) => `margin-${side}`),
+  padding: SIDES.map((side) => `padding-${side}`),
+  border: SIDES.flatMap(borderSide),
+  ...Object.fromEntries(SIDES.map((side) => [`border-${side}`, borderSide(side)])),
+  ...Object.fromEntries(['width', 'style', 'color'].map((kind) => [`border-${kind}`, SIDES.map((side) => `border-${side}-${kind}`)])),
+  'border-radius': CORNERS.map((corner) => `border-${corner}-radius`),
+  font: ['font-style', 'font-variant-caps', 'font-weight', 'font-size', 'line-height', 'font-family', 'font-kerning'],
+  background: ['background-color', 'background-image', 'background-clip'],
+  'list-style': ['list-style-type'],
+  'text-decoration': ['text-decoration-line', 'text-decoration-style', 'text-decoration-color', 'text-decoration-thickness'],
+  '-webkit-text-stroke': ['-webkit-text-stroke-width', '-webkit-text-stroke-color'],
+  flex: ['flex-grow', 'flex-shrink', 'flex-basis'],
+});
 /** 1-4 box values as top/right/bottom/left (or TL/TR/BR/BL); null for any other count. */
 function fourSides(parts: string[]): string[] | null {
   if (parts.length === 0 || parts.length > 4) return null;
@@ -568,10 +580,6 @@ const isFontSizeKeyword = (v: string) => Object.hasOwn(FONT_SIZE_KEYWORDS, v) ||
  */
 function expandFont(value: string): Longhand[] {
   const v = value.trim();
-  if (/^(?:inherit|initial|unset|revert)$/i.test(v)) {
-    return ['font-style', 'font-variant-caps', 'font-weight', 'font-size', 'line-height', 'font-family']
-      .map(property => ({ property, value: v }));
-  }
   let fontStyle = 'normal', variant = 'normal', weight = 'normal';
   // Whitespace-separated tokens at paren depth 0, with where each starts.
   const re = /(?:[^\s(]|\([^)]*\))+/g;
@@ -610,6 +618,7 @@ function expandFont(value: string): Longhand[] {
       { property: 'font-size', value: size },
       { property: 'line-height', value: lineHeight },
       { property: 'font-family', value: rest },
+      { property: 'font-kerning', value: 'auto' },
     ];
   }
   return [];
@@ -628,9 +637,6 @@ const BACKGROUND_BOXES = new Set(['border-box', 'padding-box', 'content-box', 't
  */
 function expandBackground(value: string): Longhand[] {
   const v = value.trim();
-  if (/^(?:inherit|initial|unset|revert)$/i.test(v)) {
-    return ['background-color', 'background-image', 'background-clip'].map(property => ({ property, value: v }));
-  }
   let color = 'transparent';
   let colorSeen = false;
   let clip = 'border-box';
@@ -639,14 +645,14 @@ function expandBackground(value: string): Longhand[] {
   for (let li = 0; li < layers.length; li++) {
     let image = 'none';
     const boxes: string[] = [];
-    for (const token of splitTopLevelWhitespace(layers[li])) {
+    // `center/cover` is `center / cover`.
+    for (const token of tokens(layers[li])) {
       const lower = token.toLowerCase();
       if (lower === 'none' || isImage(token)) {
         image = lower === 'none' ? 'none' : token;
       } else if (BACKGROUND_BOXES.has(lower)) {
         boxes.push(lower);
-      } else if (BACKGROUND_KEYWORDS.has(lower) || /^[+-]?(?:\d|\.\d)/.test(token) || MATH.test(token) ||
-          /^\//.test(token)) {
+      } else if (BACKGROUND_KEYWORDS.has(lower) || /^[+-]?(?:\d|\.\d)/.test(token) || MATH.test(token)) {
         // not rendered
       } else if (li === layers.length - 1 && !colorSeen && isColor(token)) {
         color = token;
@@ -957,6 +963,11 @@ export function anonymousBlockStyle(style: ResolvedStyle): ResolvedStyle {
   // It inherits text-indent, a percentage included, of its own width.
   inheritPercentages(anonymous, style, NaN);
   return anonymous;
+}
+
+/** A border's width: 0 under a none/hidden style, else medium (3px) until one is set (CSS Backgrounds 3). */
+function usedBorderWidth(borderStyle: string, width: number, set: boolean): number {
+  return borderStyle === 'none' || borderStyle === 'hidden' ? 0 : set ? width : 3;
 }
 
 /** `box-sizing: border-box`. */
@@ -1651,17 +1662,27 @@ export function resolveStylesFromCSS(
     }
 
     // --- Step 2: the font, before anything that measures it (em, ch, ex) ---
+    // The root stands for html and body: html's font-size is `rem` and what body sizes
+    // against, so only body's (and the universal) font-size rules apply to it here.
+    let fontParent = parentStyle;
+    let htmlSizes: Set<Declaration> | null = null;
+    if (parentCtx === null) {
+      rootFontSize = htmlFontSize(matched);
+      fontParent = { ...parentStyle, fontSize: rootFontSize };
+      style.fontSize = rootFontSize;
+      htmlSizes = new Set(matched.flatMap((rule) =>
+        rule.selector.rootKind === 'html' ? rule.declarations.filter((d) => d.property === 'font-size') : []));
+    }
     const count = cascadeOrder(hints, matched, inline, order, orderInline);
     for (let i = 0; i < count; i++) {
       const d = order[i];
-      if (!FONT_PROPERTIES.has(d.property)) continue;
+      if (!FONT_PROPERTIES.has(d.property) || htmlSizes?.has(d)) continue;
       const keyword = cssWideKeyword(d.property, d.value);
-      if (keyword) applyKeyword(style, parentStyle, d.property, keyword, setProps, concreteColors);
-      else if (applyFontDeclaration(style, d.property, d.value, parentStyle, basisFor(parentStyle, parentStyle.fontSize))) {
+      if (keyword) applyKeyword(style, fontParent, d.property, keyword, setProps, concreteColors);
+      else if (applyFontDeclaration(style, d.property, d.value, fontParent, basisFor(fontParent, fontParent.fontSize))) {
         setProps.add(d.property);
       }
     }
-    if (parentCtx === null) rootFontSize = htmlFontSize(matched);
     const elemFontSize = style.fontSize;
 
     // --- Step 3: everything else, against the element's final font ---
@@ -1706,10 +1727,11 @@ export function resolveStylesFromCSS(
 
     const dirAttr = el.getAttribute('dir')?.trim().toLowerCase();
     if (dirAttr === 'ltr' || dirAttr === 'rtl' || dirAttr === 'auto') {
-      style.direction = dirAttr === 'auto'
-        ? autoDirection(el) ?? parentStyle.direction
-        : dirAttr;
-      setProps.add('direction');
+      // A presentational hint: an author `direction` wins.
+      if (!setProps.has('direction')) {
+        style.direction = dirAttr === 'auto' ? autoDirection(el) ?? parentStyle.direction : dirAttr;
+        setProps.add('direction');
+      }
       // UA sheet: `[dir]` isolates (Blink/WebKit); <bdo>'s override and author values win.
       if (!setProps.has('unicode-bidi') && style.unicodeBidi === 'normal') {
         style.unicodeBidi = 'isolate';
@@ -1724,11 +1746,10 @@ export function resolveStylesFromCSS(
     inheritRelativeLengths(style, parentStyle, setProps);
     if (!setProps.has('text-indent')) inheritPercentages(style, parentStyle, cbWidth);
 
-    // A none/hidden border style computes to width 0 (CSS Backgrounds 3).
-    if (style.borderTopStyle === 'none' || style.borderTopStyle === 'hidden') style.borderTopWidth = 0;
-    if (style.borderRightStyle === 'none' || style.borderRightStyle === 'hidden') style.borderRightWidth = 0;
-    if (style.borderBottomStyle === 'none' || style.borderBottomStyle === 'hidden') style.borderBottomWidth = 0;
-    if (style.borderLeftStyle === 'none' || style.borderLeftStyle === 'hidden') style.borderLeftWidth = 0;
+    style.borderTopWidth = usedBorderWidth(style.borderTopStyle, style.borderTopWidth, setProps.has('border-top-width'));
+    style.borderRightWidth = usedBorderWidth(style.borderRightStyle, style.borderRightWidth, setProps.has('border-right-width'));
+    style.borderBottomWidth = usedBorderWidth(style.borderBottomStyle, style.borderBottomWidth, setProps.has('border-bottom-width'));
+    style.borderLeftWidth = usedBorderWidth(style.borderLeftStyle, style.borderLeftWidth, setProps.has('border-left-width'));
 
     // currentcolor defaults. An automatic decoration color is the visible stroke color,
     // else the fill color, else `color` — resolved on the declarer so descendants agree.
