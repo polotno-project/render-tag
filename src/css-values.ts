@@ -57,7 +57,16 @@ interface Typed {
   number: boolean;
 }
 
-const DIMENSION = /^([+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)([a-z%]*)$/i;
+/** A CSS <number> (CSS Syntax 3: `5.` is not one), the one number grammar of every parser. */
+const NUMBER_SOURCE = String.raw`[+-]?(?:\d*\.\d+|\d+)(?:e[+-]?\d+)?`;
+/** `<number><suffix>` as the whole value, case-insensitive; the number is group 1. */
+export function numberThen(suffix: string): RegExp {
+  return new RegExp(`^(${NUMBER_SOURCE})${suffix}$`, 'i');
+}
+export const NUMBER = numberThen('');
+export const PERCENTAGE = numberThen('%');
+const DIMENSION = numberThen('([a-z%]*)');
+const LEADING_DIMENSION = new RegExp(`^${NUMBER_SOURCE}[a-z%]*`, 'i');
 
 /** px for `n` of `unit` (lower-cased), or NaN for an unknown unit. */
 function unitToPx(n: number, unit: string, b: LengthBasis): number {
@@ -179,7 +188,7 @@ class MathParser {
       this.i += fn[0].length;
       return this.call(fn[1].toLowerCase());
     }
-    const tok = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?[a-z%]*/i.exec(s.slice(this.i));
+    const tok = LEADING_DIMENSION.exec(s.slice(this.i));
     if (!tok) return null;
     this.i += tok[0].length;
     return dimension(tok[0], this.b);
@@ -267,7 +276,7 @@ export function resolveFontWeight(value: string, parentWeight: number): number {
   if (v === 'bold') return 700;
   if (v === 'bolder') return parentWeight < 350 ? 400 : parentWeight < 550 ? 700 : Math.max(900, parentWeight);
   if (v === 'lighter') return parentWeight < 100 ? parentWeight : parentWeight < 550 ? 100 : parentWeight < 750 ? 400 : 700;
-  if (!/^[+]?(?:\d+\.?\d*|\.\d+)$/.test(v)) return NaN;
+  if (!NUMBER.test(v)) return NaN;
   const n = parseFloat(v);
   return n >= 1 && n <= 1000 ? n : NaN;
 }

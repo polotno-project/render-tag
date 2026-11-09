@@ -1,8 +1,9 @@
 import { splitTopLevel, splitTopLevelWhitespace } from './css-validate.js';
+import { numberThen } from './css-values.js';
 
-const ANGLE = /^([+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)(deg|grad|rad|turn)$/i;
+const ANGLE = numberThen('(deg|grad|rad|turn)');
 const DEGREES_PER: Record<string, number> = { deg: 1, grad: 0.9, rad: 180 / Math.PI, turn: 360 };
-const STOP_LENGTH = /^([+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)(%|px)?$/i;
+const STOP_LENGTH = numberThen('(%|px)?');
 
 /**
  * The CSS angle of a direction, or null when `part` is a color stop. A corner

@@ -2,7 +2,7 @@
 // colors, images, shadows, font families, keywords — per CSS Color 4, Images 4,
 // Text Decoration, Fonts 4 as Blink/WebKit parse them. An invalid value (incl.
 // `var()`/`attr()`/`env()`) drops the declaration, so the cascaded value survives.
-import { memoized, resolveLength, type LengthBasis } from './css-values.js';
+import { memoized, NUMBER, numberThen, PERCENTAGE, resolveLength, type LengthBasis } from './css-values.js';
 import { splitTopLevel } from './css-syntax.js';
 
 export { splitTopLevel };
@@ -56,9 +56,7 @@ function functionToken(value: string): { name: string; args: string } | null {
 
 // ─── Numbers, lengths, angles ───────────────────────────────────────
 
-const NUMBER = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i;
-const PERCENT = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?%$/i;
-const ANGLE = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?(?:deg|rad|grad|turn)$/i;
+const ANGLE = numberThen('(?:deg|rad|grad|turn)');
 export const MATH = /^(?:calc|min|max|clamp)\(/i;
 
 /** A basis that resolves every unit, for syntax checks only (the resolver's shorthand checks copy it). */
@@ -75,7 +73,7 @@ function isLength(token: string, allowPercent: boolean): boolean {
 /** A numeric component of a color function: number, percentage, angle, `none` or math. */
 function isNumeric(token: string, angle: boolean): boolean {
   const t = token.toLowerCase();
-  return NUMBER.test(t) || PERCENT.test(t) || (angle && ANGLE.test(t)) || t === 'none' || MATH.test(t);
+  return NUMBER.test(t) || PERCENTAGE.test(t) || (angle && ANGLE.test(t)) || t === 'none' || MATH.test(t);
 }
 
 function isAngleOrZero(token: string): boolean {
@@ -142,7 +140,7 @@ function isLegacyChannels(parts: string[], hsl: boolean): boolean {
   if (parts.length !== 3 && parts.length !== 4) return false;
   const p = parts.map((x) => x.trim().toLowerCase());
   if (p.some((x) => x === 'none' || x === '')) return false;
-  const pct = (x: string) => PERCENT.test(x) || MATH.test(x);
+  const pct = (x: string) => PERCENTAGE.test(x) || MATH.test(x);
   const num = (x: string) => NUMBER.test(x) || MATH.test(x);
   if (hsl) {
     if (!(num(p[0]) || ANGLE.test(p[0])) || !pct(p[1]) || !pct(p[2])) return false;
@@ -192,7 +190,7 @@ function checkColor(value: string): boolean {
       return parts.slice(1).every((part) => {
         const t = splitTopLevelWhitespace(part);
         if (t.length === 1) return isColor(t[0]);
-        return t.length === 2 && ((isColor(t[0]) && PERCENT.test(t[1])) || (PERCENT.test(t[0]) && isColor(t[1])));
+        return t.length === 2 && ((isColor(t[0]) && PERCENTAGE.test(t[1])) || (PERCENTAGE.test(t[0]) && isColor(t[1])));
       });
     }
     case 'light-dark': {
@@ -271,7 +269,7 @@ function isGradient(kind: string, args: string): boolean {
   const parts = splitTopLevel(args, ',');
   const first = splitTopLevelWhitespace(parts[0].trim());
   const position = kind === 'conic'
-    ? (t: string) => isAngleOrZero(t) || PERCENT.test(t)
+    ? (t: string) => isAngleOrZero(t) || PERCENTAGE.test(t)
     : (t: string) => isLength(t, true);
   // The first argument is the configuration unless it starts with a color.
   const hasPrelude = first.length > 0 && !isColor(first[0]);

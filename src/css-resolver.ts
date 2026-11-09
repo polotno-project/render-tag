@@ -3,7 +3,7 @@ import { bidiClass } from './bidi.js';
 import { parseDeclarationList, parseStylesheet } from './css-syntax.js';
 import { SelectorMatcher, parseSelectorList, type ElementContext, type ParsedSelector } from './css-selectors.js';
 import {
-  FONT_SIZE_KEYWORDS, LEGACY_FONT_SIZES, memoized, nullProto, resolveFontSize, resolveFontWeight, resolveLength,
+  FONT_SIZE_KEYWORDS, LEGACY_FONT_SIZES, memoized, nullProto, NUMBER, PERCENTAGE, resolveFontSize, resolveFontWeight, resolveLength,
   resolveNumberOrLength, type FontUnits, type LengthBasis, type Viewport,
 } from './css-values.js';
 import {
@@ -1024,8 +1024,10 @@ const textShadow: Parser = (value, env) => {
   }).join(' ')).join(', ');
 };
 /** A non-negative <number>. */
-const flexFactor: Parser = value =>
-  /^[+]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(value.trim()) ? parseFloat(value) : NaN;
+const flexFactor: Parser = value => {
+  const n = NUMBER.test(value.trim()) ? parseFloat(value) : NaN;
+  return n >= 0 ? n : NaN;
+};
 
 const PARSERS: Record<string, Parser> = nullProto({
   color, 'text-decoration-color': color, 'background-color': color,
@@ -1087,7 +1089,7 @@ for (const side of SIDES) {
 for (const corner of CORNERS) {
   PARSERS[`border-${corner}-radius`] = (value, env) => {
     const v = splitTopLevelWhitespace(value.trim())[0] ?? '';
-    if (/^[+-]?(?:\d+\.?\d*|\.\d+)%$/.test(v)) {
+    if (PERCENTAGE.test(v)) {
       const pct = parseFloat(v);
       return pct > 0 ? { pct } : 0;
     }
@@ -1113,7 +1115,7 @@ function applyDeclaration(style: ResolvedStyle, property: string, value: string,
       const v = value.trim();
       let pct: number | undefined;
       if (v.toLowerCase() === 'auto') style.textUnderlineOffset = null;
-      else if (/^[+-]?(?:\d+\.?\d*|\.\d+)%$/.test(v)) {
+      else if (PERCENTAGE.test(v)) {
         pct = parseFloat(v);
         style.textUnderlineOffset = (pct / 100) * fontSize;
       } else {
@@ -1145,10 +1147,11 @@ function applyDeclaration(style: ResolvedStyle, property: string, value: string,
       }
       let lineHeight: number;
       let multiplier: number | undefined;
-      if (/^[+]?(?:\d+\.?\d*|\.\d+)%$/.test(v)) {
+      if (PERCENTAGE.test(v)) {
         // Of the own font size, inherited as that px value: Blink truncates to an integer
         // percentage before it multiplies (162.9% acts as 162%). line-baseline-parity.
         const num = parseFloat(v);
+        if (num < 0) return false;
         lineHeight = (Math.trunc(num) / 100) * fontSize;
       } else {
         env.b.percent = fontSize;
