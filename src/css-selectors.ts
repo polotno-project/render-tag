@@ -35,7 +35,7 @@ type Pseudo =
   /** `:where()` matches like `:is()` but adds no specificity. */
   | { kind: 'not' | 'is' | 'where'; list: ParsedSelector[] };
 
-export interface Compound {
+interface Compound {
   /** Lower-case tag, or '' for any. */
   tag: string;
   /** `html`/`body`: matches the root context only. */

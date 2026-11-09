@@ -10,7 +10,7 @@
  * current environment (parity vs the same browser's DOM, overflow, unit
  * logic). The environment-pinned contracts remain the local deep gate.
  *
- * See CLAUDE.md "Portable mode (CI)".
+ * CLAUDE.md (Testing) says how CI records its Chrome reference first.
  */
 declare const __RENDER_TAG_PORTABLE__: boolean | undefined;
 

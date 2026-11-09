@@ -7,7 +7,7 @@ name: Test
 # local-only — they were recorded on the maintainer's machine and font
 # rasterization differs per OS/runner image. The Firefox and WebKit jobs record
 # render-tag's Chrome layout on their own runner first, which
-# cross-browser.compare checks them against. See CLAUDE.md "Portable mode (CI)".
+# cross-browser.compare checks them against. See tests/helpers/portable-mode.ts.
 
 on:
   push:

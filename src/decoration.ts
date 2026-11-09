@@ -57,7 +57,7 @@ export function explicitUnderlineDelta(
 }
 
 /** Where a fragment's decorations hang: what `decorationBand` needs to know. */
-export interface FragmentLine {
+interface FragmentLine {
   baseline: number;
   /** The line's own baseline when only the run was vertical-aligned. */
   underlineBaseline: number;

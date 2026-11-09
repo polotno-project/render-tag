@@ -18,8 +18,8 @@ map: this file holds only what no single file tells you.
 - **Layout is reentrant.** Per-call state lives on the `LayoutSession`, never
   in a module-level `let` or cache (`tests/node/reentrancy.test.ts`). The CSS
   rule index is the one cache that outlives a call; any such cache needs
-  `tests/node/determinism.test.ts` first. A kept result never pins the
-  caller's ctx (`tests/node/memory.test.ts`).
+  `tests/node/determinism.test.ts` first. A kept result holds the caller's
+  ctx only until its lazy `paintBounds` is read (`tests/node/memory.test.ts`).
 - **Styles are shared and read-only.** A `#text` node's `style` IS its parent
   element's object: copy it (`{ ...style, x }`). Style identity does not mean
   "same text node" (`startsMeasuredRun`).

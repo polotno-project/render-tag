@@ -58,18 +58,18 @@ function cornerRadii(
 }
 
 /** The solid fill color for text: -webkit-text-fill-color if set, else color. */
-export function textFillColor(style: ResolvedStyle): string {
+function textFillColor(style: ResolvedStyle): string {
   return style.webkitTextFillColor && style.webkitTextFillColor !== 'transparent'
     ? style.webkitTextFillColor : style.color;
 }
 
 /** The glyph's own fill paints nothing: both renderers decide clip-paint precedence by it. */
-export function fillIsTransparent(style: ResolvedStyle): boolean {
+function fillIsTransparent(style: ResolvedStyle): boolean {
   return isTransparent(style.webkitTextFillColor || style.color);
 }
 
 /** What paints a run's glyphs and its clip-painted bands. */
-export interface TextPaints {
+interface TextPaints {
   /** The glyph fill; null paints none. */
   fill: CanvasGradient | string | null;
   /** The nearest background-clip:text paint, which a transparent band shows. */
@@ -116,7 +116,7 @@ function textPaints(
 }
 
 /** Text and the x its own fillText takes, in its own direction (`PaintState.direction`) if set. */
-export interface TextPiece { readonly text: string; readonly x: number; readonly rtl?: boolean }
+interface TextPiece { readonly text: string; readonly x: number; readonly rtl?: boolean }
 
 /** Fill, then stroke (or the style's paint order) every piece on baseline `y` with `paints`. */
 export function paintGlyphs(

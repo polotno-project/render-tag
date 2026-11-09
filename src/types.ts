@@ -164,7 +164,7 @@ export interface DrawConfig extends DrawTarget, ShadowOptions {
 }
 
 export interface DebugEntry {
-  type: 'measure-word' | 'line-wrap' | 'line-commit' | 'position-text';
+  type: 'measure-word' | 'line-wrap' | 'line-commit';
   /** Human-readable description */
   message: string;
   /** Relevant data */

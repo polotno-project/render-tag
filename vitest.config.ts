@@ -118,7 +118,7 @@ export default defineConfig(({ mode }) => {
         {
           mode,
           // The browser context has no process.env; tests read this through
-          // tests/helpers/portable-mode.ts. See CLAUDE.md "Portable mode (CI)".
+          // tests/helpers/portable-mode.ts, which says what portable mode skips.
           define: {
             __RENDER_TAG_PORTABLE__: JSON.stringify(process.env.RENDER_TAG_PORTABLE === '1'),
           },

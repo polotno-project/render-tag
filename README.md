@@ -145,6 +145,18 @@ merges text and bounds from separate flows on the same visual row, including
 table cells and list markers. Use `layoutRoot` for backgrounds, hit-testing,
 and rendering.
 
+### Metric helpers
+
+Renderers that draw `layoutRoot` themselves (SVG, PDF) call these instead of
+restating render-tag's rules:
+
+- `getFontMetrics(ctx, style)`: the whole-pixel `{ ascent, descent }` that layout
+  uses for a `ResolvedStyle`, measured on `ctx`. The ctx font is left as it was.
+- `lineBaselineOffset(lineHeight, ascent, descent)`: a baseline's offset from the
+  top of its line box, as Chrome places it.
+- `tabStopMetrics(ctx, style)`: `{ interval, halfSpace }` for a block's tab stops.
+  A stop closer than `halfSpace` is skipped. It sets the ctx font.
+
 ### Multi-line ellipsis (`-webkit-line-clamp`)
 
 ```css
