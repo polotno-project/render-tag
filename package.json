@@ -12,8 +12,7 @@
     "./path": {
       "types": "./lib/path/index.d.ts",
       "default": "./lib/path/index.js"
-    },
-    "./umd": "./lib/render-tag.umd.js"
+    }
   },
   "homepage": "https://polotno.com/render-tag/",
   "repository": {

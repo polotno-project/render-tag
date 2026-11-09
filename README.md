@@ -14,6 +14,9 @@ By design, render-tag focuses on **rich text only** — paragraphs, headings, li
 npm install render-tag
 ```
 
+Without a bundler, `lib/render-tag.umd.js` from a CDN loads as a classic `<script>`
+and defines a global `RenderTag`.
+
 ## Usage
 
 ```typescript
