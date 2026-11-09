@@ -1,5 +1,5 @@
 /**
- * `@font-face` blocks in test CSS, in one place.
+ * `@font-face` blocks in test CSS, and the `<style>` elements of test HTML, in one place.
  *
  * Both sides of the oracle need to take font faces apart: the canvas side
  * registers them, the native capture serves them ahead of the fixture. A
@@ -9,6 +9,11 @@ const FONT_FACE = /@font-face\s*\{[^}]*\}/gi;
 
 export function matchFontFaces(css: string): string[] {
   return css.match(FONT_FACE) || [];
+}
+
+/** The family an `@font-face` block declares, unquoted; '' without one. */
+export function faceFamily(face: string): string {
+  return face.match(/font-family:\s*['"]?([^;'"\n]+)/i)?.[1]?.trim() || '';
 }
 
 export function stripFontFaces(css: string): string {
@@ -21,4 +26,11 @@ export function replaceFontFaces(
   replacer: (face: string) => string,
 ): string {
   return css.replace(FONT_FACE, replacer);
+}
+
+/** The CSS of the `<style>` elements in `html`. */
+export function inlineStyles(html: string): string {
+  return (html.match(/<style[^>]*>([\s\S]*?)<\/style>/gi) || [])
+    .map((style) => style.replace(/<\/?style[^>]*>/gi, ''))
+    .join('\n');
 }

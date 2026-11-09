@@ -6,7 +6,7 @@ import {
   type LayoutComparisonResult,
 } from './wrap-comparison.ts';
 import { keepUsedFontFaces } from './test-cases.ts';
-import { matchFontFaces, stripFontFaces } from './css-text.ts';
+import { inlineStyles, matchFontFaces, stripFontFaces } from './css-text.ts';
 import { isFirefox } from './browser-name.ts';
 
 /**
@@ -125,12 +125,6 @@ function ensureFontsLoaded(css: string): Promise<void> {
   const result = fontLoadQueue.then(() => registerFonts(css));
   fontLoadQueue = result.catch(() => {});
   return result;
-}
-
-function inlineStyles(html: string): string {
-  return (html.match(/<style[^>]*>([\s\S]*?)<\/style>/gi) || [])
-    .map((style) => style.replace(/<\/?style[^>]*>/gi, ''))
-    .join('\n');
 }
 
 /**

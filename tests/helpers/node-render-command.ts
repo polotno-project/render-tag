@@ -5,10 +5,62 @@
  */
 import type { BrowserCommand } from 'vitest/node';
 import path from 'node:path';
-import { stripFontFaces } from './css-text.ts';
+import { faceFamily, inlineStyles, matchFontFaces, stripFontFaces } from './css-text.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '../..');
 const registered = new Set<string>();
+/** Each face's registered name, by family and unicode-range: subsets can share a first code point. */
+const faceNames = new Map<string, string>();
+/** Each family's registered face names, by their range's first code point. */
+const familyFaces = new Map<string, { name: string; first: number }[]>();
+
+/**
+ * Register every face `css` declares. Skia uses only the first file registered under a family
+ * name, so each unicode-range subset is registered under a name of its own and `withFaces`
+ * names them all: Skia's per-character fallback through them stands in for unicode-range.
+ */
+async function registerFaces(css: string): Promise<void> {
+  const { GlobalFonts } = await import('@napi-rs/canvas');
+  for (const face of matchFontFaces(css)) {
+    const family = faceFamily(face);
+    const url = /url\(\s*['"]?([^'")]+)/.exec(face)?.[1];
+    if (!family || !url) continue;
+    const range = /unicode-range:\s*([^;]+)/.exec(face)?.[1].trim() ?? '';
+    let name = faceNames.get(`${family}\0${range}`);
+    if (!name) {
+      faceNames.set(`${family}\0${range}`, name = `rt-face-${faceNames.size}`);
+      const faces = familyFaces.get(family) ?? [];
+      faces.push({ name, first: Number.parseInt(/U\+([0-9a-f]+)/i.exec(range)?.[1] ?? '0', 16) });
+      faces.sort((a, b) => a.first - b.first);
+      familyFaces.set(family, faces);
+    }
+    const file = path.join(ROOT, decodeURIComponent(new URL(url, 'http://localhost').pathname));
+    if (registered.has(`${name}\0${file}`)) continue;
+    registered.add(`${name}\0${file}`);
+    GlobalFonts.registerFromPath(file, name);
+  }
+}
+
+/** A CSS `font` value with each registered family replaced by its faces, Latin's first. */
+function withFaces(font: string): string {
+  const match = /^(.*?[\d.]+px\s+)(.+)$/.exec(font);
+  if (!match) return font;
+  return match[1] + match[2].split(',').flatMap((family) => {
+    const faces = familyFaces.get(family.trim().replace(/^(['"])(.*)\1$/, '$2'));
+    return faces ? faces.map((face) => `"${face.name}"`) : [family.trim()];
+  }).join(', ');
+}
+
+/** `canvas` whose contexts resolve families to the registered faces. */
+function withFaceFonts<T extends { getContext(type: '2d'): unknown }>(canvas: T): T {
+  const ctx = canvas.getContext('2d') as object;
+  const font = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(ctx), 'font')!;
+  Object.defineProperty(ctx, 'font', {
+    get: () => font.get!.call(ctx),
+    set: (value: string) => font.set!.call(ctx, withFaces(value)),
+  });
+  return canvas;
+}
 
 export interface NodeRender {
   lines: { y: number; text: string; bounds: { x: number; width: number } }[];
@@ -19,29 +71,17 @@ export interface NodeRender {
 export const renderInNode: BrowserCommand<[html: string, css: string, width: number, height: number]> = async (
   _context, html, css, width, height,
 ): Promise<NodeRender> => {
-  const { createCanvas, GlobalFonts, setTextRenderer } = await import('@napi-rs/canvas');
+  const { createCanvas, setTextRenderer } = await import('@napi-rs/canvas');
   const { DOMParser } = await import('linkedom');
   const { render, setDOMParser } = await import('../../src/index.ts');
   setTextRenderer('system');
   setDOMParser(new DOMParser() as never);
-  // A family's first face is the one Skia matches: its Latin subset, the other unicode-range
-  // subsets after it for per-character fallback.
-  const faces = [...css.matchAll(/@font-face\s*\{([^}]*)\}/g)].map(([, face]) => ({
-    family: /font-family:\s*['"]?([^'";]+?)['"]?\s*;/.exec(face)?.[1],
-    url: /url\(\s*['"]?([^'")]+)/.exec(face)?.[1],
-  })).sort((a, b) => Number(!/-latin-(?!ext)/.test(a.url ?? '')) - Number(!/-latin-(?!ext)/.test(b.url ?? '')));
-  for (const { family, url } of faces) {
-    if (!family || !url) continue;
-    const file = path.join(ROOT, decodeURIComponent(new URL(url, 'http://localhost').pathname));
-    if (registered.has(`${family}\0${file}`)) continue;
-    registered.add(`${family}\0${file}`);
-    GlobalFonts.registerFromPath(file, family);
-  }
-  const canvas = createCanvas(width, height);
-  const ctx = canvas.getContext('2d') as unknown as CanvasRenderingContext2D;
+  await registerFaces(`${css}\n${inlineStyles(html)}`);
+  const canvas = withFaceFonts(createCanvas(width, height));
   const result = render({
-    html: `<style>${stripFontFaces(css)}</style>${html}`, width, height, ctx,
-    createCanvas: (w, h) => createCanvas(Math.max(1, w), Math.max(1, h)) as never,
+    html: `<style>${stripFontFaces(css)}</style>${html}`, width, height,
+    ctx: canvas.getContext('2d') as unknown as CanvasRenderingContext2D,
+    createCanvas: (w, h) => withFaceFonts(createCanvas(Math.max(1, w), Math.max(1, h))) as never,
   });
   return {
     lines: result.lines.map((line) => ({ y: line.y, text: line.text, bounds: { x: line.bounds.x, width: line.bounds.width } })),

@@ -1,5 +1,5 @@
 import { isWebKit } from './browser-name.ts';
-import { matchFontFaces, replaceFontFaces, stripFontFaces } from './css-text.ts';
+import { faceFamily, matchFontFaces, replaceFontFaces, stripFontFaces } from './css-text.ts';
 // Every pinned face is vendored under tests/fonts (scripts/vendor-fonts.mjs):
 // the @fontsource CSS with its woff2 subsets beside it, versions and hashes in
 // MANIFEST.json. Served as static files by the Vite dev server.
@@ -228,8 +228,6 @@ export function keepUsedFontFaces(css: string, html: string): string {
     ['RT Noto Emoji', /\p{Extended_Pictographic}/u],
   ]);
   const faces = matchFontFaces(css);
-  const faceFamily = (face: string) =>
-    face.match(/font-family:\s*['"]?([^;'"\n]+)/i)?.[1]?.trim() || '';
   const availableFamilies = new Set(faces.map(faceFamily).filter(Boolean));
   const primaryFamilies = new Set<string>();
   const declarations = `${stripFontFaces(css)}\n${html}`;
