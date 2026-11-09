@@ -71,7 +71,8 @@ describe('Box model parity with the DOM', () => {
         const rt = actual.get(id);
         if (!rt) continue;
         const keys: (keyof Box)[] = testCase.noHeight?.includes(id) ? ['x', 'y', 'width'] : ['x', 'y', 'width', 'height'];
-        const bad = keys.filter((key) => Math.abs(rt[key] - dom[key]) > TOLERANCE);
+        // Negated so a NaN coordinate fails too.
+        const bad = keys.filter((key) => !(Math.abs(rt[key] - dom[key]) <= TOLERANCE));
         if (bad.length > 0) {
           off.push(`#${id} ` + bad.map((key) => `${key} ${rt[key].toFixed(2)} vs ${dom[key].toFixed(2)}`).join(', '));
         }

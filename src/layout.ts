@@ -5,8 +5,7 @@ import type { StyledNode, LayoutBox, LayoutLine, TextUnit, TextUnitLevel } from 
 import { resolveStylesFromCSS } from './css-resolver.js';
 import { parseHTML } from './parse.js';
 import { layoutFontMetrics, Measurer, type FontMetricsTable, type LayoutSession, type LayoutStats } from './layout/session.js';
-import { isInline } from './layout/util.js';
-import { addListMarker, layoutBlock } from './layout/block.js';
+import { layoutBlock } from './layout/block.js';
 import { buildTextUnits } from './layout/units.js';
 
 export {
@@ -65,9 +64,7 @@ export function buildLayoutTree(
     units: unitLevel !== undefined,
   };
   // The styledTree root is our container div — layout its children as a block flow
-  const { box, height } = layoutBlock(session, styledTree, 0, 0, containerWidth, undefined, true);
-
-  addListMarkersRecursive(session, box, styledTree);
+  const { box } = layoutBlock(session, styledTree, 0, 0, containerWidth, undefined, true);
 
   // By baseline, then left edge: cross-cell content merges in reading order, markers first.
   const sorted = session.lines.sort((a, b) =>
@@ -98,31 +95,5 @@ export function buildLayoutTree(
   }
   layoutFontMetrics.set(box, fontMetrics);
   const textUnits = unitLevel ? buildTextUnits(session, box, unitLevel) : undefined;
-  return { root: box, height, lines, textUnits };
-}
-
-function addListMarkersRecursive(
-  session: LayoutSession,
-  box: LayoutBox,
-  node: StyledNode,
-): void {
-  addListMarker(session, box, node);
-
-  // box.children may hold extra text/inline nodes: walk both in parallel.
-  let boxChildIdx = 0;
-  for (const styledChild of node.children) {
-    if (isInline(styledChild)) {
-      continue;
-    }
-    // Find the matching LayoutBox
-    while (boxChildIdx < box.children.length) {
-      const layoutChild = box.children[boxChildIdx];
-      if (layoutChild.type === 'box' && layoutChild.tagName === styledChild.tagName) {
-        addListMarkersRecursive(session, layoutChild, styledChild);
-        boxChildIdx++;
-        break;
-      }
-      boxChildIdx++;
-    }
-  }
+  return { root: box, height: box.height, lines, textUnits };
 }

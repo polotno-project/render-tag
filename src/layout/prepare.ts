@@ -456,10 +456,15 @@ export function contentSize(session: LayoutSession, node: StyledNode, max: boole
   let content = 0;
   if (hasOnlyInlineChildren(node)) {
     content = inlineContentSize(session, node, max);
-  } else if (node.style.display === 'flex' && isFlexRow(node.style)) {
-    const children = flexItems(session, node);
-    for (const child of children) content += contribution(session, child, intrinsicStyle(child.style));
-    content += intrinsicStyle(node.style).gap * Math.max(0, children.length - 1);
+  } else if (node.style.display === 'flex') {
+    // A row's items sit side by side with gaps between; a column is as wide as its widest item.
+    const row = isFlexRow(node.style);
+    const items = flexItems(session, node);
+    for (const item of items) {
+      const width = contribution(session, item, intrinsicStyle(item.style));
+      content = row ? content + width : Math.max(content, width);
+    }
+    if (row) content += intrinsicStyle(node.style).gap * Math.max(0, items.length - 1);
   } else {
     for (const child of node.children) {
       if (child.tagName !== '#text') {

@@ -616,6 +616,8 @@ const EXACT_PROBE_SIZE = 2000;
  * whole-px rounding is negligible, and scaled to `fontSize` before rounding.
  */
 function chromeFontBox(fontSize: number, measure: (size: number) => FontBox): FontBox {
+  // A zero-size font has a zero box (the `font-size: 0` wrapper around sized spans).
+  if (fontSize === 0) return { ascent: 0, descent: 0 };
   const size = CANVAS_CEILS_FONT_BOX ? EXACT_PROBE_SIZE : fontSize;
   const box = measure(size);
   return { ascent: Math.round(box.ascent * fontSize / size), descent: Math.round(box.descent * fontSize / size) };

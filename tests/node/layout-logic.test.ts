@@ -1511,6 +1511,25 @@ describe('Layout logic (mocked measureText)', () => {
       const pBox = root.children.find(c => c.type === 'box') as LayoutBox;
       expect(pBox.height).toBe(100);
     });
+
+    it('minHeight is respected on a flex container', () => {
+      const html = '<div style="display:flex;min-height:100px"><div>a</div></div>';
+      expect(layout({ html, width: 200, ctx: mockCtx() }).height).toBe(100);
+    });
+
+    it('a block with font-size 0 has no strut, and the blocks after it keep their place', () => {
+      // Chrome: the zero-size block is as tall as its line-height; the wrapper hack
+      // (`font-size:0` around sized spans) is as tall as the spans' line.
+      const { height, lines } = layout({
+        html: '<p style="margin:0">before</p><p style="margin:0;font-size:0;line-height:20px">hidden</p><p style="margin:0">after</p>',
+        width: 200, ctx: mockCtx(),
+      });
+      expect(height).toBe(16 + 20 + 16);
+      // The zero-size line's baseline sits in the middle of its 20px line box.
+      expect(lines.map((l) => l.y)).toEqual([12, 26, 48]);
+      const hack = layout({ html: '<div style="font-size:0"><span style="font-size:16px">a</span> <span style="font-size:16px">b</span></div>', width: 200, ctx: mockCtx() });
+      expect(hack.height).toBe(16);
+    });
   });
 
   // ─── Flex layout ───────────────────────────────────────────────────
@@ -1643,6 +1662,24 @@ describe('Layout logic (mocked measureText)', () => {
         block('div', [textNode('A')], { flexGrow: 1, flexBasis: 0 }),
         block('div', [textNode('B')], { flexGrow: 1, flexBasis: 0 }),
       ], { gap: 20 })).toEqual([90, 90]);
+    });
+
+    it('a column puts gap between its items, not after the last', () => {
+      // Chrome: two 16px items with gap:20px make a 52px column.
+      const height = (style: string, items: string) => layout({
+        html: `<div style="display:flex;flex-direction:column;${style}">${items}</div>`, width: 200, ctx: mockCtx(),
+      }).height;
+      expect(height('gap:20px', '<div>a</div><div>b</div>')).toBe(height('', '<div>a</div><div>b</div>') + 20);
+      expect(height('gap:20px', '<div>a</div>')).toBe(height('', '<div>a</div>'));
+    });
+
+    it('a column item sizes to its bare text', () => {
+      const { layoutRoot } = layout({
+        html: '<div style="display:flex"><section style="display:flex;flex-direction:column">longlongtext<p style="margin:0">x</p></section></div>',
+        width: 400, ctx: mockCtx(),
+      });
+      const section = (layoutRoot.children[0] as LayoutBox).children[0] as LayoutBox;
+      expect(section.width).toBe(120);
     });
   });
 
@@ -2012,6 +2049,14 @@ describe('Layout logic (mocked measureText)', () => {
       // 40px is 2.5x the li's 16px. Measured on the li's face both overrides
       // come out identical, which is what the ratio catches.
       expect(markerWidthFor(40) / markerWidthFor(16)).toBeCloseTo(2.5, 5);
+    });
+
+    it.each([
+      ['a table cell', '<table><tr><td><ul><li>one</li></ul></td></tr></table>'],
+      ['a flex item beside bare text', '<div style="display:flex">text<div><ul><li>one</li></ul></div></div>'],
+    ])('marks a list inside %s', (_, html) => {
+      const { layoutRoot } = layout({ html, width: 400, ctx: mockCtx() });
+      expect(collectTexts(layoutRoot).map((t) => t.text)).toContain('•');
     });
   });
 

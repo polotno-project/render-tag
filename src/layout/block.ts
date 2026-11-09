@@ -110,7 +110,7 @@ function leadingStrut(node: StyledNode, strut: MarginStrut = NO_MARGIN): MarginS
 }
 
 /**
- * Lay out a block and its children. `y` is the border-box top (the caller resolved the
+ * Lay out a block, its children and its list marker. `y` is the border-box top (the caller resolved the
  * margins above, `leadingStrut`); margins leaving the bottom return as `marginBottomOut`.
  * `bfcRoot`: a BFC root by position (the root, a flex item, a table cell).
  * `usedWidth`: `availableWidth` is the margin box the caller already sized (a flex-row
@@ -125,7 +125,7 @@ export function layoutBlock(
   clamp?: LineClampState,
   bfcRoot = false,
   usedWidth = false,
-): { box: LayoutBox; height: number; marginBottomOut: MarginStrut } {
+): { box: LayoutBox; marginBottomOut: MarginStrut } {
   const style = node.style;
 
   // `-webkit-line-clamp` here starts a line budget shared with descendants (Chrome legacy
@@ -155,12 +155,10 @@ export function layoutBlock(
   // width just settled.
   resolvePercentages(style, contentWidth, true);
   resolveChildPercentages(node, contentWidth);
-  const minHeight = style.minHeight > 0
-    ? borderBoxSize(style, style.minHeight, borderTop + padTop + padBottom + borderBottom)
-    : 0;
-
+  const frameY = borderTop + padTop + padBottom + borderBottom;
   const contentStartY = y + borderTop + padTop;
-  const ownMarginOut = withMargin(NO_MARGIN, style.marginBottom);
+  let marginBottomOut = withMargin(NO_MARGIN, style.marginBottom);
+  let contentHeight: number;
 
   const box: LayoutBox = {
     type: 'box',
@@ -177,27 +175,17 @@ export function layoutBlock(
   if (style.display === 'flex' || style.display === 'table') {
     const result = (style.display === 'flex' ? layoutFlex : layoutTable)(session, node, contentX, contentStartY, contentWidth);
     box.children = result.children;
-    box.height = borderTop + padTop + result.height + padBottom + borderBottom;
-    return { box, height: box.height, marginBottomOut: ownMarginOut };
-  }
-
-  // An empty block has no line boxes, except a list item's outside marker (Chrome, WebKit).
-  if (node.children.length === 0) {
-    const markerLine = hasMarkerLine(node)
-      ? session.measurer.lineHeight(style)
-      : 0;
-    box.height = borderTop + padTop + markerLine + padBottom + borderBottom;
-    if (minHeight > 0) box.height = Math.max(box.height, minHeight);
-    return { box, height: box.height, marginBottomOut: ownMarginOut };
-  }
-
-  if (hasOnlyInlineChildren(node)) {
+    contentHeight = result.height;
+  } else if (node.children.length === 0) {
+    // An empty block has no line boxes, except a list item's outside marker (Chrome, WebKit).
+    contentHeight = hasMarkerLine(node) ? session.measurer.lineHeight(style) : 0;
+  } else if (hasOnlyInlineChildren(node)) {
     const { nodes, height, lines, lineBoxes } = layoutInlineContent(
       session, node, contentX, contentStartY, contentWidth, clamp);
     appendAll(session.lines, lines);
     box.children = nodes;
     box.lineBoxes = lineBoxes;
-    box.height = borderTop + padTop + height + padBottom + borderBottom;
+    contentHeight = height;
   } else {
     // Stack block children, collapsing margins (CSS 2.1 §8.3.1).
     let curY = contentStartY;
@@ -274,20 +262,19 @@ export function layoutBlock(
 
       const childY = atTop ? curY : curY + strutSize(joinStruts(pending, top));
       atTop = false;
-      const { box: childBox, height: childHeight, marginBottomOut } = layoutBlock(
+      const { box: childBox, marginBottomOut: childMarginOut } = layoutBlock(
         session, child, contentX, childY, contentWidth, clamp,
       );
       box.children.push(childBox);
-      curY = childY + childHeight;
+      curY = childY + childBox.height;
       // A child truncated by line-clamp clips its trailing margin too.
-      pending = clamp?.exhausted ? NO_MARGIN : marginBottomOut;
+      pending = clamp?.exhausted ? NO_MARGIN : childMarginOut;
     }
 
     // The last child's bottom margins leave through this box's bottom edge
     // unless padding, border or a BFC holds them inside (the layout root
     // holds them: it defines the content height). A min-height that raises the
     // box drops them (Blink, WebKit 27.2; Gecko keeps them inside).
-    let marginBottomOut = ownMarginOut;
     let contentEnd = curY - contentStartY;
     // A list item with nothing in flow but its marker still gets the marker's line box
     // (Blink; WebKit gives it no height).
@@ -296,7 +283,7 @@ export function layoutBlock(
       contentEnd = Math.max(contentEnd, session.measurer.lineHeight(style));
     }
     const raisesBox = style.minHeight > 0 &&
-      contentBoxSize(style, style.minHeight, borderTop + padTop + padBottom + borderBottom) > Math.max(0, contentEnd);
+      contentBoxSize(style, style.minHeight, frameY) > Math.max(0, contentEnd);
     if (!bfcRoot && bottomAdjoinsChildren(style)) {
       if (!raisesBox) {
         marginBottomOut = withMargin(pending, style.marginBottom);
@@ -304,14 +291,13 @@ export function layoutBlock(
     } else {
       contentEnd += strutSize(pending);
     }
-    contentEnd = Math.max(0, contentEnd);
-    box.height = borderTop + padTop + contentEnd + padBottom + borderBottom;
-    if (minHeight > 0) box.height = Math.max(box.height, minHeight);
-    return { box, height: box.height, marginBottomOut };
+    contentHeight = Math.max(0, contentEnd);
   }
 
-  if (minHeight > 0) box.height = Math.max(box.height, minHeight);
-  return { box, height: box.height, marginBottomOut: ownMarginOut };
+  box.height = frameY + contentHeight;
+  if (style.minHeight > 0) box.height = Math.max(box.height, borderBoxSize(style, style.minHeight, frameY));
+  addListMarker(session, box, node);
+  return { box, marginBottomOut };
 }
 
 // ── Table layout ──
@@ -340,7 +326,7 @@ function layoutTable(
   if (rows.length === 0) return { children, height: 0 };
 
   const rowCells = rows.map(r => r.children.filter(c => c.tagName === 'td' || c.tagName === 'th'));
-  const colCount = Math.max(...rowCells.map(cells => cells.length));
+  const colCount = rowCells.reduce((n, cells) => Math.max(n, cells.length), 0);
   if (colCount === 0) return { children, height: 0 };
 
   // A column is as wide as its widest declared cell (border box), never under its widest
@@ -395,9 +381,9 @@ function layoutTable(
     for (let i = 0; i < cells.length; i++) {
       const cell = cells[i];
 
-      const { box: cellBox, height: cellHeight } = layoutBlock(session, cell, colX[i], curY, colWidths[i], undefined, true, true);
+      const { box: cellBox } = layoutBlock(session, cell, colX[i], curY, colWidths[i], undefined, true, true);
       cellBoxes.push(cellBox);
-      maxCellHeight = Math.max(maxCellHeight, cellHeight);
+      maxCellHeight = Math.max(maxCellHeight, cellBox.height);
     }
 
     // Normalize cell heights to the tallest cell in the row
@@ -425,51 +411,41 @@ function layoutFlex(
   const gap = style.gap;
   const children: LayoutNode[] = [];
 
-  const flexChildren = flexItems(session, node);
-  if (flexChildren.length === 0) return { children, height: 0 };
+  const items = flexItems(session, node);
+  if (items.length === 0) return { children, height: 0 };
 
-  if (isFlexRow(style)) {
-    const totalGaps = gap * (flexChildren.length - 1);
-    const available = Math.max(0, contentWidth - totalGaps);
-    // If the minima themselves do not fit, they overflow the container exactly
-    // as native flex items with min-width:auto do.
-    const widths = resolveFlexibleLengths(
-      flexChildren.map((child) => child.style),
-      flexChildren.map((child) => flexBaseSize(session, child, contentWidth)),
-      flexChildren.map((child) => minimumContribution(session, child, child.style)),
-      available,
-    );
-
-    let curX = contentX;
-    let maxHeight = 0;
-
-    for (let index = 0; index < flexChildren.length; index++) {
-      const child = flexChildren[index];
-      const childWidth = widths[index];
-
-      const { box, height } = layoutBlock(session, child, curX, contentY, childWidth, undefined, true, true);
-      children.push(box);
-      maxHeight = Math.max(maxHeight, height);
-      curX += childWidth + gap;
-    }
-
-    return { children, height: maxHeight };
-  }
-
-  // Column layout (fallback)
-  let curY = contentY;
-  for (const child of flexChildren) {
-    const { box, height } = layoutBlock(session, child, contentX, curY, contentWidth, undefined, true);
+  // A row shares its width among the items (minima that do not fit overflow, as native flex
+  // items with min-width:auto do); a column gives each the full width and stacks them.
+  const widths = isFlexRow(style)
+    ? resolveFlexibleLengths(
+      items.map((child) => child.style),
+      items.map((child) => flexBaseSize(session, child, contentWidth)),
+      items.map((child) => minimumContribution(session, child, child.style)),
+      Math.max(0, contentWidth - gap * (items.length - 1)),
+    )
+    : null;
+  let main = 0;
+  let cross = 0;
+  for (let i = 0; i < items.length; i++) {
+    if (i > 0) main += gap;
+    const { box } = widths
+      ? layoutBlock(session, items[i], contentX + main, contentY, widths[i], undefined, true, true)
+      : layoutBlock(session, items[i], contentX, contentY + main, contentWidth, undefined, true);
     children.push(box);
-    curY += height + gap;
+    if (widths) {
+      main += widths[i];
+      cross = Math.max(cross, box.height);
+    } else {
+      main += box.height;
+    }
   }
-  return { children, height: curY - contentY };
+  return { children, height: widths ? cross : main };
 }
 
 // ── List marker layout ──
 
 /** Add list marker to a layout box if applicable. */
-export function addListMarker(
+function addListMarker(
   session: LayoutSession,
   box: LayoutBox,
   node: StyledNode,

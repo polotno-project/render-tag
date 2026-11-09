@@ -2293,6 +2293,24 @@ export async function loadBoxModelCases(): Promise<BoxModelCase[]> {
         `<span style="${m(2)}${ib}width:50%">x</span></div><div style="${m(3)}flex:2">y</div></div>`,
       noHeight: [1, 3],
     },
+    { name: 'min-height on a flex container', html: `<div style="${m(1)}display:flex;min-height:60px;${frame}"><div>x</div></div>` },
+    { name: 'min-height on a table', html: `<table style="${m(1)}width:200px;min-height:60px"><tr><td>x</td></tr></table>` },
+    {
+      name: 'column flex gap between items only',
+      html: `<div style="${m(1)}display:flex;flex-direction:column;gap:20px"><div style="${m(2)}">a</div>` +
+        `<div style="${m(3)}">b</div></div><div style="${m(4)}">after</div>`,
+    },
+    {
+      name: 'column flex item sized by its bare text',
+      html: `<div style="display:flex"><section style="${m(1)}display:flex;flex-direction:column">longlongtext` +
+        `<p style="margin:0">x</p></section></div>`,
+    },
+    {
+      name: 'font-size 0',
+      html: `<p style="margin:0">before</p><p style="${m(1)}margin:0;font-size:0">hidden</p>` +
+        `<div style="${m(2)}font-size:0;line-height:normal"><span style="font-size:16px">a</span> <span style="font-size:16px">b</span></div>` +
+        `<div style="${m(3)}">after</div>`,
+    },
   ];
   return cases.map((testCase) => ({
     name: testCase.name,
