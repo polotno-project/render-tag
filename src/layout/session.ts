@@ -130,6 +130,8 @@ export interface MeasureState {
   units: { ch: number; ex: number } | undefined;
   /** `Measurer.inkBox` results under this state, by text. */
   inks: Map<string, InkBox> | undefined;
+  /** `Measurer.reportedInk` results under this state, by text. */
+  reportedInks: Map<string, InkBox> | undefined;
   /** `Measurer.scales` answers for this probe state, by sample. */
   scales: Map<string, boolean> | undefined;
 }
@@ -335,6 +337,23 @@ export class Measurer {
     const inks = state.inks ??= new Map();
     let ink = inks.get(text);
     if (!ink) {
+      ink = this.reportedInk(state, text);
+      if (INK_BOX_FROM_PAINT) {
+        // Null once the canvas memory cap is hit (iOS).
+        const readback = this.readback ??= createFallbackMeasureCtx(true);
+        if (readback) ink = paintedInkBox(readback, state, text, ink) ?? ink;
+      }
+      inks.set(text, ink);
+    }
+    return ink;
+  }
+
+  /** The ink extents of `text` under `state` as `measureText` reports them, once per call: within
+   * ~1px of the paint vertically, off it sideways where `INK_BOX_FROM_PAINT`. */
+  reportedInk(state: MeasureState, text: string): InkBox {
+    const reported = state.reportedInks ??= new Map();
+    let ink = reported.get(text);
+    if (!ink) {
       const m = this.measureText(state, text);
       ink = {
         ascent: m.actualBoundingBoxAscent ?? 0,
@@ -342,12 +361,7 @@ export class Measurer {
         left: m.actualBoundingBoxLeft ?? 0,
         right: m.actualBoundingBoxRight ?? m.width,
       };
-      if (INK_BOX_FROM_PAINT) {
-        // Null once the canvas memory cap is hit (iOS).
-        const readback = this.readback ??= createFallbackMeasureCtx(true);
-        if (readback) ink = paintedInkBox(readback, state, text, ink) ?? ink;
-      }
-      inks.set(text, ink);
+      reported.set(text, ink);
     }
     return ink;
   }
@@ -477,7 +491,7 @@ export class Measurer {
     if (!state) {
       state = {
         font, fontSize, kerning, textRendering, lang, letterSpacing, widths: new Map(), units: undefined, inks: undefined,
-        scales: undefined,
+        reportedInks: undefined, scales: undefined,
       };
       this.states.set(key, state);
     }
@@ -659,6 +673,14 @@ export function startsMeasuredRun(node: LayoutText): boolean {
 export function paintLineSnap(node: LayoutText): number {
   const top = (node as PrivateText)[LINE_TOP] ?? node.lineBaselineY ?? node.y;
   return Math.round(top) - top;
+}
+
+/** The baselines `run` paints on, line snap included: its own, and the line's where a vertical-align
+ * shift leaves its decorations (else its own again). */
+export function paintBaselines(run: LayoutText): readonly [number, number] {
+  const snap = paintLineSnap(run);
+  const decorated = run.style.textDecorations.length > 0;
+  return [run.y + snap, (decorated ? run.lineBaselineY ?? run.y : run.y) + snap];
 }
 
 /** Not `normal`: a length, or zero (carried as the multiplier 0; css-resolver). */

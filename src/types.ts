@@ -68,6 +68,11 @@ export interface TextUnitFragment {
   /** The line's baseline. */
   baseline: number;
   direction: 'ltr' | 'rtl';
+  /** Top and bottom of what its text paints at rest, conservatively: glyph ink, strokes and
+   * decorations; not CSS shadows (phase 'shadow'). Past the line box under a tight line-height:
+   * clipped to this span, a moving fragment loses nothing it paints. */
+  paintTop: number;
+  paintBottom: number;
 }
 
 /**

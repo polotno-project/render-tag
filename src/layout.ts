@@ -13,7 +13,7 @@ export {
   buildCanvasFont, canvasFont, canvasKerning, canvasSpacing, canvasTextRendering, claimCtx, formatLetterSpacing,
   syntheticBoldWidening,
   getFontMetrics,
-  isShiftedVAlign, layoutFontMetrics, lineBaselineOffset, Measurer, nextCtxWriterId, paintLineSnap,
+  isShiftedVAlign, layoutFontMetrics, lineBaselineOffset, Measurer, nextCtxWriterId, paintBaselines, paintLineSnap,
   startsMeasuredRun,
   tabStopMetrics,
   type FontMetricsTable, type LayoutStats, type MeasureState,

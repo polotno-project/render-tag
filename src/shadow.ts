@@ -114,6 +114,21 @@ export function transformBounds(bounds: PaintBounds, m: Matrix): PaintBounds {
   return { x, y, width: Math.max(ax, bx, cx, dx) - x, height: Math.max(ay, by, cy, dy) - y };
 }
 
+/** How far text of `style` paints around its baseline, conservatively: its ink as the canvas
+ * reports it, at least 1em up and 0.5em down, and `pad` past that on every side for half its
+ * stroke (a miter join reaches `miterLimit` times further) and its decorations. */
+export function textPaintReach(
+  style: ResolvedStyle, inkAscent: number, inkDescent: number, miterLimit = 10,
+): { ascent: number; descent: number; pad: number } {
+  const stroke = style.webkitTextStrokeWidth / 2 * (style.strokeLinejoin === 'miter' ? miterLimit : 1);
+  let pad = 2 + stroke;
+  for (const deco of style.textDecorations) {
+    const thickness = deco.declarer.textDecorationThickness ?? Math.max(1, deco.declarer.fontSize / 15);
+    pad = Math.max(pad, 2 + stroke + Math.abs(deco.declarer.textUnderlineOffset ?? deco.declarer.fontSize * 0.2) + thickness * 4);
+  }
+  return { ascent: Math.max(style.fontSize, inkAscent), descent: Math.max(style.fontSize * 0.5, inkDescent), pad };
+}
+
 /** Conservative ink bounds with the same context state used to paint the text.
  * These include negative bearings, joins and decorations, not just line boxes. */
 export function textPaintBounds(
@@ -121,19 +136,12 @@ export function textPaintBounds(
   x: number, y: number, width: number, rightAligned = false,
 ): PaintBounds {
   const metrics = ctx.measureText(text);
-  const stroke = style.webkitTextStrokeWidth / 2 *
-    (style.strokeLinejoin === 'miter' ? ctx.miterLimit ?? 10 : 1);
-  let pad = 2 + stroke;
-  for (const deco of style.textDecorations) {
-    const thickness = deco.declarer.textDecorationThickness ?? Math.max(1, deco.declarer.fontSize / 15);
-    pad = Math.max(pad, 2 + stroke + Math.abs(deco.declarer.textUnderlineOffset ?? deco.declarer.fontSize * 0.2) + thickness * 4);
-  }
+  const { ascent, descent, pad } = textPaintReach(style, metrics.actualBoundingBoxAscent || 0,
+    metrics.actualBoundingBoxDescent || 0, ctx.miterLimit ?? 10);
   // TextMetrics already accounts for alignment/direction relative to (x, y).
   // Keep the layout advance too: decoration geometry uses it independently.
   const left = Math.min(rightAligned ? -width : 0, -(metrics.actualBoundingBoxLeft || 0));
   const right = Math.max(rightAligned ? 0 : width, metrics.actualBoundingBoxRight || 0);
-  const ascent = Math.max(style.fontSize, metrics.actualBoundingBoxAscent || 0);
-  const descent = Math.max(style.fontSize * 0.5, metrics.actualBoundingBoxDescent || 0);
   // WebKit can omit synthetic italics from TextMetrics. Its painter shears by
   // 14 degrees (WebCore/FontCascade.h::syntheticObliqueAngle). Canvas does not
   // expose whether a face was synthesized, so conservatively allow that shear.

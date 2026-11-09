@@ -2,6 +2,8 @@ import { beforeAll, expect, test, vi } from 'vitest';
 import { layout, drawLayout, render, type PaintBounds } from '../src/index.ts';
 import { layoutTextOnPath, drawTextOnPathLayout, drawTextOnPath } from '../src/path/index.ts';
 import fontUrl from './fonts/arimo/arimo-latin-wght-normal.woff2?url';
+import { loadCorpus, TEST_FALLBACK_STACK } from './helpers/test-cases.ts';
+import { prepareComparisonFonts } from './helpers/compare.ts';
 
 beforeAll(async () => {
   document.fonts.add(await new FontFace('BoundsFixture', `url(${fontUrl})`, { weight: '100 900' }).load());
@@ -15,20 +17,25 @@ function surface() {
   return ctx;
 }
 
-function containsPaint(ctx: CanvasRenderingContext2D, bounds: PaintBounds) {
+/** Each painted pixel's top-left corner, in `surface()`'s coordinates. */
+function* paintedPixels(ctx: CanvasRenderingContext2D) {
   const pixels = ctx.getImageData(0, 0, ctx.canvas.width, ctx.canvas.height);
+  for (let y = 0; y < pixels.height; y++) for (let x = 0; x < pixels.width; x++) {
+    if (pixels.data[(y * pixels.width + x) * 4 + 3] >= 2) yield [x - 300, y - 250] as const;
+  }
+}
+
+function containsPaint(ctx: CanvasRenderingContext2D, bounds: PaintBounds) {
   let painted = 0, outside = 0;
   let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
-  for (let y = 0; y < pixels.height; y++) for (let x = 0; x < pixels.width; x++) {
-    if (pixels.data[(y * pixels.width + x) * 4 + 3] < 2) continue;
+  for (const [x, y] of paintedPixels(ctx)) {
     painted++;
     left = Math.min(left, x); top = Math.min(top, y);
     right = Math.max(right, x + 1); bottom = Math.max(bottom, y + 1);
-    if (x + 1 < 300 + bounds.x || x > 300 + bounds.x + bounds.width ||
-        y + 1 < 250 + bounds.y || y > 250 + bounds.y + bounds.height) outside++;
+    if (x + 1 < bounds.x || x > bounds.x + bounds.width || y + 1 < bounds.y || y > bounds.y + bounds.height) outside++;
   }
   expect(painted).toBeGreaterThan(100);
-  expect(outside, JSON.stringify({ bounds, paint: { left: left - 300, top: top - 250, right: right - 300, bottom: bottom - 250 } })).toBe(0);
+  expect(outside, JSON.stringify({ bounds, paint: { left, top, right, bottom } })).toBe(0);
 }
 
 const cases = [
@@ -119,4 +126,32 @@ test('default bounds context does not inherit spacing from another layout', () =
   const ctx = surface();
   drawLayout({ layout: result, width: 220, ctx });
   containsPaint(ctx, result.paintBounds);
+});
+
+test('a text unit paints within its fragments\' paintTop and paintBottom', async () => {
+  // Glyphs past Merriweather's font box (Å, Vietnamese), fallback scripts, a stroke, offset and
+  // over lines, a raised run, a marker and an inline-block, on lines shorter than their text.
+  const [{ css }] = (await loadCorpus({ defaultFont: false })).filter((e) => e.key === 'Simple paragraph@Merriweather');
+  const html = `<div style="font:36px/0.8 Merriweather, ${TEST_FALLBACK_STACK}, serif">
+    <p style="margin:0">Åland Ångström gjpq</p>
+    <p style="margin:0">ẤN TƯỢNG <sup>2</sup> <span style="font-size:54px">Ễỗ</span></p>
+    <p style="margin:0;-webkit-text-stroke:3px #000">Stroke <u style="text-decoration-style:wavy;text-underline-offset:10px">wavy</u> <span style="text-decoration:overline">over</span></p>
+    <p style="margin:0">ญี่ปุ่น <span dir="rtl">إلىٰ שלום</span></p>
+    <ul style="margin:0"><li><i style="font-family:'Playfair Display'">Item</i> <span style="display:inline-block;font-size:48px">Åj</span></li></ul>
+    <p dir="rtl" style="margin:0">مرحبا بالعالم</p></div>`;
+  await prepareComparisonFonts(html, css);
+  for (const level of ['line', 'word'] as const) {
+    const ctx = surface();
+    const result = layout({ html, width: 600, ctx, textUnits: level });
+    const units = result.textUnits!;
+    expect(units.some((u) => u.fragments.some((f) => f.paintTop < f.y || f.paintBottom > f.y + f.height))).toBe(true);
+    for (const unit of units) {
+      ctx.clearRect(-300, -250, 1000, 700);
+      drawLayout({ layout: result, width: 600, ctx, paintTextUnit: (paint) => { if (paint.unit === unit) paint.draw(); } });
+      // Each pixel within the span of the fragment under it, give or take an overhang.
+      const outside = [...paintedPixels(ctx)].filter(([x, y]) => !unit.fragments.some((f) =>
+        x + 1 >= f.x - 30 && x <= f.x + f.width + 30 && y + 1 >= f.paintTop && y <= f.paintBottom));
+      expect(outside.slice(0, 5), `${level} "${unit.text}" ${JSON.stringify(unit.fragments)}`).toEqual([]);
+    }
+  }
 });

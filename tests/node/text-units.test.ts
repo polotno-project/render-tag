@@ -15,7 +15,7 @@ import type { LayoutResult, TextUnit, TextUnitLevel, TextUnitPaint } from '../..
 import { mockCtx } from '../helpers/mock-ctx.ts';
 import { fillTexts, recordingCtx, stateWidth } from '../helpers/recording-ctx.ts';
 import { collectTexts } from '../helpers/layout-tree.ts';
-import { RUN_PIECES, type UnitRun } from '../../src/layout.ts';
+import { paintLineSnap, RUN_PIECES, type UnitRun } from '../../src/layout.ts';
 import { isOpaque, isTransparent } from '../../src/css-resolver.ts';
 
 beforeAll(() => setDOMParser(new LinkedomDOMParser()));
@@ -41,7 +41,41 @@ describe('text units: layout', () => {
     ]);
     // 10px glyphs; the collapsed space is one 10px space.
     expect(words.map(u => [u.x, u.width])).toEqual([[0, 50], [60, 50], [120, 50]]);
-    expect(words[0].fragments).toEqual([{ line: 0, x: 0, y: 0, width: 50, height: 16, baseline: 12, direction: 'ltr' }]);
+    // Paint: ink 12 up (the mock's), 5 down (0.5em), 2px past each (`textPaintReach`).
+    expect(words[0].fragments).toEqual([{
+      line: 0, x: 0, y: 0, width: 50, height: 16, baseline: 12, direction: 'ltr', paintTop: -2, paintBottom: 19,
+    }]);
+  });
+
+  it('gives a fragment the span its text paints, past a tight line box', () => {
+    // At least 1em up and 0.5em down, 2px past each: 20px text paints 22 up and 12 down.
+    const [{ fragments: [f] }] = units('<p style="margin:0;font:20px/10px serif">Hello</p>', 'line');
+    expect([f.paintTop - f.baseline, f.paintBottom - f.baseline]).toEqual([-22, 12]);
+    expect(f.paintTop < f.y && f.paintBottom > f.y + f.height).toBe(true);
+  });
+
+  it('spans every run a fragment holds: a raised superscript, an inline-block\'s rows, its decorations', () => {
+    const html = `${P}a<sup style="font-size:30px">2</sup> <span style="display:inline-block;font-size:30px">B</span> ` +
+      '<u style="text-underline-offset:10px">u</u></p>';
+    const result = layout({ html, width: 400, ctx: mockCtx(), textUnits: 'word' });
+    // Each run's baseline where it paints: the line snapped to a whole pixel.
+    const at = (text: string) => {
+      const run = collectTexts(result.layoutRoot).find(t => t.text === text)!;
+      return run.y + paintLineSnap(run);
+    };
+    const span = (u: TextUnit) => [u.fragments[0].paintTop, u.fragments[0].paintBottom];
+    const [a2, b, u] = result.textUnits!;
+    // 30px: 30 up, 15 down, 2px past each; 10px: 12 up (ink), 5 down.
+    expect(span(a2)).toEqual([at('2') - 32, Math.max(at('2') + 17, at('a') + 7)]);
+    expect(span(b)).toEqual([at('B') - 32, at('B') + 17]);
+    // An underline 10px down, 1px thick: 2 + 10 + 4 past the text.
+    expect(span(u)).toEqual([at('u') - 28, at('u') + 21]);
+  });
+
+  it('spans the decorations of white space, which paints with a unit beside it', () => {
+    // The space's underline, 20px down: 5 + 2 + 20 + 4 below the baseline, past the letters' 7.
+    const words = units(`${P}a<u style="text-underline-offset:20px"> </u>b</p>`, 'word');
+    expect(words.map(u => u.fragments[0].paintBottom - u.fragments[0].baseline)).toEqual([31, 7]);
   });
 
   it('keeps a word across style runs whole', () => {

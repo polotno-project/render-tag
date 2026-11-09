@@ -8,14 +8,15 @@ import type {
 } from '../types.js';
 import { levelRuns, overrideContent, rtlOverride, visualOrder } from '../bidi.js';
 import {
-  CLAMP_ELLIPSIS, INLINE_BLOCK, LINE_BASELINE, LINE_BOX, LIST_MARKER, RUN_LEVELS, RUN_PIECES, SPACE_WRAP,
-  type LayoutSession, type PrivateLineBox, type PrivateText,
+  CLAMP_ELLIPSIS, INLINE_BLOCK, LINE_BASELINE, LINE_BOX, LIST_MARKER, paintBaselines, RUN_LEVELS, RUN_PIECES,
+  SPACE_WRAP, type LayoutSession, type PrivateLineBox, type PrivateText,
 } from './session.js';
 import {
   breakFlags, graphemes, needsSegmenter, SEG_CJK, SEG_CLOSING_PUNCT, SEG_OPENING_PUNCT, segmenter, shapesAsRun,
   textFlags, wordSpacingIn,
 } from './segment.js';
 import { textEdges, withDirection } from './util.js';
+import { textPaintReach } from '../shadow.js';
 
 /** The part of one run one unit paints. */
 export interface UnitPiece {
@@ -322,6 +323,23 @@ function graphemeSpans(text: string, owner: number[], a: number, b: number): [nu
 /** A unit's stretch of a line; `box` places it (a list marker's own, else the line's). */
 interface Extent { unit: TextUnit; line: number; box: PrivateLineBox; left: number; right: number; rtl: boolean }
 
+/** `[top, bottom]` of what `run` paints: `textPaintReach` on each of its baselines. Its ink is
+ * its words': shaping across a space moves no glyph up or down, and words repeat. */
+function paintSpan(session: LayoutSession, run: LayoutText): readonly [number, number] {
+  const m = session.measurer;
+  const state = m.stateOf(run.style);
+  let inkAscent = 0, inkDescent = 0;
+  for (const word of run.text.split(' ')) {
+    if (!word) continue;
+    const ink = m.reportedInk(state, word);
+    inkAscent = Math.max(inkAscent, ink.ascent);
+    inkDescent = Math.max(inkDescent, ink.descent);
+  }
+  const { ascent, descent, pad } = textPaintReach(run.style, inkAscent, inkDescent);
+  const [y, lineY] = paintBaselines(run);
+  return [Math.min(y, lineY) - ascent - pad, Math.max(y, lineY) + descent + pad];
+}
+
 function placePieces(
   session: LayoutSession, entries: Entry[], lines: LineInfo[], drafts: Draft[], byLine: boolean,
 ): void {
@@ -373,6 +391,17 @@ function placePieces(
     }
   }
   setGeometry(drafts, extents, lines, byLine);
+  // Every piece paints within its unit's fragments on its line, white space its decorations.
+  onLine.forEach((pieces, line) => {
+    for (const piece of pieces) {
+      const [top, bottom] = paintSpan(session, piece.run);
+      for (const f of piece.unit.fragments) {
+        if (f.line !== line) continue;
+        f.paintTop = Math.min(f.paintTop, top);
+        f.paintBottom = Math.max(f.paintBottom, bottom);
+      }
+    }
+  });
 }
 
 function wholePiece(unit: TextUnit, run: LayoutText, space: boolean): UnitPiece {
@@ -456,7 +485,7 @@ function setGeometry(drafts: Draft[], extents: Extent[], lines: LineInfo[], byLi
     } else {
       e.unit.fragments.push({
         line: e.line, x: e.left, y: box.y, width: e.right - e.left, height: box.height,
-        baseline: box[LINE_BASELINE]!, direction,
+        baseline: box[LINE_BASELINE]!, direction, paintTop: Infinity, paintBottom: -Infinity,
       });
     }
     previous = e;

@@ -6,6 +6,7 @@ import {
   hasTextClip,
   layoutFontMetrics,
   letterSpaced,
+  paintBaselines,
   paintLineSnap,
   hasVisibleBorder, paintsBoxBackground,
   RUN_PIECES,
@@ -203,12 +204,11 @@ function sameTextFragment(a: LayoutText, b: LayoutText): boolean {
 
 /** A fragment's bands across its runs' extent, colored; a transparent entry shows the clip paint or nothing. */
 function coloredBands(
-  ps: PaintState, head: LayoutText, left: number, right: number, snap: number, paints: TextPaints,
+  ps: PaintState, head: LayoutText, left: number, right: number, paints: TextPaints,
 ): { band: Band; color: string | CanvasGradient }[] {
-  // `lineBaselineY` is set only on a vertical-align-shifted run.
-  const lineBaseline = head.lineBaselineY === undefined ? undefined : head.lineBaselineY + snap;
+  const [baseline, lineBaseline] = paintBaselines(head);
   const bands: { band: Band; color: string | CanvasGradient }[] = [];
-  for (const { band, deco } of fragmentBands(ps, head.style, left, right - left, head.y + snap, snap, lineBaseline)) {
+  for (const { band, deco } of fragmentBands(ps, head.style, left, right - left, baseline, paintLineSnap(head), lineBaseline)) {
     const color = deco.currentColor && paints.recolor ? paints.recolor : isTransparent(deco.color) ? paints.clip : deco.color;
     if (color) bands.push({ band, color });
   }
@@ -233,7 +233,7 @@ function paintRuns(
       if (r > right) right = r;
     }
   }
-  if (decorated) bands = coloredBands(ps, runs[0], left, right, paintLineSnap(runs[0]), paints);
+  if (decorated) bands = coloredBands(ps, runs[0], left, right, paints);
   if (bands) paintBands(ps, bands, false, left, right, slice);
   if (sliceGlyphs) {
     clipToSlice(ps, slice!, left, right, !paints.stroked && typeof paints.fill === 'string' && isOpaque(paints.fill));
@@ -497,13 +497,10 @@ function foregroundBounds(ps: PaintState, node: LayoutNode): PaintBounds {
     forEachFragment(node.children, add, runs => runs.forEach(add));
     return bounds;
   }
-  const y = node.y + paintLineSnap(node);
+  const [y, lineY] = paintBaselines(node);
   ps.text(node.style);
-  let bounds = textPaintBounds(ps.ctx, node.text, node.style, node.x, y, node.width, node.style.direction === 'rtl');
-  if (node.lineBaselineY !== undefined) {
-    bounds = unionBounds(bounds, { ...bounds, y: bounds.y + node.lineBaselineY - node.y });
-  }
-  return bounds;
+  const bounds = textPaintBounds(ps.ctx, node.text, node.style, node.x, y, node.width, node.style.direction === 'rtl');
+  return lineY === y ? bounds : unionBounds(bounds, { ...bounds, y: bounds.y + lineY - y });
 }
 
 /** A group's fragments with their foreground ink, measured once. */
