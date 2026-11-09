@@ -2,6 +2,11 @@
 
 Only the interesting, user-visible changes. Full detail lives in the git history.
 
+## 0.4.3 — 2026-11-09
+
+- A too-long word that `overflow-wrap` must break now first moves to a new line after a preserved space, tab or inline-block before it, as Chrome does. In 0.4.2, ` SNOWBOARDING` under `pre-wrap` was broken on the space's own line, so the text sat a line higher and broke at a different letter.
+- A space's own `white-space` decides: a `pre-wrap` space inside a normal paragraph keeps its line, and a `pre` space never wraps.
+
 ## 0.4.2 — 2026-11-08
 
 - Firefox and Safari now lay text out exactly as Chrome does: the same line breaks, line heights, baselines, kerning and decoration shapes, instead of each browser's own. Firefox's rounded-up font metrics and its wider synthetic bold are normalized to Chrome's. On Linux, Chrome's default hinted glyph widths are the one exception no other canvas can match.

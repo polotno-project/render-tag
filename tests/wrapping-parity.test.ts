@@ -1,6 +1,8 @@
 import { expect, it } from 'vitest';
+import { layout } from '../src/index.ts';
 import {
   compareWrapping,
+  extractDomLines,
   prepareComparisonFonts,
   warmNativeLayout,
 } from './helpers/compare.ts';
@@ -60,6 +62,55 @@ it.each([
 ])('matches native break-word flow at $width px', ({ html, width }) => {
   const result = compareWrapping(html, '', width, 1000);
   expect(result, JSON.stringify(result, null, 2)).toMatchObject({ wrappingMatch: true });
+});
+
+/**
+ * Each visible line as `index:text`, the index counted in line heights from the block top, so
+ * a line holding only white space (no visible text) is pinned by the lines after it.
+ */
+function lineMembership(html: string, width: number, lineHeight: number): { dom: string[]; rt: string[] } {
+  // White space dropped: the DOM side joins words across text nodes with a space.
+  const entry = (y: number, text: string) => `${Math.round(y / lineHeight)}:${text.replace(/\s+/g, '')}`;
+  const dom = extractDomLines(html, '', width).map((line) => entry(line.y, line.text));
+  const rt = layout({ html, width }).lines.filter((line) => line.text.trim())
+    .map((line) => entry(line.bounds.y, line.text));
+  return { dom, rt };
+}
+
+// Chrome ends a line at an ordinary opportunity before it breaks a too-wide word anywhere
+// (Blink `HandleOverflow`): after white space that wraps, under its own white-space, or an
+// atomic inline. Collapsible spaces, box edges, `pre` spaces and NBSP offer none.
+it('a too-wide word after the reported leading space breaks where Chrome does', () => {
+  const html = '<div style="width:227px;font:34.42px Edo, serif;line-height:1.169;letter-spacing:-0.86px;text-align:right;white-space:pre-wrap;overflow-wrap:break-word;text-transform:uppercase"> snowboarding</div>';
+  const { dom, rt } = lineMembership(html, 227, 34.42 * 1.169);
+  expect(rt).toEqual(dom);
+});
+
+it.each([
+  ['two spaces', 'white-space:pre-wrap', '  SNOWBOARDING'],
+  ['a tab', 'white-space:pre-wrap', '\tSNOWBOARDING'],
+  ['a space after a hard break', 'white-space:pre-wrap', 'X\n SNOWBOARDING'],
+  ['break-spaces', 'white-space:break-spaces', ' SNOWBOARDING'],
+  ['overflow-wrap: anywhere', 'white-space:pre-wrap;overflow-wrap:anywhere', ' SNOWBOARDING'],
+  ['word-break: break-word', 'white-space:pre-wrap;word-break:break-word', ' SNOWBOARDING'],
+  ['rtl', 'white-space:pre-wrap;direction:rtl', ' SNOWBOARDING'],
+  ['a space before an opening edge', 'white-space:pre-wrap', ' <span style="padding-left:10px">SNOWBOARDING</span>'],
+  ['a space in a padded pre-wrap span', '', '<span style="padding-left:10px;white-space:pre-wrap"> </span>SNOWBOARDING'],
+  ['a pre-wrap span space in a collapsing block', '', '<span style="white-space:pre-wrap"> </span>SNOWBOARDING'],
+  ['a pre-wrap span tab in a collapsing block', '', '<span style="white-space:pre-wrap">\t</span>SNOWBOARDING'],
+  ['a break-spaces span space in a collapsing block', '', '<span style="white-space:break-spaces"> </span>SNOWBOARDING'],
+  ['a space before a word continued across runs', 'white-space:pre-wrap', ' SNOW<b>BOARDING</b>'],
+  ['a space before an opener', 'white-space:pre-wrap', ' (SNOWBOARDING'],
+  ['a space before a hyphenated word', 'white-space:pre-wrap', ' SNOWBOARD-INGXX'],
+  ['an inline-block', '', '<span style="display:inline-block">x</span>SNOWBOARDING'],
+  ['a pre span space', 'white-space:pre-wrap', '<span style="white-space:pre"> </span>SNOWBOARDING'],
+  ['a collapsible span space', 'white-space:pre-wrap', '<span style="white-space:normal"> </span>SNOWBOARDING'],
+  ['a pre-line span space', 'white-space:pre-wrap', '<span style="white-space:pre-line"> </span>SNOWBOARDING'],
+  ['an NBSP', 'white-space:pre-wrap', '\u00a0SNOWBOARDING'],
+])('a too-wide word after %s breaks where Chrome does', (_name, style, body) => {
+  const html = `<div style="width:200px;font:40px/50px Arial, sans-serif;overflow-wrap:break-word;${style}">${body}</div>`;
+  const { dom, rt } = lineMembership(html, 200, 50);
+  expect(rt).toEqual(dom);
 });
 
 it.each([

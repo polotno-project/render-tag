@@ -17,6 +17,7 @@ import { describe, it, expect } from 'vitest';
 import { layout } from '../src/index.ts';
 import type { LayoutText } from '../src/types.ts';
 import { collectTexts } from './helpers/layout-tree.ts';
+import { mountFixture } from './helpers/compare.ts';
 
 const FONT = 'Arial, sans-serif';
 const TOL = 2.5;
@@ -238,6 +239,29 @@ describe('Whitespace edge cases', () => {
     it('snaps to 8-space tab stop', () => {
       const css = baseStyle('text-align:left;white-space:pre-wrap;width:600px;');
       expectMatchesDom(`<div style="${css}">A\tB</div>`, 600, 'div', 'B');
+    });
+
+    // Each run spans what Chrome's Range gives its characters: Arial's "A " kern (-2.2px at 40px)
+    // is booked on the "A", and the tab after the spaces reaches the same stop.
+    it.each(['A  \t', 'A \t \t ', 'A\t  ', 'A    '])('the runs of %j sit where the DOM puts them', (text) => {
+      const html = `<div style="font: 40px Arial, sans-serif; margin: 0; white-space: pre-wrap; width: 2000px;">${text}B</div>`;
+      const { container, content } = mountFixture(html, '', 2000);
+      const node = content.firstElementChild!.firstChild as Text;
+      const left = content.getBoundingClientRect().left;
+      const range = document.createRange();
+      let offset = 0;
+      const runs = collectTexts(layout({ html, width: 2000 }).layoutRoot).map((t) => {
+        range.setStart(node, offset);
+        range.setEnd(node, offset += t.text.length);
+        const rect = range.getBoundingClientRect();
+        return { text: t.text, rt: { x: t.x, width: t.width }, dom: { x: rect.left - left, width: rect.width } };
+      });
+      container.remove();
+      expect(runs.map((r) => r.text).join('')).toBe(`${text}B`);
+      for (const run of runs) {
+        expect(Math.abs(run.rt.x - run.dom.x), JSON.stringify(run)).toBeLessThan(0.5);
+        expect(Math.abs(run.rt.width - run.dom.width), JSON.stringify(run)).toBeLessThan(0.5);
+      }
     });
   });
 

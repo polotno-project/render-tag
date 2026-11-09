@@ -2,7 +2,7 @@
 // A flow never writes to the prepared content; what it cuts is a piece in its own `FlowItems`.
 import type { ResolvedStyle } from '../types.js';
 import { overridesRtl } from '../bidi.js';
-import { hasBackgroundImage, hasVisibleBoxStyles, layoutUnit, physicalAlign, preservesSpaces } from './util.js';
+import { hasBackgroundImage, hasVisibleBoxStyles, layoutUnit, physicalAlign, preservesSpaces, wrapsPreservedSpaces } from './util.js';
 import { type LayoutSession, type Measurer, type MeasureState, type TabStops } from './session.js';
 import {
   forEachHyphenPiece, graphemes, isAtomicInlineBlock, isBoxEdge, isCJKCode, isEmojiCluster, isSimpleScript, MEASURE_CONTEXT,
@@ -244,9 +244,10 @@ function splitSegment(
       flow.line.totalWidth + items.width(index) + flow.gluedTail(index) + flow.tailKern(index) <= contentWidth) return null;
 
   // CJK/emoji are ordinary opportunities, like `break-all`; ordinary splits fill the line. A
-  // break-word last resort on a line holding no word (an opening edge, spaces) shares it.
+  // break-word last resort on a line with no opportunity (an opening edge, collapsible spaces)
+  // shares it.
   const emergency = needsBreak && !hasCJK && !hasEmoji && breaking === 'last-resort';
-  const wrapFirst = emergency && flow.holdsWord();
+  const wrapFirst = emergency && flow.canWrapBefore(index);
   let room = emergency && !wrapFirst ? contentWidth - lineOffset : contentWidth;
 
   // Each character is measured after its left context (`MEASURE_CONTEXT`); positions below
@@ -410,6 +411,16 @@ function cannotStartLine(cls: BreakBefore): boolean {
   return cls === 'continues' || cls === 'glued';
 }
 
+/**
+ * A line can end after item `i` (Blink `can_break_after`): text, an atomic inline (an empty
+ * one is only an opening edge), or white space whose own white-space wraps. Box edges and
+ * collapsible or `pre` spaces cannot: `<span pad> word` shares its line.
+ */
+function offersLineEnd(items: FlowItems, i: number): boolean {
+  if (items.flags(i) & (SEG_SPACE | SEG_TAB)) return wrapsPreservedSpaces(items.refs(i).style.whiteSpace);
+  return items.text(i) !== '' || items.refs(i).inlineBlock !== undefined;
+}
+
 // ── Glue: what must share a line ──
 
 /**
@@ -497,8 +508,6 @@ export class LineFlow {
   readonly m: Measurer;
   /** No soft wrapping at all: everything up to a forced break is one line. */
   readonly noWrap: boolean;
-  /** `pre`, `pre-wrap` and `break-spaces` preserve leading and trailing white space. */
-  readonly preservesWhitespace: boolean;
   private readonly keepsSpaceOnlyLines: boolean;
   /** The segment `gluedTail` last read, its width and the `endKern` after it. */
   private tailOf = -1;
@@ -524,7 +533,6 @@ export class LineFlow {
     this.line = this.newLine();
     this.noWrap = whiteSpace === 'nowrap' || whiteSpace === 'pre';
     this.keepsSpaceOnlyLines = whiteSpace === 'pre-wrap' || whiteSpace === 'pre' || whiteSpace === 'pre-line';
-    this.preservesWhitespace = preservesSpaces(whiteSpace);
     if (block) {
       const isRTL = block.direction === 'rtl';
       this.blockShowsTrailingSpace = physicalAlign(block.textAlign, isRTL) !== physicalAlign('start', isRTL) ||
@@ -640,9 +648,14 @@ export class LineFlow {
     return line.length > 0 && this.isSpace(line[line.length - 1]);
   }
 
-  /** The current line holds a word: text other than white space (not just box edges). */
-  holdsWord(): boolean {
-    for (const i of this.line.items) if (!(this.items.flags(i) & SEG_SPACE) && this.items.text(i)) return true;
+  /** The line can end before `next`: Chrome takes this before an overflow-wrap break (Blink `HandleOverflow`). */
+  canWrapBefore(next: number): boolean {
+    return !cannotStartLine(breakBefore(this.items, next)) && this.holdsLineEnd();
+  }
+
+  /** The line holds an item a line can end after (`offersLineEnd`). */
+  holdsLineEnd(): boolean {
+    for (const i of this.line.items) if (offersLineEnd(this.items, i)) return true;
     return false;
   }
 
@@ -689,13 +702,16 @@ export class LineFlow {
     const current = this.line;
     const line = current.items;
     const hadWords = line.length > 0;
+    // A line of preserved white space keeps its height, by the space's own white-space.
+    let heldPreserved = false;
     // Trim trailing spaces: `break-spaces` keeps them; `pre`/`pre-wrap` keep them except at
     // soft wraps (CSS Text 3 §4.1.1).
     const preserveTrailing = this.whiteSpace === 'break-spaces'
-      || (this.preservesWhitespace && !isSoftWrap);
+      || (preservesSpaces(this.whiteSpace) && !isSoftWrap);
     if (!preserveTrailing) {
       while (line.length > 0 && this.isSpace(line[line.length - 1])) {
         const space = line[line.length - 1];
+        if (preservesSpaces(items.refs(space).style.whiteSpace)) heldPreserved = true;
         current.totalWidth -= items.width(space) - this.endKern(space);
         line.pop();
         if (isSoftWrap) current.spaceWrap = true;
@@ -713,7 +729,7 @@ export class LineFlow {
       }
     }
     // In pre-wrap mode, space-only lines still need height (they are content)
-    if (line.length > 0 || (hadWords && this.keepsSpaceOnlyLines)) {
+    if (line.length > 0 || (hadWords && (this.keepsSpaceOnlyLines || heldPreserved))) {
       if (this.session.debug) {
         const text = this.text();
         this.session.debug({
@@ -938,10 +954,11 @@ function breakGluedChain(flow: LineFlow, start: number, end: number): boolean {
     return w;
   };
   // Pure break-word is a last resort: wrap the whole word to a fresh line first.
-  if (!hyphenMode && !anywhere && flow.holdsWord()) flow.wrap();
+  if (!hyphenMode && !anywhere && flow.canWrapBefore(start)) flow.wrap();
   for (const seg of segs) {
     const segW = measureSeg(seg);
-    if (!anywhere && flow.holdsWord() && flow.line.totalWidth + segW > flow.budget()) flow.wrap();
+    // A hyphen segment boundary is itself an opportunity.
+    if (!anywhere && flow.holdsLineEnd() && flow.line.totalWidth + segW > flow.budget()) flow.wrap();
     // Char-break a segment under break-all, or under break-word when it can't fit a line.
     placeCells(seg, anywhere || (breakWord && segW > flow.budget()));
   }
@@ -1019,9 +1036,10 @@ function placePiece(
     }
   }
 
-  // Leading spaces are dropped, except preserved ones after a hard break.
+  // Leading spaces are dropped, except preserved ones after a hard break: by their own
+  // white-space, a pre-wrap span keeps its space in a collapsing block.
   if ((pieceFlags & SEG_SPACE) && flow.line.items.length === 0 && !breakSpaces
-      && (!flow.afterHardBreak || !flow.preservesWhitespace)) return;
+      && (!flow.afterHardBreak || !preservesSpaces(items.refs(piece).style.whiteSpace))) return;
 
   if (pieceFlags & SEG_TAB) {
     flow.placeTab(piece, lineHeight);

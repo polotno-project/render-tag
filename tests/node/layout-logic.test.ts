@@ -866,6 +866,42 @@ describe('Layout logic (mocked measureText)', () => {
       });
   });
 
+  describe('a too-wide word after a line end', () => {
+    // Chrome wraps at the line's own opportunity before it breaks the word (Blink
+    // `HandleOverflow`): " SNOWBOARDING" under pre-wrap and break-word is " " / "SNOWBOARDI" /
+    // "NG". A hanging space's line reports no text but keeps its height.
+    const lines = (style: string, body: string) =>
+      layout({ html: `<p style="margin:0;${style}">${body}</p>`, width: 45, ctx: mockCtx() })
+        .lines.map((line) => `${line.bounds.y}:${line.text}`);
+    const wrapped = ['16:abcd', '32:efgh', '48:ij'];
+    const shared = ['0: abc', '16:defg', '32:hij'];
+
+    it.each(['overflow-wrap:break-word', 'overflow-wrap:anywhere', 'word-break:break-word'])(
+      'a preserved space takes a line of its own under %s', (wrap) => {
+        expect(lines(`white-space:pre-wrap;${wrap}`, ' abcdefghij')).toEqual(wrapped);
+      });
+
+    it.each<[string, string, string, string[]]>([
+      ['two spaces', 'white-space:pre-wrap', '  abcdefghij', wrapped],
+      ['a tab', 'white-space:pre-wrap', '\tabcdefghij', wrapped],
+      ['break-spaces', 'white-space:break-spaces', ' abcdefghij', ['0: ', ...wrapped]],
+      ['a hard break', 'white-space:pre-wrap', 'x\n abcdefghij', ['0:x', '32:abcd', '48:efgh', '64:ij']],
+      // The space's own white-space decides, not the block's.
+      ['a pre-wrap span space in a collapsing block', '', '<span style="white-space:pre-wrap"> </span>abcdefghij', wrapped],
+      ['an inline-block', '', '<span style="display:inline-block">x</span>abcdefghij', ['0:x', ...wrapped]],
+      ['an inline-block and a space', '', '<span style="display:inline-block">x</span> abcdefghij', ['0:x', ...wrapped]],
+    ])('wraps after %s', (_name, style, body, expected) => {
+      expect(lines(`${style};overflow-wrap:break-word`, body)).toEqual(expected);
+    });
+
+    it.each<[string, string, string]>([
+      ['a collapsible space after an opening edge', '', '<span style="padding-left:5px"> abcdefghij</span>'],
+      ['a pre space', 'white-space:pre-wrap', '<span style="white-space:pre"> </span>abcdefghij'],
+    ])('shares the line after %s', (_name, style, body) => {
+      expect(lines(`${style};overflow-wrap:break-word`, body)).toEqual(shared);
+    });
+  });
+
   describe('a hanging space keeps its kern with the glyph before it', () => {
     // Every engine fits and aligns a line with its last glyph's advance kerned against the
     // space after it, under every white-space: Playfair "y " -1.04px at 40px in Chrome,
