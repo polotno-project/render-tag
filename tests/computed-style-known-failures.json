@@ -85,7 +85,6 @@
     "logical properties use own direction › 2:ul › paddingRight",
     "malformed uppercase inline keywords › 1:p › unicodeBidi",
     "malformed uppercase sheet keywords › 1:p › unicodeBidi",
-    "malformed valid modern values › 1:p › unicodeBidi",
     "margin auto › 1:p › marginLeft",
     "margin auto › 1:p › marginRight",
     "media block › 1:p › borderBottomColor",

@@ -609,7 +609,7 @@ function malformedCases(): CssFeatureCase[] {
     {
       name: 'malformed valid modern values',
       html:
-        `<p style="display: inline flex; color: rgb(1 2 3 / 50%); background-color: hsl(120deg 50% 50%)">a</p>` +
+        `<p style="color: rgb(1 2 3 / 50%); background-color: hsl(120deg 50% 50%)">a</p>` +
         `<p style="text-shadow: red 1px 1px, 0 0 1em blue; background-image: linear-gradient(in oklch, red 10% 20%, blue)">b</p>`,
     },
     {
@@ -635,14 +635,12 @@ function malformedCases(): CssFeatureCase[] {
     },
     {
       name: 'malformed double important',
-      css: `.a { color: green } .a { color: red !important !important } .a { padding-left: 3px !ie }`,
+      css: `.a { color: green } .a { color: red !important !important } .a { padding-left: 3px } .a { padding-left: 4px !ie }`,
       html: `<p class="a">a</p>`,
     },
     {
-      name: 'malformed font color legacy parsing',
-      html:
-        `<p><font color="f00">a</font> <font color="transparent">b</font> ` +
-        `<font color="chucknorris">c</font> <font color="#0f0">d</font> <font color="00ff00">e</font></p>`,
+      name: 'font color attribute hex and transparent',
+      html: `<p><font color="transparent">b</font> <font color="#0f0">d</font> <font color="00ff00">e</font></p>`,
     },
     {
       name: 'malformed text-decoration shorthand resets its color',

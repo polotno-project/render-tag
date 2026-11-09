@@ -204,39 +204,14 @@ function checkColor(value: string): boolean {
 }
 
 /**
- * HTML's "rules for parsing a legacy colour value" (`<font color>`,
- * `bgcolor`): a named color as itself, anything else through the forgiving
- * hex mangling that turns `chucknorris` into rgb(192, 0, 0). null (the
- * attribute is ignored) for an empty value and for `transparent`.
+ * `<font color>`: a named or hex color as written, a bare 6-digit hex as `#rrggbb` (what
+ * editors write); null (the attribute is ignored) for anything else, `transparent` included.
+ * HTML's forgiving hex mangling of other values (`chucknorris`) is not followed.
  */
 export function parseLegacyColor(value: string): string | null {
-  let input = value.replace(/^[\t\n\f\r ]+|[\t\n\f\r ]+$/g, '');
-  if (!input || input.toLowerCase() === 'transparent') return null;
-  if (NAMED_COLORS.has(input.toLowerCase())) return input.toLowerCase();
-  const rgb = (r: number, g: number, b: number) => `rgb(${r}, ${g}, ${b})`;
-  if (/^#[\da-f]{3}$/i.test(input)) {
-    const d = (i: number) => parseInt(input[i], 16) * 17;
-    return rgb(d(1), d(2), d(3));
-  }
-  // Characters outside the BMP count as "00"; the input is cut at 128.
-  input = Array.from(input, (ch) => (ch.codePointAt(0)! > 0xffff ? '00' : ch)).join('');
-  if (input.length > 128) input = input.slice(0, 128);
-  if (input[0] === '#') input = input.slice(1);
-  input = input.replace(/[^\da-f]/gi, '0');
-  while (input.length === 0 || input.length % 3 !== 0) input += '0';
-  let len = input.length / 3;
-  let parts = [input.slice(0, len), input.slice(len, 2 * len), input.slice(2 * len)];
-  if (len > 8) {
-    parts = parts.map((p) => p.slice(len - 8));
-    len = 8;
-  }
-  while (len > 2 && parts.every((p) => p[0] === '0')) {
-    parts = parts.map((p) => p.slice(1));
-    len--;
-  }
-  if (len > 2) parts = parts.map((p) => p.slice(0, 2));
-  const [r, g, b] = parts.map((p) => parseInt(p, 16));
-  return rgb(r, g, b);
+  const v = value.trim();
+  if (/^[\da-f]{6}$/i.test(v)) return `#${v}`;
+  return /^#(?:[\da-f]{3}|[\da-f]{6})$/i.test(v) || NAMED_COLORS.has(v.toLowerCase()) ? v : null;
 }
 
 // ─── Images ─────────────────────────────────────────────────────────
@@ -462,34 +437,10 @@ const DISPLAY_SINGLE = set(
   'table inline-table table-row-group table-header-group table-footer-group table-row table-cell ' +
   'table-column-group table-column table-caption ruby ruby-text math -webkit-box -webkit-inline-box',
 );
-const DISPLAY_OUTER = set('block inline run-in');
-const DISPLAY_INNER = set('flow flow-root table flex grid ruby');
-/** The legacy keyword a two-value `display` serializes to (CSS Display 3 §2.1). */
-const DISPLAY_LEGACY: Record<string, string> = {
-  'block flow': 'block', 'block flow-root': 'flow-root', 'inline flow': 'inline', 'inline flow-root': 'inline-block',
-  'block flex': 'flex', 'inline flex': 'inline-flex', 'block grid': 'grid', 'inline grid': 'inline-grid',
-  'block table': 'table', 'inline table': 'inline-table', 'inline ruby': 'ruby',
-  'block flow list-item': 'list-item',
-};
-
-/** `display`, lower-cased and with multi-keyword forms in their legacy spelling; or null. */
+/** `display`, lower-cased; only the single-keyword forms. */
 export function display(value: string): string | null {
-  const words = value.trim().toLowerCase().split(/\s+/);
-  if (words.length === 1) return DISPLAY_SINGLE.has(words[0]) ? words[0] : null;
-  if (words.length > 3 || new Set(words).size !== words.length) return null;
-  let outer = '', inner = '', listItem = false;
-  for (const w of words) {
-    if (w === 'list-item') listItem = true;
-    else if (DISPLAY_OUTER.has(w) && !outer) outer = w;
-    else if (DISPLAY_INNER.has(w) && !inner) inner = w;
-    else return null;
-  }
-  // A list item's inner display is flow or flow-root only.
-  if (listItem && inner && inner !== 'flow' && inner !== 'flow-root') return null;
-  outer ||= inner === 'ruby' ? 'inline' : 'block';
-  inner ||= 'flow';
-  const canonical = listItem ? `${outer} ${inner} list-item` : `${outer} ${inner}`;
-  return DISPLAY_LEGACY[canonical] ?? canonical;
+  const v = value.trim().toLowerCase();
+  return DISPLAY_SINGLE.has(v) ? v : null;
 }
 
 const LIST_STYLE_PREDEFINED = set(

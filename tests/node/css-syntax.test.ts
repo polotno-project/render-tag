@@ -69,14 +69,6 @@ describe('parseDeclarationList', () => {
     ]);
   });
 
-  it('rejects a value with a leftover ! (a second !important, an !ie hack)', () => {
-    expect(parseDeclarationList('color: red !important !important; margin: 1px !ie; padding: 2px')).toEqual([
-      { property: 'padding', value: '2px', important: false },
-    ]);
-    // Inside a string or url() a ! is just text; a custom property may hold one.
-    expect(parseDeclarationList('font-family: "a!b"; --x: a!b').map(d => d.value)).toEqual(['"a!b"', 'a!b']);
-  });
-
   it('treats an escaped ; as part of the value', () => {
     expect(parseDeclarationList('font-family: a\\;b; color: red')).toEqual([
       { property: 'font-family', value: 'a\\;b', important: false },

@@ -185,24 +185,7 @@ function declaration(s: string, start: number, end: number, comments: boolean): 
     value = value.slice(0, bang).trim();
   }
   if (!value) return null;
-  // A leftover top-level `!` (`!ie` hack) invalidates any non-custom declaration.
-  if (value.includes('!') && !property.startsWith('--') && hasTopLevelBang(value)) return null;
   return { property, value, important };
-}
-
-/** Does `value` hold a `!` outside strings and escapes? (Unquoted url() never reaches here with one.) */
-function hasTopLevelBang(value: string): boolean {
-  for (let i = 0; i < value.length; i++) {
-    const c = value.charCodeAt(i);
-    if (c === QUOTE || c === APOSTROPHE) { i = skipString(value, i, value.length) - 1; continue; }
-    if (c === BACKSLASH) { i++; continue; }
-    if (c === OPEN_PAREN && isUrlOpen(value, i)) {
-      const after = skipUnquotedUrl(value, i + 1, value.length);
-      if (after !== -1) { i = after - 1; continue; }
-    }
-    if (c === 33) return true;
-  }
-  return false;
 }
 
 /**
