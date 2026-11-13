@@ -49,12 +49,13 @@ function skipString(s: string, i: number, end: number): number {
 }
 
 /**
- * At `i` (just past `url(`): when the url is unquoted it is ONE token up to
+ * At `open` (a `(`): when it opens an unquoted `url(`, that url is ONE token up to
  * the next unescaped `)`, whatever it holds (`;`, `{`). Returns the index just
- * past that `)`, or -1 for a quoted url (an ordinary function).
+ * past that `)`, or -1 for anything else (a quoted url is an ordinary function).
  */
-function skipUnquotedUrl(s: string, i: number, end: number): number {
-  let j = i;
+function unquotedUrlEnd(s: string, open: number, end: number): number {
+  if (!isUrlOpen(s, open)) return -1;
+  let j = open + 1;
   while (j < end && isWhitespace(s.charCodeAt(j))) j++;
   const c = s.charCodeAt(j);
   if (c === QUOTE || c === APOSTROPHE) return -1;
@@ -77,10 +78,8 @@ function isUrlOpen(s: string, i: number): boolean {
   return !(p === HYPHEN || p === 95 || (p >= 48 && p <= 57) || ((p | 0x20) >= 97 && (p | 0x20) <= 122) || p >= 0x80);
 }
 
-/** Set by `scan`: it stopped just past a top-level `{…}` block. */
+/** Set by `scan`: it stopped just past a top-level `{…}` block, which the index it returns does not tell. */
 let stoppedAfterBlock = false;
-/** Set by `scan`: it skipped a comment (so the text needs `withoutComments`). */
-let sawComment = false;
 
 /** Characters `scan` must look at; every other one is skipped by table. */
 const SPECIAL = new Uint8Array(128);
@@ -98,14 +97,13 @@ const closers: number[] = [];
 function scan(s: string, i: number, end: number, stop: number, stopAfterBlock: boolean): number {
   let depth = 0;
   stoppedAfterBlock = false;
-  sawComment = false;
   while (i < end) {
     const c = s.charCodeAt(i);
     if (c >= 128 || SPECIAL[c] === 0) { i++; continue; }
     if (depth === 0 && (c === stop || c === CLOSE_CURLY)) return i;
     switch (c) {
       case SLASH:
-        if (s.charCodeAt(i + 1) === STAR) { i = skipComment(s, i, end); sawComment = true; continue; }
+        if (s.charCodeAt(i + 1) === STAR) { i = skipComment(s, i, end); continue; }
         break;
       case QUOTE:
       case APOSTROPHE:
@@ -115,10 +113,8 @@ function scan(s: string, i: number, end: number, stop: number, stopAfterBlock: b
         i += 2;
         continue;
       case OPEN_PAREN: {
-        if (isUrlOpen(s, i)) {
-          const after = skipUnquotedUrl(s, i + 1, end);
-          if (after !== -1) { i = after; continue; }
-        }
+        const after = unquotedUrlEnd(s, i, end);
+        if (after !== -1) { i = after; continue; }
         closers[depth++] = CLOSE_PAREN;
         break;
       }
@@ -143,10 +139,12 @@ function scan(s: string, i: number, end: number, stop: number, stopAfterBlock: b
 }
 
 /**
- * `s[start, end)` with comments (outside strings) replaced: by '' in a selector
+ * `s[start, end)` with comments (outside strings and urls) replaced: by '' in a selector
  * (`.a` comment `.b` is `.a.b`), by ' ' in a value (`1px` comment `2px` stays two).
  */
 function withoutComments(s: string, start: number, end: number, replacement: string): string {
+  const text = s.slice(start, end);
+  if (!text.includes('/*')) return text;
   let out = '';
   let from = start;
   let i = start;
@@ -154,6 +152,10 @@ function withoutComments(s: string, start: number, end: number, replacement: str
     const c = s.charCodeAt(i);
     if (c === QUOTE || c === APOSTROPHE) { i = skipString(s, i, end); continue; }
     if (c === BACKSLASH) { i += 2; continue; }
+    if (c === OPEN_PAREN) {
+      const after = unquotedUrlEnd(s, i, end);
+      if (after !== -1) { i = after; continue; }
+    }
     if (c === SLASH && s.charCodeAt(i + 1) === STAR) {
       out += s.slice(from, i) + replacement;
       i = from = skipComment(s, i, end);
@@ -167,12 +169,9 @@ function withoutComments(s: string, start: number, end: number, replacement: str
 const IMPORTANT = /!\s*important\s*$/i;
 const PROPERTY = /^-{0,2}[a-z_\u0080-\uffff][\w\u0080-\uffff-]*$/;
 
-/**
- * One declaration from `s[start, end)`, or null when it is not one.
- * `comments`: the range holds a comment (as `scan` reported).
- */
-function declaration(s: string, start: number, end: number, comments: boolean): CSSDeclaration | null {
-  const text = comments ? withoutComments(s, start, end, ' ') : s.slice(start, end);
+/** One declaration from `s[start, end)`, or null when it is not one. */
+function declaration(s: string, start: number, end: number): CSSDeclaration | null {
+  const text = withoutComments(s, start, end, ' ');
   const colon = text.indexOf(':');
   if (colon === -1) return null;
   const property = text.slice(0, colon).trim().toLowerCase();
@@ -197,15 +196,12 @@ function skipAtRule(s: string, i: number, end: number): number {
   return stopAt < end && !stoppedAfterBlock && s.charCodeAt(stopAt) === SEMICOLON ? stopAt + 1 : stopAt;
 }
 
-/** Set by `declarationsIn`: where it stopped (`end`, or a block's `}`). */
-let declarationsEnd = 0;
-
 /**
- * Declarations of a style attribute, or (`inBlock`) of a block up to its own `}`
- * (left in `declarationsEnd`). In an attribute a stray `}` drops up to the next `;`.
+ * Declarations of a style attribute, or (`inBlock`) of a block up to its own `}`, into `out`;
+ * returns where it stopped (`end`, or that `}`). In an attribute a stray `}` drops up to the
+ * next `;`.
  */
-function declarationsIn(s: string, start: number, end: number, inBlock: boolean): CSSDeclaration[] {
-  const out: CSSDeclaration[] = [];
+function declarationsIn(s: string, start: number, end: number, inBlock: boolean, out: CSSDeclaration[]): number {
   let i = start;
   while (i < end) {
     const c = s.charCodeAt(i);
@@ -221,13 +217,12 @@ function declarationsIn(s: string, start: number, end: number, inBlock: boolean)
     const custom = c === HYPHEN && s.charCodeAt(i + 1) === HYPHEN;
     const stopAt = scan(s, i, end, SEMICOLON, !custom);
     if (!stoppedAfterBlock) {
-      const decl = declaration(s, i, stopAt, sawComment);
+      const decl = declaration(s, i, stopAt);
       if (decl) out.push(decl);
     }
     i = stopAt;
   }
-  declarationsEnd = i;
-  return out;
+  return i;
 }
 
 /** Split at a top-level `separator`: outside parens, brackets, strings and escapes. */
@@ -256,7 +251,9 @@ export function escapedCodePoint(cp: number): string {
 
 /** Parse a `style=""` attribute (or any declaration list). */
 export function parseDeclarationList(text: string): CSSDeclaration[] {
-  return declarationsIn(text, 0, text.length, false);
+  const out: CSSDeclaration[] = [];
+  declarationsIn(text, 0, text.length, false, out);
+  return out;
 }
 
 /** Parse a stylesheet into its style rules; @-rules are skipped whole. */
@@ -274,16 +271,12 @@ export function parseStylesheet(css: string): CSSStyleRule[] {
     if (c === AT) { i = skipAtRule(css, i, end); continue; }
     // A stray `}` belongs to the prelude (CSS Syntax 3), so `} .b { … }` is dropped.
     let open = scan(css, i, end, OPEN_CURLY, false);
-    let comments = sawComment;
-    while (open < end && css.charCodeAt(open) === CLOSE_CURLY) {
-      open = scan(css, open + 1, end, OPEN_CURLY, false);
-      comments ||= sawComment;
-    }
+    while (open < end && css.charCodeAt(open) === CLOSE_CURLY) open = scan(css, open + 1, end, OPEN_CURLY, false);
     if (open >= end) break; // no block: dropped
-    const prelude = (comments ? withoutComments(css, i, open, '') : css.slice(i, open)).trim();
-    const declarations = declarationsIn(css, open + 1, end, true);
+    const prelude = withoutComments(css, i, open, '').trim();
+    const declarations: CSSDeclaration[] = [];
+    i = declarationsIn(css, open + 1, end, true, declarations) + 1;
     if (prelude && declarations.length > 0) rules.push({ prelude, declarations });
-    i = declarationsEnd + 1;
   }
   return rules;
 }

@@ -63,11 +63,15 @@ describe('units', () => {
   });
 
   it('the root stands for html and body: body sizes against html, rem is html\'s', () => {
-    // Chrome: the 62.5% reset gives body 16px; html's own rem is the initial 16px.
+    // Chrome: the 62.5% reset gives body 16px; html's own rem is the initial 16px. Two cascades,
+    // even from one rule (`html, body`) or a CSS-wide keyword (`initial`: the initial 16px).
     const p = (css: string) => el(`<style>${css}</style><p style="padding-left:1rem">x</p>`, 'p').style;
     expect(p('html { font-size: 62.5% } body { font-size: 1.6rem }')).toMatchObject({ fontSize: 16, paddingLeft: 10 });
     expect(p('html { font-size: 20px } body { font-size: 80% }')).toMatchObject({ fontSize: 16, paddingLeft: 20 });
     expect(p('html { font-size: 2rem }')).toMatchObject({ fontSize: 32, paddingLeft: 32 });
+    expect(p('html, body { font-size: 62.5% }')).toMatchObject({ fontSize: 6.25, paddingLeft: 10 });
+    expect(p('html, body { font-size: 2em }')).toMatchObject({ fontSize: 64, paddingLeft: 32 });
+    expect(p('html { font-size: 20px } :root { font-size: initial }')).toMatchObject({ fontSize: 16, paddingLeft: 16 });
   });
 
   it('absolute units', () => {
@@ -425,6 +429,12 @@ describe('background shorthand and currentcolor', () => {
     expect(kids.map((n) => n.style.borderTopColor)).toEqual(['blue', 'green']);
   });
 
+  it('an inherited currentcolor background resolves against the child color', () => {
+    // Chrome: blue, as for borders.
+    const html = '<div style="color:red;background-color:currentcolor"><span style="color:blue;background-color:inherit">x</span></div>';
+    expect(el(html, 'span').style.backgroundColor).toBe('blue');
+  });
+
   it('color: currentcolor is the parent color', () => {
     expect(el('<div style="color:blue"><p style="color:CURRENTCOLOR">x</p></div>', 'p').style.color).toBe('blue');
   });
@@ -679,6 +689,20 @@ describe('selectors', () => {
     expect(li.markerHidden).toBeUndefined();
     expect(li.markerStyle).toBeUndefined();
     expect(li.style.fontSize).toBe(20);
+  });
+
+  it('::marker lengths resolve against the marker\'s own font, set anywhere in its rules', () => {
+    // Chrome: letter-spacing 20px.
+    const li = el('<style>li::marker { letter-spacing: 1em; font-size: 20px }</style><ul><li>a</li></ul>', 'li');
+    expect(li.markerStyle).toMatchObject({ fontSize: 20, letterSpacing: 20 });
+  });
+
+  it('the last ::marker content decides whether the marker shows', () => {
+    // Chrome: `unset` is `normal`; a string shows (render-tag draws its own marker).
+    const shown = (css: string) => el(`<style>${css}</style><ul><li class="x">a</li></ul>`, 'li').markerHidden;
+    expect(shown('li::marker { content: none; content: unset }')).toBeUndefined();
+    expect(shown('li::marker { content: none } li.x::marker { content: "-" }')).toBeUndefined();
+    expect(shown('li::marker { content: "-" } li.x::marker { content: none }')).toBe(true);
   });
 
   it('::marker logical properties follow the <li> direction', () => {

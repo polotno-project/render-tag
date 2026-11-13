@@ -28,6 +28,14 @@ describe('parseDeclarationList', () => {
     ]);
   });
 
+  it('an unquoted url() holds no comment, whatever else the declaration holds', () => {
+    // Chrome: url("a/*b*/c.png") in both.
+    expect(parseDeclarationList('background-image: url(a/*b*/c.png)')[0].value).toBe('url(a/*b*/c.png)');
+    expect(parseDeclarationList('background-image: /*x*/ url(a/*b*/c.png)')[0].value).toBe('url(a/*b*/c.png)');
+    expect(parseStylesheet('p { background-image: /*x*/ url(a/*b*/c.png) }')[0].declarations[0].value)
+      .toBe('url(a/*b*/c.png)');
+  });
+
   it('keeps a ; inside url() and strings', () => {
     expect(parseDeclarationList(`background-image: ${DATA_URL}; color: red`)).toEqual([
       { property: 'background-image', value: DATA_URL, important: false },

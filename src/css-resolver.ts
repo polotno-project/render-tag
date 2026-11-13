@@ -807,7 +807,7 @@ function applyKeyword(
   prop: string,
   keyword: string,
   setProps: Set<string>,
-  concrete: CurrentColorTable,
+  current: CurrentColorTable,
 ): string | null {
   const fields = PROPERTY_FIELDS[prop];
   if (!fields) return null;
@@ -821,23 +821,27 @@ function applyKeyword(
   const source = (keyword === 'inherit' ? parent : INITIAL) as InternalStyle;
   for (const field of fields) (style as any)[field] = source[field];
   // An inherited currentcolor is the keyword, resolved against the child's color.
-  if (keyword === 'inherit' && CURRENTCOLOR_FIELDS.has(fields[0]) && !concrete.get(parent)?.has(fields[0])) {
+  if (keyword === 'inherit' && (current.get(parent) ?? INITIAL_CURRENTCOLOR).has(fields[0])) {
     (style as any)[fields[0]] = 'currentcolor';
   }
   setProps.add(prop);
   return prop;
 }
 
-/** Color fields whose initial value is `currentcolor`, resolved per element after the cascade, with their property. */
+/** Color fields that may compute to `currentcolor`, resolved per element after the cascade, with their property. */
 const CURRENTCOLOR_PROPERTIES: readonly { field: keyof InternalStyle; property: string }[] = [
   { field: 'textDecorationColor', property: 'text-decoration-color' },
   { field: 'borderTopColor', property: 'border-top-color' }, { field: 'borderRightColor', property: 'border-right-color' },
   { field: 'borderBottomColor', property: 'border-bottom-color' }, { field: 'borderLeftColor', property: 'border-left-color' },
+  { field: 'backgroundColor', property: 'background-color' },
 ];
-const CURRENTCOLOR_FIELDS = new Set(CURRENTCOLOR_PROPERTIES.map((p) => p.field));
+/** Those whose initial value is `currentcolor`. */
+const INITIAL_CURRENTCOLOR: ReadonlySet<keyof InternalStyle> = new Set(
+  CURRENTCOLOR_PROPERTIES.filter((p) => INITIAL[p.field] === 'currentcolor').map((p) => p.field));
 
-/** Per resolve call: which CURRENTCOLOR_FIELDS of a style hold a concrete color (absent = none). */
-type CurrentColorTable = Map<ResolvedStyle, Set<keyof InternalStyle>>;
+/** Per resolve call: the CURRENTCOLOR_PROPERTIES fields of a style that compute to `currentcolor`, which its
+ * resolved colors no longer show; no entry when they are INITIAL_CURRENTCOLOR (nearly every style). */
+type CurrentColorTable = Map<ResolvedStyle, ReadonlySet<keyof InternalStyle>>;
 
 /** What phase-2 declarations of one element resolve against. */
 interface DeclarationEnv {
@@ -957,7 +961,7 @@ export function anonymousBlockStyle(style: ResolvedStyle): ResolvedStyle {
     if (INHERITED_PROPERTIES.has(property) || property.startsWith('text-decoration')) continue;
     for (const field of fields) (anonymous as any)[field] = INITIAL[field];
   }
-  for (const { field } of CURRENTCOLOR_PROPERTIES) (anonymous as any)[field] = anonymous.color;
+  for (const field of INITIAL_CURRENTCOLOR) (anonymous as any)[field] = anonymous.color;
   anonymous.display = 'block';
   anonymous[PERCENT_LENGTHS] = undefined;
   // It inherits text-indent, a percentage included, of its own width.
@@ -1308,6 +1312,11 @@ function buildRuleIndex(css: string): RuleIndex {
   return { byId, byClass, byTag, universal, cost };
 }
 
+/** A rule for the root's html side (`html`, `:root`) rather than its body side. */
+function isHtmlRule(rule: ProcessedRule): boolean {
+  return rule.selector.rootKind === 'html';
+}
+
 /** Cascade order within one importance: specificity, then source order. */
 function byCascadeOrder(a: ProcessedRule, b: ProcessedRule): number {
   return a.selector.spec - b.selector.spec || a.orderBase - b.orderBase;
@@ -1566,7 +1575,7 @@ export function resolveStylesFromCSS(
 
   const ordinals: ListOrdinals = new Map();
   const matcher = new SelectorMatcher();
-  const concreteColors: CurrentColorTable = new Map();
+  const currentColors: CurrentColorTable = new Map();
   const inlineMemo = new Map<string, readonly Declaration[]>();
   /** What `rem` resolves against: the root's font-size once it is known, the initial 16px before. */
   let rootFontSize = 16;
@@ -1591,23 +1600,17 @@ export function resolveStylesFromCSS(
   const order: Declaration[] = [];
   const orderInline: boolean[] = [];
 
-  /** The root font-size (`rem`) as `html`/`:root` rules alone set it; the container is also `body`. */
-  function htmlFontSize(matched: readonly ProcessedRule[]): number {
-    const base: LengthBasis = { em: 16, rem: 16, percent: 16, viewport, fontStyle: null, measure: undefined };
-    let size = 16;
-    const visit = (important: boolean) => {
-      for (const rule of matched) {
-        if (rule.selector.rootKind !== 'html') continue;
-        for (const d of rule.declarations) {
-          if (d.important !== important || d.property !== 'font-size') continue;
-          const px = resolveFontSize(d.value, 16, base);
-          if (!Number.isNaN(px)) size = px;
-        }
+  /** Step 2: the font properties of the first `count` of `order`, onto `style` against `parent`'s font. */
+  function applyFontCascade(style: ResolvedStyle, parent: ResolvedStyle, count: number, setProps: Set<string>): void {
+    for (let i = 0; i < count; i++) {
+      const d = order[i];
+      if (!FONT_PROPERTIES.has(d.property)) continue;
+      const keyword = cssWideKeyword(d.property, d.value);
+      if (keyword) applyKeyword(style, parent, d.property, keyword, setProps, currentColors);
+      else if (applyFontDeclaration(style, d.property, d.value, parent, basisFor(parent, parent.fontSize))) {
+        setProps.add(d.property);
       }
-    };
-    visit(false);
-    visit(true);
-    return size;
+    }
   }
 
   /** `tag`: lower-cased; `cbWidth`: the containing block width that percentages resolve against. */
@@ -1665,27 +1668,17 @@ export function resolveStylesFromCSS(
     }
 
     // --- Step 2: the font, before anything that measures it (em, ch, ex) ---
-    // The root stands for html and body: html's font-size is `rem` and what body sizes
-    // against, so only body's (and the universal) font-size rules apply to it here.
-    let fontParent = parentStyle;
-    let htmlSizes: Set<Declaration> | null = null;
+    // The root stands for html and body, two cascades: html's rules give the font body inherits
+    // (and `rem`), the rest apply to body against it.
     if (parentCtx === null) {
-      rootFontSize = htmlFontSize(matched);
-      fontParent = { ...parentStyle, fontSize: rootFontSize };
-      style.fontSize = rootFontSize;
-      htmlSizes = new Set(matched.flatMap((rule) =>
-        rule.selector.rootKind === 'html' ? rule.declarations.filter((d) => d.property === 'font-size') : []));
+      applyFontCascade(style, parentStyle, cascadeOrder(NO_DECLARATIONS, matched.filter(isHtmlRule),
+        NO_DECLARATIONS, order, orderInline), new Set());
+      rootFontSize = style.fontSize;
+      applyFontCascade(style, { ...style }, cascadeOrder(hints, matched.filter((rule) => !isHtmlRule(rule)),
+        inline, order, orderInline), setProps);
     }
     const count = cascadeOrder(hints, matched, inline, order, orderInline);
-    for (let i = 0; i < count; i++) {
-      const d = order[i];
-      if (!FONT_PROPERTIES.has(d.property) || htmlSizes?.has(d)) continue;
-      const keyword = cssWideKeyword(d.property, d.value);
-      if (keyword) applyKeyword(style, fontParent, d.property, keyword, setProps, concreteColors);
-      else if (applyFontDeclaration(style, d.property, d.value, fontParent, basisFor(fontParent, fontParent.fontSize))) {
-        setProps.add(d.property);
-      }
-    }
+    if (parentCtx !== null) applyFontCascade(style, parentStyle, count, setProps);
     const elemFontSize = style.fontSize;
 
     // --- Step 3: everything else, against the element's final font ---
@@ -1711,7 +1704,7 @@ export function resolveStylesFromCSS(
       const property = physical(d.property, parentStyle.direction);
       const keyword = cssWideKeyword(property, d.value);
       if (keyword) {
-        applyKeyword(style, parentStyle, property, keyword, setProps, concreteColors);
+        applyKeyword(style, parentStyle, property, keyword, setProps, currentColors);
         trackPercent(style, property, null, env, cbWidth);
       } else {
         env.percent = false;
@@ -1754,30 +1747,26 @@ export function resolveStylesFromCSS(
     style.borderBottomWidth = usedBorderWidth(style.borderBottomStyle, style.borderBottomWidth, setProps.has('border-bottom-width'));
     style.borderLeftWidth = usedBorderWidth(style.borderLeftStyle, style.borderLeftWidth, setProps.has('border-left-width'));
 
-    // currentcolor defaults. An automatic decoration color is the visible stroke color,
-    // else the fill color, else `color` — resolved on the declarer so descendants agree.
+    // currentcolor: an unset field takes its initial value. An automatic decoration color is the
+    // visible stroke color, else the fill color, else `color` — resolved on the declarer so
+    // descendants agree.
+    let current: Set<keyof InternalStyle> | undefined;
     for (let i = 0; i < CURRENTCOLOR_PROPERTIES.length; i++) {
       const { field, property } = CURRENTCOLOR_PROPERTIES[i];
-      if (setProps.has(property) && String((style as InternalStyle)[field]).toLowerCase() !== 'currentcolor') {
-        let set = concreteColors.get(style);
-        if (!set) concreteColors.set(style, set = new Set());
-        set.add(field);
-      }
+      const initial = INITIAL_CURRENTCOLOR.has(field);
+      const isCurrent = setProps.has(property)
+        ? String((style as InternalStyle)[field]).toLowerCase() === 'currentcolor' : initial;
+      if (isCurrent !== initial) (current ??= new Set(INITIAL_CURRENTCOLOR))[isCurrent ? 'add' : 'delete'](field);
+      if (isCurrent && field !== 'textDecorationColor') (style as any)[field] = style.color;
     }
-    const decorationFollowsText = !setProps.has('text-decoration-color') ||
-      style.textDecorationColor.toLowerCase() === 'currentcolor';
+    if (current) currentColors.set(style, current);
+    const decorationFollowsText = (current ?? INITIAL_CURRENTCOLOR).has('textDecorationColor');
     if (decorationFollowsText) {
       const strokeColor = style.webkitTextStrokeColor || style.color;
       style.textDecorationColor = style.webkitTextStrokeWidth > 0 && !isTransparent(strokeColor)
         ? strokeColor
         : style.webkitTextFillColor || style.color;
     }
-    // An unset border color is currentColor; so is the keyword, in any case.
-    if (!setProps.has('border-top-color') || style.borderTopColor.toLowerCase() === 'currentcolor') style.borderTopColor = style.color;
-    if (!setProps.has('border-right-color') || style.borderRightColor.toLowerCase() === 'currentcolor') style.borderRightColor = style.color;
-    if (!setProps.has('border-bottom-color') || style.borderBottomColor.toLowerCase() === 'currentcolor') style.borderBottomColor = style.color;
-    if (!setProps.has('border-left-color') || style.borderLeftColor.toLowerCase() === 'currentcolor') style.borderLeftColor = style.color;
-    if (style.backgroundColor.toLowerCase() === 'currentcolor') style.backgroundColor = style.color;
 
     // Decorations propagate visually: each keeps its declarer's color/style, ancestors'
     // first so own ones paint on top. `textDecorationLine` is the union of lines.
@@ -1819,31 +1808,25 @@ export function resolveStylesFromCSS(
     if (tag === 'li' && matchedMarker.length > 0) {
       if (matchedMarker.length > 1) matchedMarker.sort(byCascadeOrder);
 
-      // The marker starts as a copy of the <li>, its parent.
+      // The marker starts as a copy of the <li>, its parent; its font first, as an element's.
       const scratch = { ...style } as ResolvedStyle;
       const markerProps = new Set<string>();
       const markerCount = cascadeOrder(NO_DECLARATIONS, matchedMarker, NO_DECLARATIONS, order, orderInline);
+      applyFontCascade(scratch, style, markerCount, markerProps);
+      basisFor(scratch, cbWidth);
       for (let i = 0; i < markerCount; i++) {
         const m = order[i];
-        // `content: none` or `''` hides the marker.
+        if (FONT_PROPERTIES.has(m.property)) continue;
+        // `content: none` or `''` hides the marker; any other value shows render-tag's own.
         if (m.property === 'content') {
           const v = m.value.trim().toLowerCase();
-          if (v === 'none' || v === '""' || v === "''" || v === 'normal') {
-            markerHidden = (v === 'none' || v === '""' || v === "''");
-          }
+          markerHidden = v === 'none' || v === '""' || v === "''";
           continue;
         }
         const property = physical(m.property, style.direction);
         const keyword = cssWideKeyword(property, m.value);
-        if (keyword) {
-          applyKeyword(scratch, style, property, keyword, markerProps, concreteColors);
-        } else if (FONT_PROPERTIES.has(property)) {
-          applyFontDeclaration(scratch, property, m.value, style, basisFor(style, style.fontSize));
-        } else {
-          basisFor(style, cbWidth);
-          env.containerWidth = cbWidth;
-          applyDeclaration(scratch, property, m.value, env);
-        }
+        if (keyword) applyKeyword(scratch, style, property, keyword, markerProps, currentColors);
+        else applyDeclaration(scratch, property, m.value, env);
       }
       for (const k of MARKER_FIELDS) if (scratch[k] !== style[k]) (markerStyle ??= {} as any)[k] = scratch[k];
     }
