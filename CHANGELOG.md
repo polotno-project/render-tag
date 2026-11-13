@@ -2,6 +2,26 @@
 
 Only the interesting, user-visible changes. Full detail lives in the git history.
 
+## 0.4.5 — 2026-11-13
+
+- `render-tag/umd` is no longer a package export: under `"type": "module"` it resolved to an empty module. `lib/render-tag.umd.js` still ships for a classic `<script>` tag.
+- No longer supported: HTML's forgiving `<font color>` parsing (`chucknorris`) and two-keyword `display` values (`inline flex`). A named or hex `<font color>` works as before.
+- The root container stands for both `html` and `body`: `rem` is html's font size, so the `html { font-size: 62.5% } body { font-size: 1.6rem }` reset gives 16px text, as in Chrome.
+- A list inside a table cell, or beside bare text in a flex container, now draws its markers.
+- `min-height` applies to flex containers and tables, a column flex container no longer adds its gap after the last item, and a column flex item sizes to its bare text.
+- A block with `font-size: 0` no longer breaks the layout of everything after it.
+- A word broken by `overflow-wrap`, or continued across inline elements, never splits a grapheme cluster (a combining mark, a ZWJ emoji).
+- A soft hyphen at an element's edge (`aaaa&shy;<b>bbbb</b>`) is a break opportunity with its `-`, as in Chrome.
+- A `-webkit-line-clamp` that fits exactly keeps the last block's bottom margin when white space follows that block.
+- A CSS-wide keyword works on the `border`, `flex`, `list-style` and `-webkit-text-stroke` shorthands: `border: unset` removes a stylesheet's border.
+- `background: linear-gradient(…) center/cover` is no longer dropped, and `border-style: solid` without a width draws a medium (3px) border.
+- The `font` shorthand resets `font-kerning`, and the `dir` attribute yields to a CSS `direction`.
+- `::marker` lengths in `em` follow the marker's own font size, and the last `content` declaration decides whether the marker shows.
+- `background-color: inherit` from a `currentcolor` background takes the child's color, as borders do.
+- Borders, text strokes and decorations ignore the caller's line dash, cap, miter limit and dash offset.
+- On a canvas without `ctx.reset()`, a reused text-shadow canvas no longer casts a stray shadow of its own.
+- Text on a path: a minified SVG arc (`a50 50 0 01100 0`) draws, and glyphs ignore the caller's `textAlign` and `direction`.
+
 ## 0.4.4 — 2026-11-09
 
 - A Latin, Greek or Cyrillic word after text in another script sits where Chrome puts it. Since 0.4.2 the space before it was kerned into its first letter, which Chrome never does across scripts: in Arial 40px, "Arial" in `こんにちは Arial` was drawn 2.2px left.
