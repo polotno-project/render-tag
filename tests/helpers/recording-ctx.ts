@@ -58,6 +58,11 @@ export interface RecordingCtx {
   createCanvas: CanvasFactory;
 }
 
+/** Every op of a recorded paint, the scratch canvases drawn into it (`canvas(WxH){a / b}`) included. */
+export function paintOps(paints: string[]): string[] {
+  return paints.join('\n').split(/ \/ |\{|\n/);
+}
+
 /** The fillText calls of a recorded paint, as [text, x, y]. */
 export function fillTexts(paints: string[]): [string, number, number][] {
   return paints
@@ -172,13 +177,25 @@ export function recordingCtx(
   const count = (name: string) => { counts.calls[name] = (counts.calls[name] ?? 0) + 1; };
 
   const scratch: ScratchCounts = { created: 0, livePixels: 0, peakPixels: 0, handed: new Set(), handedThenResized: 0 };
-
-  function makeContext(canvas: { width: number; height: number }, paints: string[], destination = false): CanvasRenderingContext2D {
-    let state = defaultState();
-    let matrix: Matrix = [1, 0, 0, 1, 0, 0];
-    let dash: number[] = [];
-    let path: string[] = [];
+  /** A context, and `reset` for setting its canvas's width or height: that clears it and resets
+   * the context, as a real canvas does. */
+  function makeContext(
+    canvas: { width: number; height: number }, paints: string[], destination = false,
+  ): { ctx: CanvasRenderingContext2D; reset: () => void } {
+    let state!: Record<string, unknown>;
+    let matrix!: Matrix;
+    let dash!: number[];
+    let path!: string[];
     const stack: { state: Record<string, unknown>; matrix: Matrix; dash: number[] }[] = [];
+    const reset = () => {
+      state = defaultState();
+      matrix = [1, 0, 0, 1, 0, 0];
+      dash = [];
+      path = [];
+      stack.length = 0;
+      paints.length = 0;
+    };
+    reset();
 
     // Only the state an operation actually reads: a font left behind does
     // not change a stroke(), and a stale fillStyle does not change strokeText.
@@ -234,7 +251,7 @@ export function recordingCtx(
     };
 
     const target: Record<string | symbol, unknown> = { canvas };
-    return new Proxy(target, {
+    const ctx = new Proxy(target, {
       get(_t, key) {
         if (key === 'canvas') return canvas;
         if (typeof key !== 'string') return undefined;
@@ -267,19 +284,22 @@ export function recordingCtx(
           (Object.hasOwn(methods, key) || PAINT_OPS.has(key) || PATH_OPS.has(key) || key in state));
       },
     }) as unknown as CanvasRenderingContext2D;
+    return { ctx, reset };
   }
 
   const paints: string[] = [];
-  const ctx = makeContext({ width, height }, paints, true);
+  const { ctx } = makeContext({ width, height }, paints, true);
 
   const createCanvas = (w: number, h: number) => {
     const scratchPaints: string[] = [];
     let size = { width: 0, height: 0 };
+    let resetContext: (() => void) | undefined;
     const resize = (next: { width: number; height: number }) => {
       if (scratch.handed.has(canvas)) scratch.handedThenResized++;
       scratch.livePixels += next.width * next.height - size.width * size.height;
       scratch.peakPixels = Math.max(scratch.peakPixels, scratch.livePixels);
       size = next;
+      resetContext?.();
     };
     const canvas = {
       get width() { return size.width; },
@@ -295,7 +315,8 @@ export function recordingCtx(
     Object.defineProperty(canvas, '__describe', {
       value: () => `canvas(${canvas.width}x${canvas.height}){${scratchPaints.join(' / ')}}`,
     });
-    const scratchContext = makeContext(canvas, scratchPaints);
+    const { ctx: scratchContext, reset } = makeContext(canvas, scratchPaints);
+    resetContext = reset;
     return canvas as unknown as OffscreenCanvas;
   };
 

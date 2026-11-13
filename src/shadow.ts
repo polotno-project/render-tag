@@ -76,7 +76,7 @@ export function lazyPaintBounds(
 function measurePaintBounds(ctx: CanvasRenderingContext2D, measure: () => PaintBounds): PaintBounds {
   ctx.save();
   ctx.textAlign = 'left'; ctx.direction = 'ltr';
-  ctx.letterSpacing = '0px'; ctx.wordSpacing = '0px'; ctx.miterLimit = 10;
+  ctx.letterSpacing = '0px'; ctx.wordSpacing = '0px';
   try { return measure(); }
   finally { ctx.restore(); }
 }
@@ -117,10 +117,13 @@ export function transformBounds(bounds: PaintBounds, m: Matrix): PaintBounds {
   return { x, y, width: Math.max(ax, bx, cx, dx) - x, height: Math.max(ay, by, cy, dy) - y };
 }
 
+/** The miter limit every stroke paints with (`PaintState.stroke`): the canvas default. */
+export const MITER_LIMIT = 10;
+
 /** How far past a glyph's outline its -webkit-text-stroke paints: half its width, which a miter
- * join reaches `miterLimit` times further. */
-export function strokeReach(style: ResolvedStyle, miterLimit = 10): number {
-  return style.webkitTextStrokeWidth / 2 * (style.strokeLinejoin === 'miter' ? miterLimit : 1);
+ * join reaches MITER_LIMIT times further. */
+export function strokeReach(style: ResolvedStyle): number {
+  return style.webkitTextStrokeWidth / 2 * (style.strokeLinejoin === 'miter' ? MITER_LIMIT : 1);
 }
 
 /**
@@ -139,7 +142,7 @@ export function textPaintBounds(
   x: number, y: number, width: number, rightAligned = false,
 ): PaintBounds {
   const metrics = ctx.measureText(text);
-  const stroke = strokeReach(style, ctx.miterLimit ?? 10);
+  const stroke = strokeReach(style);
   let pad = 2 + stroke;
   for (const deco of style.textDecorations) {
     const thickness = deco.declarer.textDecorationThickness ?? Math.max(1, deco.declarer.fontSize / 15);
@@ -212,8 +215,11 @@ export class ScratchPool {
       const target = context2d(canvas);
       if (typeof target.reset === 'function') target.reset();
       else {
+        // What a pooled use leaves outside a save/restore: the transform, the pixels and
+        // `castShadow`'s shadow.
         target.setTransform(1, 0, 0, 1, 0, 0);
         target.clearRect(0, 0, canvas.width, canvas.height);
+        target.shadowColor = 'transparent';
       }
       return canvas;
     }
@@ -254,19 +260,17 @@ export class ScratchPool {
 /** Point `target` at the caller's drawing state, with `matrix` moved so
  * device pixel (x, y) lands on the target's origin. Destination opacity,
  * clipping, filters and blending apply when painting the effect image and
- * foreground, not while collecting shadow coverage. Dash and cap start solid
- * and butt, as a new `PaintState` assumes. */
+ * foreground, not while collecting shadow coverage. */
 function prepareLayer(
   target: CanvasRenderingContext2D, ctx: CanvasRenderingContext2D, matrix: Matrix, x: number, y: number,
 ): void {
   for (const key of ['font', 'fontKerning', 'fontStretch', 'fontVariantCaps', 'textRendering', 'lang',
     'letterSpacing', 'wordSpacing', 'textAlign', 'textBaseline', 'direction',
-    'lineWidth', 'lineJoin', 'miterLimit', 'lineDashOffset',
+    'lineWidth', 'lineJoin', 'lineCap', 'miterLimit', 'lineDashOffset',
     'fillStyle', 'strokeStyle', 'imageSmoothingEnabled', 'imageSmoothingQuality'] as const) {
     if (key in ctx) (target as any)[key] = (ctx as any)[key];
   }
-  target.setLineDash([]);
-  target.lineCap = 'butt';
+  if (typeof ctx.getLineDash === 'function') target.setLineDash(ctx.getLineDash());
   target.setTransform(matrix.a, matrix.b, matrix.c, matrix.d, matrix.e - x, matrix.f - y);
 }
 

@@ -668,12 +668,11 @@ class UnitPainter {
     for (const [unit, share] of units) {
       this.call(unit, 'text', draw => this.withoutOwnShadow(() => { for (const entry of share) paintPieces(ps, entry, draw); }));
     }
-    // The callbacks' restores undid what render-tag wrote inside them.
-    ps.forget();
     for (const fragment of unclaimed) paintTextFragment(ps, fragment);
   }
 
-  /** The caller's callback, in a save/restore; each draw forgets what render-tag knew of the ctx. */
+  /** The caller's callback, in a save/restore. render-tag forgets what it knew of the ctx before
+   * each draw (the callback may have written it) and after the restore (which undid render-tag's writes). */
   private call(unit: TextUnit, phase: 'shadow' | 'text', draw: (override?: UnitDraw) => void): void {
     const { ps } = this;
     ps.ctx.save();
@@ -681,6 +680,7 @@ class UnitPainter {
       this.paint({ unit, ctx: ps.ctx, phase, draw: (override) => { ps.forget(); draw(override); } });
     } finally {
       ps.ctx.restore();
+      ps.forget();
     }
   }
 

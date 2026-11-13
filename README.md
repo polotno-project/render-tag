@@ -365,7 +365,9 @@ Each decoration is one band per text fragment (one text node's words on one
 line), with Chrome's shapes for `double`, `dotted`, `dashed` and `wavy` in
 every browser. Bands are plain strokes: `setLineDash` for dashes and dots
 (Chrome's round dots are zero-length dashes with round caps) and
-`bezierCurveTo` for waves, so vector adapters need those. A
+`bezierCurveTo` for waves, so vector adapters need those. Every stroke
+(bands, borders, `-webkit-text-stroke`) sets its own dash, cap, join and
+miter limit, so the caller's stroke state never reaches it. A
 `linear-gradient` takes angles in `deg`/`rad`/`grad`/`turn`, `to` sides and
 corners, `%` and `px` stop positions (including two-position stops and stops
 outside 0–100%); a color hint is treated as a plain midpoint.

@@ -20,7 +20,7 @@ import { DOMParser as LinkedomDOMParser } from 'linkedom';
 import { layout, drawLayout, setDOMParser } from '../../src/index.ts';
 import { drawTextOnPath } from '../../src/path/index.ts';
 import { PaintState } from '../../src/paint-state.ts';
-import { recordingCtx } from '../helpers/recording-ctx.ts';
+import { paintOps, recordingCtx } from '../helpers/recording-ctx.ts';
 import { styleFixture } from '../helpers/style-fixture.ts';
 
 afterAll(() => setDOMParser(null));
@@ -57,7 +57,7 @@ function noSnapshot(ctx: CanvasRenderingContext2D): CanvasRenderingContext2D {
 }
 
 describe('paint state', () => {
-  it('does not depend on the caller\'s text alignment, direction or spacing', () => {
+  it('does not depend on the caller\'s text alignment, direction, spacing or stroke state', () => {
     setDOMParser(new LinkedomDOMParser());
     const fresh = recordingCtx(400, 800);
     draw(MIXED, fresh.ctx, fresh);
@@ -65,7 +65,9 @@ describe('paint state', () => {
     Object.assign(dirty.ctx, {
       textAlign: 'center', direction: 'rtl', textBaseline: 'top',
       letterSpacing: '7px', wordSpacing: '9px', lineJoin: 'bevel', fontKerning: 'none',
+      lineCap: 'round', miterLimit: 1, lineDashOffset: 3,
     });
+    dirty.ctx.setLineDash([4, 4]);
     draw(MIXED, dirty.ctx, dirty);
     // Layout re-measures on `dirty`, so compare only the paint streams.
     expect(dirty.paints).toEqual(fresh.paints);
@@ -207,7 +209,7 @@ describe('shadow masks', () => {
       if (callerShadow) Object.assign(rec.ctx, { shadowColor: 'blue', shadowOffsetX: 2, shadowBlur: 1 });
       drawLayout({ layout: result, width: 400, ctx: rec.ctx, createCanvas: rec.createCanvas });
       // Every op in the stream, the scratch canvases' included.
-      const ops = rec.paints.join('\n').split(/ \/ |\{|\n/);
+      const ops = paintOps(rec.paints);
       // The second paragraph's strokes: its text stroke and its solid
       // underline (the first paragraph's dotted band is the 6px one).
       const solid = ops.filter(op => op.startsWith('strokeText("bbbb"') ||

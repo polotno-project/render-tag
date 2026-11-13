@@ -16,7 +16,7 @@
 import { afterAll, expect, it } from 'vitest';
 import { DOMParser as LinkedomDOMParser } from 'linkedom';
 import { layout, drawLayout, setDOMParser } from '../../src/index.ts';
-import { recordingCtx } from '../helpers/recording-ctx.ts';
+import { paintOps, recordingCtx } from '../helpers/recording-ctx.ts';
 
 afterAll(() => setDOMParser(null));
 
@@ -53,6 +53,16 @@ for (const [name, style, paragraphStyle, callerShadow] of [
     expect(rec.scratch.livePixels).toBe(handedPixels);
   });
 }
+
+// The recording ctx has no `reset()`: a pooled canvas comes back with what its
+// last use left, and the shadow images cast into pooled canvases here.
+it('a reused scratch canvas casts no shadow of its own', () => {
+  const { rec } = draw('text-shadow:2px 2px 4px rgba(0,0,0,.5)', '', true);
+  const ops = paintOps(rec.paints).filter((op) => op.startsWith('fillText('));
+  expect(ops.length).toBeGreaterThan(0);
+  const shadowed = ops.filter((op) => !/shadowColor="(transparent|rgba\(0, 0, 0, 0\))"/.test(op));
+  expect(shadowed.map((op) => op.slice(0, 40))).toEqual([]);
+});
 
 it('casts one image per tile for every shadow value, not one per value', () => {
   const { rec, handedPixels, contentPixels } = draw('text-shadow:2px 2px 4px rgba(0,0,0,.5), 0 0 8px red');

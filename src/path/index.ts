@@ -436,11 +436,6 @@ class BentPen implements Pen {
     this.ctx.bezierCurveTo(...this.point(c1x, c1y), ...this.point(c2x, c2y), ...this.point(x, y));
     this.x = x; this.y = y;
   }
-
-  quadraticCurveTo(cx: number, cy: number, x: number, y: number): void {
-    this.ctx.quadraticCurveTo(...this.point(cx, cy), ...this.point(x, y));
-    this.x = x; this.y = y;
-  }
 }
 
 /**

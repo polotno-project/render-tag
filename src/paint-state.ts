@@ -4,7 +4,7 @@ import {
   nextCtxWriterId, syntheticBoldWidening, type FontMetricsTable,
 } from './layout.js';
 import { parseLinearGradient } from './gradient.js';
-import { ScratchPool, withoutCanvasShadow } from './shadow.js';
+import { MITER_LIMIT, ScratchPool, withoutCanvasShadow } from './shadow.js';
 
 // Writes each ctx property only on change (a save/restore per run is a q/Q on
 // a PDF proxy) and never relies on `restore` to put a value back. Another
@@ -16,7 +16,7 @@ import { ScratchPool, withoutCanvasShadow } from './shadow.js';
 type Key =
   | 'font' | 'fontKerning' | 'textRendering' | 'lang' | 'letterSpacing' | 'wordSpacing'
   | 'textBaseline' | 'textAlign' | 'direction'
-  | 'fillStyle' | 'strokeStyle' | 'lineWidth' | 'lineJoin' | 'lineCap' | 'lineDash';
+  | 'fillStyle' | 'strokeStyle' | 'lineWidth' | 'lineJoin' | 'lineCap' | 'lineDash' | 'miterLimit' | 'lineDashOffset';
 
 type Paint = string | CanvasGradient;
 
@@ -44,11 +44,9 @@ interface TextState {
 interface CanvasSupport { spacing?: { letter: boolean; word: boolean } }
 
 export class PaintState {
-  private known: Partial<Record<Key, unknown>> = {
-    // Assumed: only decorations change dash or cap, and `finish()` resets them.
-    lineDash: '',
-    lineCap: 'butt',
-  };
+  private known: Partial<Record<Key, unknown>> = {};
+  /** Whether this tracker stroked, so `finish()` may owe a reset. */
+  private stroked = false;
   private readonly scopes: Key[][] = [];
   private readonly texts = new Map<ResolvedStyle, TextState>();
   /** `canvasFont`'s and `syntheticBoldWidening`'s answers for this ctx. */
@@ -167,7 +165,10 @@ export class PaintState {
     this.set('lineWidth', lineWidth);
     this.set('lineJoin', join);
     this.set('lineCap', cap);
+    this.set('miterLimit', MITER_LIMIT);
     this.dash(dash);
+    this.set('lineDashOffset', 0);
+    this.stroked = true;
   }
 
   /** One gradient per CSS gradient and box on this ctx, so a PDF proxy emits
@@ -210,8 +211,9 @@ export class PaintState {
     this.known = {};
   }
 
-  /** Reset dash and cap for a ctx whose restore may not. */
+  /** Leave no dash or round cap behind on a ctx whose restore may not. */
   finish(): void {
+    if (!this.stroked) return;
     if (this.known.lineDash !== '') this.dash(NO_DASH);
     if (this.known.lineCap !== 'butt') this.set('lineCap', 'butt');
   }

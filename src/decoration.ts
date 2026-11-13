@@ -10,7 +10,7 @@ type DecorationLine = 'underline' | 'overline' | 'line-through';
 
 /** Where a band's path points land: the ctx itself for a straight fragment;
  * text on a path bends them along its glyph frames. */
-export type Pen = Pick<CanvasRenderingContext2D, 'moveTo' | 'lineTo' | 'bezierCurveTo' | 'quadraticCurveTo'>;
+export type Pen = Pick<CanvasRenderingContext2D, 'moveTo' | 'lineTo' | 'bezierCurveTo'>;
 
 /** One decoration band across one text fragment. */
 export interface Band {
