@@ -503,7 +503,8 @@ function headGlueWidth(
 export class LineFlow {
   readonly lines: FlowLine[] = [];
   line: FlowLine;
-  /** At the start of content, or right after a forced break. */
+  /** The current line began at the start of content or after a forced break (`wrap` and
+   * `forcedBreak` start every other line); read while it is still empty. */
   afterHardBreak = true;
   readonly m: Measurer;
   /** No soft wrapping at all: everything up to a forced break is one line. */
@@ -934,10 +935,7 @@ function breakGluedChain(flow: LineFlow, start: number, end: number): boolean {
         }
         i++;
       }
-      if (cur) {
-        flow.place(items.textOf(refs, cur, curW), curW, lh);
-        flow.afterHardBreak = false;
-      }
+      if (cur) flow.place(items.textOf(refs, cur, curW), curW, lh);
     }
   };
   const measureSeg = (cs: Cell[]) => {
@@ -1049,7 +1047,6 @@ function placePiece(
   } else {
     flow.place(piece, pieceWidth, lineHeight);
   }
-  if (!(pieceFlags & SEG_SPACE)) flow.afterHardBreak = false;
 }
 
 /**

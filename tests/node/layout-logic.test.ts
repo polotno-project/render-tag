@@ -3228,6 +3228,20 @@ describe('Layout logic (mocked measureText)', () => {
         expect(getLines(doLayout(tree, 100))).toEqual(['aaaaaaaaa', last]);
       });
 
+      // Chrome: 72px for two 16px lines with 20px margins, trailing white space or not;
+      // a cut drops the last margin (52px).
+      it.each([
+        ['nothing', []],
+        ['collapsible white space', [textNode('  ')]],
+      ])('exact fit keeps the last margin with %s after it', (_, after) => {
+        const tree = block('div', [
+          block('p', [textNode('aaaaaaaaa')], { marginBottom: 30 }),
+          block('p', [textNode('bbbbbbbbb')], { marginBottom: 30 }),
+          ...after,
+        ], { lineClamp: 2 });
+        expect(doLayout(tree, 100).height).toBe(100);
+      });
+
       it('exact-fit boundary: inline lines before a hidden block get the ellipsis', () => {
         const tree = block('div', [
           textNode('aaaaaaaaa bbbbbbbbb'), // exactly 2 lines
@@ -3695,6 +3709,28 @@ describe('<wbr> across text runs', () => {
   it('a trailing zero-width space in a run breaks before the next run', () => {
     const tree = block('div', [block('p', [inline('b', [textNode('hello​')]), textNode('world')])]);
     expect(getLines(doLayout(tree, 80))).toEqual(['hello', 'world']);
+  });
+});
+
+describe('soft hyphen across text runs', () => {
+  // Chrome, 60px of monospace: a soft hyphen at a text node's edge breaks with its '-' before a
+  // word, but gives way to white space or a zero-width space opening the next node (which in
+  // its own node it does not).
+  it.each([
+    ['aaaa&shy;bbbb', ['aaaa-', 'bbbb']],
+    ['aaaa&shy;<b>bbbb</b>', ['aaaa-', 'bbbb']],
+    ['aaaa<b>&shy;bbbb</b>', ['aaaa-', 'bbbb']],
+    ['aaaa&shy;<!-- -->bbbb', ['aaaa-', 'bbbb']],
+    ['aaaa&shy;<b>&shy;bbbb</b>', ['aaaa-', 'bbbb']],
+    ['aaaa<b>&shy;</b>bbbb', ['aaaa-', 'bbbb']],
+    ['aaaa&shy; bbbb', ['aaaa-', 'bbbb']],
+    ['aaaa<b>&shy; bbbb</b>', ['aaaa-', 'bbbb']],
+    ['aaaa&shy;<b> bbbb</b>', ['aaaa', 'bbbb']],
+    ['<i>aaaa&shy;</i> bbbb', ['aaaa', 'bbbb']],
+    ['aaaa&shy;<b>&#8203;bbbb</b>', ['aaaa', 'bbbb']],
+  ])('%s', (html, lines) => {
+    const { layoutRoot } = layout({ html: `<p style="margin:0">${html}</p>`, width: 60, ctx: mockCtx() });
+    expect(getLines(layoutRoot).map((line) => line.trim())).toEqual(lines);
   });
 });
 

@@ -149,27 +149,22 @@ function prepareString(
   // Zero-width spaces and soft hyphens are break opportunities; the parts share one context
   // (Chrome kerns across both: Arimo "A&shy;V" -7.42px at 100px).
   if (text.includes('\u200B') || text.includes('\u00AD')) {
+    // A soft hyphen marks the segment before it when text follows it here (that segment may
+    // be an earlier run's); one ending the text is the run boundary's (`prepareInline`).
     const parts = text.split(/(\u200B|\u00AD)/);
     let nextIsSoftHyphen = false;
     for (const part of parts) {
-      if (part === '\u00AD') {
-        nextIsSoftHyphen = true;
+      if (part === '\u00AD' || part === '\u200B') {
+        nextIsSoftHyphen = part === '\u00AD';
         continue;
       }
-      if (part === '\u200B' || part === '') {
-        nextIsSoftHyphen = false;
-        continue;
-      }
-      // The segment before this part — possibly one from an earlier run.
+      if (!part) continue;
       const prevLen = out.count;
       prepareString(session, out, part, run, ref, cum);
       if (nextIsSoftHyphen && prevLen > 0) {
         out.flags[prevLen - 1] |= SEG_SOFT_HYPHEN;
       }
       nextIsSoftHyphen = false;
-    }
-    if (nextIsSoftHyphen && out.count > 0) {
-      out.flags[out.count - 1] |= SEG_SOFT_HYPHEN;
     }
     return;
   }
@@ -290,8 +285,9 @@ function prepareInline(session: LayoutSession, runs: TextRun[]): PreparedInline 
   const out = new SegmentBuilder();
   /** The last text run and the measuring context it ends with; an inline-block or an edge with width ends it. */
   let shaping: { run: TextRun; cum: Cumulative } | null = null;
-  /** The text so far ends with a zero-width space (a break opportunity). */
-  let zwspBefore = false;
+  /** The last character of the text so far: a zero-width space or soft hyphen there is a break
+   * opportunity before the next run. */
+  let lastChar = 0;
   /** Style of the last text run that produced segments (`markSeam`). */
   let lastTextStyle: ResolvedStyle | null = null;
   let runStart = 0;
@@ -328,15 +324,22 @@ function prepareInline(session: LayoutSession, runs: TextRun[]): PreparedInline 
     const markSeam = (startLen: number, first: boolean) => {
       if (first && run.style === lastTextStyle && out.count > startLen) out.flags[startLen] |= SEG_RUN_SEAM;
     };
-    // A zero-width space at the run boundary (a `<wbr>`, or one ending the
-    // previous run) is a break opportunity there; it produces no segment itself.
-    const breakAtStart = zwspBefore || text.charCodeAt(0) === 0x200B;
-    zwspBefore = text.charCodeAt(text.length - 1) === 0x200B || (zwspBefore && /^\u200B*$/.test(text));
+    // A zero-width space or soft hyphen at the run boundary (a `<wbr>`, or one ending the
+    // previous run) is a break opportunity there; neither produces a segment. A soft hyphen
+    // opening this run marked the segment before it (`prepareString`); one ending the previous
+    // run marks it only before a word: white space or a zero-width space opening this run wins
+    // (Chrome: `aaaa&shy;<b> bbbb</b>` draws no '-').
+    const first = text.charCodeAt(0);
+    const breakAtStart = lastChar === 0x200B || first === 0x200B || first === 0xAD;
+    const hyphenAtStart = lastChar === 0xAD;
+    if (text) lastChar = text.charCodeAt(text.length - 1);
 
-    // A run boundary inside a word is no break opportunity
-    // (`abutsWithoutBreak`), unless a zero-width space opens one.
+    // A run boundary inside a word is no break opportunity (`abutsWithoutBreak`), unless a
+    // zero-width space or a soft hyphen opens one.
     const markGlue = (startLen: number) => {
-      if (!breakAtStart && abutsWithoutBreak(out, startLen)) out.flags[startLen] |= SEG_NO_BREAK_BEFORE;
+      if (breakAtStart || !abutsWithoutBreak(out, startLen)) return;
+      if (hyphenAtStart) out.flags[startLen - 1] |= SEG_SOFT_HYPHEN;
+      else out.flags[startLen] |= SEG_NO_BREAK_BEFORE;
     };
 
     // A newline (from <br> or pre-wrap) is always a forced break; the line after it starts afresh,

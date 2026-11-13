@@ -53,6 +53,8 @@ function canvasGeometry(html: string): { boxes: Geometry[]; height: number } {
   return { boxes, height: result.height };
 }
 
+const CLAMP_2 = 'display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2';
+
 const CASES: Record<string, string> = {
   // The "Non-Latin text alignment" shape: the last <p>'s bottom margin
   // collapses through a plain div with the next sibling's top margin.
@@ -158,6 +160,11 @@ const CASES: Record<string, string> = {
     '<p>a</p><div style="display:none;margin:100px"></div><p>b</p>',
   'a percentage min-height under an auto-height parent is none':
     '<p>a</p><div style="min-height:50%"><p>b</p></div><p>c</p>',
+  // A clamp spent exactly keeps the last margin (a cut drops it: layout-logic).
+  'a line-clamp spent exactly keeps the last margin':
+    `<div style="${CLAMP_2}"><p>a</p><p>b</p></div><p>c</p>`,
+  'collapsible white space after an exact line-clamp is not below the cut':
+    `<div style="${CLAMP_2}"><p>a</p><p>b</p> </div><p>c</p>`,
 };
 
 describe('margin collapsing matches the DOM', () => {

@@ -555,7 +555,7 @@ function emitLine(
     // An inline-block contributes only its LAST row (earlier rows are lines of their own), and
     // nothing when it laid out no line.
     text: line.words.map((word) =>
-      word.inlineBlockLayout?.lines.at(-1)?.text ?? (isAtomicInlineBlock(word) ? '' : word.text)).join(''),
+      isAtomicInlineBlock(word) ? word.inlineBlockLayout.lines.at(-1)?.text ?? '' : word.text).join(''),
     bounds: {
       x: lineLeftX,
       // The CSS line box; ink may overflow it, as in the DOM.
@@ -610,13 +610,12 @@ function lineBoxExtent(out: InlineEmit, words: readonly Word[]): { ascent: numbe
     let descent = own.descent;
     // An inline-block is an atomic box: its baseline with its margin box around it, unshifted,
     // as the emit pass ignores its vertical-align.
-    const atomic = word.refs.boxStyle?.display === 'inline-block' ? word.refs.boxStyle : null;
-    if (word.inlineBlockLayout) {
+    if (isAtomicInlineBlock(word)) {
       const ib = word.inlineBlockLayout;
       ascent = ib.baselineOffset;
       descent = ib.marginBoxHeight - ib.baselineOffset;
     }
-    const shift = atomic ? 0 : wordBaselineShift(out, word);
+    const shift = word.refs.inlineBlock ? 0 : wordBaselineShift(out, word);
     if (ascent - shift > lineAscent) lineAscent = ascent - shift;
     if (descent + shift > lineDescent) lineDescent = descent + shift;
   }
@@ -682,6 +681,7 @@ function emitInlineBackgrounds(
   for (let k = 0; k < words.length; k++) {
     const word = words[k];
     if (isAtomicInlineBlock(word)) {
+      const ib = word.inlineBlockLayout;
       if (currentBoxStyle) {
         if (boxTextWord) emitInlineBox(out, currentBoxStyle, boxStartX, scanX - boxStartX, lineBaselineY, boxTextWord);
         currentBoxStyle = undefined;
@@ -689,8 +689,6 @@ function emitInlineBackgrounds(
       }
       const s = word.refs.style;
       const boxX = scanX + s.marginLeft;
-      // Every nonempty atomic receives an inner layout in `usedSegmentWidths`.
-      const ib = word.inlineBlockLayout!;
       const boxY = lineBaselineY - ib.baselineOffset + s.marginTop;
       const box: LayoutBox = {
         type: 'box', style: s, x: boxX,
@@ -780,9 +778,9 @@ function emitLineText(
 
     // Atomic inline-block: position text inside the box (after margin + padding)
     if (isAtomicInlineBlock(word)) {
+      const ib = word.inlineBlockLayout;
       const s = word.refs.style;
       const textX = curX + s.marginLeft + s.borderLeftWidth + s.paddingLeft;
-      const ib = word.inlineBlockLayout!;
       const contentY = lineBaselineY - ib.baselineOffset + s.marginTop +
         s.borderTopWidth + s.paddingTop;
       emitInlineBlockContent(out, ib, textX, contentY);

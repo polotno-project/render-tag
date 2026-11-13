@@ -212,8 +212,9 @@ export function layoutBlock(
     for (let ci = 0; ci < node.children.length; ci++) {
       const child = node.children[ci];
 
-      // Line-clamp spent: drop everything below the cut, its trailing margin too.
-      if (clampSpent(clamp)) {
+      // Line-clamp spent: drop everything below the cut, its trailing margin too. Collapsible
+      // white space after the last content is not below it.
+      if (ci <= lastContent && clampSpent(clamp)) {
         pending = NO_MARGIN;
         break;
       }

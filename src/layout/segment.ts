@@ -77,9 +77,10 @@ export interface PositionedLine {
   spaceWrap?: true;
 }
 
-/** True for atomic inline-block words (boxOpen && boxClose && text together). */
-export function isAtomicInlineBlock(w: Word): boolean {
-  return !!(w.refs.boxOpen && w.refs.boxClose && w.text);
+/** An inline-block with content: the one word that carries a layout of its own (`usedSegmentWidths`
+ * gives every such word one). An empty inline-block is only its opening edge. */
+export function isAtomicInlineBlock(w: Word): w is Word & { inlineBlockLayout: InlineBlockLayout } {
+  return w.inlineBlockLayout !== undefined;
 }
 
 /** Text in a script without spaces between words (Thai, Khmer, Lao, Myanmar). */
