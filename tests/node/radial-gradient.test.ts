@@ -111,6 +111,16 @@ describe('radial-gradient geometry', () => {
     close(circle(radial('radial-gradient(circle at 0 0, red, blue)')), [0, 0, Math.hypot(480, 200)]);
   });
 
+  it.each([
+    'radial-gradient(calc(20px + 10px) at 20% 80%, red, blue)',
+    'radial-gradient(min(10px, 5%) max(1px, 2%) at 20% 80%, red, blue)',
+    'radial-gradient(clamp(1px, 2vw, 30px) at 20% 80%, red, blue)',
+  ])('reads %s as a size and a position, not a stop', (image) => {
+    const r = radial(image);
+    close(circle(r), [96, 160, 416]);
+    expect(r!.stops).toEqual([[0, 'red'], [1, 'blue']]);
+  });
+
   it('falls back to the centre for a position it cannot read', () => {
     close(circle(radial('radial-gradient(circle at 2em 1em, red, blue)')), [240, 100, Math.hypot(240, 100)]);
   });
@@ -151,6 +161,24 @@ describe('radial-gradient color stops', () => {
     expect(r!.stops).toEqual([[0, 'red'], [0.5, 'blue']]);
   });
 
+  it('opens with the colour CSS interpolates at the centre for a stop before it', () => {
+    // Half way from red to blue; the stop before the centre is cut there.
+    expect(stops('radial-gradient(red -100%, blue 100%)')).toEqual([[0, 'rgba(128, 0, 128, 1)'], [1, 'blue']]);
+    expect(stops('radial-gradient(hsl(120 100% 25%) -50%, #00f 50%)')).toEqual([[0, 'rgba(0, 64, 128, 1)'], [0.5, '#00f']]);
+    // Premultiplied, as CSS mixes: transparent red takes on blue's hue.
+    expect(stops('radial-gradient(rgba(255, 0, 0, 0) -100%, blue 100%)')).toEqual([[0, 'rgba(0, 0, 255, 0.5)'], [1, 'blue']]);
+    expect(stops('radial-gradient(red -50%, lime -10%, blue 100%)'))
+      .toEqual([[0, 'rgba(0, 232, 23, 1)'], [1, 'blue']]);
+    expect(stops('radial-gradient(red -50%, blue -10%)')).toEqual([[0, 'blue']]);
+  });
+
+  it('cuts a repeating radial\'s first tile at the centre', () => {
+    // Period 40% starting at -30%: the centre is 3/4 of the way from red to blue.
+    // The last tile ends at 130%, which widens the circle by 1.3.
+    expect(stops('repeating-radial-gradient(circle, red -30%, blue 10%)').slice(0, 3))
+      .toEqual([[0, 'rgba(64, 0, 191, 1)'], [+(0.1 / 1.3).toFixed(6), 'blue'], [+(0.1 / 1.3).toFixed(6), 'red']]);
+  });
+
   it('tiles a repeating radial over the circle', () => {
     const r = radial('repeating-radial-gradient(circle at 20% 80%, red 0 10%, blue 10% 20%)')!;
     expect(r.stops.length).toBe(20);
@@ -184,6 +212,22 @@ describe('gradient detection', () => {
     expect(gradientKind(url)).toBeNull();
     expect(record(parseGradient, url)).toBeNull();
     expect(gradientKind("url('/x/linear-gradients/a.png')")).toBeNull();
+  });
+
+  it.each([
+    "url('/x/radial-gradient(red,blue).png')",
+    'url("/x/repeating-radial-gradient(red,blue).png")',
+    'url(/x/radial-gradient(red,blue).png)',
+    'image-set("/x/radial-gradient(red,blue).png" 1x)',
+  ])('reads no gradient from a file path that names one: %s', (image) => {
+    expect(gradientKind(image)).toBeNull();
+    expect(record(parseGradient, image)).toBeNull();
+  });
+
+  it('paints a radial layer beside a url that names a linear gradient', () => {
+    const image = "url('/x/linear-gradient(to right, red, blue).png'), radial-gradient(circle at 20% 80%, red, blue)";
+    expect(gradientKind(image)).toBe('radial');
+    close(circle(record(parseGradient, image)), [96, 160, 416]);
   });
 
   it('paints the gradient beside a url layer', () => {
@@ -303,6 +347,66 @@ describe('radial-gradient on a path', () => {
 
   it('fills every glyph from one circle over the laid-out text', () => {
     expectOneCircle(circles(`<span style="font-size:40px;background-image:${RADIAL};${CLIP}">Curved</span>`, 'fillStyle'));
+  });
+
+  /** The outer radial's circle for each of its own glyphs (the B glyphs paint a linear gradient). */
+  function outerCircles(html: string) {
+    setDOMParser(new LinkedomDOMParser());
+    const rec = recordingCtx(480, 240);
+    const result = layoutTextOnPath({ html, path: PATH, ctx: rec.ctx });
+    drawTextOnPathLayout({ layout: result, ctx: rec.ctx, createCanvas: rec.createCanvas });
+    const ops = rec.paints.filter((p) => p.startsWith('fillText(') && !/^fillText\("B"/.test(p));
+    const out = ops.map((p) => {
+      const m = /fillStyle=radial\(([^|]*)\|/.exec(p);
+      expect(m, p).not.toBeNull();
+      const [lx, ly, , , , r] = m![1].split(',').map(Number);
+      const [a, b, c, d, e, f] = /matrix=([^;|]*)/.exec(p)![1].split(',').map(Number);
+      return [a * lx + c * ly + e, b * lx + d * ly + f, r];
+    });
+    return { bounds: result.bounds, out };
+  }
+  const OWN = `background-image:linear-gradient(red, blue);${CLIP}`;
+
+  it.each([
+    ['around', `AA<span style="${OWN}">BB</span>CC`, 4],
+    ['at the end of', `AA<span style="${OWN}">BBBB</span>`, 2],
+  ])('spans one circle over the declarer\'s glyphs %s a descendant with its own paint', (_, inner, own) => {
+    const circles = outerCircles(`<span style="font-size:40px;background-image:${RADIAL};${CLIP}">${inner}</span>`);
+    expect(circles.out).toHaveLength(own);
+    // The outer span holds every glyph, the B glyphs too, so its circle spans the whole text.
+    expectOneCircle(circles);
+  });
+
+  it('builds radial gradients only for painted glyphs, none in a shadow mask', () => {
+    setDOMParser(new LinkedomDOMParser());
+    const rec = recordingCtx(480, 240);
+    const html = `<span style="font-size:40px;text-shadow:2px 2px 3px black;background-image:radial-gradient(circle at 20% 80%, red, lime 30%, blue);${CLIP}">Curved</span>`;
+    const result = layoutTextOnPath({ html, path: PATH, ctx: rec.ctx });
+    const calls = { gradients: 0, stops: 0 };
+    const ctx = new Proxy(rec.ctx, {
+      get(target, key) {
+        if (key !== 'createRadialGradient') {
+          const value = Reflect.get(target, key);
+          return typeof value === 'function' ? value.bind(target) : value;
+        }
+        return (...args: number[]) => {
+          calls.gradients++;
+          const gradient = target.createRadialGradient(...(args as [number, number, number, number, number, number]));
+          const add = gradient.addColorStop.bind(gradient);
+          gradient.addColorStop = (offset, color) => { calls.stops++; add(offset, color); };
+          return gradient;
+        };
+      },
+      set(target, key, value) { return Reflect.set(target, key, value); },
+    });
+    const scratchCalls = () => rec.counts.calls.createRadialGradient ?? 0;
+    const before = scratchCalls();
+    drawTextOnPathLayout({ layout: result, ctx, createCanvas: rec.createCanvas });
+    const glyphs = result.glyphs.length;
+    expect(rec.paints.some((p) => p.startsWith('drawImage('))).toBe(true);
+    // One per glyph on the destination, three stops each; the mask canvases build none.
+    expect(calls).toEqual({ gradients: glyphs, stops: 3 * glyphs });
+    expect(scratchCalls() - before).toBe(glyphs);
   });
 
   it('strokes every glyph from one circle over the laid-out text', () => {

@@ -1,4 +1,4 @@
-import { splitTopLevel, splitTopLevelWhitespace } from './css-validate.js';
+import { namedColorHex, splitTopLevel, splitTopLevelWhitespace } from './css-validate.js';
 import { numberThen } from './css-values.js';
 
 const ANGLE = numberThen('(deg|grad|rad|turn)');
@@ -29,9 +29,45 @@ function gradientAngle(part: string, width: number, height: number): number | nu
 const LINEAR_FUNCTION = /(repeating-)?linear-gradient\(/i;
 const RADIAL_FUNCTION = /(repeating-)?radial-gradient\(/i;
 
+/** The index past a string's closing quote; `start` is its opening quote. */
+function stringEnd(s: string, start: number): number {
+  const quote = s[start];
+  let i = start + 1;
+  while (i < s.length && s[i] !== quote) i += s[i] === '\\' ? 2 : 1;
+  return Math.min(s.length, i + 1);
+}
+
+/**
+ * `bgImage` with each quoted string and `url(…)` blanked to spaces (same
+ * length, so indices carry over): a gradient name in a file path is not a call.
+ */
+function blankUrlsAndStrings(s: string): string {
+  if (!/["']|url\(/i.test(s)) return s;
+  let out = '';
+  for (let i = 0; i < s.length;) {
+    let end = i + 1;
+    if (s[i] === '"' || s[i] === "'") {
+      end = stringEnd(s, i);
+    } else if (s.slice(i, i + 4).toLowerCase() === 'url(' && !/[\w-]/.test(s[i - 1] ?? '')) {
+      end = i + 4;
+      while (end < s.length && /\s/.test(s[end])) end++;
+      if (s[end] === '"' || s[end] === "'") end = stringEnd(s, end);
+      while (end < s.length && s[end] !== ')') end += s[end] === '\\' ? 2 : 1;
+      end = Math.min(s.length, end + 1);
+    } else {
+      out += s[i++];
+      continue;
+    }
+    out += ' '.repeat(end - i);
+    i = end;
+  }
+  return out;
+}
+
 /** The gradient `bgImage` paints: a linear one wherever it appears, else a radial one. */
 export function gradientKind(bgImage: string): 'linear' | 'radial' | null {
-  return LINEAR_FUNCTION.test(bgImage) ? 'linear' : RADIAL_FUNCTION.test(bgImage) ? 'radial' : null;
+  const calls = blankUrlsAndStrings(bgImage);
+  return LINEAR_FUNCTION.test(calls) ? 'linear' : RADIAL_FUNCTION.test(calls) ? 'radial' : null;
 }
 
 /** A CSS linear or radial gradient as a CanvasGradient over the box. */
@@ -50,14 +86,15 @@ export function parseGradient(
 
 /** The first `fn` call in `bgImage`: whether it repeats, and its comma-separated arguments. */
 function gradientArguments(bgImage: string, fn: RegExp): { repeating: boolean; parts: string[] } | null {
-  const m = fn.exec(bgImage);
+  const calls = blankUrlsAndStrings(bgImage);
+  const m = fn.exec(calls);
   if (!m) return null;
   const startIdx = m.index + m[0].length;
   let depth = 0;
   let endIdx = -1;
-  for (let i = startIdx; i < bgImage.length; i++) {
-    if (bgImage[i] === '(') depth++;
-    else if (bgImage[i] === ')') {
+  for (let i = startIdx; i < calls.length; i++) {
+    if (calls[i] === '(') depth++;
+    else if (calls[i] === ')') {
       if (depth === 0) { endIdx = i; break; }
       depth--;
     }
@@ -161,6 +198,15 @@ export function parseLinearGradient(
 
 /** The first argument of a radial gradient is its configuration when it opens with one of these or a length. */
 const RADIAL_CONFIG = /^(?:(?:circle|ellipse|closest-side|closest-corner|farthest-side|farthest-corner|at|in)(?:\s|$)|[-+]?\.?\d)/i;
+/** A math function, which only a size or a position can open with (CSS Values 4 §10). */
+const MATH_FUNCTION = /^(?:-webkit-)?(?:calc|min|max|clamp|round|mod|rem|abs|sign|hypot|sqrt|pow|exp|log|sin|cos|tan|asin|acos|atan2?)\(/i;
+
+/** Whether a radial gradient's first argument is its configuration rather than a color stop. */
+function isRadialConfig(part: string): boolean {
+  if (RADIAL_CONFIG.test(part)) return true;
+  const tokens = splitTopLevelWhitespace(part);
+  return MATH_FUNCTION.test(tokens[0]) || tokens.some((t) => t.toLowerCase() === 'at');
+}
 
 /** One `<position>` component: its axis when a keyword fixes it, and its offset into a box side. */
 function positionComponent(token: string): { axis: 'x' | 'y' | null; at: (side: number) => number } | null {
@@ -219,7 +265,7 @@ export function radialGradientGeometry(
   const args = gradientArguments(bgImage, RADIAL_FUNCTION);
   if (!args) return null;
   const { parts } = args;
-  const config = RADIAL_CONFIG.test(parts[0]) ? splitTopLevelWhitespace(parts[0]) : null;
+  const config = isRadialConfig(parts[0]) ? splitTopLevelWhitespace(parts[0]) : null;
   let position: string[] = [];
   if (config) {
     const at = config.findIndex((t) => t.toLowerCase() === 'at');
@@ -232,13 +278,87 @@ export function radialGradientGeometry(
   const r = Math.hypot(Math.max(ox, width - ox), Math.max(oy, height - oy));
   const stops = colorStops(parts.slice(config ? 1 : 0), r, args.repeating);
   if (!stops) return null;
-  return { cx: x + ox, cy: y + oy, r, stops };
+  return { cx: x + ox, cy: y + oy, r, stops: stopsFromCentre(stops) };
+}
+
+/**
+ * Stops before the centre cut at it: a canvas ray starts at the centre, so
+ * the colour CSS shows there is interpolated between the stops either side
+ * (`red -100%, blue 100%` opens half way). A colour this cannot mix keeps
+ * its stop, which the canvas clamps to the centre.
+ */
+function stopsFromCentre(stops: [string, number][]): [string, number][] {
+  const i = stops.findIndex(([, offset]) => offset >= 0);
+  if (i === 0) return stops;
+  if (i === -1) return [[stops[stops.length - 1][0], 0]];
+  const [before, from] = stops[i - 1], [after, to] = stops[i];
+  const color = to === 0 ? after : mixColors(before, after, -from / (to - from));
+  return color === null ? stops : [[color, 0], ...stops.slice(i)];
+}
+
+/** `a` and `b` mixed at `t` in premultiplied sRGB, as CSS interpolates legacy colours; null when either is another kind. */
+function mixColors(a: string, b: string, t: number): string | null {
+  const p = srgba(a), q = srgba(b);
+  if (!p || !q) return null;
+  const alpha = p[3] + (q[3] - p[3]) * t;
+  if (alpha <= 0) return 'rgba(0, 0, 0, 0)';
+  const channel = (k: number) =>
+    Math.round(Math.min(255, Math.max(0, (p[k] * p[3] + (q[k] * q[3] - p[k] * p[3]) * t) / alpha)));
+  return `rgba(${channel(0)}, ${channel(1)}, ${channel(2)}, ${+alpha.toFixed(4)})`;
+}
+
+/** A hex, named, `transparent`, rgb() or hsl() colour as [r, g, b] 0–255 and alpha 0–1; null for any other. */
+function srgba(color: string): [number, number, number, number] | null {
+  const c = color.trim().toLowerCase();
+  if (c === 'transparent') return [0, 0, 0, 0];
+  let hex = /^#([\da-f]{3,4}|[\da-f]{6}|[\da-f]{8})$/.exec(c)?.[1] ?? namedColorHex(c);
+  if (hex) {
+    if (hex.length <= 4) hex = [...hex].map((h) => h + h).join('');
+    const n = (k: number) => parseInt(hex!.slice(2 * k, 2 * k + 2), 16);
+    return [n(0), n(1), n(2), hex.length === 8 ? n(3) / 255 : 1];
+  }
+  const fn = /^(rgba?|hsla?)\((.*)\)$/.exec(c);
+  if (!fn) return null;
+  let channels: string[], alpha: string | undefined;
+  if (fn[2].includes(',')) {
+    [channels, alpha] = [fn[2].split(',').map((t) => t.trim()), undefined];
+    if (channels.length === 4) alpha = channels.pop();
+  } else {
+    const [main, slash, ...rest] = fn[2].split('/');
+    if (rest.length) return null;
+    [channels, alpha] = [main.trim().split(/\s+/), slash?.trim()];
+  }
+  if (channels.length !== 3) return null;
+  const number = (t: string, percentOf: number) => {
+    if (t === 'none') return 0;
+    const m = /^([-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?)(%?)$/.exec(t);
+    return m ? parseFloat(m[1]) * (m[2] ? percentOf / 100 : 1) : NaN;
+  };
+  const a = alpha === undefined ? 1 : Math.min(1, Math.max(0, number(alpha, 1)));
+  let rgb: number[];
+  if (fn[1][0] === 'r') {
+    rgb = channels.map((t) => number(t, 255));
+  } else {
+    const hue = /^([-+]?[\d.]+(?:e[-+]?\d+)?)(deg|grad|rad|turn)?$/.exec(channels[0]);
+    const h = channels[0] === 'none' ? 0 : hue ? parseFloat(hue[1]) * DEGREES_PER[hue[2] ?? 'deg'] : NaN;
+    const s = Math.min(1, Math.max(0, number(channels[1], 100) / 100));
+    const l = Math.min(1, Math.max(0, number(channels[2], 100) / 100));
+    // CSS Color 4 §7.1 hslToRgb.
+    const f = (n: number) => {
+      const k = ((n + h / 30) % 12 + 12) % 12, chroma = s * Math.min(l, 1 - l);
+      return 255 * (l - chroma * Math.max(-1, Math.min(k - 3, 9 - k, 1)));
+    };
+    rgb = [f(0), f(8), f(4)];
+  }
+  if (![...rgb, a].every(Number.isFinite)) return null;
+  const [r, g, b] = rgb.map((v) => Math.min(255, Math.max(0, v)));
+  return [r, g, b, a];
 }
 
 /**
  * A radial gradient's circle as a CanvasGradient centred at (cx, cy). Stops
- * past the circle widen the canvas circle; a stop before the centre clamps
- * to it (a canvas ray starts there).
+ * past the circle widen the canvas circle; one still before the centre
+ * (`stopsFromCentre` could not mix it) clamps to it.
  */
 export function radialCanvasGradient(
   ctx: CanvasRenderingContext2D,

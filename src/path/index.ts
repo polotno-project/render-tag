@@ -11,7 +11,7 @@ import { isTransparent } from '../css-resolver.js';
 import { hasBackgroundImage, hasTextClip, paintsBoxBackground, styleTree, layoutFontMetrics, type FontMetricsTable } from '../layout.js';
 import { glyphPaints, paintGlyphs } from '../render.js';
 import { fragmentBands, paintBand, type Band, type Pen } from '../decoration.js';
-import { gradientKind, parseLinearGradient, radialCanvasGradient, radialGradientGeometry } from '../gradient.js';
+import { gradientKind, parseLinearGradient, radialCanvasGradient, radialGradientGeometry, type RadialGradientGeometry } from '../gradient.js';
 import { PaintState, withDraw } from '../paint-state.js';
 import { paintTextShadows, shadowBounds, shadowsOf, textPaintBounds, transformBounds, unionBounds, withCanvasShadow, lazyPaintBounds, type PaintBounds, type TextShadow } from '../shadow.js';
 import { pathFromString, type PathLike } from './svg-path.js';
@@ -322,58 +322,70 @@ function clipSourceOf(g: GlyphPlacement): ResolvedStyle | undefined {
   return g.clipStyle ?? (hasTextClip(g.style) ? g.style : undefined);
 }
 
-/** The painted text of a layout: the glyphs a radial gradient's box spans, by declarer range. */
+/** The painted text of a layout, with each radial gradient read once per draw. */
 interface PathText {
   width: number;
   glyphs: GlyphPlacement[];
   tb: TextBaseline;
-  boxes: Map<GlyphRange | undefined, Box>;
+  /** Each declarer's circle by image; `undefined` declares over the whole text. */
+  radials: Map<ResolvedStyle | undefined, Map<string, RadialGradientGeometry | null>>;
 }
 type GlyphRange = { start: number; width: number };
-type Box = { x: number; y: number; width: number; height: number };
 
 function pathText(layout: LayoutOutput): PathText {
-  return { width: layout.textWidth, glyphs: layout.glyphs, tb: layout.textBaseline, boxes: new Map() };
+  return { width: layout.textWidth, glyphs: layout.glyphs, tb: layout.textBaseline, radials: new Map() };
 }
 
-/** The layout-space cell bounds of a declarer's glyphs (`LayoutOutput.bounds` for the whole text). */
-function rangeBox(text: PathText, range: GlyphRange | undefined): Box {
-  let box = text.boxes.get(range);
-  if (!box) {
-    const glyphs = range ? text.glyphs.filter(g => g.clipRange === range || g.strokeImageRange === range) : text.glyphs;
-    text.boxes.set(range, box = computeBounds(glyphs, text.tb));
-  }
-  return box;
+/** Whether `declarer` is the glyph's, or an ancestor's that a descendant's own paint overrides. */
+function insideDeclarer(g: GlyphPlacement, declarer: ResolvedStyle): boolean {
+  return g.declarers ? g.declarers.includes(declarer) : g.clipStyle === declarer || g.strokeImageStyle === declarer;
 }
+
+/** A radial gradient's circle over its declarer's glyphs as laid out (`LayoutOutput.bounds` for the whole text). */
+function radialOver(text: PathText, image: string, declarer: ResolvedStyle | undefined): RadialGradientGeometry | null {
+  let byImage = text.radials.get(declarer);
+  if (!byImage) text.radials.set(declarer, byImage = new Map());
+  let geometry = byImage.get(image);
+  if (geometry === undefined) {
+    const glyphs = declarer ? text.glyphs.filter(g => insideDeclarer(g, declarer)) : text.glyphs;
+    const box = computeBounds(glyphs, text.tb);
+    byImage.set(image, geometry = radialGradientGeometry(image, box.x, box.width, box.y, box.height));
+  }
+  return geometry;
+}
+
+/** A coverage mask paints every glyph opaque: a radial paint there only has to exist. */
+const MASK_PAINT = '#000';
 
 /** A gradient in the glyph's local frame. A linear one is sliced from the
  * declarer's fragment range, so neighbouring glyphs stitch into one
  * continuous gradient along the path; a radial one is one circle over the
  * declarer's glyphs as laid out on the path. */
 function sliceGradient(
-  ctx: CanvasRenderingContext2D,
+  ps: PaintState,
   image: string,
   g: GlyphPlacement,
+  declarer: ResolvedStyle | undefined,
   range: GlyphRange | undefined,
   text: PathText,
   baseY: number,
-): CanvasGradient | null {
+): CanvasGradient | string | null {
   if (gradientKind(image) === 'radial') {
-    const box = rangeBox(text, range);
-    const geometry = radialGradientGeometry(image, box.x, box.width, box.y, box.height);
+    const geometry = radialOver(text, image, declarer);
     if (!geometry) return null;
+    if (ps.coverage) return MASK_PAINT;
     const c = Math.cos(g.rotation), s = Math.sin(g.rotation);
     const dx = geometry.cx - g.x, dy = geometry.cy - g.y;
-    return radialCanvasGradient(ctx, geometry, c * dx + s * dy, c * dy - s * dx);
+    return radialCanvasGradient(ps.ctx, geometry, c * dx + s * dy, c * dy - s * dx);
   }
   const r = range ?? { start: 0, width: text.width };
-  return parseLinearGradient(ctx, image, r.start - g.pathOffset, r.width, baseY - g.ascent, g.ascent + g.descent);
+  return parseLinearGradient(ps.ctx, image, r.start - g.pathOffset, r.width, baseY - g.ascent, g.ascent + g.descent);
 }
 
 /** The background-clip:text paint for one glyph: the declarer's gradient, else
  * its solid background-color; null when there is none. */
 function clipPaintFor(
-  ctx: CanvasRenderingContext2D,
+  ps: PaintState,
   g: GlyphPlacement,
   text: PathText,
   baseY: number,
@@ -381,20 +393,22 @@ function clipPaintFor(
   const src = clipSourceOf(g);
   if (!src) return null;
   const gradient = hasBackgroundImage(src)
-    ? sliceGradient(ctx, src.backgroundImage, g, g.clipRange, text, baseY)
+    ? sliceGradient(ps, src.backgroundImage, g, g.clipStyle, g.clipRange, text, baseY)
     : null;
   return gradient ?? (!isTransparent(src.backgroundColor) ? src.backgroundColor : null);
 }
 
-/** The --rt-text-stroke-image gradient for one glyph. */
+/** The --rt-text-stroke-image gradient for one glyph (none in a mask, which strokes nothing). */
 function strokePaintFor(
-  ctx: CanvasRenderingContext2D,
+  ps: PaintState,
   g: GlyphPlacement,
   text: PathText,
   baseY: number,
 ): CanvasGradient | null {
   const src = g.strokeImageStyle;
-  return src ? sliceGradient(ctx, src.webkitTextStrokeImage, g, g.strokeImageRange, text, baseY) : null;
+  if (!src) return null;
+  const paint = sliceGradient(ps, src.webkitTextStrokeImage, g, src, g.strokeImageRange, text, baseY);
+  return typeof paint === 'string' ? null : paint;
 }
 
 function drawGlyphs(
@@ -408,7 +422,7 @@ function drawGlyphs(
   for (const g of glyphs) {
     ps.glyph(g.style);
     const baseY = baselineLocalY(tb, g.ascent, g.descent);
-    const paints = glyphPaints(ps, g.style, clipPaintFor(ctx, g, text, baseY), strokePaintFor(ctx, g, text, baseY));
+    const paints = glyphPaints(ps, g.style, clipPaintFor(ps, g, text, baseY), strokePaintFor(ps, g, text, baseY));
     enterFrame(ps, base, g);
     paintGlyphs(ps, g.style, [{ text: g.char, x: 0 }], baseY, paints);
     if (!base) ps.restore();
@@ -489,7 +503,7 @@ function paintRunBand(
   const { ctx } = ps;
   const base = frameBase(ctx);
   for (const g of run) {
-    const paint = clipPaintFor(ctx, g, text, baselineLocalY(tb, g.ascent, g.descent));
+    const paint = clipPaintFor(ps, g, text, baselineLocalY(tb, g.ascent, g.descent));
     if (!paint) continue;
     enterFrame(ps, base, g);
     ps.save();

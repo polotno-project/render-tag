@@ -374,8 +374,11 @@ outside 0–100%); a color hint is treated as a plain midpoint. A
 `radial-gradient` is always drawn as a circle reaching the farthest corner of
 the painted box (CSS's default extent for `circle`), centred at its `at`
 position (`%`, `px` or keywords; the centre when absent): `ellipse`, explicit
-sizes and the other extent keywords draw that same circle. On a path, one
-circle spans the declaring element's glyphs as laid out along the path.
+sizes and the other extent keywords draw that same circle. A stop before the
+centre opens the circle with the color CSS shows there (hex, named, `rgb()`
+and `hsl()` colors mixed in sRGB; another color clamps to the centre). On a
+path, one circle spans the declaring element's glyphs as laid out along the
+path, a descendant that paints its own included.
 
 ## render-tag-specific inputs
 
