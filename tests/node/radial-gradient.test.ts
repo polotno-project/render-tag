@@ -9,7 +9,7 @@
  */
 import { afterAll, describe, expect, it } from 'vitest';
 import { DOMParser as LinkedomDOMParser } from 'linkedom';
-import { parseGradient, parseLinearGradient, parseRadialGradient, radialGradientGeometry } from '../../src/gradient.ts';
+import { gradientKind, parseGradient, parseLinearGradient, parseRadialGradient, radialGradientGeometry } from '../../src/gradient.ts';
 import { layout, drawLayout, setDOMParser } from '../../src/index.ts';
 import { layoutTextOnPath, drawTextOnPathLayout } from '../../src/path/index.ts';
 import { recordingCtx } from '../helpers/recording-ctx.ts';
@@ -175,6 +175,28 @@ describe('parseGradient', () => {
     const viaDispatch = record(parseGradient, image);
     expect(viaDispatch!.kind).toBe('linear');
     expect(viaDispatch).toEqual(record(parseLinearGradient, image));
+  });
+});
+
+describe('gradient detection', () => {
+  it('reads a gradient only from its function call, never from a url path', () => {
+    const url = "url('/x/radial-gradients/a.png')";
+    expect(gradientKind(url)).toBeNull();
+    expect(record(parseGradient, url)).toBeNull();
+    expect(gradientKind("url('/x/linear-gradients/a.png')")).toBeNull();
+  });
+
+  it('paints the gradient beside a url layer', () => {
+    const image = "url('/x/radial-gradients/a.png'), radial-gradient(circle at 20% 80%, red, blue)";
+    expect(gradientKind(image)).toBe('radial');
+    close(circle(record(parseGradient, image)), [96, 160, 416]);
+  });
+
+  it('paints a url-only clip background as its solid color', () => {
+    const fills = paint(`<div style="font-size:40px;background-color:lime;background-image:url('/x/radial-gradients/a.png');${CLIP}">Text</div>`)
+      .filter((p) => p.startsWith('fillText('));
+    expect(fills.length).toBeGreaterThan(0);
+    for (const p of fills) expect(p).not.toMatch(/fillStyle=(radial|linear)\(/);
   });
 });
 
