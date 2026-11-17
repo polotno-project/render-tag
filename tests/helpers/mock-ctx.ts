@@ -48,6 +48,7 @@ export function mockCtx(charWidth = CHAR_WIDTH): CanvasRenderingContext2D {
     getImageData() { return { data: new Uint8ClampedArray(0), width: 0, height: 0 }; },
     putImageData() {},
     createLinearGradient() { return { addColorStop() {} }; },
+    createRadialGradient() { return { addColorStop() {} }; },
   };
   return ctx as unknown as CanvasRenderingContext2D;
 }

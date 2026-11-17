@@ -107,10 +107,10 @@ function textPaints(
 ): TextPaints {
   const { clip: box, strokeImage } = node;
   const inlineClip = box
-    ? (box.image ? ps.linearGradient(box.image, box.x, box.width, box.y, box.height) : null) ?? box.color ?? null
+    ? (box.image ? ps.gradient(box.image, box.x, box.width, box.y, box.height) : null) ?? box.color ?? null
     : null;
   const inlineStroke = strokeImage
-    ? ps.linearGradient(strokeImage.image, strokeImage.x, strokeImage.width, strokeImage.y, strokeImage.height)
+    ? ps.gradient(strokeImage.image, strokeImage.x, strokeImage.width, strokeImage.y, strokeImage.height)
     : null;
   return glyphPaints(ps, node.style, inlineClip ?? gradientFill ?? null, inlineStroke ?? strokeGradient ?? null);
 }
@@ -296,7 +296,7 @@ function forEachBatch(runs: LayoutText[], visit: (run: LayoutText, head: LayoutT
 function blockClipPaint(ps: PaintState, box: LayoutBox): CanvasGradient | string | null {
   const { style } = box;
   const grad = hasBackgroundImage(style)
-    ? ps.linearGradient(style.backgroundImage, box.x, box.width, box.y, box.height)
+    ? ps.gradient(style.backgroundImage, box.x, box.width, box.y, box.height)
     : null;
   return grad ?? (!isTransparent(style.backgroundColor) ? style.backgroundColor : null);
 }
@@ -304,7 +304,7 @@ function blockClipPaint(ps: PaintState, box: LayoutBox): CanvasGradient | string
 /** A block's --rt-text-stroke-image gradient over its box. */
 function blockStrokePaint(ps: PaintState, box: LayoutBox): CanvasGradient | null {
   const { style } = box;
-  return ps.linearGradient(style.webkitTextStrokeImage, box.x, box.width, box.y, box.height);
+  return ps.gradient(style.webkitTextStrokeImage, box.x, box.width, box.y, box.height);
 }
 
 /**

@@ -248,6 +248,13 @@ export function recordingCtx(
           __describe: () => `linear(${args.join(',')}|${stops.join(',')})`,
         };
       },
+      createRadialGradient(...args: number[]) {
+        const stops: string[] = [];
+        return {
+          addColorStop(offset: number, color: string) { stops.push(`${offset} ${color}`); },
+          __describe: () => `radial(${args.join(',')}|${stops.join(',')})`,
+        };
+      },
     };
 
     const target: Record<string | symbol, unknown> = { canvas };

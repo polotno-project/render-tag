@@ -7,7 +7,9 @@
  * The arithmetic is pinned in tests/node/linear-gradient.test.ts; this file
  * checks the result is the engine's: corner keywords that depend on the box
  * aspect ratio, unpositioned and out-of-range stops, hard stops, angle units,
- * repeating gradients.
+ * repeating gradients. A radial gradient in the circle farthest-corner form
+ * (the one render-tag draws every radial as, tests/node/radial-gradient.test.ts)
+ * matches the browser too.
  */
 import { describe, it, expect } from 'vitest';
 import { compareNativeRenders } from './helpers/native-compare.ts';
@@ -49,8 +51,21 @@ const GRADIENTS = [
   'repeating-linear-gradient(30deg, red 0 20px, blue 20px 40px)',
 ];
 
-describe('linear-gradient matches the browser', () => {
-  it.each(GRADIENTS)('%s', async (gradient) => {
+const RADIAL_GRADIENTS = [
+  'radial-gradient(circle at 20% 80%, red, blue)',
+  'radial-gradient(circle, red, lime 40%, blue)',
+  'radial-gradient(circle at right top, red 10%, blue 90%)',
+  'radial-gradient(circle at 100px 30px, red, blue 300px)',
+  'radial-gradient(circle farthest-corner at 30% 60%, red 0 30%, blue 30%)',
+  'radial-gradient(circle at 70% 20%, red, blue 150%)',
+  'repeating-radial-gradient(circle at 30% 40%, red 0 20px, blue 20px 40px)',
+];
+
+describe.each([
+  ['linear-gradient', GRADIENTS],
+  ['radial-gradient', RADIAL_GRADIENTS],
+])('%s matches the browser', (_kind, gradients) => {
+  it.each(gradients)('%s', async (gradient) => {
     const css = await loadMultiFontCss();
     const html =
       `<div style="font-family:'Open Sans';font-weight:800;font-size:96px;line-height:120px;width:600px;` +

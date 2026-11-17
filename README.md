@@ -370,7 +370,12 @@ every browser. Bands are plain strokes: `setLineDash` for dashes and dots
 miter limit, so the caller's stroke state never reaches it. A
 `linear-gradient` takes angles in `deg`/`rad`/`grad`/`turn`, `to` sides and
 corners, `%` and `px` stop positions (including two-position stops and stops
-outside 0–100%); a color hint is treated as a plain midpoint.
+outside 0–100%); a color hint is treated as a plain midpoint. A
+`radial-gradient` is always drawn as a circle reaching the farthest corner of
+the painted box (CSS's default extent for `circle`), centred at its `at`
+position (`%`, `px` or keywords; the centre when absent): `ellipse`, explicit
+sizes and the other extent keywords draw that same circle. On a path, one
+circle spans the declaring element's glyphs as laid out along the path.
 
 ## render-tag-specific inputs
 
@@ -382,7 +387,7 @@ still renders in the DOM — render-tag just paints a little extra.
 
 | Property | Type | Effect |
 |---|---|---|
-| `--rt-text-stroke-image` | CSS custom property, a `linear-gradient(...)` | Paints the `-webkit-text-stroke` outline with a gradient instead of a solid color. |
+| `--rt-text-stroke-image` | CSS custom property, a `linear-gradient(...)` or `radial-gradient(...)` | Paints the `-webkit-text-stroke` outline with a gradient instead of a solid color. |
 | `stroke-linejoin` | `round` (default) \| `miter` \| `bevel` | Corner join for `-webkit-text-stroke` (SVG-style; HTML text-stroke has no join control). |
 
 ### Gradient text stroke

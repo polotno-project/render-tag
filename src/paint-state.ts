@@ -3,7 +3,7 @@ import {
   canvasFont, canvasKerning, canvasSpacing, canvasTextRendering, claimCtx, formatLetterSpacing, getFontMetrics,
   nextCtxWriterId, syntheticBoldWidening, type FontMetricsTable,
 } from './layout.js';
-import { parseLinearGradient } from './gradient.js';
+import { parseGradient } from './gradient.js';
 import { MITER_LIMIT, ScratchPool, withoutCanvasShadow } from './shadow.js';
 
 // Writes each ctx property only on change (a save/restore per run is a q/Q on
@@ -173,11 +173,11 @@ export class PaintState {
 
   /** One gradient per CSS gradient and box on this ctx, so a PDF proxy emits
    * one shading per fragment, not per word. */
-  linearGradient(image: string, x: number, width: number, y: number, height: number): CanvasGradient | null {
+  gradient(image: string, x: number, width: number, y: number, height: number): CanvasGradient | null {
     const key = `${x},${y},${width},${height} ${image}`;
     let gradient = this.gradients.get(key);
     if (gradient === undefined) {
-      this.gradients.set(key, gradient = parseLinearGradient(this.ctx, image, x, width, y, height));
+      this.gradients.set(key, gradient = parseGradient(this.ctx, image, x, width, y, height));
     }
     return gradient;
   }

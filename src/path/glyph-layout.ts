@@ -355,7 +355,7 @@ export function rotatedBox(g: GlyphPlacement, top: number, bottom: number): Poin
 /** Union of each glyph's `width x cellHeight` cell rotated by its tangent,
  * split above and below the baseline by the font's ascent/descent ratio.
  * See `LayoutOutput.bounds`. */
-function computeBounds(
+export function computeBounds(
   glyphs: GlyphPlacement[],
   textBaseline: TextBaseline,
 ): { x: number; y: number; width: number; height: number } {

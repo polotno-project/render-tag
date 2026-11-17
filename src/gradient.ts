@@ -26,13 +26,16 @@ function gradientAngle(part: string, width: number, height: number): number | nu
   return right ? 180 - corner : 180 + corner;
 }
 
-/**
- * A CSS (repeating-)linear-gradient as a CanvasGradient over the box. Stops
- * follow CSS Images 3 §3.4.3; out-of-range stops stretch the canvas line.
- * Deviations: a color hint is ignored (linear transition), and a repeating
- * gradient is unrolled into plain stops.
- */
-export function parseLinearGradient(
+const LINEAR_FUNCTION = /(repeating-)?linear-gradient\(/i;
+const RADIAL_FUNCTION = /(repeating-)?radial-gradient\(/i;
+
+/** The gradient `bgImage` paints: a linear one wherever it appears, else a radial one. */
+export function gradientKind(bgImage: string): 'linear' | 'radial' | null {
+  return LINEAR_FUNCTION.test(bgImage) ? 'linear' : RADIAL_FUNCTION.test(bgImage) ? 'radial' : null;
+}
+
+/** A CSS linear or radial gradient as a CanvasGradient over the box. */
+export function parseGradient(
   ctx: CanvasRenderingContext2D,
   bgImage: string,
   x: number,
@@ -40,9 +43,16 @@ export function parseLinearGradient(
   y: number,
   height: number,
 ): CanvasGradient | null {
-  const fn = /(repeating-)?linear-gradient\(/i.exec(bgImage);
-  if (!fn) return null;
-  const startIdx = fn.index + fn[0].length;
+  return gradientKind(bgImage) === 'radial'
+    ? parseRadialGradient(ctx, bgImage, x, width, y, height)
+    : parseLinearGradient(ctx, bgImage, x, width, y, height);
+}
+
+/** The first `fn` call in `bgImage`: whether it repeats, and its comma-separated arguments. */
+function gradientArguments(bgImage: string, fn: RegExp): { repeating: boolean; parts: string[] } | null {
+  const m = fn.exec(bgImage);
+  if (!m) return null;
+  const startIdx = m.index + m[0].length;
   let depth = 0;
   let endIdx = -1;
   for (let i = startIdx; i < bgImage.length; i++) {
@@ -53,19 +63,19 @@ export function parseLinearGradient(
     }
   }
   if (endIdx === -1) return null;
-  const repeating = fn[1] !== undefined;
   const parts = splitTopLevel(bgImage.slice(startIdx, endIdx), ',').map((p) => p.trim()).filter(Boolean);
   if (parts.length === 0) return null;
+  return { repeating: m[1] !== undefined, parts };
+}
 
-  const direction = gradientAngle(parts[0], width, height);
-  const angle = direction ?? 180; // default: to bottom
-  const rad = angle * Math.PI / 180;
-  const dirX = Math.sin(rad), dirY = -Math.cos(rad);
-  const length = Math.abs(width * dirX) + Math.abs(height * dirY);
-
-  // Stops as [color, offset | null], offsets as fractions of the line.
+/**
+ * Color stops as [color, offset] with offsets as fractions of a gradient ray
+ * `length` px long, fixed up per CSS Images 3 §3.4.3; null when none paints.
+ * A color hint is ignored, and a repeating gradient is unrolled over [0, 1].
+ */
+function colorStops(entries: string[], length: number, repeating: boolean): [string, number][] | null {
   const stops: [string, number | null][] = [];
-  for (const entry of parts.slice(direction === null ? 0 : 1)) {
+  for (const entry of entries) {
     const tokens = splitTopLevelWhitespace(entry);
     const positions: number[] = [];
     while (tokens.length > 1) {
@@ -99,15 +109,39 @@ export function parseLinearGradient(
     i = j;
   }
 
-  if (repeating) {
-    const tiled = repeatStops(stops as [string, number][]);
-    if (!tiled) return null;
-    stops.splice(0, stops.length, ...tiled);
-  }
+  return repeating ? repeatStops(stops as [string, number][]) : stops as [string, number][];
+}
+
+/**
+ * A CSS (repeating-)linear-gradient as a CanvasGradient over the box. Stops
+ * follow CSS Images 3 §3.4.3; out-of-range stops stretch the canvas line.
+ * Deviations: a color hint is ignored (linear transition), and a repeating
+ * gradient is unrolled into plain stops.
+ */
+export function parseLinearGradient(
+  ctx: CanvasRenderingContext2D,
+  bgImage: string,
+  x: number,
+  width: number,
+  y: number,
+  height: number,
+): CanvasGradient | null {
+  const args = gradientArguments(bgImage, LINEAR_FUNCTION);
+  if (!args) return null;
+  const { parts } = args;
+
+  const direction = gradientAngle(parts[0], width, height);
+  const angle = direction ?? 180; // default: to bottom
+  const rad = angle * Math.PI / 180;
+  const dirX = Math.sin(rad), dirY = -Math.cos(rad);
+  const length = Math.abs(width * dirX) + Math.abs(height * dirY);
+
+  const stops = colorStops(parts.slice(direction === null ? 0 : 1), length, args.repeating);
+  if (!stops) return null;
 
   // Canvas offsets must lie in [0, 1]: map [first, last] onto the canvas line.
-  const first = Math.min(0, stops[0][1]!);
-  const last = Math.max(1, stops[stops.length - 1][1]!);
+  const first = Math.min(0, stops[0][1]);
+  const last = Math.max(1, stops[stops.length - 1][1]);
   const span = last - first;
   const x0 = x + width / 2 - dirX * length / 2;
   const y0 = y + height / 2 - dirY * length / 2;
@@ -117,12 +151,124 @@ export function parseLinearGradient(
   );
   for (const [color, offset] of stops) {
     try {
-      gradient.addColorStop(Math.min(1, Math.max(0, (offset! - first) / span)), color);
+      gradient.addColorStop(Math.min(1, Math.max(0, (offset - first) / span)), color);
     } catch {
       // Invalid color: keep the paintable stops.
     }
   }
   return gradient;
+}
+
+/** The first argument of a radial gradient is its configuration when it opens with one of these or a length. */
+const RADIAL_CONFIG = /^(?:(?:circle|ellipse|closest-side|closest-corner|farthest-side|farthest-corner|at|in)(?:\s|$)|[-+]?\.?\d)/i;
+
+/** One `<position>` component: its axis when a keyword fixes it, and its offset into a box side. */
+function positionComponent(token: string): { axis: 'x' | 'y' | null; at: (side: number) => number } | null {
+  switch (token.toLowerCase()) {
+    case 'left': return { axis: 'x', at: () => 0 };
+    case 'right': return { axis: 'x', at: (side) => side };
+    case 'top': return { axis: 'y', at: () => 0 };
+    case 'bottom': return { axis: 'y', at: (side) => side };
+    case 'center': return { axis: null, at: (side) => side / 2 };
+  }
+  const m = STOP_LENGTH.exec(token);
+  if (!m || (!m[2] && parseFloat(m[1]) !== 0)) return null;
+  const value = parseFloat(m[1]);
+  return { axis: null, at: m[2] === '%' ? (side) => side * value / 100 : () => value };
+}
+
+/** The centre offsets for `at <position>` (one or two components), else the box centre. */
+function radialCenter(tokens: string[], width: number, height: number): [number, number] {
+  const center: [number, number] = [width / 2, height / 2];
+  const parts = tokens.map(positionComponent);
+  if (parts.some((p) => p === null)) return center;
+  let [h, v] = parts as { axis: 'x' | 'y' | null; at: (side: number) => number }[];
+  if (parts.length === 1) {
+    return h.axis === 'y' ? [width / 2, h.at(height)] : [h.at(width), height / 2];
+  }
+  if (parts.length !== 2) return center;
+  if (h.axis === 'y' || v.axis === 'x') [h, v] = [v, h];
+  if (h.axis === 'y' || v.axis === 'x') return center;
+  return [h.at(width), v.at(height)];
+}
+
+export interface RadialGradientGeometry {
+  /** The centre, in the box's coordinate space. */
+  cx: number;
+  cy: number;
+  /** The distance from the centre to the farthest box corner. */
+  r: number;
+  /** [color, offset], offsets as fractions of `r` (past 1 beyond the circle). */
+  stops: [string, number][];
+}
+
+/**
+ * A CSS (repeating-)radial-gradient over the box, read as Polotno draws it:
+ * always a circle with CSS's default `farthest-corner` extent, centred at its
+ * `at` position (`%` of the box, `px` from its corner, keywords; the centre
+ * when absent). The shape and size are ignored, so `ellipse`, explicit sizes
+ * and the other extent keywords paint that same circle.
+ */
+export function radialGradientGeometry(
+  bgImage: string,
+  x: number,
+  width: number,
+  y: number,
+  height: number,
+): RadialGradientGeometry | null {
+  const args = gradientArguments(bgImage, RADIAL_FUNCTION);
+  if (!args) return null;
+  const { parts } = args;
+  const config = RADIAL_CONFIG.test(parts[0]) ? splitTopLevelWhitespace(parts[0]) : null;
+  let position: string[] = [];
+  if (config) {
+    const at = config.findIndex((t) => t.toLowerCase() === 'at');
+    if (at !== -1) {
+      const end = config.findIndex((t, i) => i > at && t.toLowerCase() === 'in');
+      position = config.slice(at + 1, end === -1 ? undefined : end);
+    }
+  }
+  const [ox, oy] = position.length ? radialCenter(position, width, height) : [width / 2, height / 2];
+  const r = Math.hypot(Math.max(ox, width - ox), Math.max(oy, height - oy));
+  const stops = colorStops(parts.slice(config ? 1 : 0), r, args.repeating);
+  if (!stops) return null;
+  return { cx: x + ox, cy: y + oy, r, stops };
+}
+
+/**
+ * A radial gradient's circle as a CanvasGradient centred at (cx, cy). Stops
+ * past the circle widen the canvas circle; a stop before the centre clamps
+ * to it (a canvas ray starts there).
+ */
+export function radialCanvasGradient(
+  ctx: CanvasRenderingContext2D,
+  { stops, r }: RadialGradientGeometry,
+  cx: number,
+  cy: number,
+): CanvasGradient {
+  const last = Math.max(1, stops[stops.length - 1][1]);
+  const gradient = ctx.createRadialGradient(cx, cy, 0, cx, cy, r * last);
+  for (const [color, offset] of stops) {
+    try {
+      gradient.addColorStop(Math.min(1, Math.max(0, offset / last)), color);
+    } catch {
+      // Invalid color: keep the paintable stops.
+    }
+  }
+  return gradient;
+}
+
+/** A CSS (repeating-)radial-gradient as a CanvasGradient over the box (`radialGradientGeometry`). */
+export function parseRadialGradient(
+  ctx: CanvasRenderingContext2D,
+  bgImage: string,
+  x: number,
+  width: number,
+  y: number,
+  height: number,
+): CanvasGradient | null {
+  const geometry = radialGradientGeometry(bgImage, x, width, y, height);
+  return geometry && radialCanvasGradient(ctx, geometry, geometry.cx, geometry.cy);
 }
 
 /** Unrolled-stop cap: a sub-pixel period would need a stop per pixel. */

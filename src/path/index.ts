@@ -11,7 +11,7 @@ import { isTransparent } from '../css-resolver.js';
 import { hasBackgroundImage, hasTextClip, paintsBoxBackground, styleTree, layoutFontMetrics, type FontMetricsTable } from '../layout.js';
 import { glyphPaints, paintGlyphs } from '../render.js';
 import { fragmentBands, paintBand, type Band, type Pen } from '../decoration.js';
-import { parseLinearGradient } from '../gradient.js';
+import { gradientKind, parseLinearGradient, radialCanvasGradient, radialGradientGeometry } from '../gradient.js';
 import { PaintState, withDraw } from '../paint-state.js';
 import { paintTextShadows, shadowBounds, shadowsOf, textPaintBounds, transformBounds, unionBounds, withCanvasShadow, lazyPaintBounds, type PaintBounds, type TextShadow } from '../shadow.js';
 import { pathFromString, type PathLike } from './svg-path.js';
@@ -19,6 +19,7 @@ import {
   flattenSegments,
   layoutGlyphsOnPath,
   baselineLocalY,
+  computeBounds,
   rotatedBox,
   type AlignMode,
   type GlyphPlacement,
@@ -189,11 +190,12 @@ export function drawTextOnPathLayout(config: DrawTextOnPathLayoutConfig): void {
   const fontMetrics = layoutFontMetrics.get(layout);
 
   const cache: InkCache = new Map();
+  const text = pathText(layout);
   withDraw(ctx, config, 1, fontMetrics, (stateOf, pool, layerState) => {
     if (!pool) {
       const ps = stateOf(ctx);
       drawBackgrounds(ps, layout.glyphs, tb);
-      paintRuns(ps, layout.glyphs, layout.textWidth, tb);
+      paintRuns(ps, layout.glyphs, text, tb);
       return;
     }
     const groups = collectPathShadowGroups(layout.glyphs);
@@ -206,10 +208,10 @@ export function drawTextOnPathLayout(config: DrawTextOnPathLayoutConfig): void {
           // The tile's glyphs only; a decorated span whole, so its dash phase holds.
           const maskState = layerState(mask, true);
           const visible = new Set(inside.map(p => p.glyph));
-          for (const span of new Set(inside.map(p => p.span))) paintRuns(maskState, span, layout.textWidth, tb, visible);
+          for (const span of new Set(inside.map(p => p.span))) paintRuns(maskState, span, text, tb, visible);
         }, pool);
       }
-      paintRuns(ps, layout.glyphs, layout.textWidth, tb);
+      paintRuns(ps, layout.glyphs, text, tb);
     }, pool);
   });
 }
@@ -320,17 +322,51 @@ function clipSourceOf(g: GlyphPlacement): ResolvedStyle | undefined {
   return g.clipStyle ?? (hasTextClip(g.style) ? g.style : undefined);
 }
 
-/** A gradient sliced from the declarer's fragment range, in the glyph's local frame,
- * so neighbouring glyphs stitch into one continuous gradient along the path. */
+/** The painted text of a layout: the glyphs a radial gradient's box spans, by declarer range. */
+interface PathText {
+  width: number;
+  glyphs: GlyphPlacement[];
+  tb: TextBaseline;
+  boxes: Map<GlyphRange | undefined, Box>;
+}
+type GlyphRange = { start: number; width: number };
+type Box = { x: number; y: number; width: number; height: number };
+
+function pathText(layout: LayoutOutput): PathText {
+  return { width: layout.textWidth, glyphs: layout.glyphs, tb: layout.textBaseline, boxes: new Map() };
+}
+
+/** The layout-space cell bounds of a declarer's glyphs (`LayoutOutput.bounds` for the whole text). */
+function rangeBox(text: PathText, range: GlyphRange | undefined): Box {
+  let box = text.boxes.get(range);
+  if (!box) {
+    const glyphs = range ? text.glyphs.filter(g => g.clipRange === range || g.strokeImageRange === range) : text.glyphs;
+    text.boxes.set(range, box = computeBounds(glyphs, text.tb));
+  }
+  return box;
+}
+
+/** A gradient in the glyph's local frame. A linear one is sliced from the
+ * declarer's fragment range, so neighbouring glyphs stitch into one
+ * continuous gradient along the path; a radial one is one circle over the
+ * declarer's glyphs as laid out on the path. */
 function sliceGradient(
   ctx: CanvasRenderingContext2D,
   image: string,
   g: GlyphPlacement,
-  range: { start: number; width: number } | undefined,
-  textWidth: number,
+  range: GlyphRange | undefined,
+  text: PathText,
   baseY: number,
 ): CanvasGradient | null {
-  const r = range ?? { start: 0, width: textWidth };
+  if (gradientKind(image) === 'radial') {
+    const box = rangeBox(text, range);
+    const geometry = radialGradientGeometry(image, box.x, box.width, box.y, box.height);
+    if (!geometry) return null;
+    const c = Math.cos(g.rotation), s = Math.sin(g.rotation);
+    const dx = geometry.cx - g.x, dy = geometry.cy - g.y;
+    return radialCanvasGradient(ctx, geometry, c * dx + s * dy, c * dy - s * dx);
+  }
+  const r = range ?? { start: 0, width: text.width };
   return parseLinearGradient(ctx, image, r.start - g.pathOffset, r.width, baseY - g.ascent, g.ascent + g.descent);
 }
 
@@ -339,13 +375,13 @@ function sliceGradient(
 function clipPaintFor(
   ctx: CanvasRenderingContext2D,
   g: GlyphPlacement,
-  textWidth: number,
+  text: PathText,
   baseY: number,
 ): string | CanvasGradient | null {
   const src = clipSourceOf(g);
   if (!src) return null;
   const gradient = hasBackgroundImage(src)
-    ? sliceGradient(ctx, src.backgroundImage, g, g.clipRange, textWidth, baseY)
+    ? sliceGradient(ctx, src.backgroundImage, g, g.clipRange, text, baseY)
     : null;
   return gradient ?? (!isTransparent(src.backgroundColor) ? src.backgroundColor : null);
 }
@@ -354,17 +390,17 @@ function clipPaintFor(
 function strokePaintFor(
   ctx: CanvasRenderingContext2D,
   g: GlyphPlacement,
-  textWidth: number,
+  text: PathText,
   baseY: number,
 ): CanvasGradient | null {
   const src = g.strokeImageStyle;
-  return src ? sliceGradient(ctx, src.webkitTextStrokeImage, g, g.strokeImageRange, textWidth, baseY) : null;
+  return src ? sliceGradient(ctx, src.webkitTextStrokeImage, g, g.strokeImageRange, text, baseY) : null;
 }
 
 function drawGlyphs(
   ps: PaintState,
   glyphs: GlyphPlacement[],
-  textWidth: number,
+  text: PathText,
   tb: TextBaseline,
 ): void {
   const { ctx } = ps;
@@ -372,7 +408,7 @@ function drawGlyphs(
   for (const g of glyphs) {
     ps.glyph(g.style);
     const baseY = baselineLocalY(tb, g.ascent, g.descent);
-    const paints = glyphPaints(ps, g.style, clipPaintFor(ctx, g, textWidth, baseY), strokePaintFor(ctx, g, textWidth, baseY));
+    const paints = glyphPaints(ps, g.style, clipPaintFor(ctx, g, text, baseY), strokePaintFor(ctx, g, text, baseY));
     enterFrame(ps, base, g);
     paintGlyphs(ps, g.style, [{ text: g.char, x: 0 }], baseY, paints);
     if (!base) ps.restore();
@@ -444,7 +480,7 @@ class BentPen implements Pen {
  * it paints each glyph's slice there.
  */
 function paintRunBand(
-  ps: PaintState, run: GlyphPlacement[], band: Band, color: string, textWidth: number, tb: TextBaseline,
+  ps: PaintState, run: GlyphPlacement[], band: Band, color: string, text: PathText, tb: TextBaseline,
 ): void {
   if (!isTransparent(color)) {
     paintBand(ps, band, color, new BentPen(ps.ctx, run));
@@ -453,7 +489,7 @@ function paintRunBand(
   const { ctx } = ps;
   const base = frameBase(ctx);
   for (const g of run) {
-    const paint = clipPaintFor(ctx, g, textWidth, baselineLocalY(tb, g.ascent, g.descent));
+    const paint = clipPaintFor(ctx, g, text, baselineLocalY(tb, g.ascent, g.descent));
     if (!paint) continue;
     enterFrame(ps, base, g);
     ps.save();
@@ -473,7 +509,7 @@ function paintRunBand(
  * painted (a shadow tile); bands always span the run.
  */
 function paintRuns(
-  ps: PaintState, glyphs: GlyphPlacement[], textWidth: number, tb: TextBaseline, visible?: Set<GlyphPlacement>,
+  ps: PaintState, glyphs: GlyphPlacement[], text: PathText, tb: TextBaseline, visible?: Set<GlyphPlacement>,
 ): void {
   for (let i = 0; i < glyphs.length;) {
     const { style } = glyphs[i];
@@ -487,8 +523,8 @@ function paintRuns(
       const baseY = baselineLocalY(tb, head.ascent, head.descent);
       bands = fragmentBands(ps, style, 0, tail.pathOffset + tail.width - head.pathOffset, baseY, 0);
     }
-    for (const b of bands) if (b.band.line !== 'line-through') paintRunBand(ps, run, b.band, b.deco.color, textWidth, tb);
-    drawGlyphs(ps, visible ? run.filter(g => visible.has(g)) : run, textWidth, tb);
-    for (const b of bands) if (b.band.line === 'line-through') paintRunBand(ps, run, b.band, b.deco.color, textWidth, tb);
+    for (const b of bands) if (b.band.line !== 'line-through') paintRunBand(ps, run, b.band, b.deco.color, text, tb);
+    drawGlyphs(ps, visible ? run.filter(g => visible.has(g)) : run, text, tb);
+    for (const b of bands) if (b.band.line === 'line-through') paintRunBand(ps, run, b.band, b.deco.color, text, tb);
   }
 }
