@@ -172,6 +172,25 @@ describe('radial-gradient color stops', () => {
     expect(stops('radial-gradient(red -50%, blue -10%)')).toEqual([[0, 'blue']]);
   });
 
+  it('takes a missing component from the other stop when mixing at the centre', () => {
+    // rgb()'s `none` red is red's 255 throughout: full red, not half.
+    expect(stops('radial-gradient(rgb(none 0 0) -100%, red 100%)')).toEqual([[0, 'rgba(255, 0, 0, 1)'], [1, 'red']]);
+    expect(stops('radial-gradient(rgb(255 0 0 / none) -100%, rgba(0, 0, 255, 0.5) 100%)'))
+      .toEqual([[0, 'rgba(128, 0, 128, 0.5)'], [1, 'rgba(0, 0, 255, 0.5)']]);
+    // An hsl() `none` is 0, not carried: hsl(none 100% 50%) is red.
+    expect(stops('radial-gradient(hsl(none 100% 50%) -100%, blue 100%)')).toEqual([[0, 'rgba(128, 0, 128, 1)'], [1, 'blue']]);
+  });
+
+  it('reads math functions in a stop colour\'s channels', () => {
+    expect(stops('radial-gradient(rgb(calc(255) 0 0) -100%, blue 100%)')).toEqual([[0, 'rgba(128, 0, 128, 1)'], [1, 'blue']]);
+    expect(stops('radial-gradient(rgb(calc(510 / 2), 0, min(0, 9)) -100%, blue 100%)'))
+      .toEqual([[0, 'rgba(128, 0, 128, 1)'], [1, 'blue']]);
+    expect(stops('radial-gradient(rgb(calc(50% + 50%) 0 0 / calc(1 / 2)) -100%, blue 100%)'))
+      .toEqual([[0, 'rgba(85, 0, 170, 0.75)'], [1, 'blue']]);
+    // A length is no channel: the stop is left unmixed, as before.
+    expect(stops('radial-gradient(rgb(calc(255px) 0 0) -100%, blue 100%)')[0]).toEqual([0, 'rgb(calc(255px) 0 0)']);
+  });
+
   it('cuts a repeating radial\'s first tile at the centre', () => {
     // Period 40% starting at -30%: the centre is 3/4 of the way from red to blue.
     // The last tile ends at 130%, which widens the circle by 1.3.

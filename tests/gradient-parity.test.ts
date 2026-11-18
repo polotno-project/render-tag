@@ -14,6 +14,7 @@
 import { describe, it, expect } from 'vitest';
 import { compareNativeRenders } from './helpers/native-compare.ts';
 import { loadMultiFontCss } from './helpers/test-cases.ts';
+import { isWebKit } from './helpers/browser-name.ts';
 
 /** Mean per-channel color difference (0-255) over pixels opaque in both. */
 function colorError(a: HTMLCanvasElement, b: HTMLCanvasElement): { error: number; pixels: number } {
@@ -59,6 +60,13 @@ const RADIAL_GRADIENTS = [
   'radial-gradient(circle farthest-corner at 30% 60%, red 0 30%, blue 30%)',
   'radial-gradient(circle at 70% 20%, red, blue 150%)',
   'repeating-radial-gradient(circle at 30% 40%, red 0 20px, blue 20px 40px)',
+  // A stop before the centre: the colour there is mixed from the stops either side.
+  'radial-gradient(circle, red -100%, blue 100%)',
+  // A missing component takes the other stop's, as Chrome and Gecko mix it.
+  // WebKit's own paint does not carry it (old none-as-0 code: error 5.7, this
+  // one: 30), and render-tag paints Chrome's in every browser.
+  ...(isWebKit ? [] : ['radial-gradient(circle, rgb(none 0 0) -100%, red 100%)']),
+  'radial-gradient(circle, rgb(calc(255) 0 0) -100%, blue 100%)',
 ];
 
 describe.each([

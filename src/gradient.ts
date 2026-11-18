@@ -1,5 +1,5 @@
 import { namedColorHex, splitTopLevel, splitTopLevelWhitespace } from './css-validate.js';
-import { numberThen } from './css-values.js';
+import { numberThen, resolveNumberOrLength } from './css-values.js';
 
 const ANGLE = numberThen('(deg|grad|rad|turn)');
 const DEGREES_PER: Record<string, number> = { deg: 1, grad: 0.9, rad: 180 / Math.PI, turn: 360 };
@@ -296,10 +296,16 @@ function stopsFromCentre(stops: [string, number][]): [string, number][] {
   return color === null ? stops : [[color, 0], ...stops.slice(i)];
 }
 
-/** `a` and `b` mixed at `t` in premultiplied sRGB, as CSS interpolates legacy colours; null when either is another kind. */
+/**
+ * `a` and `b` mixed at `t` in premultiplied sRGB, as CSS interpolates legacy
+ * colours; null when either is another kind. A missing (`none`) component
+ * takes the other colour's (CSS Color 4 §12.2).
+ */
 function mixColors(a: string, b: string, t: number): string | null {
-  const p = srgba(a), q = srgba(b);
-  if (!p || !q) return null;
+  const from = srgba(a), to = srgba(b);
+  if (!from || !to) return null;
+  const carry = (x: typeof from, y: typeof from) => x.rgba.map((v, k) => (x.missing[k] ? y.rgba[k] : v));
+  const p = carry(from, to), q = carry(to, from);
   const alpha = p[3] + (q[3] - p[3]) * t;
   if (alpha <= 0) return 'rgba(0, 0, 0, 0)';
   const channel = (k: number) =>
@@ -307,40 +313,61 @@ function mixColors(a: string, b: string, t: number): string | null {
   return `rgba(${channel(0)}, ${channel(1)}, ${channel(2)}, ${+alpha.toFixed(4)})`;
 }
 
-/** A hex, named, `transparent`, rgb() or hsl() colour as [r, g, b] 0–255 and alpha 0–1; null for any other. */
-function srgba(color: string): [number, number, number, number] | null {
+/** What a colour channel's math function resolves against: no font, no viewport. */
+const CHANNEL_BASIS = { em: NaN, rem: NaN, viewport: null, fontStyle: null, measure: undefined };
+
+/**
+ * One colour channel: a number, or a percentage of `percentOf`, either one
+ * possibly a math function (`calc(255 / 2)`); NaN for anything else.
+ */
+function channelValue(t: string, percentOf: number): number {
+  const m = /^([-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?)(%?)$/.exec(t);
+  if (m) return parseFloat(m[1]) * (m[2] ? percentOf / 100 : 1);
+  if (!MATH_FUNCTION.test(t)) return NaN;
+  const typed = resolveNumberOrLength(t, { ...CHANNEL_BASIS, percent: percentOf });
+  if (!typed) return NaN;
+  if (typed.number) return typed.value;
+  // A percentage, not a length: it has no value once `%` has none.
+  return resolveNumberOrLength(t, { ...CHANNEL_BASIS, percent: NaN }) ? NaN : typed.value;
+}
+
+/**
+ * A hex, named, `transparent`, rgb() or hsl() colour as [r, g, b] 0–255 and
+ * alpha 0–1, with which of them are missing (`none`); null for any other.
+ * Only rgb()'s channels and alpha carry over when missing; an hsl() `none`
+ * is 0, its channels being none of sRGB's.
+ */
+function srgba(color: string): { rgba: number[]; missing: boolean[] } | null {
   const c = color.trim().toLowerCase();
-  if (c === 'transparent') return [0, 0, 0, 0];
+  if (c === 'transparent') return { rgba: [0, 0, 0, 0], missing: [false, false, false, false] };
   let hex = /^#([\da-f]{3,4}|[\da-f]{6}|[\da-f]{8})$/.exec(c)?.[1] ?? namedColorHex(c);
   if (hex) {
     if (hex.length <= 4) hex = [...hex].map((h) => h + h).join('');
     const n = (k: number) => parseInt(hex!.slice(2 * k, 2 * k + 2), 16);
-    return [n(0), n(1), n(2), hex.length === 8 ? n(3) / 255 : 1];
+    return { rgba: [n(0), n(1), n(2), hex.length === 8 ? n(3) / 255 : 1], missing: [false, false, false, false] };
   }
   const fn = /^(rgba?|hsla?)\((.*)\)$/.exec(c);
   if (!fn) return null;
   let channels: string[], alpha: string | undefined;
-  if (fn[2].includes(',')) {
-    [channels, alpha] = [fn[2].split(',').map((t) => t.trim()), undefined];
+  if (splitTopLevel(fn[2], ',').length > 1) {
+    [channels, alpha] = [splitTopLevel(fn[2], ',').map((t) => t.trim()), undefined];
     if (channels.length === 4) alpha = channels.pop();
   } else {
-    const [main, slash, ...rest] = fn[2].split('/');
+    const [main, slash, ...rest] = splitTopLevel(fn[2], '/');
     if (rest.length) return null;
-    [channels, alpha] = [main.trim().split(/\s+/), slash?.trim()];
+    [channels, alpha] = [splitTopLevelWhitespace(main.trim()), slash?.trim()];
   }
   if (channels.length !== 3) return null;
-  const number = (t: string, percentOf: number) => {
-    if (t === 'none') return 0;
-    const m = /^([-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?)(%?)$/.exec(t);
-    return m ? parseFloat(m[1]) * (m[2] ? percentOf / 100 : 1) : NaN;
-  };
+  const isRgb = fn[1][0] === 'r';
+  const missing = [...channels.map((t) => isRgb && t === 'none'), alpha === 'none'];
+  const number = (t: string, percentOf: number) => (t === 'none' ? 0 : channelValue(t, percentOf));
   const a = alpha === undefined ? 1 : Math.min(1, Math.max(0, number(alpha, 1)));
   let rgb: number[];
-  if (fn[1][0] === 'r') {
+  if (isRgb) {
     rgb = channels.map((t) => number(t, 255));
   } else {
     const hue = /^([-+]?[\d.]+(?:e[-+]?\d+)?)(deg|grad|rad|turn)?$/.exec(channels[0]);
-    const h = channels[0] === 'none' ? 0 : hue ? parseFloat(hue[1]) * DEGREES_PER[hue[2] ?? 'deg'] : NaN;
+    const h = channels[0] === 'none' ? 0 : hue ? parseFloat(hue[1]) * DEGREES_PER[hue[2] ?? 'deg'] : channelValue(channels[0], NaN);
     const s = Math.min(1, Math.max(0, number(channels[1], 100) / 100));
     const l = Math.min(1, Math.max(0, number(channels[2], 100) / 100));
     // CSS Color 4 §7.1 hslToRgb.
@@ -351,8 +378,7 @@ function srgba(color: string): [number, number, number, number] | null {
     rgb = [f(0), f(8), f(4)];
   }
   if (![...rgb, a].every(Number.isFinite)) return null;
-  const [r, g, b] = rgb.map((v) => Math.min(255, Math.max(0, v)));
-  return [r, g, b, a];
+  return { rgba: [...rgb.map((v) => Math.min(255, Math.max(0, v))), a], missing };
 }
 
 /**
