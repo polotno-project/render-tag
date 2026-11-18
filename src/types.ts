@@ -240,6 +240,8 @@ export interface ResolvedStyle {
   textUnderlineOffset: number | null;
   /** text-decoration-thickness in px; null = `auto` or `from-font`. */
   textDecorationThickness: number | null;
+  /** text-decoration-skip-ink: 'auto' | 'none'. */
+  textDecorationSkipInk: string;
   textShadow: string;
   webkitTextStrokeWidth: number;
   webkitTextStrokeColor: string;
@@ -259,6 +261,8 @@ export interface ResolvedStyle {
   textRendering: string;
   /** The element's HTML `lang`, or its nearest ancestor's; `inherit` (the canvas's own) when none sets it. */
   lang: string;
+  /** The enclosing `<a>`'s `href` as written, if any: carried for link export, never resolved or styled. */
+  href?: string;
   lineHeight: number;
   verticalAlign: string;
   whiteSpace: string;

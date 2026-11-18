@@ -238,6 +238,8 @@ export function recordingCtx(
       resetTransform() { matrix = [1, 0, 0, 1, 0, 0]; },
       getTransform() { const [a, b, c, d, e, f] = matrix; return { a, b, c, d, e, f }; },
       setLineDash(segments: number[]) { dash = [...segments]; },
+      // The fake font has no outlines: no glyph ink for a skip-ink band to avoid.
+      getImageData(_x: number, _y: number, w: number, h: number) { return { data: new Uint8ClampedArray(w * h * 4), width: w, height: h }; },
       getLineDash() { return [...dash]; },
       beginPath() { path = []; },
       clip() { state = { ...state, clip: [...(state.clip as string[] ?? []), path.join(' ')] }; },

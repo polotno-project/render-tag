@@ -4,7 +4,8 @@ import {
   nextCtxWriterId, syntheticBoldWidening, type FontMetricsTable,
 } from './layout.js';
 import { parseGradient } from './gradient.js';
-import { MITER_LIMIT, ScratchPool, withoutCanvasShadow } from './shadow.js';
+import { makeCanvas, MITER_LIMIT, ScratchPool, withoutCanvasShadow } from './shadow.js';
+import { InkProbe } from './skip-ink.js';
 
 // Writes each ctx property only on change (a save/restore per run is a q/Q on
 // a PDF proxy) and never relies on `restore` to put a value back. Another
@@ -63,10 +64,18 @@ export class PaintState {
     /** Layout's metrics (`layoutFontMetrics`); misses are measured on this ctx. */
     private readonly fontMetrics?: FontMetricsTable,
     private readonly support: CanvasSupport = {},
+    /** The draw's ink reader for `text-decoration-skip-ink`; without one, bands stay whole. */
+    readonly ink?: InkProbe,
   ) {}
 
   fontBox(style: ResolvedStyle): { ascent: number; descent: number } {
     return this.fontMetrics?.get(this.textState(style).font) ?? getFontMetrics(this.ctx, style);
+  }
+
+  /** What a glyph's outline depends on, of what `font(style)` writes. */
+  face(style: ResolvedStyle): string {
+    const t = this.textState(style);
+    return `${t.font}|${t.textRendering}|${t.lang}`;
   }
 
   private textState(style: ResolvedStyle): TextState {
@@ -159,7 +168,7 @@ export class PaintState {
 
   stroke(
     paint: Paint, lineWidth: number, dash: readonly number[] = NO_DASH,
-    cap: CanvasLineCap = 'butt', join: CanvasLineJoin = 'miter',
+    cap: CanvasLineCap = 'butt', join: CanvasLineJoin = 'miter', dashOffset = 0,
   ): void {
     this.set('strokeStyle', this.coverage ? COVERAGE : paint);
     this.set('lineWidth', lineWidth);
@@ -167,7 +176,7 @@ export class PaintState {
     this.set('lineCap', cap);
     this.set('miterLimit', MITER_LIMIT);
     this.dash(dash);
-    this.set('lineDashOffset', 0);
+    this.set('lineDashOffset', dashOffset);
     this.stroked = true;
   }
 
@@ -233,11 +242,16 @@ export function withDraw(
   const states = new Map<CanvasRenderingContext2D, PaintState>();
   // One factory makes every pooled canvas: they share whether they apply spacing.
   const scratch: CanvasSupport = {};
-  const layerState = (target: CanvasRenderingContext2D, coverage = false) =>
-    new PaintState(target, scale, coverage, fontMetrics, scratch);
+  const layerState = (target: CanvasRenderingContext2D, coverage = false): PaintState =>
+    new PaintState(target, scale, coverage, fontMetrics, scratch, ink);
+  // Its scratch canvas is made on first use, also under `renderShadows: false`.
+  const ink = new InkProbe(
+    (width, height) => makeCanvas(ctx, width, height, options.createCanvas,
+      'underlines and overlines that skip glyph ink (`text-decoration-skip-ink: auto`, the default)'),
+    target => layerState(target, true));
   const stateOf = (target: CanvasRenderingContext2D) => {
     let ps = states.get(target);
-    if (!ps) states.set(target, ps = target === ctx ? new PaintState(target, scale, false, fontMetrics) : layerState(target));
+    if (!ps) states.set(target, ps = target === ctx ? new PaintState(target, scale, false, fontMetrics, undefined, ink) : layerState(target));
     return ps;
   };
   const pool = options.renderShadows === false ? null : new ScratchPool(ctx, options.createCanvas);
@@ -247,6 +261,7 @@ export function withDraw(
     else withoutCanvasShadow(ctx, () => draw(stateOf, null, layerState));
   } finally {
     pool?.dispose();
+    ink.dispose();
     for (const ps of states.values()) ps.finish();
     ctx.restore();
   }

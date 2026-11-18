@@ -69,7 +69,7 @@ describe('one decoration band per text fragment', () => {
     const html = '<p style="margin:0;font-size:50px;text-decoration:underline dotted">I</p>';
     const result = layout({ html, width: 600, ctx: mockCtx() });
     const painted = recordingCtx(600, 200);
-    drawLayout({ layout: result, width: 600, ctx: painted.ctx });
+    drawLayout({ layout: result, width: 600, ctx: painted.ctx, createCanvas: painted.createCanvas });
     const [p] = strokes(painted.paints);
     expect(band(p).dash).toEqual([0, 10]);
     expect(p).toContain('lineCap="round"');

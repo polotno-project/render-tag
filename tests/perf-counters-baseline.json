@@ -65,14 +65,14 @@
     "layout.wordObjects": 4575,
     "layout.glueSteps": 50,
     "layout.chainCells": 0,
-    "draw.measureText": 0,
-    "draw.measuredChars": 0,
-    "draw.fontSets": 401,
-    "draw.fillText": 975,
+    "draw.measureText": 18,
+    "draw.measuredChars": 18,
+    "draw.fontSets": 407,
+    "draw.fillText": 993,
     "draw.save": 1,
     "draw.restore": 1,
-    "draw.scratchCanvases": 0,
-    "draw.scratchPeakPixels": 0
+    "draw.scratchCanvases": 1,
+    "draw.scratchPeakPixels": 16000
   },
   "sibling selectors (4000 items)": {
     "sourceChars": 34890,

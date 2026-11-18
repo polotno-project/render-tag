@@ -34,7 +34,9 @@ const FIXTURES: [string, string][] = [
   ['centered, wrapping', p('text-align:center;letter-spacing:3px', 'The quick brown fox jumps over the lazy dog again and again')],
   ['kerning', p(`font-family:${family('Playfair Display')};letter-spacing:4px`, 'AVAWAY To Ty Wo')],
   ['negative', p('letter-spacing:-1.5px', 'Tightly set words in a row')],
-  ['decorated', p('letter-spacing:5px;text-decoration:underline line-through', 'Under and through')],
+  // Whole bands: a skip-ink read paints glyphs 13x larger, after which WebKit rasterizes that
+  // font's later text 0.013% differently (a plain fillText at that scale does it too).
+  ['decorated', p('letter-spacing:5px;text-decoration:underline line-through;text-decoration-skip-ink:none', 'Under and through')],
   ['shadow and stroke', p('letter-spacing:4px;text-shadow:2px 2px 3px #f00;-webkit-text-stroke:1px #00f', 'Shadow stroke')],
   ['spans', p('letter-spacing:2px', 'plain <b style="letter-spacing:8px">wide</b> <i>italic</i> end')],
   ['combining and emoji', p('letter-spacing:6px', 'café 👨‍👩‍👧 🇺🇸 ok')],

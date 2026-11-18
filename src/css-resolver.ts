@@ -137,6 +137,7 @@ const INHERITED_DEFAULTS = {
   textIndent: 0,
   textTransform: 'none',
   textShadow: 'none',
+  textDecorationSkipInk: 'auto',
   webkitTextStrokeWidth: 0,
   webkitTextStrokeColor: '',
   webkitTextFillColor: '',
@@ -156,7 +157,7 @@ const INHERITED_DEFAULTS = {
 };
 
 /** Initialize inherited fields once; the cascade only needs to write overrides. */
-function defaultStyle(parent: typeof INHERITED_DEFAULTS = INHERITED_DEFAULTS): ResolvedStyle {
+function defaultStyle(parent: typeof INHERITED_DEFAULTS & Pick<ResolvedStyle, 'href'> = INHERITED_DEFAULTS): ResolvedStyle {
   const style: ResolvedStyle = {
     fontFamily: parent.fontFamily,
     fontSize: parent.fontSize,
@@ -174,6 +175,7 @@ function defaultStyle(parent: typeof INHERITED_DEFAULTS = INHERITED_DEFAULTS): R
     textDecorations: [],
     textUnderlineOffset: null,
     textDecorationThickness: null,
+    textDecorationSkipInk: parent.textDecorationSkipInk,
     textShadow: parent.textShadow,
     webkitTextStrokeWidth: parent.webkitTextStrokeWidth,
     webkitTextStrokeColor: parent.webkitTextStrokeColor,
@@ -188,6 +190,7 @@ function defaultStyle(parent: typeof INHERITED_DEFAULTS = INHERITED_DEFAULTS): R
     fontKerning: parent.fontKerning,
     textRendering: parent.textRendering,
     lang: parent.lang,
+    href: parent.href,
     lineHeight: 0,
     verticalAlign: parent.verticalAlign,
     whiteSpace: parent.whiteSpace,
@@ -735,6 +738,7 @@ const PROPERTY_FIELDS: Record<string, readonly (keyof InternalStyle)[]> = nullPr
   '-webkit-text-fill-color': ['webkitTextFillColor'],
   'text-decoration-line': ['textDecorationLine'], 'text-decoration-style': ['textDecorationStyle'],
   'text-decoration-color': ['textDecorationColor'], 'text-decoration-thickness': ['textDecorationThickness'],
+  'text-decoration-skip-ink': ['textDecorationSkipInk'],
   '--rt-text-stroke-image': ['webkitTextStrokeImage'], 'background-clip': ['webkitBackgroundClip'],
   'background-image': ['backgroundImage'], 'background-color': ['backgroundColor'],
   'line-clamp': ['lineClamp'], '-webkit-line-clamp': ['lineClamp'], 'unicode-bidi': ['unicodeBidi'],
@@ -759,7 +763,7 @@ const INHERITED_PROPERTIES = new Set([
   'text-align-last', 'text-indent', 'text-transform', 'white-space', 'word-break', 'overflow-wrap',
   'direction', 'letter-spacing', 'word-spacing', 'line-height', 'text-shadow', 'font-kerning',
   'text-rendering', 'list-style-type', 'vertical-align', 'text-underline-offset', 'paint-order', 'stroke-linejoin',
-  '-webkit-text-stroke-width', '-webkit-text-stroke-color', '-webkit-text-fill-color',
+  'text-decoration-skip-ink', '-webkit-text-stroke-width', '-webkit-text-stroke-color', '-webkit-text-fill-color',
 ]);
 
 /** Initial values. Colors whose initial value is `currentcolor` say so, for the fix-ups to resolve. */
@@ -1661,6 +1665,7 @@ export function resolveStylesFromCSS(
     if (el.hasAttribute('hidden')) style.display = 'none';
     // `:any-link`: LinkText is #0000ee in Blink, WebKit and Gecko.
     if ((tag === 'a' || tag === 'area') && el.hasAttribute('href')) {
+      style.href = el.getAttribute('href')!;
       style.color = '#0000ee';
       style.textDecorationLine = 'underline';
       setProps.add('color');

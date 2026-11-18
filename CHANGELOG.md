@@ -2,6 +2,13 @@
 
 Only the interesting, user-visible changes. Full detail lives in the git history.
 
+## 0.4.6 — 2026-11-18
+
+- Underlines and overlines skip the glyphs that cross them (`text-decoration-skip-ink: auto`, the CSS default), with Chrome's gaps: the descenders of `g`, `p`, `y` no longer run through the line. `text-decoration-skip-ink: none` keeps the line whole, as before.
+- Because of that, drawing underlined or overlined text needs a scratch canvas, also under `renderShadows: false`. Browsers and Node canvases provide one by themselves. A ctx with no canvas behind it (a PDF or SVG proxy) now throws for such text unless `createCanvas` is given or the text sets `text-decoration-skip-ink: none`.
+- In Node, shadows no longer need `createCanvas`: the scratch canvas is made with the destination canvas's own class.
+- A text run inside `<a href>` reports the link in `style.href`, as written, for exporting links (a PDF annotation, an SVG `<a>`). Text on a path reports it on each glyph. A run never spans two links.
+
 ## 0.4.5 — 2026-11-13
 
 - `render-tag/umd` is no longer a package export: under `"type": "module"` it resolved to an empty module. `lib/render-tag.umd.js` still ships for a classic `<script>` tag.

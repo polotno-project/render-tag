@@ -3362,7 +3362,7 @@ describe('Blink line paint snap', () => {
     // A 23px underline is 2px thick and starts ceil(1.15) = 2px below: rows
     // 21-22, a stroke centered at 22.
     const { fills, bands } = paint(
-      '<p style="margin:0;padding-top:0.3px;font-size:23px;line-height:30px"><u>abc</u></p>');
+      '<p style="margin:0;padding-top:0.3px;font-size:23px;line-height:30px"><u style="text-decoration-skip-ink:none">abc</u></p>');
     expect(fills[0].y).toBe(19);
     expect(bands).toEqual([22]);
   });
