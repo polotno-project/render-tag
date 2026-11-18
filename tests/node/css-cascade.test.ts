@@ -282,6 +282,7 @@ describe('inherited properties', () => {
     ['text-shadow', 'textShadow', '2px 3px red'],
     ['font-kerning', 'fontKerning', 'none'],
     ['text-rendering', 'textRendering', 'optimizespeed'],
+    ['text-decoration-skip-ink', 'textDecorationSkipInk', 'none'],
     ['list-style-type', 'listStyleType', 'square'],
     ['vertical-align', 'verticalAlign', 'super'],
     ['paint-order', 'paintOrder', 'stroke fill'],

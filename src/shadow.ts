@@ -172,13 +172,20 @@ export function shadowBounds(bounds: PaintBounds, shadows: TextShadow[]): PaintB
   return result;
 }
 
-function makeCanvas(ctx: CanvasRenderingContext2D, width: number, height: number, createCanvas?: CanvasFactory): AnyCanvas {
+export function makeCanvas(
+  ctx: CanvasRenderingContext2D, width: number, height: number, createCanvas?: CanvasFactory, what = 'shadows',
+): AnyCanvas {
   let canvas: AnyCanvas;
   if (createCanvas) canvas = createCanvas(width, height);
-  else if (ctx.canvas.ownerDocument) canvas = ctx.canvas.ownerDocument.createElement('canvas');
+  // A vector proxy may have no canvas.
+  else if (ctx.canvas?.ownerDocument) canvas = ctx.canvas.ownerDocument.createElement('canvas');
   else if (typeof OffscreenCanvas !== 'undefined') canvas = new OffscreenCanvas(width, height);
   else if (typeof document !== 'undefined') canvas = document.createElement('canvas');
-  else throw new Error('render-tag: shadows require a scratch canvas — provide createCanvas in non-browser environments.');
+  // Node's canvas libraries: the destination's own class makes another.
+  else if (typeof ctx.canvas?.getContext === 'function' && ctx.canvas.constructor !== Object) {
+    canvas = new (ctx.canvas.constructor as new (width: number, height: number) => AnyCanvas)(width, height);
+  }
+  else throw new Error(`render-tag: ${what} require a scratch canvas — provide createCanvas in non-browser environments.`);
   canvas.width = width;
   canvas.height = height;
   return canvas;

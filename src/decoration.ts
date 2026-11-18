@@ -127,12 +127,17 @@ export function fragmentBands(
   return bands;
 }
 
-/** A horizontal stroke `rows` thick whose top edge is `top`. */
-function rule(ps: PaintState, x0: number, x1: number, top: number, rows: number, color: string | CanvasGradient, pen: Pen) {
+/** One stroke `rows` thick whose top edge is `top`, along each of `spans`. */
+function rule(
+  ps: PaintState, spans: readonly (readonly [number, number])[], top: number, rows: number,
+  color: string | CanvasGradient, pen: Pen,
+) {
   ps.stroke(color, rows);
   ps.ctx.beginPath();
-  pen.moveTo(x0, top + rows / 2);
-  pen.lineTo(x1, top + rows / 2);
+  for (const [x0, x1] of spans) {
+    pen.moveTo(x0, top + rows / 2);
+    pen.lineTo(x1, top + rows / 2);
+  }
   ps.ctx.stroke();
 }
 
@@ -261,42 +266,122 @@ export function bandSpan(band: Band): readonly [number, number] {
   return [top - 1, bottom + 1];
 }
 
-export function paintBand(ps: PaintState, band: Band, color: string | CanvasGradient, pen: Pen = ps.ctx) {
+/** A dotted or dashed band's centerline (`GetSnappedPointsForTextLine`). */
+function dashAxis({ y, thickness: t }: Band): number {
+  return Math.floor(y + Math.max(t / 2, 0.5)) + (Math.round(t) % 2 ? 0.5 : 0);
+}
+
+/** A wavy band's centerline: its cached tile's origin lands on a device pixel (`MakeWave`). */
+function waveAxis(band: Band): number {
+  const { offset, cp } = waveOf(band);
+  const tileTop = Math.floor(0.5 - cp - band.thickness / 2);
+  return toDevice(band.y + offset + tileTop, band.deviceScale) + 0.5 - tileTop;
+}
+
+/** Blink's `kDecorationClipMaxDilation`. */
+const MAX_INK_DILATION = 13;
+
+/**
+ * The rows whose glyph ink a `text-decoration-skip-ink: auto` band avoids: the band's bounds
+ * (`DecorationLinePainter::Bounds`) less half a pixel each side, so a graze is no crossing
+ * (`TextPainter::ClipDecorationLine`).
+ */
+export function inkStripe(band: Band): readonly [top: number, bottom: number] {
+  const { style, y, thickness: t } = band;
+  let top = y, bottom = y + t;
+  if (style === 'double') {
+    const offset = doubleOffset(band);
+    [top, bottom] = [Math.min(y, y + offset), Math.max(y, y + offset) + t];
+  } else if (style === 'dotted' || style === 'dashed') {
+    const half = Math.round(t) / 2, axis = dashAxis(band);
+    [top, bottom] = [axis - half, axis + half];
+  } else if (style === 'wavy') {
+    const reach = waveOf(band).cp * Math.sqrt(3) / 6 + t / 2, axis = waveAxis(band);
+    [top, bottom] = [axis - reach, axis + reach];
+  }
+  return [top + 0.5, Math.max(top + 0.5, bottom - 0.5)];
+}
+
+/**
+ * The spans a skip-ink band leaves out, ascending and apart: each glyph crossing widened by
+ * the band's thickness, at most `MAX_INK_DILATION`, its edges on the device grid (`toGrid`):
+ * Blink clips them out unantialiased (`ClipDecorationLine`).
+ */
+export function inkGaps(
+  band: Band, crossings: readonly (readonly [number, number])[], toGrid: (x: number) => number,
+): [number, number][] {
+  const dilation = Math.min(band.thickness, MAX_INK_DILATION);
+  const gaps: [number, number][] = [];
+  for (const [from, to] of [...crossings].sort((a, b) => a[0] - b[0])) {
+    const x0 = toGrid(from - dilation), x1 = toGrid(to + dilation);
+    const last = gaps[gaps.length - 1];
+    if (last && x0 <= last[1]) last[1] = Math.max(last[1], x1);
+    else gaps.push([x0, x1]);
+  }
+  return gaps;
+}
+
+/** [x0, x1] less `gaps` (ascending, apart). */
+function spansBetween(x0: number, x1: number, gaps: readonly (readonly [number, number])[] = []): [number, number][] {
+  const spans: [number, number][] = [];
+  let x = x0;
+  for (const [from, to] of gaps) {
+    if (from > x) spans.push([x, Math.min(from, x1)]);
+    x = Math.max(x, to);
+    if (x >= x1) return spans;
+  }
+  spans.push([x, x1]);
+  return spans;
+}
+
+/**
+ * `gaps` (`inkGaps`): the spans left unpainted. The kept spans are subpaths of one stroke (a
+ * dotted or dashed band: a stroke each, in the whole band's dash phase), never a clip: vector
+ * adapters take plain strokes. A round dot at a gap's edge is whole or absent; Chrome cuts it.
+ */
+export function paintBand(
+  ps: PaintState, band: Band, color: string | CanvasGradient, pen: Pen = ps.ctx,
+  gaps?: readonly (readonly [number, number])[],
+) {
   const { ctx } = ps;
   const { style, x, width, y, rows, thickness: t } = band;
   // Solid and double bands are rects snapped on y only (`SnapYAxis`).
   const top = Math.floor(y + 0.5);
   if (style === 'double') {
-    rule(ps, x, x + width, top, rows, color, pen);
     // The second band is moved t + 1 and snapped on its own.
-    rule(ps, x, x + width, Math.floor(y + doubleOffset(band) + 0.5), rows, color, pen);
+    const spans = spansBetween(x, x + width, gaps);
+    rule(ps, spans, top, rows, color, pen);
+    rule(ps, spans, Math.floor(y + doubleOffset(band) + 0.5), rows, color, pen);
     return;
   }
   if (style === 'dotted' || style === 'dashed') {
     // `DrawLineAsStroke`: truncated endpoints, stroked at the unrounded thickness.
     const w = Math.round(t);
     let x0 = Math.trunc(x), x1 = Math.trunc(x + width);
-    const mid = Math.floor(y + Math.max(t / 2, 0.5)) + (w % 2 ? 0.5 : 0);
+    const mid = dashAxis(band);
     const pattern = blinkDash(style, w, x1 - x0);
     // Round dots overhang their endpoints by a radius: Blink moves both in.
     if (pattern?.cap === 'round') { x0 += w / 2; x1 -= w / 2; }
-    ps.stroke(color, t, pattern?.dash, pattern?.cap);
-    ctx.beginPath();
-    pen.moveTo(x0, mid);
-    pen.lineTo(x1, mid);
-    ctx.stroke();
+    for (const [from, to] of spansBetween(x0, x1, gaps)) {
+      ps.stroke(color, t, pattern?.dash, pattern?.cap, 'miter', from - x0);
+      ctx.beginPath();
+      pen.moveTo(from, mid);
+      pen.lineTo(to, mid);
+      ctx.stroke();
+    }
     return;
   }
   if (style === 'wavy') {
     // `MakeWave`: painted from a cached tile whose origin lands on a device pixel.
-    const { offset, cp, wavelength } = waveOf(band);
-    const tileTop = Math.floor(0.5 - cp - t / 2);
-    const axis = toDevice(y + offset + tileTop, band.deviceScale) + 0.5 - tileTop;
+    const { cp, wavelength } = waveOf(band);
+    const axis = waveAxis(band);
     ps.stroke(color, t);
     ctx.beginPath();
-    wavePath(pen, x, x + width, toDevice(x, band.deviceScale), axis, wavelength, cp);
+    for (const [from, to] of spansBetween(x, x + width, gaps)) {
+      wavePath(pen, from, to, toDevice(x, band.deviceScale), axis, wavelength, cp);
+    }
     ctx.stroke();
     return;
   }
-  rule(ps, x, x + width, top, rows, color, pen);
+  rule(ps, spansBetween(x, x + width, gaps), top, rows, color, pen);
 }

@@ -356,6 +356,7 @@ export const KEYWORDS: Record<string, Set<string>> = {
   'text-align': set('start end left right center justify match-parent -webkit-left -webkit-right -webkit-center'),
   'text-align-last': set('auto start end left right center justify match-parent'),
   'text-decoration-style': set('solid double dotted dashed wavy'),
+  'text-decoration-skip-ink': set('auto none'),
   'font-kerning': set('auto normal none'),
   'text-rendering': set('auto optimizespeed optimizelegibility geometricprecision'),
   'white-space': set('normal pre nowrap pre-wrap pre-line break-spaces'),

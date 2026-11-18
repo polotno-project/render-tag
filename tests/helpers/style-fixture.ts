@@ -19,6 +19,7 @@ export function styleFixture(overrides: Partial<ResolvedStyle> = {}): ResolvedSt
     textDecorationStyle: 'solid',
     textDecorationColor: 'black',
     textDecorationThickness: null,
+    textDecorationSkipInk: 'auto',
     textUnderlineOffset: null,
     textDecorations: [],
     textShadow: 'none',

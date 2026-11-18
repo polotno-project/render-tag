@@ -5,8 +5,7 @@
  * (src/render.ts), used by both renderers; Chrome rows they were measured
  * from (Arial 40px, rows relative to the alphabetic baseline B):
  *  - explicit offset E: band TOP = B + E, for px, em and % alike. Negative
- *    offsets are legal but Chrome's skip-ink eats the band where it crosses
- *    glyph ink (render-tag has no skip-ink — a documented divergence).
+ *    offsets are legal; skip-ink eats the band where it crosses glyph ink.
  *  - explicit thickness T: the band is round(T) integer rows, all three line
  *    kinds. `from-font` needs the font's post table, which canvas cannot
  *    read — it falls back to `auto` (documented divergence).

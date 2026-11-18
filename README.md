@@ -50,7 +50,7 @@ function drawLayout(config: DrawConfig): { canvas };
 | `height` | auto | Fixed height; auto-sized from content if omitted. |
 | `canvas` | created | Existing target canvas (mutually exclusive with `ctx`). |
 | `ctx` | — | Existing 2D context — no canvas resizing or scaling. |
-| `createCanvas` | browser canvas | Factory `(width, height) => canvas` for shadow composition. Required for shadows outside browsers. |
+| `createCanvas` | browser canvas | Factory `(width, height) => canvas` for scratch canvases (shadows, skip-ink underlines). Outside browsers the destination canvas's own class is used; a `ctx` without a real canvas needs the factory. |
 | `renderShadows` | `true` | Set `false` to omit CSS and context shadows without allocating shadow buffers. Foreground stays drawing commands in both modes. |
 | `pixelRatio` | `devicePixelRatio` | HiDPI scaling. |
 | `textUnits` | — | `layout()` only: cut the text into `'line'`, `'word'` or `'grapheme'` units ([Text units](#text-units-animation)). |
@@ -290,15 +290,17 @@ stroke and decoration commands, retaining the caller's per-paint opacity and
 blending behavior.
 
 Shadow composition uses temporary canvases sized for the painted content,
-including overhanging glyphs and decorations. Node consumers must pass
-`createCanvas` to `render`, `drawLayout`, `drawTextOnPath`, or
-`drawTextOnPathLayout` when using shadows. It must return a fresh canvas
+including overhanging glyphs and decorations. In Node render-tag makes them
+with the destination canvas's own class (`new ctx.canvas.constructor(width,
+height)`). A `ctx` with no real canvas behind it (a PDF proxy) needs
+`createCanvas` passed to `render`, `drawLayout`, `drawTextOnPath`, or
+`drawTextOnPathLayout`. It must return a fresh canvas
 compatible with the destination context. A canvas render-tag passes to the
 destination's `drawImage` is never changed afterwards. Masks it only draws into
 other scratch canvases are reused within one draw and resized to 0×0 when the
 draw ends. A tall shadowed block is composed in horizontal tiles, so one draw
-may pass several shadow images. Drawing without shadows needs no
-scratch canvas. Fonts and blur rasterization can still differ slightly between
+may pass several shadow images. Without shadows only an underline or overline
+that skips glyph ink needs a scratch canvas (below). Fonts and blur rasterization can still differ slightly between
 browser engines; these APIs do not promise byte-identical pixels across engines.
 
 ### PDF and other vector adapters
@@ -330,7 +332,9 @@ drawLayout({ layout: result, width: 400, ctx: pdfContext, renderShadows: false }
 
 This omits both CSS `text-shadow` and caller-supplied `ctx.shadow*`, allocates no
 shadow canvases, and keeps foreground commands and layout unchanged. It requires
-no image or transform-query APIs. The adapter must provide the omitted effects;
+no image or transform-query APIs of the proxy. Underlines and overlines still
+read glyph ink from a scratch canvas: in Node pass `createCanvas`, or declare
+`text-decoration-skip-ink: none`. The adapter must provide the omitted effects;
 this option alone does not preserve the appearance of shadowed text.
 
 Text under an RTL `unicode-bidi: bidi-override` (`<bdo dir="rtl">`) arrives
@@ -367,7 +371,20 @@ every browser. Bands are plain strokes: `setLineDash` for dashes and dots
 (Chrome's round dots are zero-length dashes with round caps) and
 `bezierCurveTo` for waves, so vector adapters need those. Every stroke
 (bands, borders, `-webkit-text-stroke`) sets its own dash, cap, join and
-miter limit, so the caller's stroke state never reaches it. A
+miter limit, so the caller's stroke state never reaches it.
+
+`text-decoration-skip-ink` is `auto` by default, as in CSS: an underline or
+overline leaves Chrome's gaps where glyphs cross it, never for `_`, `/`, `\`,
+CJK or emoji; `none` keeps the band whole. The kept pieces are the subpaths of one
+stroke (a dotted or dashed band: a stroke each, with `lineDashOffset` keeping
+its phase), so a vector adapter still receives plain strokes. To find the
+crossings render-tag reads each glyph once per draw from a scratch canvas, also
+under `renderShadows: false`; where none can be made the draw throws and asks
+for `createCanvas`. Gap edges are within a device pixel of Chrome's; a round
+dot at a gap's edge is whole or absent where Chrome cuts it. Text on a path
+keeps whole bands.
+
+A
 `linear-gradient` takes angles in `deg`/`rad`/`grad`/`turn`, `to` sides and
 corners, `%` and `px` stop positions (including two-position stops and stops
 outside 0–100%); a color hint is treated as a plain midpoint.

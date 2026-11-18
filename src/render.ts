@@ -17,14 +17,14 @@ import {
   type UnitPiece,
   type UnitRun,
 } from './layout.js';
-import { overrideContent, rtlOverride, textLevels, visualOrder } from './bidi.js';
+import { mayNeedBidi, overrideContent, rtlOverride, textLevels, visualOrder } from './bidi.js';
 import { isOpaque, isTransparent, paintOrderHasStrokeFirst } from './css-resolver.js';
 import {
   hasCanvasShadow, hasTextShadow, paintTextShadows, shadowBounds, shadowsOf, textPaintBounds, transformBounds, unionBounds,
   withCanvasShadow, withoutCanvasShadow, type Matrix, type PaintBounds, type ScratchPool, type ShadowPiece, type TextShadow,
 } from './shadow.js';
 import { PaintState, withDraw } from './paint-state.js';
-import { fragmentBands, paintBand, type Band } from './decoration.js';
+import { fragmentBands, inkGaps, inkStripe, paintBand, type Band } from './decoration.js';
 import { BLINK_TEXT_RUN_SHAPING } from './engine.js';
 
 /**
@@ -234,7 +234,7 @@ function paintRuns(
     }
   }
   if (decorated) bands = coloredBands(ps, runs[0], left, right, paints);
-  if (bands) paintBands(ps, bands, false, left, right, slice);
+  if (bands) paintBands(ps, bands, false, left, right, slice, runs[0].style.textDecorationSkipInk === 'auto' ? runs : undefined);
   if (sliceGlyphs) {
     clipToSlice(ps, slice!, left, right, !paints.stroked && typeof paints.fill === 'string' && isOpaque(paints.fill));
   }
@@ -247,16 +247,76 @@ function paintRuns(
   if (bands) paintBands(ps, bands, true, left, right, slice);
 }
 
-/** The line-throughs of `bands` (`through`), else the rest; `slice` clips them. */
+/** What a skip-ink band reads: opaque glyph fills, no stroke (Blink's `FillFlags`). */
+const INK_PAINTS: TextPaints = { fill: '#000', clip: null, stroked: false, strokeImage: null };
+
+const NO_SPACING = { letter: 0, word: 0 };
+
+/**
+ * Where the glyphs of the fragment `runs` cross `band`'s rows (`inkStripe`), a span per glyph
+ * (`InkProbe.glyphs`). A piece the ctx does not lay out glyph by glyph, left to right (an RTL
+ * level, a joining script), is read whole, as painted.
+ */
+function inkCrossings(ps: PaintState, runs: LayoutText[], band: Band): [number, number][] {
+  const ink = ps.ink;
+  if (!ink) return [];
+  const [top, bottom] = inkStripe(band);
+  let memo = ink.crossings.get(runs[0]);
+  if (!memo) ink.crossings.set(runs[0], memo = new Map());
+  const key = `${top},${bottom}`;
+  let crossings = memo.get(key);
+  if (crossings) return crossings;
+  memo.set(key, crossings = []);
+  for (const run of runs) {
+    const { style } = run;
+    const spacing = ps.text(style);
+    const baseline = run.y + paintLineSnap(run);
+    const inkOf = ink.glyphs(style, top - baseline, bottom - baseline);
+    // One level each, where Canvas's own bidi pass puts it.
+    const pieces: readonly TextPiece[] = spacing || style.direction === 'rtl' || mayNeedBidi(run.text)
+      ? spacedPieces(ps, run, spacing ?? NO_SPACING) : [run];
+    for (const piece of pieces) {
+      const clusters = graphemes(piece.text);
+      if (piece.rtl || clusters.some(shapesAsRun)) {
+        const [left, right] = textEdges(run);
+        const em = style.fontSize;
+        crossings.push(...ink.columns(top, bottom, left - em, right + em, em, (scratch) => {
+          scratch.text(style);
+          paintGlyphs(scratch, style, [piece], baseline, INK_PAINTS);
+        }));
+        continue;
+      }
+      let origin = piece.x, from = 0, end = 0;
+      for (const g of clusters) {
+        const start = end;
+        end += g.length;
+        const span = inkOf(g);
+        if (!span) continue;
+        // Kerning moves a pair's second glyph: from the last crossing glyph's origin, the text
+        // through this one less this one's own advance.
+        origin += ps.measure(style, piece.text.slice(from, end), false) - ps.measure(style, g, false);
+        from = start;
+        crossings.push([origin + span[0], origin + span[1]]);
+      }
+    }
+  }
+  return crossings;
+}
+
+/** The line-throughs of `bands` (`through`), else the rest; `slice` clips them. `skipInk`: the
+ * fragment's runs, whose glyph ink the under- and overlines skip. */
 function paintBands(
   ps: PaintState, bands: { band: Band; color: string | CanvasGradient }[], through: boolean,
-  left: number, right: number, slice?: UnitPiece[],
+  left: number, right: number, slice?: UnitPiece[], skipInk?: LayoutText[],
 ): void {
   const own = bands.filter(({ band }) => (band.line === 'line-through') === through);
   if (!own.length) return;
   // A gradient's stops are not read here: not opaque.
   if (slice) clipToSlice(ps, slice, left, right, own.every(({ color }) => typeof color === 'string' && isOpaque(color)));
-  for (const { band, color } of own) paintBand(ps, band, color);
+  const toGrid = skipInk && deviceGrid(ps.ctx).toGrid;
+  for (const { band, color } of own) {
+    paintBand(ps, band, color, ps.ctx, toGrid ? inkGaps(band, inkCrossings(ps, skipInk, band), toGrid) : undefined);
+  }
   if (slice) ps.restore();
 }
 
@@ -757,6 +817,18 @@ function paintPieces(
     sliced ? pieces : undefined, shaped);
 }
 
+/** An x onto `ctx`'s device grid when its transform is axis-aligned (else as given), whether it
+ * is, and its device px per unit. */
+function deviceGrid(ctx: CanvasRenderingContext2D): { toGrid: (x: number) => number; aligned: boolean; scale: number } {
+  const m = typeof ctx.getTransform === 'function' ? ctx.getTransform() : null;
+  const aligned = !m || (m.b === 0 && m.c === 0 && m.a !== 0);
+  return {
+    toGrid: m && aligned ? (x: number) => (Math.round(m.a * x + m.e) - m.e) / m.a : (x: number) => x,
+    aligned,
+    scale: m ? Math.hypot(m.a, m.b) : 1,
+  };
+}
+
 /**
  * Clip to the pieces' slices of the fragment from `start` to `end`. Only edges between units
  * are cut: axis-aligned, on the device grid, so resting neighbours meet without a seam; rotated
@@ -766,12 +838,7 @@ function paintPieces(
  */
 function clipToSlice(ps: PaintState, pieces: UnitPiece[], start: number, end: number, opaque: boolean): void {
   const { ctx } = ps;
-  const m = typeof ctx.getTransform === 'function' ? ctx.getTransform() : null;
-  const aligned = !m || (m.b === 0 && m.c === 0 && m.a !== 0);
-  const toGrid = m && aligned
-    ? (x: number) => (Math.round(m.a * x + m.e) - m.e) / m.a
-    : (x: number) => x;
-  const scale = m ? Math.hypot(m.a, m.b) : 1;
+  const { toGrid, aligned, scale } = deviceGrid(ctx);
   const reach = aligned || !opaque || ctx.globalAlpha < 1 || !scale ? 0 : 1 / scale;
   const slices = pieces.map(piece => [piece.left, piece.right]).sort((a, b) => a[0] - b[0]);
   ps.save();

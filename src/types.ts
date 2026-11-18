@@ -240,6 +240,8 @@ export interface ResolvedStyle {
   textUnderlineOffset: number | null;
   /** text-decoration-thickness in px; null = `auto` or `from-font`. */
   textDecorationThickness: number | null;
+  /** text-decoration-skip-ink: 'auto' | 'none'. */
+  textDecorationSkipInk: string;
   textShadow: string;
   webkitTextStrokeWidth: number;
   webkitTextStrokeColor: string;

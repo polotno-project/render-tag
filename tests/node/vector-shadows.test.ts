@@ -7,7 +7,7 @@ import { mockCtx } from '../helpers/mock-ctx.ts';
 afterAll(() => setDOMParser(null));
 
 const html = `<div style="font-size:40px;color:blue;-webkit-text-stroke:4px red;
-  paint-order:stroke fill;text-decoration:underline;text-shadow:8px 8px 4px black">Header</div>`;
+  paint-order:stroke fill;text-decoration:underline;text-decoration-skip-ink:none;text-shadow:8px 8px 4px black">Header</div>`;
 
 function vectorContext() {
   const calls: string[] = [];

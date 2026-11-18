@@ -136,7 +136,7 @@ function sameGlyphPaint(p: ResolvedStyle, q: ResolvedStyle): boolean {
     p.fontStyle !== q.fontStyle || p.fontVariantCaps !== q.fontVariantCaps || p.fontKerning !== q.fontKerning ||
     p.textRendering !== q.textRendering || p.lang !== q.lang ||
     p.color !== q.color || p.webkitTextFillColor !== q.webkitTextFillColor ||
-    p.textDecorationLine !== q.textDecorationLine) return false;
+    p.textDecorationLine !== q.textDecorationLine || p.textDecorationSkipInk !== q.textDecorationSkipInk) return false;
   // Decorations that would paint differently must not merge into one band.
   const da = p.textDecorations, db = q.textDecorations;
   if (da !== db) {
