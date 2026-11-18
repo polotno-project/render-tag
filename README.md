@@ -148,6 +148,13 @@ merges text and bounds from separate flows on the same visual row, including
 table cells and list markers. Use `layoutRoot` for backgrounds, hit-testing,
 and rendering.
 
+### Links
+
+A text run inside an `<a href>` has the attribute's value, as written, in
+`style.href`; so does each glyph of text on a path. A run never spans two
+links. render-tag does not resolve, validate or style the value: use it to
+export a link (a PDF annotation, an SVG `<a>`) over the run's box.
+
 ### Metric helpers
 
 Renderers that draw `layoutRoot` themselves (SVG, PDF) call these instead of

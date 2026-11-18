@@ -128,13 +128,14 @@ function sameBidiRun(a: Word, b: Word): boolean {
 
 /**
  * Do two styles place and paint glyphs alike? A merged bidi run paints with its first
- * piece's style, so EVERY property the text painter reads must be compared here.
+ * piece's style, so EVERY property the text painter reads must be compared here; `href` too,
+ * so a run is in one link.
  */
 function sameGlyphPaint(p: ResolvedStyle, q: ResolvedStyle): boolean {
   if (p === q) return true;
   if (p.fontFamily !== q.fontFamily || p.fontSize !== q.fontSize || p.fontWeight !== q.fontWeight ||
     p.fontStyle !== q.fontStyle || p.fontVariantCaps !== q.fontVariantCaps || p.fontKerning !== q.fontKerning ||
-    p.textRendering !== q.textRendering || p.lang !== q.lang ||
+    p.textRendering !== q.textRendering || p.lang !== q.lang || p.href !== q.href ||
     p.color !== q.color || p.webkitTextFillColor !== q.webkitTextFillColor ||
     p.textDecorationLine !== q.textDecorationLine || p.textDecorationSkipInk !== q.textDecorationSkipInk) return false;
   // Decorations that would paint differently must not merge into one band.

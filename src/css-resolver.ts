@@ -157,7 +157,7 @@ const INHERITED_DEFAULTS = {
 };
 
 /** Initialize inherited fields once; the cascade only needs to write overrides. */
-function defaultStyle(parent: typeof INHERITED_DEFAULTS = INHERITED_DEFAULTS): ResolvedStyle {
+function defaultStyle(parent: typeof INHERITED_DEFAULTS & Pick<ResolvedStyle, 'href'> = INHERITED_DEFAULTS): ResolvedStyle {
   const style: ResolvedStyle = {
     fontFamily: parent.fontFamily,
     fontSize: parent.fontSize,
@@ -190,6 +190,7 @@ function defaultStyle(parent: typeof INHERITED_DEFAULTS = INHERITED_DEFAULTS): R
     fontKerning: parent.fontKerning,
     textRendering: parent.textRendering,
     lang: parent.lang,
+    href: parent.href,
     lineHeight: 0,
     verticalAlign: parent.verticalAlign,
     whiteSpace: parent.whiteSpace,
@@ -1664,6 +1665,7 @@ export function resolveStylesFromCSS(
     if (el.hasAttribute('hidden')) style.display = 'none';
     // `:any-link`: LinkText is #0000ee in Blink, WebKit and Gecko.
     if ((tag === 'a' || tag === 'area') && el.hasAttribute('href')) {
+      style.href = el.getAttribute('href')!;
       style.color = '#0000ee';
       style.textDecorationLine = 'underline';
       setProps.add('color');
