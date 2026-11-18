@@ -24,6 +24,7 @@ import {
   withCanvasShadow, withoutCanvasShadow, type Matrix, type PaintBounds, type ScratchPool, type ShadowPiece, type TextShadow,
 } from './shadow.js';
 import { PaintState, withDraw } from './paint-state.js';
+import type { InkProbe } from './skip-ink.js';
 import { fragmentBands, inkGaps, inkStripe, paintBand, type Band } from './decoration.js';
 import { BLINK_TEXT_RUN_SHAPING } from './engine.js';
 
@@ -252,21 +253,21 @@ const INK_PAINTS: TextPaints = { fill: '#000', clip: null, stroked: false, strok
 
 const NO_SPACING = { letter: 0, word: 0 };
 
-/**
- * Where the glyphs of the fragment `runs` cross `band`'s rows (`inkStripe`), a span per glyph
- * (`InkProbe.glyphs`). A piece the ctx does not lay out glyph by glyph, left to right (an RTL
- * level, a joining script), is read whole, as painted.
- */
+/** Where the glyphs of the fragment `runs` cross `band`'s rows (`inkStripe`), ascending. */
 function inkCrossings(ps: PaintState, runs: LayoutText[], band: Band): [number, number][] {
   const ink = ps.ink;
   if (!ink) return [];
   const [top, bottom] = inkStripe(band);
-  let memo = ink.crossings.get(runs[0]);
-  if (!memo) ink.crossings.set(runs[0], memo = new Map());
-  const key = `${top},${bottom}`;
-  let crossings = memo.get(key);
-  if (crossings) return crossings;
-  memo.set(key, crossings = []);
+  return ink.fragment(runs[0], top, bottom, () => inkOfRuns(ps, ink, runs, top, bottom));
+}
+
+/**
+ * Where the glyphs of `runs` have ink from `top` to `bottom`, a span per glyph
+ * (`InkProbe.glyphs`). A piece the ctx does not lay out glyph by glyph, left to right (an RTL
+ * level, a joining script), is read whole, as painted.
+ */
+function inkOfRuns(ps: PaintState, ink: InkProbe, runs: LayoutText[], top: number, bottom: number): [number, number][] {
+  const crossings: [number, number][] = [];
   for (const run of runs) {
     const { style } = run;
     const spacing = ps.text(style);
@@ -278,9 +279,10 @@ function inkCrossings(ps: PaintState, runs: LayoutText[], band: Band): [number, 
     for (const piece of pieces) {
       const clusters = graphemes(piece.text);
       if (piece.rtl || clusters.some(shapesAsRun)) {
-        const [left, right] = textEdges(run);
-        const em = style.fontSize;
-        crossings.push(...ink.columns(top, bottom, left - em, right + em, em, (scratch) => {
+        const em = style.fontSize, width = ps.measure(style, piece.text, !!piece.rtl);
+        // An RTL piece's x is its right edge.
+        const left = piece.rtl ? piece.x - width : piece.x;
+        crossings.push(...ink.columns(top, bottom, left - em, left + width + em, em, (scratch) => {
           scratch.text(style);
           paintGlyphs(scratch, style, [piece], baseline, INK_PAINTS);
         }));
@@ -300,7 +302,7 @@ function inkCrossings(ps: PaintState, runs: LayoutText[], band: Band): [number, 
       }
     }
   }
-  return crossings;
+  return crossings.sort((a, b) => a[0] - b[0]);
 }
 
 /** The line-throughs of `bands` (`through`), else the rest; `slice` clips them. `skipInk`: the
@@ -313,9 +315,11 @@ function paintBands(
   if (!own.length) return;
   // A gradient's stops are not read here: not opaque.
   if (slice) clipToSlice(ps, slice, left, right, own.every(({ color }) => typeof color === 'string' && isOpaque(color)));
-  const toGrid = skipInk && deviceGrid(ps.ctx).toGrid;
+  let toGrid: ((x: number) => number) | undefined;
   for (const { band, color } of own) {
-    paintBand(ps, band, color, ps.ctx, toGrid ? inkGaps(band, inkCrossings(ps, skipInk, band), toGrid) : undefined);
+    const crossings = skipInk ? inkCrossings(ps, skipInk, band) : [];
+    paintBand(ps, band, color, ps.ctx,
+      crossings.length ? inkGaps(band, crossings, toGrid ??= deviceGrid(ps.ctx).toGrid) : undefined);
   }
   if (slice) ps.restore();
 }

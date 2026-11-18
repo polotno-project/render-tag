@@ -15,6 +15,7 @@ import { commands } from 'vitest/browser';
 import { compareNativeRenders } from './helpers/native-compare.ts';
 import { loadMultiFontCss, TEST_FALLBACK_STACK } from './helpers/test-cases.ts';
 import { reportPath } from './helpers/report-path.ts';
+import { pixels } from './helpers/decoration-scan.ts';
 
 interface Case {
   name: string;
@@ -81,7 +82,7 @@ function isRed(d: Uint8ClampedArray, i: number): boolean {
 /** Per band row: the gaps [start, end) between its first and last red pixel. */
 function gapsByRow(canvas: HTMLCanvasElement): Map<number, [number, number][]> {
   const { width, height } = canvas;
-  const { data } = canvas.getContext('2d')!.getImageData(0, 0, width, height);
+  const { data } = pixels(canvas);
   const rows = new Map<number, [number, number][]>();
   for (let y = 0; y < height; y++) {
     let first = -1, last = -1;

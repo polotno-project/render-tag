@@ -1,6 +1,7 @@
 import type { AnyCanvas, LayoutText, ResolvedStyle } from './types.js';
 import type { PaintState } from './paint-state.js';
 import { isEmojiCluster } from './layout/segment.js';
+import { context2d } from './shadow.js';
 
 // `text-decoration-skip-ink: auto`. Blink asks Skia where each glyph's outline crosses the
 // band (`Font::GetTextIntercepts`, cached per glyph); a canvas has no outlines, so a glyph is
@@ -12,8 +13,8 @@ import { isEmojiCluster } from './layout/segment.js';
  * by a few px wherever a stroke grazes the band (skip-ink-parity).
  */
 const GLYPH_PX = 320;
-/** Scratch px per layout px at least, for text already that large. */
-const MIN_SCALE = 4;
+/** Scratch px per layout px for an em: at least 4, for text already that large. */
+const readScale = (em: number) => Math.max(4, GLYPH_PX / em);
 /** Coverage under this is not ink. */
 const INK_ALPHA = 12;
 /** The scratch canvas's width: one read-back window. */
@@ -25,8 +26,7 @@ const NEVER_SKIPPED = /[/\\_\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}
 
 /** One draw's ink reader: a scratch canvas of its own (read back, so kept off the GPU). */
 export class InkProbe {
-  /** A fragment's crossings per band stripe, by the fragment's first run. */
-  readonly crossings = new Map<LayoutText, Map<string, [number, number][]>>();
+  private readonly fragments = new Map<LayoutText, Map<string, [number, number][]>>();
   /** The read glyphs (`glyphRows`) by rows and `PaintState.face`. */
   private readonly read = new Map<string, Map<string, Float64Array | null>>();
   private canvas?: AnyCanvas;
@@ -37,6 +37,17 @@ export class InkProbe {
     /** A coverage tracker for a scratch ctx. */
     private readonly stateOf: (ctx: CanvasRenderingContext2D) => PaintState,
   ) {}
+
+  /** A fragment's crossings (`read`) of the rows from `top` to `bottom`, by its first run: read
+   * once, though it paints a band per unit slice and shadow. */
+  fragment(first: LayoutText, top: number, bottom: number, read: () => [number, number][]): [number, number][] {
+    let stripes = this.fragments.get(first);
+    if (!stripes) this.fragments.set(first, stripes = new Map());
+    const key = `${top},${bottom}`;
+    let crossings = stripes.get(key);
+    if (!crossings) stripes.set(key, crossings = read());
+    return crossings;
+  }
 
   /**
    * A reader of where a grapheme in `style` has ink between `top` and `bottom` (from its
@@ -78,7 +89,7 @@ export class InkProbe {
     // WebKit can leave a synthetic italic's shear out of the box: room on both sides.
     const room = style.fontSize / 4;
     const x = -box.actualBoundingBoxLeft - room;
-    const scale = Math.max(MIN_SCALE, GLYPH_PX / style.fontSize);
+    const scale = readScale(style.fontSize);
     const width = Math.min(SCRATCH_WIDTH, Math.ceil((box.actualBoundingBoxRight + room - x) * scale));
     const height = Math.round((bottom - top) * scale);
     const data = this.pixels(top, x, width, height, scale, (scratch) => {
@@ -92,11 +103,16 @@ export class InkProbe {
       const alpha = row * width * 4 + 3;
       let from = 0, to = width - 1;
       while (from < width && data[alpha + from * 4] < INK_ALPHA) from++;
-      while (to > from && data[alpha + to * 4] < INK_ALPHA) to--;
-      inked ||= from < width;
+      if (from === width) {
+        rows[row * 2] = Infinity;
+        rows[row * 2 + 1] = -Infinity;
+        continue;
+      }
+      while (data[alpha + to * 4] < INK_ALPHA) to--;
+      inked = true;
       // A partly covered edge column holds its ink on the inner side.
-      rows[row * 2] = from < width ? x + (from + 1 - data[alpha + from * 4] / 255) / scale : Infinity;
-      rows[row * 2 + 1] = from < width ? x + (to + data[alpha + to * 4] / 255) / scale : -Infinity;
+      rows[row * 2] = x + (from + 1 - data[alpha + from * 4] / 255) / scale;
+      rows[row * 2 + 1] = x + (to + data[alpha + to * 4] / 255) / scale;
     }
     return inked ? rows : null;
   }
@@ -108,7 +124,7 @@ export class InkProbe {
   columns(
     top: number, bottom: number, left: number, right: number, em: number, paint: (ps: PaintState) => void,
   ): [number, number][] {
-    const scale = Math.max(MIN_SCALE, GLYPH_PX / em);
+    const scale = readScale(em);
     const height = Math.max(1, Math.round((bottom - top) * scale));
     const out: [number, number][] = [];
     for (let x = left; x < right; x += SCRATCH_WIDTH / scale) {
@@ -153,12 +169,11 @@ export class InkProbe {
   private scratch(width: number, height: number): PaintState {
     if (!this.ps || this.canvas!.width < width || this.canvas!.height < height) {
       const canvas = this.canvas ??= this.makeCanvas(width, height);
-      canvas.width = Math.max(canvas.width, width);
-      canvas.height = Math.max(canvas.height, height);
-      const ctx = canvas.getContext('2d', { willReadFrequently: true }) as CanvasRenderingContext2D | null;
-      if (!ctx) throw new Error('render-tag: createCanvas must provide a 2D canvas.');
+      // Each assignment resets the canvas.
+      if (canvas.width < width) canvas.width = width;
+      if (canvas.height < height) canvas.height = height;
       // Resizing reset the ctx: a new tracker.
-      this.ps = this.stateOf(ctx);
+      this.ps = this.stateOf(context2d(canvas, { willReadFrequently: true }));
     }
     return this.ps;
   }

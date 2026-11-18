@@ -191,8 +191,8 @@ export function makeCanvas(
   return canvas;
 }
 
-function context2d(canvas: AnyCanvas): CanvasRenderingContext2D {
-  const target = canvas.getContext('2d') as CanvasRenderingContext2D | null;
+export function context2d(canvas: AnyCanvas, settings?: CanvasRenderingContext2DSettings): CanvasRenderingContext2D {
+  const target = canvas.getContext('2d', settings) as CanvasRenderingContext2D | null;
   if (!target) throw new Error('render-tag: createCanvas must provide a 2D canvas.');
   return target;
 }

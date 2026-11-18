@@ -303,7 +303,7 @@ export function inkStripe(band: Band): readonly [top: number, bottom: number] {
 }
 
 /**
- * The spans a skip-ink band leaves out, ascending and apart: each glyph crossing widened by
+ * The spans a skip-ink band leaves out, ascending and apart: each glyph crossing (ascending) widened by
  * the band's thickness, at most `MAX_INK_DILATION`, its edges on the device grid (`toGrid`):
  * Blink clips them out unantialiased (`ClipDecorationLine`).
  */
@@ -312,7 +312,7 @@ export function inkGaps(
 ): [number, number][] {
   const dilation = Math.min(band.thickness, MAX_INK_DILATION);
   const gaps: [number, number][] = [];
-  for (const [from, to] of [...crossings].sort((a, b) => a[0] - b[0])) {
+  for (const [from, to] of crossings) {
     const x0 = toGrid(from - dilation), x1 = toGrid(to + dilation);
     const last = gaps[gaps.length - 1];
     if (last && x0 <= last[1]) last[1] = Math.max(last[1], x1);
