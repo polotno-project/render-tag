@@ -20,6 +20,8 @@ export interface Segment {
   clipStyle?: ResolvedStyle;
   /** Nearest --rt-text-stroke-image declarer. */
   strokeImageStyle?: ResolvedStyle;
+  /** Every clip or stroke-image declarer around the text, outermost first. */
+  declarers?: readonly ResolvedStyle[];
 }
 
 export interface GlyphPlacement {
@@ -43,6 +45,10 @@ export interface GlyphPlacement {
   clipRange?: { start: number; width: number };
   /** The stroke-image declarer's fragment range. */
   strokeImageRange?: { start: number; width: number };
+  /** Every clip or stroke-image declarer around the glyph, outermost first:
+   * a radial gradient spans all its declarer's glyphs, descendants that
+   * paint their own included. */
+  declarers?: readonly ResolvedStyle[];
 }
 
 export type AlignMode = 'left' | 'center' | 'right' | 'justify';
@@ -101,11 +107,12 @@ export function flattenSegments(root: StyledNode): Segment[] {
     bidi: BidiContext | null,
     clipStyle?: ResolvedStyle,
     strokeImageStyle?: ResolvedStyle,
+    declarers?: readonly ResolvedStyle[],
   ) {
     if (node.style.display === 'none') return;
     if (node.tagName === '#text' && node.textContent) {
       out.push({
-        text: node.textContent, style: node.style, bidi, clipStyle, strokeImageStyle,
+        text: node.textContent, style: node.style, bidi, clipStyle, strokeImageStyle, declarers,
         wordBoundaryBefore,
       });
       wordBoundaryBefore = false;
@@ -120,7 +127,9 @@ export function flattenSegments(root: StyledNode): Segment[] {
       : bidiContextFor(block ? 'isolate' : node.style.unicodeBidi, node.style.direction, bidi);
     const newClip = hasTextClip(node.style) ? node.style : clipStyle;
     const newStroke = hasStrokeImage(node.style) ? node.style : strokeImageStyle;
-    for (const child of node.children) walk(child, ownBidi, newClip, newStroke);
+    const newDeclarers = newClip !== clipStyle || newStroke !== strokeImageStyle
+      ? [...declarers ?? [], node.style] : declarers;
+    for (const child of node.children) walk(child, ownBidi, newClip, newStroke, newDeclarers);
   }
   walk(root, null);
   return transformTextRuns(out);
@@ -137,6 +146,7 @@ interface PreGlyph {
   shaped: boolean;
   clipStyle?: ResolvedStyle;
   strokeImageStyle?: ResolvedStyle;
+  declarers?: readonly ResolvedStyle[];
   /** UAX #9 level. */
   level: number;
 }
@@ -165,6 +175,7 @@ function preGlyphsForSegment(
       shaped,
       clipStyle: seg.clipStyle,
       strokeImageStyle: seg.strokeImageStyle,
+      declarers: seg.declarers,
       level,
     });
   };
@@ -295,6 +306,7 @@ export function layoutGlyphsOnPath(input: LayoutInput): LayoutOutput {
       shaped: g.shaped,
       clipStyle: g.clipStyle,
       strokeImageStyle: g.strokeImageStyle,
+      declarers: g.declarers,
     });
 
     offset = endLen;
@@ -355,7 +367,7 @@ export function rotatedBox(g: GlyphPlacement, top: number, bottom: number): Poin
 /** Union of each glyph's `width x cellHeight` cell rotated by its tangent,
  * split above and below the baseline by the font's ascent/descent ratio.
  * See `LayoutOutput.bounds`. */
-function computeBounds(
+export function computeBounds(
   glyphs: GlyphPlacement[],
   textBaseline: TextBaseline,
 ): { x: number; y: number; width: number; height: number } {

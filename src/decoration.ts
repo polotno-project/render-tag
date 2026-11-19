@@ -1,4 +1,5 @@
 import type { DecorationEntry, ResolvedStyle } from './types.js';
+import type { GradientPaint } from './gradient.js';
 import { isShiftedVAlign } from './layout.js';
 import type { PaintState } from './paint-state.js';
 
@@ -130,7 +131,7 @@ export function fragmentBands(
 /** One stroke `rows` thick whose top edge is `top`, along each of `spans`. */
 function rule(
   ps: PaintState, spans: readonly (readonly [number, number])[], top: number, rows: number,
-  color: string | CanvasGradient, pen: Pen,
+  color: GradientPaint, pen: Pen,
 ) {
   ps.stroke(color, rows);
   ps.ctx.beginPath();
@@ -340,7 +341,7 @@ function spansBetween(x0: number, x1: number, gaps: readonly (readonly [number, 
  * adapters take plain strokes. A round dot at a gap's edge is whole or absent; Chrome cuts it.
  */
 export function paintBand(
-  ps: PaintState, band: Band, color: string | CanvasGradient, pen: Pen = ps.ctx,
+  ps: PaintState, band: Band, color: GradientPaint, pen: Pen = ps.ctx,
   gaps?: readonly (readonly [number, number])[],
 ) {
   const { ctx } = ps;

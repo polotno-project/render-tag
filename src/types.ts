@@ -130,7 +130,7 @@ export interface TextUnitPaint {
    * paint exactly as `drawLayout`, ligatures and contextual forms included; moving, a
    * ligature's parts move apart.
    */
-  draw(override?: { fill?: string | CanvasGradient; slice?: boolean }): void;
+  draw(override?: { fill?: string | CanvasGradient | CanvasPattern; slice?: boolean }): void;
 }
 
 export interface LayoutResult {

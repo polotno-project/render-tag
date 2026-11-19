@@ -344,6 +344,15 @@ read glyph ink from a scratch canvas: in Node pass `createCanvas`, or declare
 `text-decoration-skip-ink: none`. The adapter must provide the omitted effects;
 this option alone does not preserve the appearance of shadowed text.
 
+A circular `radial-gradient` arrives as a plain `createRadialGradient`. An
+elliptical one arrives as a circle at the origin with the ellipse's horizontal
+radius, and render-tag then calls `setTransform(matrix)` on that gradient when
+the adapter's gradients have one: `matrix` (a `DOMMatrix2DInit`) maps the
+gradient's space into the current user space, so an SVG adapter writes it as
+`gradientTransform` and a PDF adapter as the shading pattern's matrix. A
+gradient without `setTransform` gets the circle of the ellipse's horizontal
+radius at its centre instead.
+
 Text under an RTL `unicode-bidi: bidi-override` (`<bdo dir="rtl">`) arrives
 wrapped in U+202E…U+202C, as Canvas applies the override itself: honour the
 controls in your bidi pass and draw them invisible. On a proxy whose `measureText`
@@ -394,7 +403,20 @@ keeps whole bands.
 A
 `linear-gradient` takes angles in `deg`/`rad`/`grad`/`turn`, `to` sides and
 corners, `%` and `px` stop positions (including two-position stops and stops
-outside 0–100%); a color hint is treated as a plain midpoint.
+outside 0–100%); a color hint is treated as a plain midpoint. A
+`radial-gradient` draws its CSS ending shape: `circle` or `ellipse` (the
+default), sized by `closest-side`, `closest-corner`, `farthest-side`,
+`farthest-corner` (the default) or lengths (`px`, `%` of the box for an
+ellipse, math functions), centred at its `at` position (`%`, `px` or keywords;
+the centre when absent). A size in font or viewport units keeps its shape at
+the default extent, and a zero-size shape paints its last color. A stop before
+the centre opens the shape with the color CSS shows there (hex, named, `rgb()`
+and `hsl()` colors mixed in sRGB; another color clamps to the centre). On a
+path, one shape spans the declaring element's glyphs as laid out along the
+path, a descendant that paints its own included. Canvas has no elliptical
+gradient: on a raster canvas an ellipse is painted as a pattern at device
+resolution (made with `createCanvas` where given); on a vector adapter see
+below.
 
 ## render-tag-specific inputs
 
@@ -406,7 +428,7 @@ still renders in the DOM — render-tag just paints a little extra.
 
 | Property | Type | Effect |
 |---|---|---|
-| `--rt-text-stroke-image` | CSS custom property, a `linear-gradient(...)` | Paints the `-webkit-text-stroke` outline with a gradient instead of a solid color. |
+| `--rt-text-stroke-image` | CSS custom property, a `linear-gradient(...)` or `radial-gradient(...)` | Paints the `-webkit-text-stroke` outline with a gradient instead of a solid color. |
 | `stroke-linejoin` | `round` (default) \| `miter` \| `bevel` | Corner join for `-webkit-text-stroke` (SVG-style; HTML text-stroke has no join control). |
 
 ### Gradient text stroke
