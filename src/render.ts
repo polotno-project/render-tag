@@ -25,6 +25,7 @@ import {
 } from './shadow.js';
 import { PaintState, withDraw } from './paint-state.js';
 import type { InkProbe } from './skip-ink.js';
+import type { GradientPaint } from './gradient.js';
 import { fragmentBands, inkGaps, inkStripe, paintBand, type Band } from './decoration.js';
 import { BLINK_TEXT_RUN_SHAPING } from './engine.js';
 
@@ -72,14 +73,14 @@ function fillIsTransparent(style: ResolvedStyle): boolean {
 /** What paints a run's glyphs and its clip-painted bands. */
 interface TextPaints {
   /** The glyph fill; null paints none. */
-  fill: CanvasGradient | string | null;
+  fill: GradientPaint | null;
   /** The nearest background-clip:text paint, which a transparent band shows. */
-  clip: CanvasGradient | string | null;
+  clip: GradientPaint | null;
   stroked: boolean;
   /** The --rt-text-stroke-image gradient, over the stroke color. */
-  strokeImage: CanvasGradient | null;
+  strokeImage: GradientPaint | null;
   /** A text unit's `fill` override: the color of its `currentColor` decorations too. */
-  recolor?: CanvasGradient | string;
+  recolor?: GradientPaint;
 }
 
 /**
@@ -90,7 +91,7 @@ interface TextPaints {
  * omits the stroke (WebKit's casts it).
  */
 export function glyphPaints(
-  ps: PaintState, style: ResolvedStyle, clip: CanvasGradient | string | null, strokeImage: CanvasGradient | null,
+  ps: PaintState, style: ResolvedStyle, clip: GradientPaint | null, strokeImage: GradientPaint | null,
 ): TextPaints {
   const clipped = hasTextClip(style) || (clip != null && fillIsTransparent(style));
   const fill = clipped ? clip || style.color
@@ -103,8 +104,8 @@ export function glyphPaints(
 function textPaints(
   ps: PaintState,
   node: LayoutText,
-  gradientFill: CanvasGradient | string | null | undefined,
-  strokeGradient: CanvasGradient | null | undefined,
+  gradientFill: GradientPaint | null | undefined,
+  strokeGradient: GradientPaint | null | undefined,
 ): TextPaints {
   const { clip: box, strokeImage } = node;
   const inlineClip = box
@@ -206,9 +207,9 @@ function sameTextFragment(a: LayoutText, b: LayoutText): boolean {
 /** A fragment's bands across its runs' extent, colored; a transparent entry shows the clip paint or nothing. */
 function coloredBands(
   ps: PaintState, head: LayoutText, left: number, right: number, paints: TextPaints,
-): { band: Band; color: string | CanvasGradient }[] {
+): { band: Band; color: GradientPaint }[] {
   const [baseline, lineBaseline] = paintBaselines(head);
-  const bands: { band: Band; color: string | CanvasGradient }[] = [];
+  const bands: { band: Band; color: GradientPaint }[] = [];
   for (const { band, deco } of fragmentBands(ps, head.style, left, right - left, baseline, paintLineSnap(head), lineBaseline)) {
     const color = deco.currentColor && paints.recolor ? paints.recolor : isTransparent(deco.color) ? paints.clip : deco.color;
     if (color) bands.push({ band, color });
@@ -224,7 +225,7 @@ function paintRuns(
   ps: PaintState, runs: LayoutText[], glyphs: LayoutText[], paints: TextPaints, slice?: UnitPiece[],
   sliceGlyphs = false,
 ): void {
-  let bands: { band: Band; color: string | CanvasGradient }[] | null = null;
+  let bands: { band: Band; color: GradientPaint }[] | null = null;
   let left = Infinity, right = -Infinity;
   const decorated = runs[0].style.textDecorations.length > 0;
   if (decorated || sliceGlyphs) {
@@ -308,7 +309,7 @@ function inkOfRuns(ps: PaintState, ink: InkProbe, runs: LayoutText[], top: numbe
 /** The line-throughs of `bands` (`through`), else the rest; `slice` clips them. `skipInk`: the
  * fragment's runs, whose glyph ink the under- and overlines skip. */
 function paintBands(
-  ps: PaintState, bands: { band: Band; color: string | CanvasGradient }[], through: boolean,
+  ps: PaintState, bands: { band: Band; color: GradientPaint }[], through: boolean,
   left: number, right: number, slice?: UnitPiece[], skipInk?: LayoutText[],
 ): void {
   const own = bands.filter(({ band }) => (band.line === 'line-through') === through);
@@ -357,7 +358,7 @@ function forEachBatch(runs: LayoutText[], visit: (run: LayoutText, head: LayoutT
 }
 
 /** A block's background-clip:text paint: its gradient, else its solid color. */
-function blockClipPaint(ps: PaintState, box: LayoutBox): CanvasGradient | string | null {
+function blockClipPaint(ps: PaintState, box: LayoutBox): GradientPaint | null {
   const { style } = box;
   const grad = hasBackgroundImage(style)
     ? ps.gradient(style.backgroundImage, box.x, box.width, box.y, box.height)
@@ -366,7 +367,7 @@ function blockClipPaint(ps: PaintState, box: LayoutBox): CanvasGradient | string
 }
 
 /** A block's --rt-text-stroke-image gradient over its box. */
-function blockStrokePaint(ps: PaintState, box: LayoutBox): CanvasGradient | null {
+function blockStrokePaint(ps: PaintState, box: LayoutBox): GradientPaint | null {
   const { style } = box;
   return ps.gradient(style.webkitTextStrokeImage, box.x, box.width, box.y, box.height);
 }
@@ -542,8 +543,8 @@ function walkPaintRegions(
 }
 
 /** A fragment's block clip and stroke paints, resolved on `ps`'s ctx. */
-function blockPaints(ps: PaintState, fragment: TextFragment): [CanvasGradient | string | null, CanvasGradient | null] {
-  let fill: CanvasGradient | string | null = null;
+function blockPaints(ps: PaintState, fragment: TextFragment): [GradientPaint | null, GradientPaint | null] {
+  let fill: GradientPaint | null = null;
   for (const block of fragment.clips) fill = blockClipPaint(ps, block) ?? fill;
   return [fill, fragment.stroke ? blockStrokePaint(ps, fragment.stroke) : null];
 }

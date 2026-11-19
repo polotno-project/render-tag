@@ -1,25 +1,36 @@
 /**
- * `radial-gradient` as Polotno draws it: always a circle with CSS's default
- * `farthest-corner` extent, centred at its `at` position, painted over the
- * same box a linear gradient uses at each site (the block box, an inline
- * fragment, the `--rt-text-stroke-image` box, and on a path the declarer's
- * glyphs as laid out there). The arithmetic runs on a fake ctx that records
- * the gradient; the paint sites on the recording ctx. The canonical circle
- * forms are checked against Chrome's pixels in tests/gradient-parity.test.ts.
+ * `radial-gradient` as CSS draws it (CSS Images 3 §3.2): a circle or an
+ * ellipse sized by its extent keyword or lengths, centred at its `at`
+ * position, painted over the same box a linear gradient uses at each site
+ * (the block box, an inline fragment, the `--rt-text-stroke-image` box, and on
+ * a path the declarer's glyphs as laid out there). A circle is a canvas
+ * radial gradient; an ellipse is one at the origin handed its transform
+ * through the gradient's `setTransform` when the ctx's gradients have one (a
+ * vector adapter), a pattern on a raster canvas, else the circle of its
+ * horizontal radius. The arithmetic runs on a fake ctx that records the
+ * gradient; the paint sites on the recording ctx. The forms are checked
+ * against Chrome's pixels in tests/gradient-parity.test.ts.
  */
 import { afterAll, describe, expect, it } from 'vitest';
 import { DOMParser as LinkedomDOMParser } from 'linkedom';
-import { gradientKind, parseGradient, parseLinearGradient, parseRadialGradient, radialGradientGeometry } from '../../src/gradient.ts';
+import { createCanvas } from '@napi-rs/canvas';
+import { gradientKind, parseGradient, parseLinearGradient, parseRadialGradient, radialGradientGeometry, radialPaint } from '../../src/gradient.ts';
 import { layout, drawLayout, setDOMParser } from '../../src/index.ts';
 import { layoutTextOnPath, drawTextOnPathLayout } from '../../src/path/index.ts';
 import { recordingCtx } from '../helpers/recording-ctx.ts';
 
 afterAll(() => setDOMParser(null));
 
-interface Recorded { kind: 'linear' | 'radial'; args: number[]; stops: [number, string][] }
+interface Recorded {
+  kind: 'linear' | 'radial';
+  args: number[];
+  stops: [number, string][];
+  transform?: DOMMatrix2DInit;
+}
 
+/** What `parse` builds on a fake ctx; `transforms`: its gradients take a `setTransform`, as a vector adapter's may. */
 function record(
-  parse: typeof parseGradient, image: string, x = 0, width = 480, y = 0, height = 200,
+  parse: typeof parseGradient, image: string, x = 0, width = 480, y = 0, height = 200, transforms = true,
 ): Recorded | null {
   let rec: Recorded | null = null;
   const gradient = (kind: Recorded['kind']) => (...args: number[]) => {
@@ -29,6 +40,7 @@ function record(
         if (!(offset >= 0 && offset <= 1)) throw new RangeError(`offset ${offset}`);
         rec!.stops.push([offset, color]);
       },
+      ...(transforms && { setTransform(m: DOMMatrix2DInit) { rec!.transform = m; } }),
     };
   };
   const ctx = {
@@ -39,15 +51,28 @@ function record(
   return rec;
 }
 
+/** A ctx that builds no gradient: a solid paint needs none. */
+const NO_GRADIENTS = {} as CanvasRenderingContext2D;
+
 const radial = (image: string, x?: number, width?: number, y?: number, height?: number) =>
   record(parseRadialGradient, image, x, width, y, height);
 
 /** The circle a radial gradient draws: [cx, cy, r]. */
 function circle(r: Recorded | null): number[] {
   expect(r?.kind).toBe('radial');
+  expect(r!.transform).toBeUndefined();
   const [x0, y0, r0, x1, y1, r1] = r!.args;
   expect([x1, y1, r0]).toEqual([x0, y0, 0]);
   return [x0, y0, r1];
+}
+
+/** The ellipse a radial gradient draws through its transform: [cx, cy, rx, ry]. */
+function ellipse(r: Recorded | null): number[] {
+  expect(r?.kind).toBe('radial');
+  expect(r!.args).toEqual([0, 0, 0, 0, 0, r!.args[5]]);
+  const { a, b, c, d, e, f } = r!.transform!;
+  close([a!, b!, c!], [1, 0, 0]);
+  return [e!, f!, r!.args[5], r!.args[5] * d!];
 }
 
 const close = (a: number[], b: number[]) => {
@@ -66,22 +91,92 @@ describe('radial-gradient geometry', () => {
     close(circle(radial('radial-gradient(circle at 20% 80%, red, blue)', 10, 480, 30, 200)), [106, 190, 416]);
   });
 
-  it('draws the default ellipse as a circle at the centre', () => {
-    close(circle(radial('radial-gradient(red, blue)')), [240, 100, Math.hypot(240, 100)]);
+  it('draws the default ellipse through the farthest corner, its aspect the farthest sides\'', () => {
+    // Centre (240, 100): sides 240 and 100, so rx = 240√2, ry = 100√2.
+    close(ellipse(radial('radial-gradient(red, blue)')), [240, 100, 240 * Math.SQRT2, 100 * Math.SQRT2]);
+  });
+
+  // 480×200 at 20% 80%: centre (96, 160); sides left 96, right 384, top 160,
+  // bottom 40; corners at 186.6 (top left), 416 (top right), 104 (bottom
+  // left) and 386 (bottom right).
+  it.each([
+    ['ellipse at 20% 80%', [384 * Math.SQRT2, 160 * Math.SQRT2]],
+    ['at 20% 80%', [384 * Math.SQRT2, 160 * Math.SQRT2]],
+    ['ellipse farthest-corner at 20% 80%', [384 * Math.SQRT2, 160 * Math.SQRT2]],
+    ['farthest-side at 20% 80%', [384, 160]],
+    ['ellipse closest-side at 20% 80%', [96, 40]],
+    ['closest-corner at 20% 80%', [96 * Math.SQRT2, 40 * Math.SQRT2]],
+    ['50% 30% at 20% 80%', [240, 60]],
+    ['ellipse 50% 30% at 20% 80%', [240, 60]],
+    ['100px 2.5% at 20% 80%', [100, 5]],
+    ['min(10px, 5%) max(1px, 2%) at 20% 80%', [10, 4]],
+  ])('sizes the ellipse %s', (config, [rx, ry]) => {
+    close(ellipse(radial(`radial-gradient(${config}, red, blue)`)), [96, 160, rx, ry]);
   });
 
   it.each([
-    'radial-gradient(ellipse at 20% 80%, red, blue)',
-    'radial-gradient(120px at 20% 80%, red, blue)',
-    'radial-gradient(50% 30% at 20% 80%, red, blue)',
-    'radial-gradient(ellipse 50% 30% at 20% 80%, red, blue)',
-    'radial-gradient(circle closest-side at 20% 80%, red, blue)',
-    'radial-gradient(farthest-side at 20% 80%, red, blue)',
-    'radial-gradient(closest-corner circle at 20% 80%, red, blue)',
-    'radial-gradient(circle farthest-corner at 20% 80%, red, blue)',
-    'radial-gradient(circle at 20% 80% in oklab, red, blue)',
-  ])('coerces %s to the farthest-corner circle', (image) => {
-    close(circle(radial(image)), [96, 160, 416]);
+    ['circle at 20% 80%', 416],
+    ['circle farthest-corner at 20% 80%', 416],
+    ['circle closest-side at 20% 80%', 40],
+    ['farthest-side circle at 20% 80%', 384],
+    ['closest-corner circle at 20% 80%', 104],
+    ['120px at 20% 80%', 120],
+    ['circle 120px at 20% 80%', 120],
+    ['calc(20px + 10px) at 20% 80%', 30],
+    ['circle at 20% 80% in oklab', 416],
+  ])('sizes the circle %s', (config, r) => {
+    close(circle(radial(`radial-gradient(${config}, red, blue)`)), [96, 160, r]);
+  });
+
+  it('measures a centre outside the box by its distance to each side', () => {
+    // Centre (-20, 100) on 480×200: the sides are 20, 500, 100 and 100 away.
+    close(circle(radial('radial-gradient(circle closest-side at -20px 50%, red, blue)')), [-20, 100, 20]);
+    close(circle(radial('radial-gradient(circle farthest-side at -20px 50%, red, blue)')), [-20, 100, 500]);
+  });
+
+  it.each([
+    'radial-gradient(circle 50% at 20% 80%, red, blue)',
+    'radial-gradient(circle 10px 20px, red, blue)',
+    'radial-gradient(ellipse 120px, red, blue)',
+    'radial-gradient(-10px, red, blue)',
+    'radial-gradient(10px 20px 30px, red, blue)',
+    'radial-gradient(circle ellipse, red, blue)',
+    'radial-gradient(closest-side farthest-side, red, blue)',
+    'radial-gradient(closest-side 10px, red, blue)',
+  ])('paints nothing for the invalid %s', (image) => {
+    expect(radial(image)).toBeNull();
+  });
+
+  it('keeps the shape and the default extent for a size it cannot resolve', () => {
+    // A viewport or font length has no basis here.
+    close(circle(radial('radial-gradient(clamp(1px, 2vw, 30px) at 20% 80%, red, blue)')), [96, 160, 416]);
+    close(ellipse(radial('radial-gradient(2em 1em at 20% 80%, red, blue)')),
+      [96, 160, 384 * Math.SQRT2, 160 * Math.SQRT2]);
+  });
+
+  it('paints a zero-size gradient as its last stop', () => {
+    expect(radial('radial-gradient(circle 0px, red, blue)')).toBeNull();
+    expect(parseRadialGradient(NO_GRADIENTS, 'radial-gradient(circle 0px, red, blue)', 0, 480, 0, 200)).toBe('blue');
+    expect(parseRadialGradient(NO_GRADIENTS, 'radial-gradient(circle closest-side at 0 50%, red, lime)', 0, 480, 0, 200))
+      .toBe('lime');
+  });
+
+  it('reads px stops along the horizontal radius of an ellipse', () => {
+    const r = radial('radial-gradient(50% 30% at 20% 80%, red 0 60px, blue 60px)');
+    close(ellipse(r), [96, 160, 240, 60]);
+    expect(r!.stops).toEqual([[0, 'red'], [0.25, 'red'], [0.25, 'blue']]);
+  });
+
+  it('tiles a repeating ellipse out to the farthest corner', () => {
+    // rx 48, ry 20 at the top left: the far corner is √200 ≈ 14.1 radii out, so 15 tiles.
+    const r = radial('repeating-radial-gradient(10% 10% at 0 0, red 0 50%, blue 50% 100%)');
+    close(ellipse(r), [0, 0, 48 * 15, 20 * 15]);
+    expect(r!.stops).toHaveLength(60);
+  });
+
+  it('draws an ellipse as the circle of its horizontal radius where gradients take no transform', () => {
+    const r = record(parseRadialGradient, 'radial-gradient(50% 30% at 20% 80%, red, blue)', 0, 480, 0, 200, false);
+    close(circle(r), [96, 160, 240]);
   });
 
   it.each([
@@ -116,18 +211,84 @@ describe('radial-gradient geometry', () => {
     'radial-gradient(min(10px, 5%) max(1px, 2%) at 20% 80%, red, blue)',
     'radial-gradient(clamp(1px, 2vw, 30px) at 20% 80%, red, blue)',
   ])('reads %s as a size and a position, not a stop', (image) => {
-    const r = radial(image);
-    close(circle(r), [96, 160, 416]);
-    expect(r!.stops).toEqual([[0, 'red'], [1, 'blue']]);
+    expect(radial(image)!.stops).toEqual([[0, 'red'], [1, 'blue']]);
   });
 
   it('falls back to the centre for a position it cannot read', () => {
     close(circle(radial('radial-gradient(circle at 2em 1em, red, blue)')), [240, 100, Math.hypot(240, 100)]);
   });
 
-  it('exposes the same circle as geometry', () => {
+  it('exposes the same shape as geometry', () => {
     expect(radialGradientGeometry('radial-gradient(circle at 20% 80%, red, blue 50%)', 0, 480, 0, 200))
-      .toEqual({ cx: 96, cy: 160, r: 416, stops: [['red', 0], ['blue', 0.5]] });
+      .toEqual({ cx: 96, cy: 160, rx: 416, ry: 416, stops: [['red', 0], ['blue', 0.5]], box: { x: 0, y: 0, width: 480, height: 200 } });
+  });
+});
+
+describe('radial-gradient ellipse on a raster canvas', () => {
+  const W = 240, H = 100;
+  const pixels = (draw: (ctx: CanvasRenderingContext2D) => void) => {
+    const canvas = createCanvas(W, H);
+    const ctx = canvas.getContext('2d') as unknown as CanvasRenderingContext2D;
+    draw(ctx);
+    return ctx.getImageData(0, 0, W, H).data;
+  };
+  /** The ellipse as canvas itself paints it: a circle under a scaled transform. */
+  const reference = (cx: number, cy: number, rx: number, ry: number) => pixels((ctx) => {
+    ctx.translate(cx, cy);
+    ctx.scale(1, ry / rx);
+    const g = ctx.createRadialGradient(0, 0, 0, 0, 0, rx);
+    g.addColorStop(0, 'red');
+    g.addColorStop(1, 'blue');
+    ctx.fillStyle = g;
+    ctx.fillRect(-cx, -cy * rx / ry, W, H * rx / ry);
+  });
+  const raster = { scale: 1, canvas: (w: number, h: number) => createCanvas(w, h) as unknown as OffscreenCanvas };
+
+  function expectMatch(actual: Uint8ClampedArray, expected: Uint8ClampedArray) {
+    let sum = 0, max = 0;
+    for (let i = 0; i < actual.length; i++) {
+      const d = Math.abs(actual[i] - expected[i]);
+      sum += d;
+      max = Math.max(max, d);
+    }
+    expect(sum / actual.length).toBeLessThan(0.5);
+    expect(max).toBeLessThanOrEqual(4);
+  }
+
+  it('paints a pattern of the ellipse where the gradient takes no transform', () => {
+    const geometry = radialGradientGeometry('radial-gradient(closest-side at 40% 50%, red, blue)', 0, W, 0, H)!;
+    let kind = '';
+    const actual = pixels((ctx) => {
+      const paint = radialPaint(ctx, geometry, undefined, raster);
+      kind = (paint as object).constructor.name;
+      ctx.fillStyle = paint;
+      ctx.fillRect(0, 0, W, H);
+    });
+    expect(kind).toBe('CanvasPattern');
+    expectMatch(actual, reference(96, 50, 96, 50));
+  });
+
+  it('places the pattern in a rotated glyph frame', () => {
+    // The frame maps layout space into the paint's: here a quarter turn about (120, 50).
+    const geometry = radialGradientGeometry('radial-gradient(closest-side at 40% 50%, red, blue)', 0, W, 0, H)!;
+    const frame = { a: 0, b: -1, c: 1, d: 0, e: -50, f: 120 };
+    const actual = pixels((ctx) => {
+      ctx.translate(120, 50);
+      ctx.rotate(Math.PI / 2);
+      ctx.fillStyle = radialPaint(ctx, geometry, frame, raster);
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.translate(120, 50);
+      ctx.rotate(Math.PI / 2);
+      ctx.fillRect(-200, -200, 400, 400);
+    });
+    expectMatch(actual, reference(96, 50, 96, 50));
+  });
+
+  it('builds no pattern without a scratch canvas: the circle of its horizontal radius', () => {
+    const geometry = radialGradientGeometry('radial-gradient(closest-side at 40% 50%, red, blue)', 0, W, 0, H)!;
+    pixels((ctx) => {
+      expect((radialPaint(ctx, geometry) as object).constructor.name).toBe('CanvasGradient');
+    });
   });
 });
 
@@ -265,7 +426,7 @@ describe('gradient detection', () => {
 
 /** The gradients the recording ctx painted text with, as `kind(args|stops)`. */
 function gradientsOf(paints: string[], prop: 'fillStyle' | 'strokeStyle', kind: string): string[] {
-  const re = new RegExp(`${prop}=(${kind}\\([^)]*\\))`);
+  const re = new RegExp(`${prop}=(${kind}\\([^)]*\\)(?:@[^;]*)?)`);
   return [...new Set(paints.filter((p) => /^(fillText|strokeText)\(/.test(p))
     .map((p) => re.exec(p)?.[1]).filter((g): g is string => !!g))];
 }
@@ -324,6 +485,35 @@ describe('radial-gradient paint sites', () => {
     const fills = gradientsOf(paint(html(RADIAL)), 'fillStyle', 'radial');
     expect(fills).toHaveLength(1);
     expectCircleOver(fills[0], box);
+  });
+
+  /** An ellipse placed by its gradient's transform: [cx, cy, rx, ry]. */
+  function placedEllipse(gradient: string): number[] {
+    const m = /^radial\(([^|]*)\|[^)]*\)@(.*)$/.exec(gradient);
+    expect(m, gradient).not.toBeNull();
+    const [x0, y0, r0, x1, y1, r] = m![1].split(',').map(Number);
+    expect([x0, y0, r0, x1, y1]).toEqual([0, 0, 0, 0, 0]);
+    const [a, b, c, d, e, f] = m![2].split(',').map(Number);
+    close([a, b, c], [1, 0, 0]);
+    return [e, f, r, r * d];
+  }
+
+  it('fills block text with the ellipse over the block box, placed by the gradient\'s transform', () => {
+    const html = (image: string) =>
+      `<div style="width:480px;font-size:40px;line-height:50px;background-image:${image};${CLIP}">Radial text</div>`;
+    const box = linearBox(html, 'fillStyle');
+    const fills = gradientsOf(paint(html('radial-gradient(farthest-side at 20% 80%, red, blue)')), 'fillStyle', 'radial');
+    expect(fills).toHaveLength(1);
+    close(placedEllipse(fills[0]), [box.x + 0.2 * box.width, box.y + 0.8 * box.height, 0.8 * box.width, 0.8 * box.height]);
+  });
+
+  it('strokes with the ellipse over the --rt-text-stroke-image box', () => {
+    const html = (image: string) =>
+      `<div style="font-size:40px;line-height:50px;color:white;-webkit-text-stroke:4px black;--rt-text-stroke-image:${image}">Stroke</div>`;
+    const box = linearBox(html, 'strokeStyle');
+    const strokes = gradientsOf(paint(html('radial-gradient(closest-side, red, blue)')), 'strokeStyle', 'radial');
+    expect(strokes).toHaveLength(1);
+    close(placedEllipse(strokes[0]), [box.x + box.width / 2, box.y + box.height / 2, box.width / 2, box.height / 2]);
   });
 
   it('strokes with the circle over the --rt-text-stroke-image box', () => {
@@ -426,6 +616,29 @@ describe('radial-gradient on a path', () => {
     // One per glyph on the destination, three stops each; the mask canvases build none.
     expect(calls).toEqual({ gradients: glyphs, stops: 3 * glyphs });
     expect(scratchCalls() - before).toBe(glyphs);
+  });
+
+  it('fills every glyph from one ellipse over the laid-out text', () => {
+    setDOMParser(new LinkedomDOMParser());
+    const rec = recordingCtx(480, 240);
+    const html = `<span style="font-size:40px;background-image:radial-gradient(closest-side, red, blue);${CLIP}">Curved</span>`;
+    const result = layoutTextOnPath({ html, path: PATH, ctx: rec.ctx });
+    drawTextOnPathLayout({ layout: result, ctx: rec.ctx, createCanvas: rec.createCanvas });
+    const ops = rec.paints.filter((p) => p.startsWith('fillText('));
+    expect(ops.length).toBe(result.glyphs.length);
+    const { x, y, width, height } = result.bounds;
+    for (const p of ops) {
+      // The ctx's glyph matrix times the gradient's: the ellipse in layout space.
+      const [a, b, c, d, e, f] = /matrix=([^;|]*)/.exec(p)![1].split(',').map(Number);
+      const m = /fillStyle=radial\(0,0,0,0,0,([^|]*)\|[^)]*\)@([^;]*)/.exec(p);
+      expect(m, p).not.toBeNull();
+      const r = Number(m![1]);
+      const [ga, gb, gc, gd, ge, gf] = m![2].split(',').map(Number);
+      close([
+        a * ga + c * gb, b * ga + d * gb, a * gc + c * gd, b * gc + d * gd,
+        a * ge + c * gf + e, b * ge + d * gf + f, r,
+      ], [1, 0, 0, height / width, x + width / 2, y + height / 2, width / 2]);
+    }
   });
 
   it('strokes every glyph from one circle over the laid-out text', () => {

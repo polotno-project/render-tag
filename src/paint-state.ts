@@ -1,9 +1,9 @@
-import type { ResolvedStyle, ShadowOptions } from './types.js';
+import type { CanvasFactory, ResolvedStyle, ShadowOptions } from './types.js';
 import {
   canvasFont, canvasKerning, canvasSpacing, canvasTextRendering, claimCtx, formatLetterSpacing, getFontMetrics,
   nextCtxWriterId, syntheticBoldWidening, type FontMetricsTable,
 } from './layout.js';
-import { parseGradient } from './gradient.js';
+import { parseGradient, radialPaint, type Affine, type GradientPaint, type RadialGradientGeometry, type RadialRaster } from './gradient.js';
 import { makeCanvas, MITER_LIMIT, ScratchPool, withoutCanvasShadow } from './shadow.js';
 import { InkProbe } from './skip-ink.js';
 
@@ -19,7 +19,7 @@ type Key =
   | 'textBaseline' | 'textAlign' | 'direction'
   | 'fillStyle' | 'strokeStyle' | 'lineWidth' | 'lineJoin' | 'lineCap' | 'lineDash' | 'miterLimit' | 'lineDashOffset';
 
-type Paint = string | CanvasGradient;
+type Paint = GradientPaint;
 
 const NO_DASH: readonly number[] = [];
 const COVERAGE = '#000';
@@ -53,7 +53,8 @@ export class PaintState {
   /** `canvasFont`'s and `syntheticBoldWidening`'s answers for this ctx. */
   private readonly canvasFonts = new Map<string, string>();
   private readonly boldWidenings = new Map<string, number>();
-  private readonly gradients = new Map<string, CanvasGradient | null>();
+  private readonly gradients = new Map<string, GradientPaint | null>();
+  private readonly radialImages: RadialRaster['images'] = new Map();
   private readonly writerId = nextCtxWriterId();
 
   /** @param deviceScale — device pixels per CSS pixel (the caller's `pixelRatio`). */
@@ -66,6 +67,8 @@ export class PaintState {
     private readonly support: CanvasSupport = {},
     /** The draw's ink reader for `text-decoration-skip-ink`; without one, bands stay whole. */
     readonly ink?: InkProbe,
+    /** The caller's factory for an elliptical gradient's pattern image. */
+    private readonly createCanvas?: CanvasFactory,
   ) {}
 
   fontBox(style: ResolvedStyle): { ascent: number; descent: number } {
@@ -182,17 +185,40 @@ export class PaintState {
 
   /** One gradient per CSS gradient and box on this ctx, so a PDF proxy emits
    * one shading per fragment, not per word. */
-  gradient(image: string, x: number, width: number, y: number, height: number): CanvasGradient | null {
+  gradient(image: string, x: number, width: number, y: number, height: number): GradientPaint | null {
     const key = `${x},${y},${width},${height} ${image}`;
     let gradient = this.gradients.get(key);
     if (gradient === undefined) {
-      this.gradients.set(key, gradient = parseGradient(this.ctx, image, x, width, y, height));
+      this.gradients.set(key, gradient = parseGradient(this.ctx, image, x, width, y, height, this.raster()));
     }
     return gradient;
   }
 
+  /** A radial gradient's paint, `frame` mapping its box into the ctx's space (`radialPaint`). */
+  radial(geometry: RadialGradientGeometry, frame?: Affine): GradientPaint {
+    return radialPaint(this.ctx, geometry, frame, this.raster());
+  }
+
+  /** What an ellipse's pattern is drawn with; none for a mask, which paints coverage. */
+  private raster(): RadialRaster | undefined {
+    if (this.coverage) return undefined;
+    const m = typeof this.ctx.getTransform === 'function' ? this.ctx.getTransform() : null;
+    const scale = m ? Math.max(Math.hypot(m.a, m.b), Math.hypot(m.c, m.d)) : this.deviceScale;
+    return {
+      scale: scale > 0 ? scale : this.deviceScale,
+      canvas: (width, height) => {
+        try {
+          return makeCanvas(this.ctx, width, height, this.createCanvas);
+        } catch {
+          return null;
+        }
+      },
+      images: this.radialImages,
+    };
+  }
+
   /** -webkit-text-stroke; a --rt-text-stroke-image gradient wins over the color. */
-  textStroke(style: ResolvedStyle, strokeGradient?: CanvasGradient | null): void {
+  textStroke(style: ResolvedStyle, strokeGradient?: GradientPaint | null): void {
     const join = style.strokeLinejoin;
     this.stroke(strokeGradient || style.webkitTextStrokeColor || style.color, style.webkitTextStrokeWidth,
       NO_DASH, 'butt', join === 'miter' || join === 'bevel' ? join : 'round');
@@ -243,7 +269,7 @@ export function withDraw(
   // One factory makes every pooled canvas: they share whether they apply spacing.
   const scratch: CanvasSupport = {};
   const layerState = (target: CanvasRenderingContext2D, coverage = false): PaintState =>
-    new PaintState(target, scale, coverage, fontMetrics, scratch, ink);
+    new PaintState(target, scale, coverage, fontMetrics, scratch, ink, options.createCanvas);
   // Its scratch canvas is made on first use, also under `renderShadows: false`.
   const ink = new InkProbe(
     (width, height) => makeCanvas(ctx, width, height, options.createCanvas,
@@ -251,7 +277,7 @@ export function withDraw(
     target => layerState(target, true));
   const stateOf = (target: CanvasRenderingContext2D) => {
     let ps = states.get(target);
-    if (!ps) states.set(target, ps = target === ctx ? new PaintState(target, scale, false, fontMetrics, undefined, ink) : layerState(target));
+    if (!ps) states.set(target, ps = target === ctx ? new PaintState(target, scale, false, fontMetrics, undefined, ink, options.createCanvas) : layerState(target));
     return ps;
   };
   const pool = options.renderShadows === false ? null : new ScratchPool(ctx, options.createCanvas);

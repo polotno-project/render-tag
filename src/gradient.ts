@@ -1,5 +1,6 @@
 import { namedColorHex, splitTopLevel, splitTopLevelWhitespace } from './css-validate.js';
 import { numberThen, resolveNumberOrLength } from './css-values.js';
+import type { AnyCanvas } from './types.js';
 
 const ANGLE = numberThen('(deg|grad|rad|turn)');
 const DEGREES_PER: Record<string, number> = { deg: 1, grad: 0.9, rad: 180 / Math.PI, turn: 360 };
@@ -70,7 +71,10 @@ export function gradientKind(bgImage: string): 'linear' | 'radial' | null {
   return LINEAR_FUNCTION.test(calls) ? 'linear' : RADIAL_FUNCTION.test(calls) ? 'radial' : null;
 }
 
-/** A CSS linear or radial gradient as a CanvasGradient over the box. */
+/** What a gradient paints with: a canvas gradient, a pattern (`radialPaint`), or a solid colour. */
+export type GradientPaint = CanvasGradient | CanvasPattern | string;
+
+/** A CSS linear or radial gradient as a paint over the box. */
 export function parseGradient(
   ctx: CanvasRenderingContext2D,
   bgImage: string,
@@ -78,9 +82,10 @@ export function parseGradient(
   width: number,
   y: number,
   height: number,
-): CanvasGradient | null {
+  raster?: RadialRaster,
+): GradientPaint | null {
   return gradientKind(bgImage) === 'radial'
-    ? parseRadialGradient(ctx, bgImage, x, width, y, height)
+    ? parseRadialGradient(ctx, bgImage, x, width, y, height, raster)
     : parseLinearGradient(ctx, bgImage, x, width, y, height);
 }
 
@@ -108,9 +113,9 @@ function gradientArguments(bgImage: string, fn: RegExp): { repeating: boolean; p
 /**
  * Color stops as [color, offset] with offsets as fractions of a gradient ray
  * `length` px long, fixed up per CSS Images 3 §3.4.3; null when none paints.
- * A color hint is ignored, and a repeating gradient is unrolled over [0, 1].
+ * A color hint is ignored, and a repeating gradient is unrolled over [0, end].
  */
-function colorStops(entries: string[], length: number, repeating: boolean): [string, number][] | null {
+function colorStops(entries: string[], length: number, repeating: boolean, end = 1): [string, number][] | null {
   const stops: [string, number | null][] = [];
   for (const entry of entries) {
     const tokens = splitTopLevelWhitespace(entry);
@@ -146,7 +151,7 @@ function colorStops(entries: string[], length: number, repeating: boolean): [str
     i = j;
   }
 
-  return repeating ? repeatStops(stops as [string, number][]) : stops as [string, number][];
+  return repeating ? repeatStops(stops as [string, number][], end) : stops as [string, number][];
 }
 
 /**
@@ -242,18 +247,101 @@ export interface RadialGradientGeometry {
   /** The centre, in the box's coordinate space. */
   cx: number;
   cy: number;
-  /** The distance from the centre to the farthest box corner. */
-  r: number;
-  /** [color, offset], offsets as fractions of `r` (past 1 beyond the circle). */
+  /** The ending shape's radii; equal for a circle. */
+  rx: number;
+  ry: number;
+  /** [color, offset], offsets as fractions of `rx` (past 1 beyond the ending shape). */
   stops: [string, number][];
+  /** The box the gradient is sized over. */
+  box: { x: number; y: number; width: number; height: number };
+}
+
+const EXTENTS = new Set(['closest-side', 'closest-corner', 'farthest-side', 'farthest-corner']);
+const HUE_METHODS = new Set(['shorter', 'longer', 'increasing', 'decreasing']);
+const LENGTH_TOKEN = /^([-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?)([a-z%]*)$/i;
+
+/**
+ * One `<radial-size>` length in px: `percentOf` is the box side a percentage
+ * reads against (NaN for a circle, which takes none). 'unresolved' for a
+ * length with no basis here (font and viewport units); null when invalid.
+ */
+function radialLength(token: string, percentOf: number): number | 'unresolved' | null {
+  const plain = LENGTH_TOKEN.exec(token);
+  if (plain) {
+    const value = parseFloat(plain[1]), unit = plain[2].toLowerCase();
+    if (value < 0) return null;
+    if (!unit) return value === 0 ? 0 : null;
+    if (unit === '%') return Number.isNaN(percentOf) ? null : value * percentOf / 100;
+  } else if (!MATH_FUNCTION.test(token)) {
+    return null;
+  }
+  const typed = resolveNumberOrLength(token, { ...CHANNEL_BASIS, percent: percentOf });
+  if (!typed || !Number.isFinite(typed.value) || (typed.number && typed.value !== 0)) return 'unresolved';
+  // A math function clamps to the range (CSS Values 4 §10.12).
+  return Math.max(0, typed.value);
 }
 
 /**
- * A CSS (repeating-)radial-gradient over the box, read as Polotno draws it:
- * always a circle with CSS's default `farthest-corner` extent, centred at its
- * `at` position (`%` of the box, `px` from its corner, keywords; the centre
- * when absent). The shape and size are ignored, so `ellipse`, explicit sizes
- * and the other extent keywords paint that same circle.
+ * The ending shape's radii (CSS Images 3 §3.2.2) for a centre `ox, oy` into a
+ * `width` by `height` box, from the shape and size tokens; null when invalid.
+ * A length with no basis here keeps its shape at the default extent.
+ */
+function radialRadii(tokens: string[], ox: number, oy: number, width: number, height: number): [number, number] | null {
+  let shape: string | null = null, extent: string | null = null;
+  const lengths: string[] = [];
+  let lengthsEnd = -1;
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i].toLowerCase();
+    if (t === 'circle' || t === 'ellipse') {
+      if (shape) return null;
+      shape = t;
+    } else if (EXTENTS.has(t)) {
+      if (extent) return null;
+      extent = t;
+    } else {
+      // The lengths are one run of tokens.
+      if (lengths.length && lengthsEnd !== i - 1) return null;
+      lengths.push(tokens[i]);
+      lengthsEnd = i;
+    }
+  }
+  if ((extent && lengths.length) || lengths.length > 2) return null;
+  const circle = shape ? shape === 'circle' : lengths.length === 1;
+  if (lengths.length && lengths.length !== (circle ? 1 : 2)) return null;
+  if (lengths.length) {
+    const sizes = circle ? [radialLength(lengths[0], NaN)] : [radialLength(lengths[0], width), radialLength(lengths[1], height)];
+    if (sizes.includes(null)) return null;
+    if (!sizes.includes('unresolved')) {
+      const [rx, ry = rx] = sizes as number[];
+      return [rx, ry];
+    }
+  }
+  const h = [Math.abs(ox), Math.abs(width - ox)], v = [Math.abs(oy), Math.abs(height - oy)];
+  const closest = extent === 'closest-side' || extent === 'closest-corner';
+  const sx = closest ? Math.min(...h) : Math.max(...h), sy = closest ? Math.min(...v) : Math.max(...v);
+  const corner = extent === null || extent.endsWith('corner');
+  if (circle) {
+    const r = corner ? Math.hypot(sx, sy) : closest ? Math.min(sx, sy) : Math.max(sx, sy);
+    return [r, r];
+  }
+  // An ellipse through the corner keeps the aspect ratio of its sides: √2 times them.
+  return corner ? [sx * Math.SQRT2, sy * Math.SQRT2] : [sx, sy];
+}
+
+/** `tokens` without its `in <colorspace> [<hue> hue]`, which may lead or trail the rest. */
+function withoutInterpolation(tokens: string[]): string[] {
+  const at = tokens.findIndex((t) => t.toLowerCase() === 'in');
+  if (at === -1) return tokens;
+  const hue = HUE_METHODS.has(tokens[at + 2]?.toLowerCase()) && tokens[at + 3]?.toLowerCase() === 'hue';
+  return [...tokens.slice(0, at), ...tokens.slice(at + (hue ? 4 : 2))];
+}
+
+/**
+ * A CSS (repeating-)radial-gradient over the box (CSS Images 3 §3.2): its
+ * ending shape, a circle or an ellipse sized by its extent keyword
+ * (`farthest-corner` by default) or its lengths, centred at its `at` position
+ * (`%` of the box, `px` from its corner, keywords; the centre when absent).
+ * Null when it is invalid or no stop paints.
  */
 export function radialGradientGeometry(
   bgImage: string,
@@ -265,20 +353,23 @@ export function radialGradientGeometry(
   const args = gradientArguments(bgImage, RADIAL_FUNCTION);
   if (!args) return null;
   const { parts } = args;
-  const config = isRadialConfig(parts[0]) ? splitTopLevelWhitespace(parts[0]) : null;
-  let position: string[] = [];
+  const config = isRadialConfig(parts[0]) ? withoutInterpolation(splitTopLevelWhitespace(parts[0])) : null;
+  let position: string[] = [], size: string[] = config ?? [];
   if (config) {
     const at = config.findIndex((t) => t.toLowerCase() === 'at');
-    if (at !== -1) {
-      const end = config.findIndex((t, i) => i > at && t.toLowerCase() === 'in');
-      position = config.slice(at + 1, end === -1 ? undefined : end);
-    }
+    if (at !== -1) [size, position] = [config.slice(0, at), config.slice(at + 1)];
   }
   const [ox, oy] = position.length ? radialCenter(position, width, height) : [width / 2, height / 2];
-  const r = Math.hypot(Math.max(ox, width - ox), Math.max(oy, height - oy));
-  const stops = colorStops(parts.slice(config ? 1 : 0), r, args.repeating);
+  const radii = radialRadii(size, ox, oy, width, height);
+  if (!radii) return null;
+  const [rx, ry] = radii;
+  // A repeating gradient tiles out to the farthest corner, in radii.
+  const reach = rx > 0 && ry > 0
+    ? Math.hypot(Math.max(Math.abs(ox), Math.abs(width - ox)) / rx, Math.max(Math.abs(oy), Math.abs(height - oy)) / ry)
+    : 1;
+  const stops = colorStops(parts.slice(config ? 1 : 0), rx, args.repeating, Math.max(1, reach));
   if (!stops) return null;
-  return { cx: x + ox, cy: y + oy, r, stops: stopsFromCentre(stops) };
+  return { cx: x + ox, cy: y + oy, rx, ry, stops: stopsFromCentre(stops), box: { x, y, width, height } };
 }
 
 /**
@@ -381,16 +472,39 @@ function srgba(color: string): { rgba: number[]; missing: boolean[] } | null {
   return { rgba: [...rgb.map((v) => Math.min(255, Math.max(0, v))), a], missing };
 }
 
+/** A 2D affine map, as `DOMMatrix2DInit` fills it. */
+export interface Affine { a: number; b: number; c: number; d: number; e: number; f: number }
+
+const IDENTITY: Affine = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
+
+function multiply(m: Affine, n: Affine): Affine {
+  return {
+    a: m.a * n.a + m.c * n.b, b: m.b * n.a + m.d * n.b,
+    c: m.a * n.c + m.c * n.d, d: m.b * n.c + m.d * n.d,
+    e: m.a * n.e + m.c * n.f + m.e, f: m.b * n.e + m.d * n.f + m.f,
+  };
+}
+
+/** What a raster ctx lends an elliptical gradient's pattern. */
+export interface RadialRaster {
+  /** Device pixels per layout pixel. */
+  scale: number;
+  /** A scratch canvas, or null when there is none. */
+  canvas(width: number, height: number): AnyCanvas | null;
+  /** The pattern images built so far, by geometry. */
+  images?: Map<RadialGradientGeometry, { canvas: AnyCanvas; scale: number; x: number; y: number }>;
+}
+
+/** The pattern image's longest side: a huge box is sampled coarser. */
+const MAX_PATTERN_SIDE = 4096;
+
 /**
- * A radial gradient's circle as a CanvasGradient centred at (cx, cy). Stops
- * past the circle widen the canvas circle; one still before the centre
+ * A radial gradient's stops as a canvas circle of radius `r` at (cx, cy).
+ * Stops past the shape widen the circle; one still before the centre
  * (`stopsFromCentre` could not mix it) clamps to it.
  */
-export function radialCanvasGradient(
-  ctx: CanvasRenderingContext2D,
-  { stops, r }: RadialGradientGeometry,
-  cx: number,
-  cy: number,
+function circleGradient(
+  ctx: CanvasRenderingContext2D, stops: [string, number][], cx: number, cy: number, r: number,
 ): CanvasGradient {
   const last = Math.max(1, stops[stops.length - 1][1]);
   const gradient = ctx.createRadialGradient(cx, cy, 0, cx, cy, r * last);
@@ -404,7 +518,70 @@ export function radialCanvasGradient(
   return gradient;
 }
 
-/** A CSS (repeating-)radial-gradient as a CanvasGradient over the box (`radialGradientGeometry`). */
+/** Whether `ctx` is its canvas's own 2D context: a raster canvas, not a proxy. */
+function isRasterContext(ctx: CanvasRenderingContext2D): boolean {
+  const canvas = ctx.canvas as { getContext?: (id: '2d') => unknown } | undefined;
+  return typeof canvas?.getContext === 'function' && canvas.getContext('2d') === ctx;
+}
+
+/**
+ * The ellipse painted into a scratch canvas over its box, plus half the
+ * box's height around it for glyph overhang, as a pattern placed by `frame`.
+ */
+function ellipsePattern(
+  ctx: CanvasRenderingContext2D, g: RadialGradientGeometry, frame: Affine, raster: RadialRaster,
+): CanvasPattern | null {
+  if (typeof ctx.createPattern !== 'function') return null;
+  let image = raster.images?.get(g);
+  if (!image) {
+    const margin = g.box.height / 2;
+    const x = g.box.x - margin, y = g.box.y - margin;
+    const width = g.box.width + 2 * margin, height = g.box.height + 2 * margin;
+    const scale = Math.min(raster.scale, MAX_PATTERN_SIDE / width, MAX_PATTERN_SIDE / height);
+    if (!(scale > 0)) return null;
+    const canvas = raster.canvas(Math.max(1, Math.ceil(width * scale)), Math.max(1, Math.ceil(height * scale)));
+    const target = canvas?.getContext('2d') as CanvasRenderingContext2D | null | undefined;
+    if (!canvas || !target) return null;
+    const k = g.ry / g.rx;
+    target.setTransform(scale, 0, 0, scale * k, (g.cx - x) * scale, (g.cy - y) * scale);
+    target.fillStyle = circleGradient(target, g.stops, 0, 0, g.rx);
+    target.fillRect(x - g.cx, (y - g.cy) / k, width, height / k);
+    image = { canvas, scale, x, y };
+    raster.images?.set(g, image);
+  }
+  const pattern = ctx.createPattern(image.canvas as CanvasImageSource, 'no-repeat');
+  if (!pattern || typeof pattern.setTransform !== 'function') return null;
+  const s = 1 / image.scale;
+  pattern.setTransform(multiply(frame, { a: s, b: 0, c: 0, d: s, e: image.x, f: image.y }));
+  return pattern;
+}
+
+/**
+ * The paint for a radial gradient, `frame` mapping its box's space into the
+ * ctx's (a glyph's frame on a path). A circle is a canvas radial gradient. An
+ * ellipse is one at the origin placed by its own `setTransform` where the
+ * ctx's gradients have one (a vector adapter: SVG `gradientTransform`, a PDF
+ * pattern matrix), a pattern on a raster ctx given `raster`, else the circle
+ * of its horizontal radius. A zero-size shape paints its last stop.
+ */
+export function radialPaint(
+  ctx: CanvasRenderingContext2D, g: RadialGradientGeometry, frame: Affine = IDENTITY, raster?: RadialRaster,
+): GradientPaint {
+  const { stops, rx, ry } = g;
+  if (!(rx > 0 && ry > 0)) return stops[stops.length - 1][0];
+  const cx = frame.a * g.cx + frame.c * g.cy + frame.e, cy = frame.b * g.cx + frame.d * g.cy + frame.f;
+  if (rx === ry) return circleGradient(ctx, stops, cx, cy, rx);
+  const gradient = circleGradient(ctx, stops, 0, 0, rx);
+  const placed = gradient as CanvasGradient & { setTransform?: (m: Affine) => void };
+  if (typeof placed.setTransform === 'function') {
+    placed.setTransform(multiply(frame, { a: 1, b: 0, c: 0, d: ry / rx, e: g.cx, f: g.cy }));
+    return gradient;
+  }
+  const pattern = raster && isRasterContext(ctx) ? ellipsePattern(ctx, g, frame, raster) : null;
+  return pattern ?? circleGradient(ctx, stops, cx, cy, rx);
+}
+
+/** A CSS (repeating-)radial-gradient as a paint over the box (`radialGradientGeometry`, `radialPaint`). */
 export function parseRadialGradient(
   ctx: CanvasRenderingContext2D,
   bgImage: string,
@@ -412,23 +589,24 @@ export function parseRadialGradient(
   width: number,
   y: number,
   height: number,
-): CanvasGradient | null {
+  raster?: RadialRaster,
+): GradientPaint | null {
   const geometry = radialGradientGeometry(bgImage, x, width, y, height);
-  return geometry && radialCanvasGradient(ctx, geometry, geometry.cx, geometry.cy);
+  return geometry && radialPaint(ctx, geometry, undefined, raster);
 }
 
 /** Unrolled-stop cap: a sub-pixel period would need a stop per pixel. */
 const MAX_REPEATED_STOPS = 4096;
 
-/** Stops tiled over [0, 1], or null when the period is too small. A zero
+/** Stops tiled over [0, end], or null when the period is too small. A zero
  * period paints the last stop's color (CSS Images 3 §3.5). */
-function repeatStops(stops: [string, number][]): [string, number][] | null {
+function repeatStops(stops: [string, number][], end: number): [string, number][] | null {
   const start = stops[0][1], period = stops[stops.length - 1][1] - start;
   if (!(period > 0)) {
     const color = stops[stops.length - 1][0];
     return [[color, 0], [color, 1]];
   }
-  const from = Math.floor(-start / period), to = Math.ceil((1 - start) / period);
+  const from = Math.floor(-start / period), to = Math.ceil((end - start) / period);
   if ((to - from) * stops.length > MAX_REPEATED_STOPS) return null;
   const tiled: [string, number][] = [];
   let previous = -Infinity;

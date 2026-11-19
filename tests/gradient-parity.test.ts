@@ -7,9 +7,9 @@
  * The arithmetic is pinned in tests/node/linear-gradient.test.ts; this file
  * checks the result is the engine's: corner keywords that depend on the box
  * aspect ratio, unpositioned and out-of-range stops, hard stops, angle units,
- * repeating gradients. A radial gradient in the circle farthest-corner form
- * (the one render-tag draws every radial as, tests/node/radial-gradient.test.ts)
- * matches the browser too.
+ * repeating gradients. Radial gradients (tests/node/radial-gradient.test.ts)
+ * match it in every shape and size on the 600×120 box: circles, and the
+ * ellipses a raster canvas paints as a pattern.
  */
 import { describe, it, expect } from 'vitest';
 import { compareNativeRenders } from './helpers/native-compare.ts';
@@ -67,6 +67,23 @@ const RADIAL_GRADIENTS = [
   // one: 30), and render-tag paints Chrome's in every browser.
   ...(isWebKit ? [] : ['radial-gradient(circle, rgb(none 0 0) -100%, red 100%)']),
   'radial-gradient(circle, rgb(calc(255) 0 0) -100%, blue 100%)',
+  // Circle extents and lengths.
+  'radial-gradient(circle closest-side at 30% 40%, red, blue)',
+  'radial-gradient(circle farthest-side at 30% 40%, red, blue)',
+  'radial-gradient(circle closest-corner at 30% 40%, red, blue)',
+  'radial-gradient(circle 80px at 30% 40%, red, blue)',
+  // Ellipses: the default, each extent, lengths, and tiles out to the far corner.
+  'radial-gradient(red, blue)',
+  'radial-gradient(red, lime 40%, blue)',
+  'radial-gradient(at 20% 80%, red, blue)',
+  'radial-gradient(ellipse closest-side at 30% 40%, red, blue)',
+  'radial-gradient(farthest-side at 30% 40%, red, blue)',
+  'radial-gradient(closest-corner at 70% 20%, red, blue)',
+  'radial-gradient(40% 80% at 30% 40%, red, blue)',
+  'radial-gradient(200px 30px, red 0 50%, blue 50%)',
+  'radial-gradient(ellipse at 100px 30px, red, blue 300px)',
+  'repeating-radial-gradient(at 30% 40%, red 0 20px, blue 20px 40px)',
+  'repeating-radial-gradient(10% 20% at 0 0, red 0 50%, blue 50% 100%)',
 ];
 
 describe.each([
@@ -82,6 +99,23 @@ describe.each([
     const { error, pixels } = colorError(r.libCanvas, r.domCanvas);
     expect(pixels, 'opaque glyph pixels').toBeGreaterThan(5000);
     // Gradient dithering and 8-bit interpolation differ by a level or two.
+    expect(error).toBeLessThan(3);
+  });
+});
+
+describe('radial-gradient ellipse matches the browser at pixelRatio 2', () => {
+  // The pattern is drawn at device resolution, so a hard stop stays sharp.
+  it.each([
+    'radial-gradient(farthest-side at 30% 40%, red, blue)',
+    'radial-gradient(200px 30px, red 0 50%, blue 50%)',
+  ])('%s', async (gradient) => {
+    const css = await loadMultiFontCss();
+    const html =
+      `<div style="font-family:'Open Sans';font-weight:800;font-size:96px;line-height:120px;width:600px;` +
+      `background-image:${gradient};-webkit-background-clip:text;background-clip:text;color:transparent">MMMMM</div>`;
+    const r = await compareNativeRenders(html, css, 640, 140, 0.1, 2);
+    const { error, pixels } = colorError(r.libCanvas, r.domCanvas);
+    expect(pixels, 'opaque glyph pixels').toBeGreaterThan(20000);
     expect(error).toBeLessThan(3);
   });
 });

@@ -250,11 +250,14 @@ export function recordingCtx(
           __describe: () => `linear(${args.join(',')}|${stops.join(',')})`,
         };
       },
+      // A vector adapter's gradient: it takes the transform an ellipse is placed by.
       createRadialGradient(...args: number[]) {
         const stops: string[] = [];
+        let placed = '';
         return {
           addColorStop(offset: number, color: string) { stops.push(`${offset} ${color}`); },
-          __describe: () => `radial(${args.join(',')}|${stops.join(',')})`,
+          setTransform(m: DOMMatrix2DInit) { placed = `@${[m.a, m.b, m.c, m.d, m.e, m.f].join(',')}`; },
+          __describe: () => `radial(${args.join(',')}|${stops.join(',')})${placed}`,
         };
       },
     };
