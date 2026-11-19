@@ -407,8 +407,7 @@ function strokePaintFor(
 ): GradientPaint | null {
   const src = g.strokeImageStyle;
   if (!src) return null;
-  const paint = sliceGradient(ps, src.webkitTextStrokeImage, g, src, g.strokeImageRange, text, baseY);
-  return typeof paint === 'string' ? null : paint;
+  return ps.coverage ? null : sliceGradient(ps, src.webkitTextStrokeImage, g, src, g.strokeImageRange, text, baseY);
 }
 
 function drawGlyphs(

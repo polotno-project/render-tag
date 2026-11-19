@@ -14,7 +14,7 @@
 import { describe, it, expect } from 'vitest';
 import { compareNativeRenders } from './helpers/native-compare.ts';
 import { loadMultiFontCss } from './helpers/test-cases.ts';
-import { isWebKit } from './helpers/browser-name.ts';
+import { isFirefox, isWebKit } from './helpers/browser-name.ts';
 
 /** Mean per-channel color difference (0-255) over pixels opaque in both. */
 function colorError(a: HTMLCanvasElement, b: HTMLCanvasElement): { error: number; pixels: number } {
@@ -84,6 +84,18 @@ const RADIAL_GRADIENTS = [
   'radial-gradient(ellipse at 100px 30px, red, blue 300px)',
   'repeating-radial-gradient(at 30% 40%, red 0 20px, blue 20px 40px)',
   'repeating-radial-gradient(10% 20% at 0 0, red 0 50%, blue 50% 100%)',
+  // Zero-size shapes are one colour as Chrome paints them: the last stop, or the
+  // average of a repeating one whose percentages collapse onto the zero ray.
+  // Each engine paints its own (error 102 against a limit of 3): WebKit none of
+  // these, Gecko not the average; render-tag paints Chrome's in every browser.
+  ...(isWebKit ? [] : [
+    'radial-gradient(0px 50px, red 0px, blue 100px)',
+    'repeating-radial-gradient(100px 0px, red 0 10px, blue 10px 40px)',
+  ]),
+  ...(isWebKit || isFirefox ? [] : [
+    'repeating-radial-gradient(circle 0px, red, lime 20%, blue)',
+    'repeating-radial-gradient(circle closest-side at 0 50%, red, blue)',
+  ]),
 ];
 
 describe.each([

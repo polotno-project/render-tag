@@ -161,6 +161,21 @@ describe('radial-gradient geometry', () => {
       .toBe('lime');
   });
 
+  it.each([
+    // Its percentages resolve against a zero ray, so the period is zero: the average, as Chrome paints it.
+    ['repeating-radial-gradient(circle 0px, red, blue)', 'rgba(128, 0, 128, 1)'],
+    ['repeating-radial-gradient(circle 0px, red, lime 20%, blue)', 'rgba(26, 128, 102, 1)'],
+    ['repeating-radial-gradient(circle closest-side at 0 50%, red, blue)', 'rgba(128, 0, 128, 1)'],
+    ['repeating-radial-gradient(100px 0px, red 20%, blue 60%)', 'rgba(128, 0, 128, 1)'],
+    ['repeating-radial-gradient(circle 0px, rgba(255, 0, 0, 0), blue)', 'rgba(0, 0, 255, 0.5)'],
+    // A px period does not collapse: Chrome paints the last stop, as for a plain one.
+    ['repeating-radial-gradient(100px 0px, red 0 10px, blue 10px 40px)', 'blue'],
+    ['repeating-radial-gradient(0px 50px, red 0 10px, blue 10px 40px)', 'blue'],
+    ['radial-gradient(0px 50px, red 0px, blue 100px)', 'blue'],
+  ])('paints the zero-size %s as one colour', (image, color) => {
+    expect(parseRadialGradient(NO_GRADIENTS, image, 0, 480, 0, 200)).toBe(color);
+  });
+
   it('reads px stops along the horizontal radius of an ellipse', () => {
     const r = radial('radial-gradient(50% 30% at 20% 80%, red 0 60px, blue 60px)');
     close(ellipse(r), [96, 160, 240, 60]);
@@ -639,6 +654,18 @@ describe('radial-gradient on a path', () => {
         a * ge + c * gf + e, b * ge + d * gf + f, r,
       ], [1, 0, 0, height / width, x + width / 2, y + height / 2, width / 2]);
     }
+  });
+
+  it('strokes a zero-size gradient with its one colour', () => {
+    setDOMParser(new LinkedomDOMParser());
+    const rec = recordingCtx(480, 240);
+    const html = '<span style="font-size:40px;color:white;-webkit-text-stroke:3px black;' +
+      '--rt-text-stroke-image:radial-gradient(circle 0px, red, blue)">Curved</span>';
+    const result = layoutTextOnPath({ html, path: PATH, ctx: rec.ctx });
+    drawTextOnPathLayout({ layout: result, ctx: rec.ctx, createCanvas: rec.createCanvas });
+    const strokes = rec.paints.filter((p) => p.startsWith('strokeText('));
+    expect(strokes).toHaveLength(result.glyphs.length);
+    for (const p of strokes) expect(/strokeStyle=([^;]*)/.exec(p)?.[1]).toBe('"blue"');
   });
 
   it('strokes every glyph from one circle over the laid-out text', () => {

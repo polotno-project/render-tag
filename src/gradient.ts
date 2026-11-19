@@ -115,7 +115,11 @@ function gradientArguments(bgImage: string, fn: RegExp): { repeating: boolean; p
  * `length` px long, fixed up per CSS Images 3 §3.4.3; null when none paints.
  * A color hint is ignored, and a repeating gradient is unrolled over [0, end].
  */
-function colorStops(entries: string[], length: number, repeating: boolean, end = 1): [string, number][] | null {
+function colorStops(
+  entries: string[], length: number, repeating: boolean, end = 1,
+  /** Set when a stop is placed at a non-zero px length. */
+  lengths?: { px: boolean },
+): [string, number][] | null {
   const stops: [string, number | null][] = [];
   for (const entry of entries) {
     const tokens = splitTopLevelWhitespace(entry);
@@ -124,6 +128,7 @@ function colorStops(entries: string[], length: number, repeating: boolean, end =
       const m = STOP_LENGTH.exec(tokens[tokens.length - 1]);
       if (!m || (!m[2] && parseFloat(m[1]) !== 0)) break;
       const value = parseFloat(m[1]);
+      if (lengths && m[2] === 'px' && value !== 0) lengths.px = true;
       positions.unshift(m[2] === '%' ? value / 100 : length > 0 ? value / length : 0);
       tokens.pop();
     }
@@ -363,13 +368,22 @@ export function radialGradientGeometry(
   const radii = radialRadii(size, ox, oy, width, height);
   if (!radii) return null;
   const [rx, ry] = radii;
+  const entries = parts.slice(config ? 1 : 0);
+  const box = { x, y, width, height };
+  if (!(rx > 0 && ry > 0)) {
+    // A zero-size shape is one colour, as Chrome paints it: the last stop, or for a
+    // repeating one whose percentages collapse onto the zero ray, the average.
+    const lengths = { px: false };
+    const flat = colorStops(entries, 1, false, 1, lengths);
+    if (!flat) return null;
+    const color = (args.repeating && !lengths.px ? averageColor(flat) : null) ?? flat[flat.length - 1][0];
+    return { cx: x + ox, cy: y + oy, rx, ry, stops: [[color, 0]], box };
+  }
   // A repeating gradient tiles out to the farthest corner, in radii.
-  const reach = rx > 0 && ry > 0
-    ? Math.hypot(Math.max(Math.abs(ox), Math.abs(width - ox)) / rx, Math.max(Math.abs(oy), Math.abs(height - oy)) / ry)
-    : 1;
-  const stops = colorStops(parts.slice(config ? 1 : 0), rx, args.repeating, Math.max(1, reach));
+  const reach = Math.hypot(Math.max(Math.abs(ox), Math.abs(width - ox)) / rx, Math.max(Math.abs(oy), Math.abs(height - oy)) / ry);
+  const stops = colorStops(entries, rx, args.repeating, Math.max(1, reach));
   if (!stops) return null;
-  return { cx: x + ox, cy: y + oy, rx, ry, stops: stopsFromCentre(stops), box: { x, y, width, height } };
+  return { cx: x + ox, cy: y + oy, rx, ry, stops: stopsFromCentre(stops), box };
 }
 
 /**
@@ -401,6 +415,28 @@ function mixColors(a: string, b: string, t: number): string | null {
   if (alpha <= 0) return 'rgba(0, 0, 0, 0)';
   const channel = (k: number) =>
     Math.round(Math.min(255, Math.max(0, (p[k] * p[3] + (q[k] * q[3] - p[k] * p[3]) * t) / alpha)));
+  return `rgba(${channel(0)}, ${channel(1)}, ${channel(2)}, ${+alpha.toFixed(4)})`;
+}
+
+/**
+ * The average colour of stops spread over one period, mixed premultiplied as
+ * CSS interpolates (CSS Images 3 §3.5); null when the period is empty or a
+ * colour is another kind.
+ */
+function averageColor(stops: [string, number][]): string | null {
+  const first = stops[0][1], span = stops[stops.length - 1][1] - first;
+  if (!(span > 0)) return null;
+  const colors = stops.map(([color]) => srgba(color));
+  if (colors.some((c) => c === null)) return null;
+  const premultiplied = colors.map((c) => { const [r, g, b, a] = c!.rgba; return [r * a, g * a, b * a, a]; });
+  const sum = [0, 0, 0, 0];
+  for (let i = 1; i < stops.length; i++) {
+    const weight = (stops[i][1] - stops[i - 1][1]) / span / 2;
+    for (let k = 0; k < 4; k++) sum[k] += weight * (premultiplied[i - 1][k] + premultiplied[i][k]);
+  }
+  const alpha = sum[3];
+  if (alpha <= 0) return 'rgba(0, 0, 0, 0)';
+  const channel = (k: number) => Math.round(Math.min(255, Math.max(0, sum[k] / alpha)));
   return `rgba(${channel(0)}, ${channel(1)}, ${channel(2)}, ${+alpha.toFixed(4)})`;
 }
 
@@ -562,7 +598,7 @@ function ellipsePattern(
  * ellipse is one at the origin placed by its own `setTransform` where the
  * ctx's gradients have one (a vector adapter: SVG `gradientTransform`, a PDF
  * pattern matrix), a pattern on a raster ctx given `raster`, else the circle
- * of its horizontal radius. A zero-size shape paints its last stop.
+ * of its horizontal radius. A zero-size shape paints its one colour.
  */
 export function radialPaint(
   ctx: CanvasRenderingContext2D, g: RadialGradientGeometry, frame: Affine = IDENTITY, raster?: RadialRaster,
