@@ -80,7 +80,11 @@ interface TextPaints {
   strokeImage: CanvasGradient | null;
   /** A text unit's `fill` override: the color of its `currentColor` decorations too. */
   recolor?: CanvasGradient | string;
+  /** The block box the fill is a background of: Chrome clips it there. */
+  fillBox?: ClipBox;
 }
+
+type ClipBox = { x: number; y: number; width: number; height: number };
 
 /**
  * Both renderers' precedence. The clip paint fills a run that declares the
@@ -91,12 +95,16 @@ interface TextPaints {
  */
 export function glyphPaints(
   ps: PaintState, style: ResolvedStyle, clip: CanvasGradient | string | null, strokeImage: CanvasGradient | null,
+  /** The block box `clip` is the background of, when a block declares it. */
+  clipBox?: ClipBox,
 ): TextPaints {
   const clipped = hasTextClip(style) || (clip != null && fillIsTransparent(style));
   const fill = clipped ? clip || style.color
     : !fillIsTransparent(style) || ps.coverage ? textFillColor(style) : null;
   const stroked = style.webkitTextStrokeWidth > 0 && !ps.coverage;
-  return { fill, clip, stroked, strokeImage };
+  // A mask casts the whole glyph's shadow.
+  const fillBox = clipped && clip && clipBox && !ps.coverage ? clipBox : undefined;
+  return { fill, clip, stroked, strokeImage, ...(fillBox && { fillBox }) };
 }
 
 /** A fragment's paints: an inline declarer's (layout's fragment box) beats a declaring block's. */
@@ -105,6 +113,7 @@ function textPaints(
   node: LayoutText,
   gradientFill: CanvasGradient | string | null | undefined,
   strokeGradient: CanvasGradient | null | undefined,
+  fillBlock?: LayoutBox | null,
 ): TextPaints {
   const { clip: box, strokeImage } = node;
   const inlineClip = box
@@ -113,7 +122,8 @@ function textPaints(
   const inlineStroke = strokeImage
     ? ps.linearGradient(strokeImage.image, strokeImage.x, strokeImage.width, strokeImage.y, strokeImage.height)
     : null;
-  return glyphPaints(ps, node.style, inlineClip ?? gradientFill ?? null, inlineStroke ?? strokeGradient ?? null);
+  return glyphPaints(ps, node.style, inlineClip ?? gradientFill ?? null, inlineStroke ?? strokeGradient ?? null,
+    inlineClip ? undefined : fillBlock ?? undefined);
 }
 
 /** Text and the x its own fillText takes, in its own direction (`PaintState.direction`) if set. */
@@ -129,7 +139,18 @@ export function paintGlyphs(
       ps.ctx[op](text, x, y);
     }
   };
-  const fill = () => { if (paints.fill) { ps.fill(paints.fill); each('fillText'); } };
+  const fill = () => {
+    if (!paints.fill) return;
+    ps.fill(paints.fill);
+    const box = paints.fillBox;
+    if (!box) return each('fillText');
+    ps.save();
+    ps.ctx.beginPath();
+    ps.ctx.rect(box.x, box.y, box.width, box.height);
+    ps.ctx.clip();
+    each('fillText');
+    ps.restore();
+  };
   const stroke = () => { if (paints.stroked) { ps.textStroke(style, paints.strokeImage); each('strokeText'); } };
   if (paintOrderHasStrokeFirst(style.paintOrder)) { stroke(); fill(); }
   else { fill(); stroke(); }
@@ -462,7 +483,7 @@ function paintSurface(ps: PaintState, box: LayoutBox): void {
 function paintNode(ps: PaintState, node: LayoutNode, beforeText?: BeforeText): void {
   // Fragments under one declarer chain share its arrays: resolve its paints once.
   let declarers: TextFragment | undefined;
-  let paints: ReturnType<typeof blockPaints> = [null, null];
+  let paints: ReturnType<typeof blockPaints> = [null, null, null];
   walkPaintRegions(node, true, box => paintSurface(ps, box), (fragment, head) => {
     if (fragment.clips !== declarers?.clips || fragment.stroke !== declarers.stroke) {
       declarers = fragment;
@@ -470,7 +491,7 @@ function paintNode(ps: PaintState, node: LayoutNode, beforeText?: BeforeText): v
     }
     // A batch's first original run anchors shadow insertion; batches keep its LINE_TOP.
     beforeText?.(ps.ctx, head);
-    paintRuns(ps, fragment.runs, fragment.runs, textPaints(ps, fragment.runs[0], paints[0], paints[1]));
+    paintRuns(ps, fragment.runs, fragment.runs, textPaints(ps, fragment.runs[0], ...paints));
   });
 }
 
@@ -541,11 +562,16 @@ function walkPaintRegions(
   else box(root, [], null);
 }
 
-/** A fragment's block clip and stroke paints, resolved on `ps`'s ctx. */
-function blockPaints(ps: PaintState, fragment: TextFragment): [CanvasGradient | string | null, CanvasGradient | null] {
-  let fill: CanvasGradient | string | null = null;
-  for (const block of fragment.clips) fill = blockClipPaint(ps, block) ?? fill;
-  return [fill, fragment.stroke ? blockStrokePaint(ps, fragment.stroke) : null];
+/** A fragment's block clip and stroke paints, resolved on `ps`'s ctx, and the block the clip paint is from. */
+function blockPaints(
+  ps: PaintState, fragment: TextFragment,
+): [CanvasGradient | string | null, CanvasGradient | null, LayoutBox | null] {
+  let fill: CanvasGradient | string | null = null, from: LayoutBox | null = null;
+  for (const block of fragment.clips) {
+    const paint = blockClipPaint(ps, block);
+    if (paint) [fill, from] = [paint, block];
+  }
+  return [fill, fragment.stroke ? blockStrokePaint(ps, fragment.stroke) : null, from];
 }
 
 /** A fragment with its `blockPaints`, on a ctx of its own (a mask, a layer). */
@@ -817,7 +843,8 @@ function paintPieces(
   if (shaped) {
     glyphs = glyphs.filter(run => reachesSlice(pieces, ...textEdges(run), run.style.fontSize));
   }
-  paintRuns(ps, fragment.runs, glyphs, fill && paints.fill ? { ...paints, fill, recolor: fill } : paints,
+  // An override is the caller's paint, not the block's background: unclipped.
+  paintRuns(ps, fragment.runs, glyphs, fill && paints.fill ? { ...paints, fill, recolor: fill, fillBox: undefined } : paints,
     sliced ? pieces : undefined, shaped);
 }
 

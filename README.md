@@ -396,6 +396,12 @@ A
 corners, `%` and `px` stop positions (including two-position stops and stops
 outside 0–100%); a color hint is treated as a plain midpoint.
 
+A block's `background-clip: text` paint (a gradient or a solid
+`background-color`) is its background, so it is clipped to the block's box as in
+Chrome: glyph ink past it, such as descenders under `line-height: 1`, is not
+painted. The glyph's own stroke and its text-shadow are not clipped. An inline
+declarer's paint is not clipped either: Chrome's inline box holds its glyphs.
+
 ## render-tag-specific inputs
 
 render-tag renders plain HTML/CSS — no custom syntax required. The exception:

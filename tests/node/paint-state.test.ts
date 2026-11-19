@@ -56,6 +56,33 @@ function noSnapshot(ctx: CanvasRenderingContext2D): CanvasRenderingContext2D {
   });
 }
 
+/** The drawing state a proxy may keep across restore. */
+const DRAWING_STATE = [
+  'font', 'fontKerning', 'textRendering', 'lang', 'letterSpacing', 'wordSpacing', 'textBaseline', 'textAlign',
+  'direction', 'fillStyle', 'strokeStyle', 'lineWidth', 'lineJoin', 'lineCap', 'miterLimit', 'lineDashOffset',
+  'globalAlpha', 'globalCompositeOperation', 'filter', 'shadowColor', 'shadowBlur', 'shadowOffsetX', 'shadowOffsetY',
+] as const;
+
+/** save/restore that undo the clip and the transform but keep every drawing-state value. */
+function clipOnlySnapshot(ctx: CanvasRenderingContext2D): CanvasRenderingContext2D {
+  return new Proxy(ctx, {
+    get(target, key) {
+      if (key === 'restore') {
+        return () => {
+          const kept = DRAWING_STATE.map((k) => [k, Reflect.get(target, k)] as const);
+          const dash = target.getLineDash();
+          target.restore();
+          for (const [k, v] of kept) Reflect.set(target, k, v);
+          target.setLineDash(dash);
+        };
+      }
+      const value = Reflect.get(target, key);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+    set(target, key, value) { return Reflect.set(target, key, value); },
+  });
+}
+
 describe('paint state', () => {
   it('does not depend on the caller\'s text alignment, direction, spacing or stroke state', () => {
     setDOMParser(new LinkedomDOMParser());
@@ -88,8 +115,9 @@ describe('paint state', () => {
     setDOMParser(new LinkedomDOMParser());
     const real = recordingCtx(400, 800);
     draw(MIXED, real.ctx, real, false);
+    // A clip (a clip-text block's box) is undone only by restore, as a PDF Q undoes it.
     const flat = recordingCtx(400, 800);
-    draw(MIXED, noSnapshot(flat.ctx), flat, false);
+    draw(MIXED, clipOnlySnapshot(flat.ctx), flat, false);
     expect(flat.paints).toEqual(real.paints);
   });
 
