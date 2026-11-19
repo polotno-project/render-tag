@@ -64,6 +64,8 @@ const WEBKIT_LANE = [
   'tests/text-units-parity.test.ts',
   // Not Gecko: its own spacing is not Chrome's, which the fallback follows (file header).
   'tests/canvas-spacing-parity.test.ts',
+  // Not Gecko: its capture of a padded clip-text fixture paints the gradient as a full band.
+  'tests/clip-text-box.test.ts',
 ];
 
 // Firefox capture pages load fixture assets from an opaque origin, so the
