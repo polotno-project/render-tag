@@ -1031,6 +1031,28 @@ const textShadow: Parser = (value, env) => {
     return Number.isNaN(px) ? token : `${px}px`;
   }).join(' ')).join(', ');
 };
+/** An image list with each gradient's font and viewport lengths in px, as `textShadow`'s. */
+function gradientLengthsInPx(value: string, env: DeclarationEnv): string {
+  let changed = false;
+  const layers = splitTopLevel(value, ',').map((layer) => {
+    const m = /^(\s*[-\w]*gradient\()([\s\S]*)(\)\s*)$/i.exec(layer);
+    if (!m) return layer;
+    const args = splitTopLevel(m[2], ',').map((arg) => splitTopLevelWhitespace(arg.trim()).map((token) => {
+      if (NUMBER.test(token) || /^[-+.\d]+px$/i.test(token)) return token;
+      const px = lengthOf(token, env, NaN);
+      if (Number.isNaN(px)) return token;
+      changed = true;
+      return `${px}px`;
+    }).join(' '));
+    return m[1] + args.join(', ') + m[3];
+  });
+  return changed ? layers.join(',') : value;
+}
+const backgroundImage: Parser = (value, env) => {
+  const v = value.trim();
+  if (!isImageList(v)) return null;
+  return v.toLowerCase() === 'none' ? 'none' : gradientLengthsInPx(v, env);
+};
 /** A non-negative <number>. */
 const flexFactor: Parser = value => {
   const n = NUMBER.test(value.trim()) ? parseFloat(value) : NaN;
@@ -1044,11 +1066,11 @@ const PARSERS: Record<string, Parser> = nullProto({
   'text-transform': textTransform,
   'text-decoration-line': textDecorationLine,
   'text-shadow': textShadow,
-  'background-image': noneOr(isImageList),
+  'background-image': backgroundImage,
   '-webkit-text-stroke-width': lineWidth,
   // A custom property: a browser drops an unknown real property whenever it
   // re-serializes a style (contenteditable, el.style writes).
-  '--rt-text-stroke-image': value => value.trim(),
+  '--rt-text-stroke-image': (value, env) => gradientLengthsInPx(value.trim(), env),
   'paint-order': paintOrder,
   'background-clip': backgroundClip,
   'letter-spacing': spacing, 'word-spacing': spacing,

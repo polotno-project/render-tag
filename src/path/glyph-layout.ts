@@ -20,6 +20,8 @@ export interface Segment {
   clipStyle?: ResolvedStyle;
   /** Nearest --rt-text-stroke-image declarer. */
   strokeImageStyle?: ResolvedStyle;
+  /** Every clip or stroke-image declarer around the text, outermost first. */
+  declarers?: readonly ResolvedStyle[];
 }
 
 export interface GlyphPlacement {
@@ -43,7 +45,14 @@ export interface GlyphPlacement {
   clipRange?: { start: number; width: number };
   /** The stroke-image declarer's fragment range. */
   strokeImageRange?: { start: number; width: number };
+  /** The clip declarer's glyphs as laid out, a descendant's that paints its
+   * own included: the box its radial gradient spans. */
+  clipBox?: Box;
+  /** The stroke-image declarer's box. */
+  strokeImageBox?: Box;
 }
+
+type Box = { x: number; y: number; width: number; height: number };
 
 export type AlignMode = 'left' | 'center' | 'right' | 'justify';
 
@@ -101,11 +110,12 @@ export function flattenSegments(root: StyledNode): Segment[] {
     bidi: BidiContext | null,
     clipStyle?: ResolvedStyle,
     strokeImageStyle?: ResolvedStyle,
+    declarers?: readonly ResolvedStyle[],
   ) {
     if (node.style.display === 'none') return;
     if (node.tagName === '#text' && node.textContent) {
       out.push({
-        text: node.textContent, style: node.style, bidi, clipStyle, strokeImageStyle,
+        text: node.textContent, style: node.style, bidi, clipStyle, strokeImageStyle, declarers,
         wordBoundaryBefore,
       });
       wordBoundaryBefore = false;
@@ -120,7 +130,9 @@ export function flattenSegments(root: StyledNode): Segment[] {
       : bidiContextFor(block ? 'isolate' : node.style.unicodeBidi, node.style.direction, bidi);
     const newClip = hasTextClip(node.style) ? node.style : clipStyle;
     const newStroke = hasStrokeImage(node.style) ? node.style : strokeImageStyle;
-    for (const child of node.children) walk(child, ownBidi, newClip, newStroke);
+    const newDeclarers = newClip !== clipStyle || newStroke !== strokeImageStyle
+      ? [...declarers ?? [], node.style] : declarers;
+    for (const child of node.children) walk(child, ownBidi, newClip, newStroke, newDeclarers);
   }
   walk(root, null);
   return transformTextRuns(out);
@@ -137,6 +149,7 @@ interface PreGlyph {
   shaped: boolean;
   clipStyle?: ResolvedStyle;
   strokeImageStyle?: ResolvedStyle;
+  declarers?: readonly ResolvedStyle[];
   /** UAX #9 level. */
   level: number;
 }
@@ -165,6 +178,7 @@ function preGlyphsForSegment(
       shaped,
       clipStyle: seg.clipStyle,
       strokeImageStyle: seg.strokeImageStyle,
+      declarers: seg.declarers,
       level,
     });
   };
@@ -255,6 +269,8 @@ export function layoutGlyphsOnPath(input: LayoutInput): LayoutOutput {
   // `offset` walks the path (justify extra included); `naturalOffset` is the
   // position in [0, textWidth] that gradients slice by (justify extra excluded).
   const glyphs: GlyphPlacement[] = [];
+  /** Each glyph's clip and stroke-image declarers (`Segment.declarers`). */
+  const declarers: (readonly ResolvedStyle[] | undefined)[] = [];
   let offset = startOffset;
   let naturalOffset = 0;
   for (let i = 0; i < preGlyphs.length; i++) {
@@ -296,6 +312,7 @@ export function layoutGlyphsOnPath(input: LayoutInput): LayoutOutput {
       clipStyle: g.clipStyle,
       strokeImageStyle: g.strokeImageStyle,
     });
+    declarers.push(g.declarers);
 
     offset = endLen;
     naturalOffset += effectiveWidth - (g.isSpace ? extraPerSpace : 0);
@@ -303,6 +320,17 @@ export function layoutGlyphsOnPath(input: LayoutInput): LayoutOutput {
 
   assignFragmentRanges(glyphs, g => g.clipStyle, (g, r) => { g.clipRange = r; });
   assignFragmentRanges(glyphs, g => g.strokeImageStyle, (g, r) => { g.strokeImageRange = r; });
+  // Each declarer's box, shared by its glyphs.
+  const boxes = new Map<ResolvedStyle, Box>();
+  const boxOf = (declarer: ResolvedStyle) => {
+    let box = boxes.get(declarer);
+    if (!box) boxes.set(declarer, box = computeBounds(glyphs.filter((_, i) => declarers[i]?.includes(declarer)), textBaseline));
+    return box;
+  };
+  for (const g of glyphs) {
+    if (g.clipStyle) g.clipBox = boxOf(g.clipStyle);
+    if (g.strokeImageStyle) g.strokeImageBox = boxOf(g.strokeImageStyle);
+  }
 
   const bounds = computeBounds(glyphs, textBaseline);
   return {
@@ -358,7 +386,7 @@ export function rotatedBox(g: GlyphPlacement, top: number, bottom: number): Poin
 function computeBounds(
   glyphs: GlyphPlacement[],
   textBaseline: TextBaseline,
-): { x: number; y: number; width: number; height: number } {
+): Box {
   if (glyphs.length === 0) return { x: 0, y: 0, width: 0, height: 0 };
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   for (const g of glyphs) {

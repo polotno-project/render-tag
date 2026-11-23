@@ -94,7 +94,7 @@ export function hasVisibleBorder(style: ResolvedStyle): boolean {
     (style.borderLeftWidth > 0 && style.borderLeftStyle !== 'none');
 }
 
-/** A `background-image` that paints (render-tag draws `linear-gradient`). */
+/** A `background-image` that paints (render-tag draws `linear-gradient` and `radial-gradient`). */
 export function hasBackgroundImage(style: ResolvedStyle): boolean {
   return !!style.backgroundImage && style.backgroundImage !== 'none';
 }
