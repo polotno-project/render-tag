@@ -344,7 +344,8 @@ read glyph ink from a scratch canvas: in Node pass `createCanvas`, or declare
 `text-decoration-skip-ink: none`. The adapter must provide the omitted effects;
 this option alone does not preserve the appearance of shadowed text.
 
-A circular `radial-gradient` arrives as a plain `createRadialGradient`. An
+A circular `radial-gradient` arrives as a plain `createRadialGradient`; an
+adapter without that method gets the gradient's first color as a solid fill. An
 elliptical one arrives as the circle of its horizontal radius at its centre.
 The Canvas API has no elliptical gradient, so render-tag then calls
 `setTransform(matrix)` on that gradient when the adapter's gradients have one.

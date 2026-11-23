@@ -570,13 +570,15 @@ function ellipsePattern(
  * horizontal radius at its centre, handed the map onto the ellipse through
  * `setTransform` where the ctx's gradients have one (a vector adapter: SVG
  * `gradientTransform`, a PDF pattern matrix). A zero-size shape paints its
- * one colour.
+ * one colour, and a ctx with no `createRadialGradient` the first stop's.
  */
 export function radialPaint(
   ctx: CanvasRenderingContext2D, g: RadialGradientGeometry, frame: Affine = IDENTITY, raster?: RadialRaster,
 ): GradientPaint {
   const { stops, rx, ry } = g;
   if (!(rx > 0 && ry > 0)) return stops[stops.length - 1][0];
+  // An adapter written before radial gradients: its first colour, not a throw.
+  if (typeof ctx.createRadialGradient !== 'function') return stops[0][0];
   const pattern = rx !== ry && raster ? ellipsePattern(ctx, g, frame, raster) : null;
   if (pattern) return pattern;
   const cx = frame.a * g.cx + frame.c * g.cy + frame.e, cy = frame.b * g.cx + frame.d * g.cy + frame.f;

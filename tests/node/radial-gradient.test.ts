@@ -167,6 +167,10 @@ describe('radial-gradient geometry', () => {
     expect(radial('radial-gradient(circle at 2em 1em, red, blue)')).toBeNull();
   });
 
+  it('paints the first stop on a ctx with no createRadialGradient', () => {
+    expect(parseRadialGradient(NO_GRADIENTS, 'radial-gradient(circle, red, blue)', 0, 480, 0, 200)).toBe('red');
+  });
+
   it('paints a zero-size gradient as its last stop', () => {
     expect(radial('radial-gradient(circle 0px, red, blue)')).toBeNull();
     expect(parseRadialGradient(NO_GRADIENTS, 'radial-gradient(circle 0px, red, blue)', 0, 480, 0, 200)).toBe('blue');
