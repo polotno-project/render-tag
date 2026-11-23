@@ -2,6 +2,14 @@
 
 Only the interesting, user-visible changes. Full detail lives in the git history.
 
+## 0.4.7 — 2026-11-23
+
+- `radial-gradient` and `repeating-radial-gradient` now paint text (`background-clip: text` and `--rt-text-stroke-image`) as Chrome draws them: circles and ellipses, every size keyword and length, any `at` position. Before, such text was invisible. Thanks to @nikigan ([#5](https://github.com/polotno-project/render-tag/pull/5)).
+- An ellipse needs more than the Canvas API offers. On a raster canvas it is painted through a scratch canvas (`createCanvas` where given). A vector adapter receives a circle and may implement `setTransform(matrix)` on its gradients to get the ellipse; without it the circle stays. An adapter with no `createRadialGradient` gets the first color as a solid fill. See "PDF and other vector adapters" in the README.
+- Gradient lengths in font and viewport units (`red 1em`, `circle 5vw`) and in `calc()` now resolve, for linear gradients too, and a single-stop gradient paints.
+- With several background layers the first gradient paints, as in CSS; a linear layer no longer wins over a radial one above it. A gradient nested in another function (`image-set(...)`) no longer paints.
+- Underlines stay whole where the canvas returns noise instead of its pixels (Firefox with `privacy.resistFingerprinting`); they were cut at random.
+
 ## 0.4.6 — 2026-11-18
 
 - Underlines and overlines skip the glyphs that cross them (`text-decoration-skip-ink: auto`, the CSS default), with Chrome's gaps: the descenders of `g`, `p`, `y` no longer run through the line. `text-decoration-skip-ink: none` keeps the line whole, as before.
