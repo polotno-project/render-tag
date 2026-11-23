@@ -15,7 +15,7 @@ afterAll(() => setDOMParser(null));
 const INK = [2, 6];
 
 /** A scratch canvas that reports `INK` under the last `g` painted. */
-function inkCanvas(reads: { count: number }) {
+function inkCanvas(reads: { count: number }, noise = false) {
   return (width: number, height: number) => {
     let scale = 1, shift = 0, inked: number | null = null;
     const ctx: Record<string, unknown> = {
@@ -32,7 +32,8 @@ function inkCanvas(reads: { count: number }) {
       getImageData(_x: number, _y: number, w: number, h: number) {
         reads.count++;
         const data = new Uint8ClampedArray(w * h * 4);
-        if (inked !== null) {
+        if (noise) data.fill(137);
+        else if (inked !== null) {
           for (let column = 0; column < w; column++) {
             const at = (column + 0.5 - shift) / scale - inked;
             if (at > INK[0] && at < INK[1]) for (let row = 0; row < h; row++) data[(row * w + column) * 4 + 3] = 255;
@@ -47,12 +48,12 @@ function inkCanvas(reads: { count: number }) {
   };
 }
 
-function bands(body: string) {
+function bands(body: string, noise = false) {
   const html = `<p style="margin:0;font:20px serif;line-height:40px">${body}</p>`;
   const painted = recordingCtx(600, 200);
   const reads = { count: 0 };
   const result = layout({ html, width: 600, ctx: painted.ctx });
-  drawLayout({ layout: result, width: 600, ctx: painted.ctx, createCanvas: inkCanvas(reads) });
+  drawLayout({ layout: result, width: 600, ctx: painted.ctx, createCanvas: inkCanvas(reads, noise) });
   // A band's kept pieces: the subpaths of its stroke (a dashed band: a stroke each).
   const strokes = painted.paints.filter((p) => p.startsWith('stroke(')).flatMap((p) =>
     [...p.matchAll(/moveTo\(([-\d.e]+),[-\d.e]+\)\S* lineTo\(([-\d.e]+),/g)].map((m) => [Number(m[1]), Number(m[2])]));
@@ -86,7 +87,12 @@ describe('text-decoration-skip-ink', () => {
   });
 
   it('reads a glyph once per draw, whichever element it is in', () => {
-    expect(bands('<u>gag gig</u><br><u>gog</u>').reads).toBe(1);
+    // And once more, to see that the canvas reads back at all.
+    expect(bands('<u>gag gig</u><br><u>gog</u>').reads).toBe(2);
+  });
+
+  it('keeps a band whole where the canvas reads back noise, as under Firefox\'s resistFingerprinting', () => {
+    expect(bands('<u>bag bag</u>', true).strokes).toHaveLength(1);
   });
 
   it('inherits, and `auto` turns it on again', () => {
@@ -124,7 +130,7 @@ describe('text-decoration-skip-ink', () => {
     const ctx = new Proxy(painted.ctx, { get: (target, key) => key === 'canvas' ? canvas : Reflect.get(target, key) });
     const result = layout({ html: '<u>bag</u>', width: 600, ctx });
     drawLayout({ layout: result, width: 600, ctx });
-    expect(reads.count).toBe(1);
+    expect(reads.count).toBe(2);
   });
 
   it('asks for createCanvas where no canvas can be made', () => {
