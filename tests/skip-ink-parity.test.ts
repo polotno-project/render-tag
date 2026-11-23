@@ -16,6 +16,7 @@ import { compareNativeRenders } from './helpers/native-compare.ts';
 import { loadMultiFontCss, TEST_FALLBACK_STACK } from './helpers/test-cases.ts';
 import { reportPath } from './helpers/report-path.ts';
 import { pixels } from './helpers/decoration-scan.ts';
+import { PORTABLE_GATES_ONLY } from './helpers/portable-mode.ts';
 
 interface Case {
   name: string;
@@ -44,17 +45,17 @@ const CASES: Case[] = [
   { name: 'merriweather-italic-32', font: `italic 32px Merriweather`, html: u('jiffy flying pygmy quay'), width: 620 },
   { name: 'lobster-40', font: `40px Lobster`, html: u('Juggling fjord py gq'), width: 620 },
   { name: 'inconsolata-24', font: `24px Inconsolata`, html: u('if (py_obj.gq) { j /= y; }'), width: 620 },
-  { name: 'thick-6px', font: '40px Arial', html: u('gypsy query jq', 'text-decoration-thickness:6px'), width: 520 },
-  { name: 'offset-8px', font: '40px Arial', html: u('gypsy query jq', 'text-underline-offset:8px'), width: 520, gaps: false },
-  { name: 'offset-negative', font: '40px Arial', html: u('gypsy Query BDE', 'text-underline-offset:-10px'), width: 520 },
-  { name: 'double', font: '40px Arial', html: u('gypsy query jq', 'text-decoration-style:double'), width: 520 },
-  { name: 'dotted', font: '40px Arial', html: u('gypsy query jq', 'text-decoration-style:dotted'), width: 520 },
-  { name: 'dashed', font: '40px Arial', html: u('gypsy query jq', 'text-decoration-style:dashed'), width: 520 },
-  { name: 'wavy', font: '40px Arial', html: u('gypsy query jq', 'text-decoration-style:wavy'), width: 520 },
-  { name: 'overline', font: '40px Arial', html: u('Ålesund ÄÖÜ bdfhklt', 'text-decoration-line:overline'), width: 520 },
+  { name: 'thick-6px', font: `40px 'Open Sans'`, html: u('gypsy query jq', 'text-decoration-thickness:6px'), width: 520 },
+  { name: 'offset-14px', font: `40px 'Open Sans'`, html: u('gypsy query jq', 'text-underline-offset:14px'), width: 520, gaps: false },
+  { name: 'offset-negative', font: `40px 'Open Sans'`, html: u('gypsy Query BDE', 'text-underline-offset:-10px'), width: 520 },
+  { name: 'double', font: `40px 'Open Sans'`, html: u('gypsy query jq', 'text-decoration-style:double'), width: 520 },
+  { name: 'dotted', font: `40px 'Open Sans'`, html: u('gypsy query jq', 'text-decoration-style:dotted'), width: 520 },
+  { name: 'dashed', font: `40px 'Open Sans'`, html: u('gypsy query jq', 'text-decoration-style:dashed'), width: 520 },
+  { name: 'wavy', font: `40px 'Open Sans'`, html: u('gypsy query jq', 'text-decoration-style:wavy'), width: 520 },
+  { name: 'overline', font: `40px 'Open Sans'`, html: u('Ålesund ÄÖÜ bdfhklt', 'text-decoration-line:overline'), width: 520 },
   { name: 'under-and-over', font: `36px 'Open Sans'`, html: u('Éjecté gypsy', 'text-decoration-line:underline overline'), width: 520 },
-  { name: 'line-through-untouched', font: '40px Arial', html: u('gypsy query', 'text-decoration-line:line-through'), width: 520, gaps: false },
-  { name: 'letter-spacing', font: '32px Arial', html: u('gypsy query jq', 'letter-spacing:4px'), width: 520 },
+  { name: 'line-through-untouched', font: `40px 'Open Sans'`, html: u('gypsy query', 'text-decoration-line:line-through'), width: 520, gaps: false },
+  { name: 'letter-spacing', font: `32px 'Open Sans'`, html: u('gypsy query jq', 'letter-spacing:4px'), width: 520 },
   { name: 'never-skipped', font: `32px Arial, ${TEST_FALLBACK_STACK}`, html: u('a_b/c\\d 日本語 gjp 한국어'), width: 620, gaps: true },
   // A color glyph has no outline for Skia to cross.
   { name: 'emoji', font: '32px Arial', html: u('gyp \u{1F33F} \u{1F433} jq'), width: 520, gaps: true },
@@ -62,13 +63,13 @@ const CASES: Case[] = [
   // `skip-ink: none` too: not a gap.
   { name: 'arabic', font: `32px Arial, ${TEST_FALLBACK_STACK}`, html: `<div dir="rtl">${u('مرحبا بالعالم gypsy')}</div>`, width: 520, mismatch: 0.05 },
   // A thin band shows any piece left inside a glyph: one span per glyph, as Skia.
-  { name: 'rtl-latin-thin', font: `80px Arial`, html: `<div dir="rtl">${u('gyjp gq', 'text-decoration-thickness:1px;text-underline-offset:6px')}</div>`, width: 620, height: 200 },
+  { name: 'rtl-latin-thin', font: `80px 'Open Sans'`, html: `<div dir="rtl">${u('gyjp gq', 'text-decoration-thickness:1px;text-underline-offset:6px')}</div>`, width: 620, height: 200 },
   { name: 'arabic-thin', font: `80px Arial, ${TEST_FALLBACK_STACK}`, html: `<div dir="rtl">${u('نيع جحخ', 'text-decoration-thickness:1px;text-underline-offset:6px')}</div>`, width: 620, height: 200 },
   { name: 'arabic-only', font: `32px Arial, ${TEST_FALLBACK_STACK}`, html: `<div dir="rtl">${u('مرحبا')}</div>`, width: 520 },
-  { name: 'inherited-and-none', font: '32px Arial',
+  { name: 'inherited-and-none', font: `32px 'Open Sans'`,
     html: `<div style="text-decoration-skip-ink:auto"><u style="text-decoration-color:red">gypsy <span style="text-decoration-skip-ink:none">gypsy</span> gypsy</u></div>`, width: 520 },
-  { name: 'ancestor-band', font: '32px Arial', html: u('gyp <span style="font-size:48px">gyp</span> <sup>gyp</sup>'), width: 520 },
-  { name: 'text-shadow', font: '40px Arial', html: u('gypsy query', 'text-shadow:6px 6px 0 #88f'), width: 520 },
+  { name: 'ancestor-band', font: `32px 'Open Sans'`, html: u('gyp <span style="font-size:48px">gyp</span> <sup>gyp</sup>'), width: 520 },
+  { name: 'text-shadow', font: `40px 'Open Sans'`, html: u('gypsy query', 'text-shadow:6px 6px 0 #88f'), width: 520 },
   { name: 'arial-40-dpr2', font: '40px Arial', html: u(PANGRAM), width: 900, dpr: 2 },
   { name: 'open-sans-17-dpr2', font: `17px 'Open Sans'`, html: u(PANGRAM), width: 460, dpr: 2 },
 ];
@@ -160,7 +161,8 @@ describe('text-decoration-skip-ink: auto vs Chrome', () => {
   });
 
   for (const c of CASES) {
-    it(c.name, async () => {
+    // Arial is whatever the system has (Liberation Sans on Linux): those cases gate locally.
+    it.skipIf(PORTABLE_GATES_ONLY && c.font.includes('Arial'))(c.name, async () => {
       const fontCss = await loadMultiFontCss();
       const width = c.width ?? 520, height = c.height ?? 110, dpr = c.dpr ?? 1;
       const wrap = (color: string) =>
