@@ -31,6 +31,7 @@ export class InkProbe {
   private readonly read = new Map<string, Map<string, Float64Array | null>>();
   private canvas?: AnyCanvas;
   private ps?: PaintState;
+  private readable?: boolean;
 
   constructor(
     private readonly makeCanvas: (width: number, height: number) => AnyCanvas,
@@ -85,7 +86,7 @@ export class InkProbe {
     measured.glyph(style);
     // Its ink box first: most glyphs never reach an underline's rows.
     const box = measured.ctx.measureText(g);
-    if (box.actualBoundingBoxDescent <= top || -box.actualBoundingBoxAscent >= bottom) return null;
+    if (box.actualBoundingBoxDescent <= top || -box.actualBoundingBoxAscent >= bottom || !this.reads()) return null;
     // WebKit can leave a synthetic italic's shear out of the box: room on both sides.
     const room = style.fontSize / 4;
     const x = -box.actualBoundingBoxLeft - room;
@@ -127,6 +128,7 @@ export class InkProbe {
     const scale = readScale(em);
     const height = Math.max(1, Math.round((bottom - top) * scale));
     const out: [number, number][] = [];
+    if (!this.reads()) return out;
     for (let x = left; x < right; x += SCRATCH_WIDTH / scale) {
       const width = Math.min(SCRATCH_WIDTH, Math.ceil((right - x) * scale));
       const data = this.pixels(top, x, width, height, scale, paint);
@@ -150,6 +152,12 @@ export class InkProbe {
       }
     }
     return out;
+  }
+
+  /** Whether the scratch canvas reads back what was painted: Firefox's `privacy.resistFingerprinting`
+   * returns noise, which would gap a band at random. Without it bands stay whole. */
+  private reads(): boolean {
+    return this.readable ??= this.pixels(0, 0, 2, 2, 1, () => {}).every((byte) => byte === 0);
   }
 
   /** The pixels of what `paint` draws, `width` by `height` at `scale`, from layout (`x`, `top`). */
