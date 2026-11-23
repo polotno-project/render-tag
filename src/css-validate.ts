@@ -133,7 +133,7 @@ const COLOR_SPACES = new Set([
   'srgb', 'srgb-linear', 'display-p3', 'a98-rgb', 'prophoto-rgb', 'rec2020', 'xyz', 'xyz-d50', 'xyz-d65',
 ]);
 const INTERPOLATION_SPACES = new Set([...COLOR_SPACES, 'hsl', 'hwb', 'lab', 'lch', 'oklab', 'oklch']);
-const HUE_METHODS = new Set(['shorter', 'longer', 'increasing', 'decreasing']);
+export const HUE_METHODS = new Set(['shorter', 'longer', 'increasing', 'decreasing']);
 
 /** `in <space> [<hue-method> hue]` tokens (a color-mix or gradient interpolation method). */
 function isInterpolation(parts: string[]): boolean {
@@ -247,7 +247,7 @@ function isColorStopList(parts: string[], position: (t: string) => boolean): boo
     stops++;
     previousWasHint = false;
   }
-  return stops >= 2;
+  return stops >= 1;
 }
 
 const SIDES = new Set(['left', 'right', 'top', 'bottom']);

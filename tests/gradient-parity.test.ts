@@ -50,6 +50,10 @@ const GRADIENTS = [
   'repeating-linear-gradient(30deg, red, lime 150px, blue 450px)',
   'repeating-linear-gradient(90deg, red, lime 15px, blue 45px)',
   'repeating-linear-gradient(30deg, red 0 20px, blue 20px 40px)',
+  // Stops in other lengths and math functions; a single stop.
+  'linear-gradient(to right, red 0 1in, blue 1in)',
+  'linear-gradient(to right, red calc(10px + 10%), blue 3em)',
+  'linear-gradient(red)',
 ];
 
 const RADIAL_GRADIENTS = [
@@ -63,8 +67,8 @@ const RADIAL_GRADIENTS = [
   // A stop before the centre: the colour there is mixed from the stops either side.
   'radial-gradient(circle, red -100%, blue 100%)',
   // A missing component takes the other stop's, as Chrome and Gecko mix it.
-  // WebKit's own paint does not carry it (old none-as-0 code: error 5.7, this
-  // one: 30), and render-tag paints Chrome's in every browser.
+  // WebKit's own paint does not carry it (error 30), and render-tag paints
+  // Chrome's in every browser.
   ...(isWebKit ? [] : ['radial-gradient(circle, rgb(none 0 0) -100%, red 100%)']),
   'radial-gradient(circle, rgb(calc(255) 0 0) -100%, blue 100%)',
   // Circle extents and lengths.
@@ -72,6 +76,18 @@ const RADIAL_GRADIENTS = [
   'radial-gradient(circle farthest-side at 30% 40%, red, blue)',
   'radial-gradient(circle closest-corner at 30% 40%, red, blue)',
   'radial-gradient(circle 80px at 30% 40%, red, blue)',
+  // Positions: edge offsets, a math function, another unit.
+  'radial-gradient(circle at right 100px bottom 20px, red, blue)',
+  'radial-gradient(circle at calc(20% + 10px) 80%, red, blue)',
+  'radial-gradient(circle at 1in 0.5in, red, blue)',
+  // Font units, on the declaring element's 96px font.
+  'radial-gradient(circle 2em at 1em 0.5em, red, blue)',
+  'radial-gradient(1em 0.5em at 30% 40%, red 0 1em, blue 1em)',
+  'radial-gradient(circle 100px, red 0 0.5in, blue 0.5in)',
+  'radial-gradient(red)',
+  // The first layer paints over the rest.
+  'radial-gradient(circle, red, blue), linear-gradient(lime, lime)',
+  'linear-gradient(to right, red, blue), radial-gradient(circle, lime, lime)',
   // Ellipses: the default, each extent, lengths, and tiles out to the far corner.
   'radial-gradient(red, blue)',
   'radial-gradient(red, lime 40%, blue)',

@@ -1,5 +1,5 @@
-import { namedColorHex, splitTopLevel, splitTopLevelWhitespace } from './css-validate.js';
-import { numberThen, resolveNumberOrLength } from './css-values.js';
+import { HUE_METHODS, MATH, isColor, namedColorHex, splitTopLevel, splitTopLevelWhitespace } from './css-validate.js';
+import { memoized, nullProto, numberThen, resolveNumberOrLength } from './css-values.js';
 import type { AnyCanvas } from './types.js';
 
 const ANGLE = numberThen('(deg|grad|rad|turn)');
@@ -27,48 +27,38 @@ function gradientAngle(part: string, width: number, height: number): number | nu
   return right ? 180 - corner : 180 + corner;
 }
 
-const LINEAR_FUNCTION = /(repeating-)?linear-gradient\(/i;
-const RADIAL_FUNCTION = /(repeating-)?radial-gradient\(/i;
+/** A layer that is a gradient call; a prefixed linear one is read by the standard grammar. */
+const GRADIENT_CALL = /^(?:(?:-\w+-)?(repeating-)?(linear)|(repeating-)?(radial))-gradient\(/i;
 
-/** The index past a string's closing quote; `start` is its opening quote. */
-function stringEnd(s: string, start: number): number {
-  const quote = s[start];
-  let i = start + 1;
-  while (i < s.length && s[i] !== quote) i += s[i] === '\\' ? 2 : 1;
-  return Math.min(s.length, i + 1);
+interface GradientCall {
+  kind: 'linear' | 'radial';
+  repeating: boolean;
+  /** Its comma-separated arguments. */
+  parts: string[];
 }
 
-/**
- * `bgImage` with each quoted string and `url(…)` blanked to spaces (same
- * length, so indices carry over): a gradient name in a file path is not a call.
- */
-function blankUrlsAndStrings(s: string): string {
-  if (!/["']|url\(/i.test(s)) return s;
-  let out = '';
-  for (let i = 0; i < s.length;) {
-    let end = i + 1;
-    if (s[i] === '"' || s[i] === "'") {
-      end = stringEnd(s, i);
-    } else if (s.slice(i, i + 4).toLowerCase() === 'url(' && !/[\w-]/.test(s[i - 1] ?? '')) {
-      end = i + 4;
-      while (end < s.length && /\s/.test(s[end])) end++;
-      if (s[end] === '"' || s[end] === "'") end = stringEnd(s, end);
-      while (end < s.length && s[end] !== ')') end += s[end] === '\\' ? 2 : 1;
-      end = Math.min(s.length, end + 1);
-    } else {
-      out += s[i++];
-      continue;
+/** The topmost layer of `bgImage` that is a gradient call: CSS paints the first layer over the rest. */
+const gradientCall = memoized((bgImage: string): GradientCall | null => {
+  for (const layer of splitTopLevel(bgImage, ',')) {
+    const call = layer.trim();
+    const m = GRADIENT_CALL.exec(call);
+    if (!m) continue;
+    let depth = 0, end = -1;
+    for (let i = m[0].length; i < call.length && end === -1; i++) {
+      if (call[i] === '(') depth++;
+      else if (call[i] === ')' && depth-- === 0) end = i;
     }
-    out += ' '.repeat(end - i);
-    i = end;
+    if (end === -1) return null;
+    const parts = splitTopLevel(call.slice(m[0].length, end), ',').map((p) => p.trim()).filter(Boolean);
+    if (parts.length === 0) return null;
+    return { kind: m[2] ? 'linear' : 'radial', repeating: (m[1] ?? m[3]) !== undefined, parts };
   }
-  return out;
-}
+  return null;
+});
 
-/** The gradient `bgImage` paints: a linear one wherever it appears, else a radial one. */
+/** The gradient `bgImage` paints. */
 export function gradientKind(bgImage: string): 'linear' | 'radial' | null {
-  const calls = blankUrlsAndStrings(bgImage);
-  return LINEAR_FUNCTION.test(calls) ? 'linear' : RADIAL_FUNCTION.test(calls) ? 'radial' : null;
+  return gradientCall(bgImage)?.kind ?? null;
 }
 
 /** What a gradient paints with: a canvas gradient, a pattern (`radialPaint`), or a solid colour. */
@@ -89,27 +79,6 @@ export function parseGradient(
     : parseLinearGradient(ctx, bgImage, x, width, y, height);
 }
 
-/** The first `fn` call in `bgImage`: whether it repeats, and its comma-separated arguments. */
-function gradientArguments(bgImage: string, fn: RegExp): { repeating: boolean; parts: string[] } | null {
-  const calls = blankUrlsAndStrings(bgImage);
-  const m = fn.exec(calls);
-  if (!m) return null;
-  const startIdx = m.index + m[0].length;
-  let depth = 0;
-  let endIdx = -1;
-  for (let i = startIdx; i < calls.length; i++) {
-    if (calls[i] === '(') depth++;
-    else if (calls[i] === ')') {
-      if (depth === 0) { endIdx = i; break; }
-      depth--;
-    }
-  }
-  if (endIdx === -1) return null;
-  const parts = splitTopLevel(bgImage.slice(startIdx, endIdx), ',').map((p) => p.trim()).filter(Boolean);
-  if (parts.length === 0) return null;
-  return { repeating: m[1] !== undefined, parts };
-}
-
 /**
  * Color stops as [color, offset] with offsets as fractions of a gradient ray
  * `length` px long, fixed up per CSS Images 3 §3.4.3; null when none paints.
@@ -125,15 +94,13 @@ function colorStops(
     const tokens = splitTopLevelWhitespace(entry);
     const positions: number[] = [];
     while (tokens.length > 1) {
-      const m = STOP_LENGTH.exec(tokens[tokens.length - 1]);
-      if (!m || (!m[2] && parseFloat(m[1]) !== 0)) break;
-      const value = parseFloat(m[1]);
-      if (lengths && m[2] === 'px' && value !== 0) lengths.px = true;
-      positions.unshift(m[2] === '%' ? value / 100 : length > 0 ? value / length : 0);
+      const position = stopPosition(tokens[tokens.length - 1], length, lengths);
+      if (position === null) break;
+      positions.unshift(position);
       tokens.pop();
     }
     // A color hint.
-    if (tokens.length === 1 && STOP_LENGTH.test(tokens[0])) continue;
+    if (tokens.length === 1 && stopPosition(tokens[0], length) !== null) continue;
     if (tokens.length === 0 || positions.length > 2) continue;
     const color = tokens.join(' ');
     if (positions.length === 0) stops.push([color, null]);
@@ -159,6 +126,17 @@ function colorStops(
   return repeating ? repeatStops(stops as [string, number][], end) : stops as [string, number][];
 }
 
+/** A stop's position as a fraction of a ray `length` px long; null when `token` is not one. */
+function stopPosition(token: string, length: number, lengths?: { px: boolean }): number | null {
+  const m = STOP_LENGTH.exec(token);
+  if (m && !m[2] && parseFloat(m[1]) !== 0) return null;
+  if (m?.[2] === '%') return parseFloat(m[1]) / 100;
+  const px = m ? parseFloat(m[1]) : lengthPercentage(token, length);
+  if (px === null) return null;
+  if (lengths && px !== 0) lengths.px = true;
+  return length > 0 ? px / length : 0;
+}
+
 /**
  * A CSS (repeating-)linear-gradient as a CanvasGradient over the box. Stops
  * follow CSS Images 3 §3.4.3; out-of-range stops stretch the canvas line.
@@ -173,8 +151,8 @@ export function parseLinearGradient(
   y: number,
   height: number,
 ): CanvasGradient | null {
-  const args = gradientArguments(bgImage, LINEAR_FUNCTION);
-  if (!args) return null;
+  const args = gradientCall(bgImage);
+  if (args?.kind !== 'linear') return null;
   const { parts } = args;
 
   const direction = gradientAngle(parts[0], width, height);
@@ -206,46 +184,56 @@ export function parseLinearGradient(
   return gradient;
 }
 
-/** The first argument of a radial gradient is its configuration when it opens with one of these or a length. */
-const RADIAL_CONFIG = /^(?:(?:circle|ellipse|closest-side|closest-corner|farthest-side|farthest-corner|at|in)(?:\s|$)|[-+]?\.?\d)/i;
-/** A math function, which only a size or a position can open with (CSS Values 4 §10). */
-const MATH_FUNCTION = /^(?:-webkit-)?(?:calc|min|max|clamp|round|mod|rem|abs|sign|hypot|sqrt|pow|exp|log|sin|cos|tan|asin|acos|atan2?)\(/i;
+const LENGTH_TOKEN = /^([-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?)([a-z%]*)$/i;
+/** What a length here resolves against: its font and viewport units are px already (`gradientLengthsInPx`). */
+const NO_FONT = { em: NaN, rem: NaN, viewport: null, fontStyle: null, measure: undefined };
 
-/** Whether a radial gradient's first argument is its configuration rather than a color stop. */
-function isRadialConfig(part: string): boolean {
-  if (RADIAL_CONFIG.test(part)) return true;
-  const tokens = splitTopLevelWhitespace(part);
-  return MATH_FUNCTION.test(tokens[0]) || tokens.some((t) => t.toLowerCase() === 'at');
+/**
+ * A `<length-percentage>` in px: `percentOf` is what a percentage reads
+ * against (NaN where it takes none); null when invalid.
+ */
+function lengthPercentage(token: string, percentOf: number): number | null {
+  const plain = LENGTH_TOKEN.exec(token);
+  if (plain) {
+    if (!plain[2]) return parseFloat(plain[1]) === 0 ? 0 : null;
+    if (plain[2] === '%' && Number.isNaN(percentOf)) return null;
+  } else if (!MATH.test(token)) {
+    return null;
+  }
+  const typed = resolveNumberOrLength(token, { ...NO_FONT, percent: percentOf });
+  return !typed || !Number.isFinite(typed.value) || (typed.number && typed.value !== 0) ? null : typed.value;
 }
 
-/** One `<position>` component: its axis when a keyword fixes it, and its offset into a box side. */
-function positionComponent(token: string): { axis: 'x' | 'y' | null; at: (side: number) => number } | null {
-  switch (token.toLowerCase()) {
-    case 'left': return { axis: 'x', at: () => 0 };
-    case 'right': return { axis: 'x', at: (side) => side };
-    case 'top': return { axis: 'y', at: () => 0 };
-    case 'bottom': return { axis: 'y', at: (side) => side };
-    case 'center': return { axis: null, at: (side) => side / 2 };
-  }
-  const m = STOP_LENGTH.exec(token);
-  if (!m || (!m[2] && parseFloat(m[1]) !== 0)) return null;
-  const value = parseFloat(m[1]);
-  return { axis: null, at: m[2] === '%' ? (side) => side * value / 100 : () => value };
-}
+const HORIZONTAL: Record<string, number> = nullProto({ left: 0, center: 0.5, right: 1 });
+const VERTICAL: Record<string, number> = nullProto({ top: 0, center: 0.5, bottom: 1 });
 
-/** The centre offsets for `at <position>` (one or two components), else the box centre. */
-function radialCenter(tokens: string[], width: number, height: number): [number, number] {
-  const center: [number, number] = [width / 2, height / 2];
-  const parts = tokens.map(positionComponent);
-  if (parts.some((p) => p === null)) return center;
-  let [h, v] = parts as { axis: 'x' | 'y' | null; at: (side: number) => number }[];
-  if (parts.length === 1) {
-    return h.axis === 'y' ? [width / 2, h.at(height)] : [h.at(width), height / 2];
+/**
+ * The centre for `at <position>` (CSS Values 4 §9): one or two components,
+ * or two edges each with an offset. Null when invalid.
+ */
+function radialCenter(tokens: string[], width: number, height: number): [number, number] | null {
+  let t = tokens.map((token) => token.toLowerCase());
+  /** A keyword of `words` or a length, along a side. */
+  const along = (token: string, side: number, words: Record<string, number>) =>
+    token in words ? words[token] * side : lengthPercentage(token, side);
+  let x: number | null = null, y: number | null = null;
+  if (t.length === 1) {
+    [x, y] = t[0] in VERTICAL && t[0] !== 'center' ? [width / 2, along(t[0], height, VERTICAL)] : [along(t[0], width, HORIZONTAL), height / 2];
+  } else if (t.length === 2) {
+    // Two keywords come in either order; a length fixes it.
+    const vertical = (token: string) => token === 'top' || token === 'bottom';
+    const horizontal = (token: string) => token === 'left' || token === 'right';
+    if ((vertical(t[0]) && t[1] in HORIZONTAL) || (horizontal(t[1]) && t[0] in VERTICAL)) t = [t[1], t[0]];
+    [x, y] = [along(t[0], width, HORIZONTAL), along(t[1], height, VERTICAL)];
+  } else if (t.length === 4) {
+    if (t[0] in VERTICAL) t = [t[2], t[3], t[0], t[1]];
+    const from = (edge: string, offset: string, side: number, words: Record<string, number>) => {
+      const length = edge in words && edge !== 'center' ? lengthPercentage(offset, side) : null;
+      return length === null ? null : words[edge] ? side - length : length;
+    };
+    [x, y] = [from(t[0], t[1], width, HORIZONTAL), from(t[2], t[3], height, VERTICAL)];
   }
-  if (parts.length !== 2) return center;
-  if (h.axis === 'y' || v.axis === 'x') [h, v] = [v, h];
-  if (h.axis === 'y' || v.axis === 'x') return center;
-  return [h.at(width), v.at(height)];
+  return x === null || y === null ? null : [x, y];
 }
 
 export interface RadialGradientGeometry {
@@ -262,34 +250,18 @@ export interface RadialGradientGeometry {
 }
 
 const EXTENTS = new Set(['closest-side', 'closest-corner', 'farthest-side', 'farthest-corner']);
-const HUE_METHODS = new Set(['shorter', 'longer', 'increasing', 'decreasing']);
-const LENGTH_TOKEN = /^([-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?)([a-z%]*)$/i;
 
-/**
- * One `<radial-size>` length in px: `percentOf` is the box side a percentage
- * reads against (NaN for a circle, which takes none). 'unresolved' for a
- * length with no basis here (font and viewport units); null when invalid.
- */
-function radialLength(token: string, percentOf: number): number | 'unresolved' | null {
-  const plain = LENGTH_TOKEN.exec(token);
-  if (plain) {
-    const value = parseFloat(plain[1]), unit = plain[2].toLowerCase();
-    if (value < 0) return null;
-    if (!unit) return value === 0 ? 0 : null;
-    if (unit === '%') return Number.isNaN(percentOf) ? null : value * percentOf / 100;
-  } else if (!MATH_FUNCTION.test(token)) {
-    return null;
-  }
-  const typed = resolveNumberOrLength(token, { ...CHANNEL_BASIS, percent: percentOf });
-  if (!typed || !Number.isFinite(typed.value) || (typed.number && typed.value !== 0)) return 'unresolved';
+/** One `<radial-size>` length (`lengthPercentage`), which is never negative. */
+function radialLength(token: string, percentOf: number): number | null {
+  const px = lengthPercentage(token, percentOf);
+  if (px === null || px >= 0) return px;
   // A math function clamps to the range (CSS Values 4 §10.12).
-  return Math.max(0, typed.value);
+  return MATH.test(token) ? 0 : null;
 }
 
 /**
  * The ending shape's radii (CSS Images 3 §3.2.2) for a centre `ox, oy` into a
  * `width` by `height` box, from the shape and size tokens; null when invalid.
- * A length with no basis here keeps its shape at the default extent.
  */
 function radialRadii(tokens: string[], ox: number, oy: number, width: number, height: number): [number, number] | null {
   let shape: string | null = null, extent: string | null = null;
@@ -316,10 +288,8 @@ function radialRadii(tokens: string[], ox: number, oy: number, width: number, he
   if (lengths.length) {
     const sizes = circle ? [radialLength(lengths[0], NaN)] : [radialLength(lengths[0], width), radialLength(lengths[1], height)];
     if (sizes.includes(null)) return null;
-    if (!sizes.includes('unresolved')) {
-      const [rx, ry = rx] = sizes as number[];
-      return [rx, ry];
-    }
+    const [rx, ry = rx] = sizes as number[];
+    return [rx, ry];
   }
   const h = [Math.abs(ox), Math.abs(width - ox)], v = [Math.abs(oy), Math.abs(height - oy)];
   const closest = extent === 'closest-side' || extent === 'closest-corner';
@@ -355,16 +325,20 @@ export function radialGradientGeometry(
   y: number,
   height: number,
 ): RadialGradientGeometry | null {
-  const args = gradientArguments(bgImage, RADIAL_FUNCTION);
-  if (!args) return null;
+  const args = gradientCall(bgImage);
+  if (args?.kind !== 'radial') return null;
   const { parts } = args;
-  const config = isRadialConfig(parts[0]) ? withoutInterpolation(splitTopLevelWhitespace(parts[0])) : null;
-  let position: string[] = [], size: string[] = config ?? [];
-  if (config) {
-    const at = config.findIndex((t) => t.toLowerCase() === 'at');
-    if (at !== -1) [size, position] = [config.slice(0, at), config.slice(at + 1)];
+  // The first argument is the configuration unless it starts with a color.
+  const first = splitTopLevelWhitespace(parts[0]);
+  const config = isColor(first[0]) ? null : withoutInterpolation(first);
+  let size: string[] = config ?? [], center: [number, number] | null = [width / 2, height / 2];
+  const at = size.findIndex((t) => t.toLowerCase() === 'at');
+  if (at !== -1) {
+    center = radialCenter(size.slice(at + 1), width, height);
+    size = size.slice(0, at);
   }
-  const [ox, oy] = position.length ? radialCenter(position, width, height) : [width / 2, height / 2];
+  if (!center) return null;
+  const [ox, oy] = center;
   const radii = radialRadii(size, ox, oy, width, height);
   if (!radii) return null;
   const [rx, ry] = radii;
@@ -440,9 +414,6 @@ function averageColor(stops: [string, number][]): string | null {
   return `rgba(${channel(0)}, ${channel(1)}, ${channel(2)}, ${+alpha.toFixed(4)})`;
 }
 
-/** What a colour channel's math function resolves against: no font, no viewport. */
-const CHANNEL_BASIS = { em: NaN, rem: NaN, viewport: null, fontStyle: null, measure: undefined };
-
 /**
  * One colour channel: a number, or a percentage of `percentOf`, either one
  * possibly a math function (`calc(255 / 2)`); NaN for anything else.
@@ -450,12 +421,12 @@ const CHANNEL_BASIS = { em: NaN, rem: NaN, viewport: null, fontStyle: null, meas
 function channelValue(t: string, percentOf: number): number {
   const m = /^([-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?)(%?)$/.exec(t);
   if (m) return parseFloat(m[1]) * (m[2] ? percentOf / 100 : 1);
-  if (!MATH_FUNCTION.test(t)) return NaN;
-  const typed = resolveNumberOrLength(t, { ...CHANNEL_BASIS, percent: percentOf });
+  if (!MATH.test(t)) return NaN;
+  const typed = resolveNumberOrLength(t, { ...NO_FONT, percent: percentOf });
   if (!typed) return NaN;
   if (typed.number) return typed.value;
   // A percentage, not a length: it has no value once `%` has none.
-  return resolveNumberOrLength(t, { ...CHANNEL_BASIS, percent: NaN }) ? NaN : typed.value;
+  return resolveNumberOrLength(t, { ...NO_FONT, percent: NaN }) ? NaN : typed.value;
 }
 
 /**
@@ -523,16 +494,18 @@ function multiply(m: Affine, n: Affine): Affine {
 
 /** What a raster ctx lends an elliptical gradient's pattern. */
 export interface RadialRaster {
-  /** Device pixels per layout pixel. */
-  scale: number;
+  /** Device pixels per layout pixel, read when an image is built. */
+  scale(): number;
   /** A scratch canvas, or null when there is none. */
   canvas(width: number, height: number): AnyCanvas | null;
-  /** The pattern images built so far, by geometry. */
-  images?: Map<RadialGradientGeometry, { canvas: AnyCanvas; scale: number; x: number; y: number }>;
+  /** The pattern images built so far, by geometry; null where none could be. */
+  images: Map<RadialGradientGeometry, { canvas: AnyCanvas; place: Affine } | null>;
 }
 
 /** The pattern image's longest side: a huge box is sampled coarser. */
 const MAX_PATTERN_SIDE = 4096;
+/** Layout px the image reaches past the box for glyph overhang and stroke; ink further out is not painted. */
+const PATTERN_OVERHANG = 128;
 
 /**
  * A radial gradient's stops as a canvas circle of radius `r` at (cx, cy).
@@ -555,66 +528,64 @@ function circleGradient(
 }
 
 /** Whether `ctx` is its canvas's own 2D context: a raster canvas, not a proxy. */
-function isRasterContext(ctx: CanvasRenderingContext2D): boolean {
+export function isRasterContext(ctx: CanvasRenderingContext2D): boolean {
   const canvas = ctx.canvas as { getContext?: (id: '2d') => unknown } | undefined;
   return typeof canvas?.getContext === 'function' && canvas.getContext('2d') === ctx;
 }
 
-/**
- * The ellipse painted into a scratch canvas over its box, plus half the
- * box's height around it for glyph overhang, as a pattern placed by `frame`.
- */
+/** The ellipse painted once into a scratch canvas, over its box and the overhang around it. */
+function ellipseImage(g: RadialGradientGeometry, raster: RadialRaster): { canvas: AnyCanvas; place: Affine } | null {
+  const margin = Math.min(g.box.height / 2, PATTERN_OVERHANG);
+  const x = g.box.x - margin, y = g.box.y - margin;
+  const width = g.box.width + 2 * margin, height = g.box.height + 2 * margin;
+  const scale = Math.min(raster.scale(), MAX_PATTERN_SIDE / width, MAX_PATTERN_SIDE / height);
+  if (!(scale > 0)) return null;
+  const canvas = raster.canvas(Math.max(1, Math.ceil(width * scale)), Math.max(1, Math.ceil(height * scale)));
+  const target = canvas?.getContext('2d') as CanvasRenderingContext2D | null | undefined;
+  if (!canvas || !target) return null;
+  const k = g.ry / g.rx;
+  target.setTransform(scale, 0, 0, scale * k, (g.cx - x) * scale, (g.cy - y) * scale);
+  target.fillStyle = circleGradient(target, g.stops, 0, 0, g.rx);
+  target.fillRect(x - g.cx, (y - g.cy) / k, width, height / k);
+  return { canvas, place: { a: 1 / scale, b: 0, c: 0, d: 1 / scale, e: x, f: y } };
+}
+
+/** The ellipse as a pattern of its image, placed by `frame`; null where the ctx or its canvases make none. */
 function ellipsePattern(
   ctx: CanvasRenderingContext2D, g: RadialGradientGeometry, frame: Affine, raster: RadialRaster,
 ): CanvasPattern | null {
   if (typeof ctx.createPattern !== 'function') return null;
-  let image = raster.images?.get(g);
-  if (!image) {
-    const margin = g.box.height / 2;
-    const x = g.box.x - margin, y = g.box.y - margin;
-    const width = g.box.width + 2 * margin, height = g.box.height + 2 * margin;
-    const scale = Math.min(raster.scale, MAX_PATTERN_SIDE / width, MAX_PATTERN_SIDE / height);
-    if (!(scale > 0)) return null;
-    const canvas = raster.canvas(Math.max(1, Math.ceil(width * scale)), Math.max(1, Math.ceil(height * scale)));
-    const target = canvas?.getContext('2d') as CanvasRenderingContext2D | null | undefined;
-    if (!canvas || !target) return null;
-    const k = g.ry / g.rx;
-    target.setTransform(scale, 0, 0, scale * k, (g.cx - x) * scale, (g.cy - y) * scale);
-    target.fillStyle = circleGradient(target, g.stops, 0, 0, g.rx);
-    target.fillRect(x - g.cx, (y - g.cy) / k, width, height / k);
-    image = { canvas, scale, x, y };
-    raster.images?.set(g, image);
-  }
-  const pattern = ctx.createPattern(image.canvas as CanvasImageSource, 'no-repeat');
+  let image = raster.images.get(g);
+  if (image === undefined) raster.images.set(g, image = ellipseImage(g, raster));
+  const pattern = image && ctx.createPattern(image.canvas as CanvasImageSource, 'no-repeat');
   if (!pattern || typeof pattern.setTransform !== 'function') return null;
-  const s = 1 / image.scale;
-  pattern.setTransform(multiply(frame, { a: s, b: 0, c: 0, d: s, e: image.x, f: image.y }));
+  pattern.setTransform(multiply(frame, image!.place));
   return pattern;
 }
 
 /**
  * The paint for a radial gradient, `frame` mapping its box's space into the
  * ctx's (a glyph's frame on a path). A circle is a canvas radial gradient. An
- * ellipse is one at the origin placed by its own `setTransform` where the
- * ctx's gradients have one (a vector adapter: SVG `gradientTransform`, a PDF
- * pattern matrix), a pattern on a raster ctx given `raster`, else the circle
- * of its horizontal radius. A zero-size shape paints its one colour.
+ * ellipse is a pattern on a raster ctx (`raster`); elsewhere the circle of its
+ * horizontal radius at its centre, handed the map onto the ellipse through
+ * `setTransform` where the ctx's gradients have one (a vector adapter: SVG
+ * `gradientTransform`, a PDF pattern matrix). A zero-size shape paints its
+ * one colour.
  */
 export function radialPaint(
   ctx: CanvasRenderingContext2D, g: RadialGradientGeometry, frame: Affine = IDENTITY, raster?: RadialRaster,
 ): GradientPaint {
   const { stops, rx, ry } = g;
   if (!(rx > 0 && ry > 0)) return stops[stops.length - 1][0];
+  const pattern = rx !== ry && raster ? ellipsePattern(ctx, g, frame, raster) : null;
+  if (pattern) return pattern;
   const cx = frame.a * g.cx + frame.c * g.cy + frame.e, cy = frame.b * g.cx + frame.d * g.cy + frame.f;
-  if (rx === ry) return circleGradient(ctx, stops, cx, cy, rx);
-  const gradient = circleGradient(ctx, stops, 0, 0, rx);
-  const placed = gradient as CanvasGradient & { setTransform?: (m: Affine) => void };
-  if (typeof placed.setTransform === 'function') {
-    placed.setTransform(multiply(frame, { a: 1, b: 0, c: 0, d: ry / rx, e: g.cx, f: g.cy }));
-    return gradient;
+  const gradient = circleGradient(ctx, stops, cx, cy, rx) as CanvasGradient & { setTransform?: (m: Affine) => void };
+  if (rx !== ry && typeof gradient.setTransform === 'function') {
+    const squash = multiply(frame, { a: 1, b: 0, c: 0, d: ry / rx, e: g.cx, f: g.cy });
+    gradient.setTransform(multiply(squash, { ...IDENTITY, e: -cx, f: -cy }));
   }
-  const pattern = raster && isRasterContext(ctx) ? ellipsePattern(ctx, g, frame, raster) : null;
-  return pattern ?? circleGradient(ctx, stops, cx, cy, rx);
+  return gradient;
 }
 
 /** A CSS (repeating-)radial-gradient as a paint over the box (`radialGradientGeometry`, `radialPaint`). */

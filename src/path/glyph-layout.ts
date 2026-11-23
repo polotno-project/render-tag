@@ -45,11 +45,14 @@ export interface GlyphPlacement {
   clipRange?: { start: number; width: number };
   /** The stroke-image declarer's fragment range. */
   strokeImageRange?: { start: number; width: number };
-  /** Every clip or stroke-image declarer around the glyph, outermost first:
-   * a radial gradient spans all its declarer's glyphs, descendants that
-   * paint their own included. */
-  declarers?: readonly ResolvedStyle[];
+  /** The clip declarer's glyphs as laid out, a descendant's that paints its
+   * own included: the box its radial gradient spans. */
+  clipBox?: Box;
+  /** The stroke-image declarer's box. */
+  strokeImageBox?: Box;
 }
+
+type Box = { x: number; y: number; width: number; height: number };
 
 export type AlignMode = 'left' | 'center' | 'right' | 'justify';
 
@@ -266,6 +269,8 @@ export function layoutGlyphsOnPath(input: LayoutInput): LayoutOutput {
   // `offset` walks the path (justify extra included); `naturalOffset` is the
   // position in [0, textWidth] that gradients slice by (justify extra excluded).
   const glyphs: GlyphPlacement[] = [];
+  /** Each glyph's clip and stroke-image declarers (`Segment.declarers`). */
+  const declarers: (readonly ResolvedStyle[] | undefined)[] = [];
   let offset = startOffset;
   let naturalOffset = 0;
   for (let i = 0; i < preGlyphs.length; i++) {
@@ -306,8 +311,8 @@ export function layoutGlyphsOnPath(input: LayoutInput): LayoutOutput {
       shaped: g.shaped,
       clipStyle: g.clipStyle,
       strokeImageStyle: g.strokeImageStyle,
-      declarers: g.declarers,
     });
+    declarers.push(g.declarers);
 
     offset = endLen;
     naturalOffset += effectiveWidth - (g.isSpace ? extraPerSpace : 0);
@@ -315,6 +320,17 @@ export function layoutGlyphsOnPath(input: LayoutInput): LayoutOutput {
 
   assignFragmentRanges(glyphs, g => g.clipStyle, (g, r) => { g.clipRange = r; });
   assignFragmentRanges(glyphs, g => g.strokeImageStyle, (g, r) => { g.strokeImageRange = r; });
+  // Each declarer's box, shared by its glyphs.
+  const boxes = new Map<ResolvedStyle, Box>();
+  const boxOf = (declarer: ResolvedStyle) => {
+    let box = boxes.get(declarer);
+    if (!box) boxes.set(declarer, box = computeBounds(glyphs.filter((_, i) => declarers[i]?.includes(declarer)), textBaseline));
+    return box;
+  };
+  for (const g of glyphs) {
+    if (g.clipStyle) g.clipBox = boxOf(g.clipStyle);
+    if (g.strokeImageStyle) g.strokeImageBox = boxOf(g.strokeImageStyle);
+  }
 
   const bounds = computeBounds(glyphs, textBaseline);
   return {
@@ -367,10 +383,10 @@ export function rotatedBox(g: GlyphPlacement, top: number, bottom: number): Poin
 /** Union of each glyph's `width x cellHeight` cell rotated by its tangent,
  * split above and below the baseline by the font's ascent/descent ratio.
  * See `LayoutOutput.bounds`. */
-export function computeBounds(
+function computeBounds(
   glyphs: GlyphPlacement[],
   textBaseline: TextBaseline,
-): { x: number; y: number; width: number; height: number } {
+): Box {
   if (glyphs.length === 0) return { x: 0, y: 0, width: 0, height: 0 };
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   for (const g of glyphs) {

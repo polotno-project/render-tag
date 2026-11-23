@@ -19,7 +19,6 @@ import {
   flattenSegments,
   layoutGlyphsOnPath,
   baselineLocalY,
-  computeBounds,
   rotatedBox,
   type AlignMode,
   type GlyphPlacement,
@@ -325,37 +324,26 @@ function clipSourceOf(g: GlyphPlacement): ResolvedStyle | undefined {
 /** The painted text of a layout, with each radial gradient read once per draw. */
 interface PathText {
   width: number;
-  glyphs: GlyphPlacement[];
-  tb: TextBaseline;
-  /** Each declarer's ending shape by image; `undefined` declares over the whole text. */
-  radials: Map<ResolvedStyle | undefined, Map<string, RadialGradientGeometry | null>>;
+  bounds: Box;
+  /** Each ending shape by its box and image. */
+  radials: Map<string, RadialGradientGeometry | null>;
 }
 type GlyphRange = { start: number; width: number };
+type Box = LayoutOutput['bounds'];
 
 function pathText(layout: LayoutOutput): PathText {
-  return { width: layout.textWidth, glyphs: layout.glyphs, tb: layout.textBaseline, radials: new Map() };
+  return { width: layout.textWidth, bounds: layout.bounds, radials: new Map() };
 }
 
-/** Whether `declarer` is the glyph's, or an ancestor's that a descendant's own paint overrides. */
-function insideDeclarer(g: GlyphPlacement, declarer: ResolvedStyle): boolean {
-  return g.declarers ? g.declarers.includes(declarer) : g.clipStyle === declarer || g.strokeImageStyle === declarer;
-}
-
-/** A radial gradient's ending shape over its declarer's glyphs as laid out (`LayoutOutput.bounds` for the whole text). */
-function radialOver(text: PathText, image: string, declarer: ResolvedStyle | undefined): RadialGradientGeometry | null {
-  let byImage = text.radials.get(declarer);
-  if (!byImage) text.radials.set(declarer, byImage = new Map());
-  let geometry = byImage.get(image);
+/** A radial gradient's ending shape over `box`. */
+function radialOver(text: PathText, image: string, box: Box): RadialGradientGeometry | null {
+  const key = `${box.x},${box.y},${box.width},${box.height} ${image}`;
+  let geometry = text.radials.get(key);
   if (geometry === undefined) {
-    const glyphs = declarer ? text.glyphs.filter(g => insideDeclarer(g, declarer)) : text.glyphs;
-    const box = computeBounds(glyphs, text.tb);
-    byImage.set(image, geometry = radialGradientGeometry(image, box.x, box.width, box.y, box.height));
+    text.radials.set(key, geometry = radialGradientGeometry(image, box.x, box.width, box.y, box.height));
   }
   return geometry;
 }
-
-/** A coverage mask paints every glyph opaque: a radial paint there only has to exist. */
-const MASK_PAINT = '#000';
 
 /** A gradient in the glyph's local frame. A linear one is sliced from the
  * declarer's fragment range, so neighbouring glyphs stitch into one
@@ -365,15 +353,15 @@ function sliceGradient(
   ps: PaintState,
   image: string,
   g: GlyphPlacement,
-  declarer: ResolvedStyle | undefined,
+  /** The declarer's box (`GlyphPlacement.clipBox`); the whole text's without one. */
+  box: Box | undefined,
   range: GlyphRange | undefined,
   text: PathText,
   baseY: number,
 ): GradientPaint | null {
   if (gradientKind(image) === 'radial') {
-    const geometry = radialOver(text, image, declarer);
+    const geometry = radialOver(text, image, box ?? text.bounds);
     if (!geometry) return null;
-    if (ps.coverage) return MASK_PAINT;
     // Layout space into the glyph's frame: translate to the glyph, then unrotate.
     const c = Math.cos(g.rotation), s = Math.sin(g.rotation);
     return ps.radial(geometry, { a: c, b: -s, c: s, d: c, e: -(c * g.x + s * g.y), f: s * g.x - c * g.y });
@@ -393,12 +381,12 @@ function clipPaintFor(
   const src = clipSourceOf(g);
   if (!src) return null;
   const gradient = hasBackgroundImage(src)
-    ? sliceGradient(ps, src.backgroundImage, g, g.clipStyle, g.clipRange, text, baseY)
+    ? sliceGradient(ps, src.backgroundImage, g, g.clipBox, g.clipRange, text, baseY)
     : null;
   return gradient ?? (!isTransparent(src.backgroundColor) ? src.backgroundColor : null);
 }
 
-/** The --rt-text-stroke-image gradient for one glyph (none in a mask, which strokes nothing). */
+/** The --rt-text-stroke-image gradient for one glyph. */
 function strokePaintFor(
   ps: PaintState,
   g: GlyphPlacement,
@@ -406,8 +394,7 @@ function strokePaintFor(
   baseY: number,
 ): GradientPaint | null {
   const src = g.strokeImageStyle;
-  if (!src) return null;
-  return ps.coverage ? null : sliceGradient(ps, src.webkitTextStrokeImage, g, src, g.strokeImageRange, text, baseY);
+  return src ? sliceGradient(ps, src.webkitTextStrokeImage, g, g.strokeImageBox, g.strokeImageRange, text, baseY) : null;
 }
 
 function drawGlyphs(

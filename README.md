@@ -345,13 +345,15 @@ read glyph ink from a scratch canvas: in Node pass `createCanvas`, or declare
 this option alone does not preserve the appearance of shadowed text.
 
 A circular `radial-gradient` arrives as a plain `createRadialGradient`. An
-elliptical one arrives as a circle at the origin with the ellipse's horizontal
-radius, and render-tag then calls `setTransform(matrix)` on that gradient when
-the adapter's gradients have one: `matrix` (a `DOMMatrix2DInit`) maps the
-gradient's space into the current user space, so an SVG adapter writes it as
-`gradientTransform` and a PDF adapter as the shading pattern's matrix. A
-gradient without `setTransform` gets the circle of the ellipse's horizontal
-radius at its centre instead.
+elliptical one arrives as the circle of its horizontal radius at its centre.
+The Canvas API has no elliptical gradient, so render-tag then calls
+`setTransform(matrix)` on that gradient when the adapter's gradients have one.
+This method is render-tag's own extension, shaped like
+`CanvasPattern.setTransform`: `matrix` is a plain `{ a, b, c, d, e, f }` that
+maps the gradient's space into the current user space (on a path, the glyph's
+rotated frame), so an SVG adapter writes it as `gradientTransform` and a PDF
+adapter as the shading pattern's matrix. A gradient without `setTransform`
+stays that circle.
 
 Text under an RTL `unicode-bidi: bidi-override` (`<bdo dir="rtl">`) arrives
 wrapped in U+202E…U+202C, as Canvas applies the override itself: honour the
@@ -402,21 +404,24 @@ keeps whole bands.
 
 A
 `linear-gradient` takes angles in `deg`/`rad`/`grad`/`turn`, `to` sides and
-corners, `%` and `px` stop positions (including two-position stops and stops
-outside 0–100%); a color hint is treated as a plain midpoint. A
+corners, stop positions in any length, percentage or math function (including
+two-position stops and stops outside 0–100%); a color hint is treated as a
+plain midpoint. A
 `radial-gradient` draws its CSS ending shape: `circle` or `ellipse` (the
 default), sized by `closest-side`, `closest-corner`, `farthest-side`,
-`farthest-corner` (the default) or lengths (`px`, `%` of the box for an
-ellipse, math functions), centred at its `at` position (`%`, `px` or keywords;
-the centre when absent). A size in font or viewport units keeps its shape at
-the default extent, and a zero-size shape paints its last color. A stop before
-the centre opens the shape with the color CSS shows there (hex, named, `rgb()`
-and `hsl()` colors mixed in sRGB; another color clamps to the centre). On a
-path, one shape spans the declaring element's glyphs as laid out along the
-path, a descendant that paints its own included. Canvas has no elliptical
-gradient: on a raster canvas an ellipse is painted as a pattern at device
-resolution (made with `createCanvas` where given); on a vector adapter see
-below.
+`farthest-corner` (the default) or lengths (`%` of the box for an ellipse,
+math functions), centred at its `at` position (lengths, `%` or keywords;
+the centre when absent; edge offsets such as `right 10px bottom 20px`). `in
+<colorspace>` is ignored (colors mix in sRGB), and a zero-size shape paints its
+last color. The first gradient among the background's layers paints. A stop
+before the centre opens the shape with the color CSS shows there (hex, named,
+`rgb()` and `hsl()` colors mixed in sRGB; another color clamps to the centre).
+On a path, one shape spans the declaring element's glyphs as laid out along
+the path, a descendant that paints its own included. On a raster canvas an
+ellipse is painted as a pattern at device resolution (made with `createCanvas`
+where given), which reaches 128px past its box; Chrome and Firefox antialias
+pattern-filled glyph edges slightly heavier than gradient-filled ones. On a
+vector adapter see "PDF and other vector adapters".
 
 ## render-tag-specific inputs
 

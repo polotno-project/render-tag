@@ -1,9 +1,9 @@
-import type { CanvasFactory, ResolvedStyle, ShadowOptions } from './types.js';
+import type { AnyCanvas, ResolvedStyle, ShadowOptions } from './types.js';
 import {
   canvasFont, canvasKerning, canvasSpacing, canvasTextRendering, claimCtx, formatLetterSpacing, getFontMetrics,
   nextCtxWriterId, syntheticBoldWidening, type FontMetricsTable,
 } from './layout.js';
-import { parseGradient, radialPaint, type Affine, type GradientPaint, type RadialGradientGeometry, type RadialRaster } from './gradient.js';
+import { isRasterContext, parseGradient, radialPaint, type Affine, type GradientPaint, type RadialGradientGeometry, type RadialRaster } from './gradient.js';
 import { makeCanvas, MITER_LIMIT, ScratchPool, withoutCanvasShadow } from './shadow.js';
 import { InkProbe } from './skip-ink.js';
 
@@ -54,7 +54,8 @@ export class PaintState {
   private readonly canvasFonts = new Map<string, string>();
   private readonly boldWidenings = new Map<string, number>();
   private readonly gradients = new Map<string, GradientPaint | null>();
-  private readonly radialImages: RadialRaster['images'] = new Map();
+  /** What an ellipse's pattern is made with (`raster`); null: this ctx paints none. */
+  private ellipses?: RadialRaster | null;
   private readonly writerId = nextCtxWriterId();
 
   /** @param deviceScale — device pixels per CSS pixel (the caller's `pixelRatio`). */
@@ -67,8 +68,8 @@ export class PaintState {
     private readonly support: CanvasSupport = {},
     /** The draw's ink reader for `text-decoration-skip-ink`; without one, bands stay whole. */
     readonly ink?: InkProbe,
-    /** The caller's factory for an elliptical gradient's pattern image. */
-    private readonly createCanvas?: CanvasFactory,
+    /** The draw's scratch canvases for an elliptical gradient's pattern image. */
+    private readonly image?: RadialRaster['canvas'],
   ) {}
 
   fontBox(style: ResolvedStyle): { ascent: number; descent: number } {
@@ -199,22 +200,20 @@ export class PaintState {
     return radialPaint(this.ctx, geometry, frame, this.raster());
   }
 
-  /** What an ellipse's pattern is drawn with; none for a mask, which paints coverage. */
+  /** What an ellipse's pattern is made with: none for a mask, which paints coverage, or a proxy. */
   private raster(): RadialRaster | undefined {
-    if (this.coverage) return undefined;
-    const m = typeof this.ctx.getTransform === 'function' ? this.ctx.getTransform() : null;
-    const scale = m ? Math.max(Math.hypot(m.a, m.b), Math.hypot(m.c, m.d)) : this.deviceScale;
-    return {
-      scale: scale > 0 ? scale : this.deviceScale,
-      canvas: (width, height) => {
-        try {
-          return makeCanvas(this.ctx, width, height, this.createCanvas);
-        } catch {
-          return null;
-        }
-      },
-      images: this.radialImages,
-    };
+    if (this.ellipses === undefined) {
+      const { ctx, image, deviceScale } = this;
+      this.ellipses = this.coverage || !image || !isRasterContext(ctx) ? null : {
+        scale() {
+          const m = typeof ctx.getTransform === 'function' ? ctx.getTransform() : null;
+          return (m && Math.max(Math.hypot(m.a, m.b), Math.hypot(m.c, m.d))) || deviceScale;
+        },
+        canvas: image,
+        images: new Map(),
+      };
+    }
+    return this.ellipses ?? undefined;
   }
 
   /** -webkit-text-stroke; a --rt-text-stroke-image gradient wins over the color. */
@@ -268,8 +267,18 @@ export function withDraw(
   const states = new Map<CanvasRenderingContext2D, PaintState>();
   // One factory makes every pooled canvas: they share whether they apply spacing.
   const scratch: CanvasSupport = {};
+  // Ellipse pattern images, kept for the patterns made of them until the draw ends.
+  const images: AnyCanvas[] = [];
+  const image = (width: number, height: number): AnyCanvas | null => {
+    try {
+      images.push(makeCanvas(ctx, width, height, options.createCanvas));
+      return images[images.length - 1];
+    } catch {
+      return null;
+    }
+  };
   const layerState = (target: CanvasRenderingContext2D, coverage = false): PaintState =>
-    new PaintState(target, scale, coverage, fontMetrics, scratch, ink, options.createCanvas);
+    new PaintState(target, scale, coverage, fontMetrics, scratch, ink, image);
   // Its scratch canvas is made on first use, also under `renderShadows: false`.
   const ink = new InkProbe(
     (width, height) => makeCanvas(ctx, width, height, options.createCanvas,
@@ -277,7 +286,7 @@ export function withDraw(
     target => layerState(target, true));
   const stateOf = (target: CanvasRenderingContext2D) => {
     let ps = states.get(target);
-    if (!ps) states.set(target, ps = target === ctx ? new PaintState(target, scale, false, fontMetrics, undefined, ink, options.createCanvas) : layerState(target));
+    if (!ps) states.set(target, ps = target === ctx ? new PaintState(target, scale, false, fontMetrics, undefined, ink, image) : layerState(target));
     return ps;
   };
   const pool = options.renderShadows === false ? null : new ScratchPool(ctx, options.createCanvas);
@@ -288,6 +297,7 @@ export function withDraw(
   } finally {
     pool?.dispose();
     ink.dispose();
+    for (const canvas of images) canvas.width = canvas.height = 0;
     for (const ps of states.values()) ps.finish();
     ctx.restore();
   }
