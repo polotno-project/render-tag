@@ -82,7 +82,9 @@ const RADIAL_GRADIENTS = [
   'radial-gradient(circle at 1in 0.5in, red, blue)',
   // Font units, on the declaring element's 96px font.
   'radial-gradient(circle 2em at 1em 0.5em, red, blue)',
-  'radial-gradient(1em 0.5em at 30% 40%, red 0 1em, blue 1em)',
+  // The stop inside the shape: WebKit on macOS 26 pads its own drawing with the color before a
+  // hard stop at exactly 100% (red here), where Chrome and render-tag paint the one after.
+  'radial-gradient(1em 0.5em at 30% 40%, red 0 0.5em, blue 0.5em)',
   'radial-gradient(circle 100px, red 0 0.5in, blue 0.5in)',
   'radial-gradient(red)',
   // The first layer paints over the rest.
